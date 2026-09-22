@@ -43,6 +43,27 @@ describe('tejasAeroTables', () => {
     expect(cd).toBeLessThanOrEqual(0.06);
   });
 
+  // Regression test for the "CL table tuned to a landing-configuration
+  // CLmax" review finding: an earlier pass inflated CL at alpha>=15deg on
+  // the Mach-0.6 column (as well as Mach-0.2) to satisfy the stall_landing
+  // performance target's assumed landing-configuration CLmax (1.6), but
+  // Mach-0.6 is also the exact Mach turn_5000_m06 (a CLEAN-configuration
+  // sustained-turn target) is evaluated at, and this table has no
+  // landing-config gate — so that inflation leaked into clean combat
+  // physics. The Mach-0.2 column remains intentionally elevated (needed
+  // for stall_landing/landing_roll until a real landing-configuration CL
+  // increment is modeled — see tejasAeroTables.ts's own comment); this test
+  // pins ONLY the Mach-0.6+ columns to 03-tejas-data.md section 4's stated
+  // clean-configuration realism bound (CLmax ~= 1.15-1.2).
+  it('CL at Mach 0.6 and above stays within the clean-configuration realism bound (CLmax <= 1.2)', () => {
+    for (let mi = 1; mi < aero.CL.ys.length; mi++) {
+      const mach = aero.CL.ys[mi] as number;
+      for (const alphaRad of aero.CL.xs) {
+        expect(interpolate2D(aero.CL, alphaRad, mach)).toBeLessThanOrEqual(1.2);
+      }
+    }
+  });
+
   it('Cm_elevon is negative (the elevon sign-rule regression test)', () => {
     expect(aero.Cm_elevon).toBeLessThan(0);
   });

@@ -23,6 +23,22 @@ describe('tejasEngineTables', () => {
     }
   });
 
+  // Regression test for the "afterburner thrust altitude monotonicity"
+  // review finding: an earlier version of this table's mach=1.2/1.6 rows
+  // rose with altitude at a fixed Mach (thrust HIGHER at 11000 m than at
+  // 5000 m), which no real afterburning turbofan does — ambient density
+  // falls monotonically through this band and ram-pressure recovery only
+  // partially offsets it, never reverses the trend. See
+  // tejasEngineTables.ts's own "Review-pass fix, mach 1.2/1.6 rows" comment.
+  it('afterburnerThrustN is non-increasing in altitude for every mach breakpoint', () => {
+    for (let i = 0; i < engine.afterburnerThrustN.xs.length; i++) {
+      const row = engine.afterburnerThrustN.zs[i] as readonly number[];
+      for (let j = 1; j < row.length; j++) {
+        expect(row[j] as number).toBeLessThanOrEqual(row[j - 1] as number);
+      }
+    }
+  });
+
   it('afterburner thrust always exceeds military thrust at the same flight condition', () => {
     const mach = engine.militaryThrustN.xs;
     const alt = engine.militaryThrustN.ys;

@@ -16,7 +16,7 @@
 import { EntityKind, NO_ENTITY_ID } from '../contracts/core';
 import type { Contact, EntityId, EntityState, SimEvent } from '../contracts/core';
 import type { CombatPort, CombatTickContext, EventQueue } from '../contracts/sim';
-import type { WorldCombatTickContext } from './combatContext';
+import type { CombatPortWithContacts, WorldCombatTickContext } from './combatContext';
 import { subSeed } from './seed';
 import { tejasDefinition } from '../aircraft';
 import {
@@ -78,9 +78,18 @@ function defaultCombatEnvironment(): CombatEnvironment {
   return { airDensityKgM3: 1.225, windWorldMps: { x: 0, y: 0, z: 0 }, gravityMps2: 9.80665 };
 }
 
-export function createCombatAdapter(): CombatPort {
+const EMPTY_CONTACTS: readonly Contact[] = [];
+
+export function createCombatAdapter(): CombatPort & CombatPortWithContacts {
   const weaponsStates = new Map<EntityId, WeaponsState>();
   const detectableScratch: DetectableEntity[] = [];
+  // Reused view over detectableScratch[0..liveCount), rebuilt (references
+  // only, no new DetectableEntity objects) every tick instead of
+  // detectableScratch.slice(0, liveCount) — see 10-core-worker.md's
+  // no-allocation-in-hot-path rule; this array's `.length` is truncated/
+  // extended in place, never replaced with a fresh array.
+  const allEntitiesScratch: DetectableEntity[] = [];
+  const liveIdsScratch = new Set<EntityId>();
   const contactsScratchByObserver = new Map<EntityId, Contact[]>();
   const projectilePool: ProjectileState[] = createProjectilePool(MAX_PROJECTILES);
   const projectileIndexByEntityId = new Map<EntityId, number>();
@@ -88,6 +97,12 @@ export function createCombatAdapter(): CombatPort {
   for (let i = projectilePool.length - 1; i >= 0; i--) freeProjectileIndices.push(i);
   const combatEnv = defaultCombatEnvironment();
   const outRequestsScratch: ProjectileSpawnRequest[] = [];
+  // Hoisted per-aircraft-per-tick event scratch (previously fresh arrays
+  // allocated inside the per-aircraft loop every tick) — reset via
+  // `.length = 0` exactly like outRequestsScratch already was.
+  const sensorEventsScratch: SimEvent[] = [];
+  const fireEventsScratch: SimEvent[] = [];
+  const hitEventsScratch: SimEvent[] = [];
 
   function ensureDetectableCapacity(n: number): void {
     while (detectableScratch.length < n) {
@@ -96,12 +111,16 @@ export function createCombatAdapter(): CombatPort {
   }
 
   return {
+    getContacts(id: EntityId): readonly Contact[] {
+      return contactsScratchByObserver.get(id) ?? EMPTY_CONTACTS;
+    },
     step(dtSec: number, ctxBase: CombatTickContext, eventsOut: EventQueue): void {
       const ctx = ctxBase as unknown as WorldCombatTickContext;
       const liveCount = ctx.liveCount;
       ensureDetectableCapacity(liveCount);
 
       // Build the shared per-tick DetectableEntity array once.
+      allEntitiesScratch.length = liveCount;
       for (let i = 0; i < liveCount; i++) {
         const e = ctx.liveAt(i);
         const d = detectableScratch[i] as DetectableEntity;
@@ -119,8 +138,9 @@ export function createCombatAdapter(): CombatPort {
         d.rot.z = e.rot.z;
         d.rot.w = e.rot.w;
         d.alive = e.alive;
+        allEntitiesScratch[i] = d;
       }
-      const allEntities = detectableScratch.slice(0, liveCount);
+      const allEntities = allEntitiesScratch;
 
       // Discover new aircraft; create their WeaponsState.
       for (let i = 0; i < liveCount; i++) {
@@ -129,12 +149,13 @@ export function createCombatAdapter(): CombatPort {
         if (weaponsStates.has(e.id)) continue;
         weaponsStates.set(e.id, createWeaponsState(TEJAS_LOADOUT, subSeed(ctx.missionSeed, 'combat:' + e.id)));
       }
-      // Drop WeaponsState for aircraft no longer live.
+      // Drop WeaponsState for aircraft no longer live (reused Set, cleared
+      // and refilled each tick rather than `new Set()` + `Array.from()`).
       if (weaponsStates.size > 0) {
-        const liveIds = new Set<EntityId>();
-        for (let i = 0; i < liveCount; i++) liveIds.add(ctx.liveAt(i).id);
-        for (const id of Array.from(weaponsStates.keys())) {
-          if (!liveIds.has(id)) weaponsStates.delete(id);
+        liveIdsScratch.clear();
+        for (let i = 0; i < liveCount; i++) liveIdsScratch.add(ctx.liveAt(i).id);
+        for (const id of weaponsStates.keys()) {
+          if (!liveIdsScratch.has(id)) weaponsStates.delete(id);
         }
       }
 
@@ -152,7 +173,7 @@ export function createCombatAdapter(): CombatPort {
         const contacts = contactsScratchByObserver.get(observer.id) ?? [];
         contacts.length = 0;
         contactsScratchByObserver.set(observer.id, contacts);
-        const eventsScratch: SimEvent[] = [];
+        sensorEventsScratch.length = 0;
 
         updateSensors(
           observer.id,
@@ -166,17 +187,17 @@ export function createCombatAdapter(): CombatPort {
           ctx.simTimeSec,
           dtSec,
           contacts,
-          eventsScratch
+          sensorEventsScratch
         );
-        for (const ev of eventsScratch) eventsOut.push(ev);
+        for (const ev of sensorEventsScratch) eventsOut.push(ev);
 
         writeCombatStatus(state, mustGetCombatStatus(ctx, observer.id));
 
         const lockedTarget = state.lockedTargetId !== undefined ? findDetectable(allEntities, state.lockedTargetId) : undefined;
         outRequestsScratch.length = 0;
-        const fireEvents: SimEvent[] = [];
-        fireWeapons(observer.id, observer, damage, lockedTarget, inputs, state, ctx.simTimeSec, dtSec, outRequestsScratch, fireEvents);
-        for (const ev of fireEvents) eventsOut.push(ev);
+        fireEventsScratch.length = 0;
+        fireWeapons(observer.id, observer, damage, lockedTarget, inputs, state, ctx.simTimeSec, dtSec, outRequestsScratch, fireEventsScratch);
+        for (const ev of fireEventsScratch) eventsOut.push(ev);
 
         for (const req of outRequestsScratch) {
           if (freeProjectileIndices.length === 0) continue;
@@ -230,9 +251,9 @@ export function createCombatAdapter(): CombatPort {
             if (targetState && targetDamage) {
               const wstate = weaponsStates.get(projectile.ownerId);
               const rng = wstate ? wstate.rng : { seedState: subSeed(ctx.missionSeed, 'combat:hit:' + state.id) };
-              const hitEvents: SimEvent[] = [];
-              resolveProjectileHit(result, projectile.ownerId, projectile.kind, targetState, targetDamage, rng, hitEvents);
-              for (const ev of hitEvents) eventsOut.push(ev);
+              hitEventsScratch.length = 0;
+              resolveProjectileHit(result, projectile.ownerId, projectile.kind, targetState, targetDamage, rng, hitEventsScratch);
+              for (const ev of hitEventsScratch) eventsOut.push(ev);
             }
           }
         }
@@ -266,4 +287,4 @@ function mustGetCombatStatus(ctx: WorldCombatTickContext, id: EntityId) {
   return cs;
 }
 
-export const combatAdapter: CombatPort = createCombatAdapter();
+export const combatAdapter: CombatPort & CombatPortWithContacts = createCombatAdapter();

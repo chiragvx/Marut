@@ -20,23 +20,56 @@ export function rightWorldFromHeading(headingRad: number): Vec3Like {
   return { x: Math.cos(headingRad), y: 0, z: Math.sin(headingRad) };
 }
 
+/** Non-allocating variant of `forwardWorldFromHeading`: writes into `out` and returns it. */
+export function forwardWorldFromHeadingInto(headingRad: number, out: Vec3Like): Vec3Like {
+  out.x = Math.sin(headingRad);
+  out.y = 0;
+  out.z = -Math.cos(headingRad);
+  return out;
+}
+
+/** Non-allocating variant of `rightWorldFromHeading`: writes into `out` and returns it. */
+export function rightWorldFromHeadingInto(headingRad: number, out: Vec3Like): Vec3Like {
+  out.x = Math.cos(headingRad);
+  out.y = 0;
+  out.z = Math.sin(headingRad);
+  return out;
+}
+
 export interface BearingRange {
   rangeM: number;
   bearingRad: number;
 }
 
-/** `bearingRad = atan2(dot(relWorld,rightWorld), dot(relWorld,forwardWorld))`, `rangeM = |relWorld|` (08-render.md section 4.7). */
-export function computeBearingAndRange(playerPos: Readonly<Vec3Like>, headingRad: number, contactPos: Readonly<Vec3Like>, out: BearingRange): BearingRange {
+/**
+ * Non-allocating core of `computeBearingAndRange`: takes pre-computed
+ * forward/right world vectors instead of a heading, so a caller iterating
+ * many contacts at the same heading (e.g. `gatherRadarCandidates` below)
+ * computes `forward`/`right` once and reuses them, instead of recomputing
+ * and reallocating them on every candidate.
+ */
+export function computeBearingAndRangeFR(
+  playerPos: Readonly<Vec3Like>,
+  forwardWorld: Readonly<Vec3Like>,
+  rightWorld: Readonly<Vec3Like>,
+  contactPos: Readonly<Vec3Like>,
+  out: BearingRange
+): BearingRange {
   const relX = contactPos.x - playerPos.x;
   const relY = contactPos.y - playerPos.y;
   const relZ = contactPos.z - playerPos.z;
   out.rangeM = Math.sqrt(relX * relX + relY * relY + relZ * relZ);
-  const fwd = forwardWorldFromHeading(headingRad);
-  const right = rightWorldFromHeading(headingRad);
-  const dotRight = relX * right.x + relY * right.y + relZ * right.z;
-  const dotForward = relX * fwd.x + relY * fwd.y + relZ * fwd.z;
+  const dotRight = relX * rightWorld.x + relY * rightWorld.y + relZ * rightWorld.z;
+  const dotForward = relX * forwardWorld.x + relY * forwardWorld.y + relZ * forwardWorld.z;
   out.bearingRad = Math.atan2(dotRight, dotForward);
   return out;
+}
+
+/** `bearingRad = atan2(dot(relWorld,rightWorld), dot(relWorld,forwardWorld))`, `rangeM = |relWorld|` (08-render.md section 4.7). */
+export function computeBearingAndRange(playerPos: Readonly<Vec3Like>, headingRad: number, contactPos: Readonly<Vec3Like>, out: BearingRange): BearingRange {
+  const fwd = forwardWorldFromHeading(headingRad);
+  const right = rightWorldFromHeading(headingRad);
+  return computeBearingAndRangeFR(playerPos, fwd, right, contactPos, out);
 }
 
 export interface RadarCandidate {
@@ -69,6 +102,9 @@ for (let i = 0; i < MAX_ENTITIES; i++) {
 const scratchPlayerPos: Vec3Like = { x: 0, y: 0, z: 0 };
 const scratchContactPos: Vec3Like = { x: 0, y: 0, z: 0 };
 const scratchBearingRange: BearingRange = { rangeM: 0, bearingRad: 0 };
+/** Player heading's forward/right world vectors, recomputed once per `gatherRadarCandidates` call (not per candidate). */
+const scratchForwardWorld: Vec3Like = { x: 0, y: 0, z: 0 };
+const scratchRightWorld: Vec3Like = { x: 0, y: 0, z: 0 };
 
 /** In-place insertion sort restricted to `[0, count)` — avoids touching stale scratch-pool entries beyond `count`. */
 function sortByRangeInPlace(arr: RadarCandidate[], count: number): void {
@@ -87,6 +123,10 @@ function gatherRadarCandidates(curr: HudSnapshotFrame, playerSlot: number, headi
   scratchPlayerPos.x = curr.posX[playerSlot]!;
   scratchPlayerPos.y = curr.posY[playerSlot]!;
   scratchPlayerPos.z = curr.posZ[playerSlot]!;
+  // headingRad is constant across this whole call, so forward/right are computed
+  // once here rather than recomputed (and reallocated) per candidate below.
+  forwardWorldFromHeadingInto(headingRad, scratchForwardWorld);
+  rightWorldFromHeadingInto(headingRad, scratchRightWorld);
 
   let count = 0;
   for (let i = 0; i < curr.entityCount && count < MAX_ENTITIES; i++) {
@@ -98,7 +138,7 @@ function gatherRadarCandidates(curr: HudSnapshotFrame, playerSlot: number, headi
     scratchContactPos.x = curr.posX[i]!;
     scratchContactPos.y = curr.posY[i]!;
     scratchContactPos.z = curr.posZ[i]!;
-    computeBearingAndRange(scratchPlayerPos, headingRad, scratchContactPos, scratchBearingRange);
+    computeBearingAndRangeFR(scratchPlayerPos, scratchForwardWorld, scratchRightWorld, scratchContactPos, scratchBearingRange);
     if (scratchBearingRange.rangeM > RADAR_SCOPE_RANGE_M) continue;
 
     const c = scratchCandidates[count]!;

@@ -109,6 +109,26 @@ export const fcsLimits: FcsLimits = {
   maxRudderRad: 0.349066,
   maxElevonRateRadS: 3.0,
   maxRudderRateRadS: 3.0,
+  // *** DOCUMENTATION DEBT -- STILL OPEN (review pass, "FcsLimits gain signs
+  // ... now contradict docs/spec/03-tejas-data.md's pinned data" finding) ***
+  // Everything below this line was independently re-verified against the
+  // review finding: the sign analysis is sound, re-running tests/physics,
+  // tests/aircraft, tests/integration/trimAndPerformance.test.ts and
+  // tests/integration/aiDogfight.test.ts (this pass) confirms these NEGATIVE
+  // values are what makes the closed loop converge, and reverting to
+  // 03-tejas-data.md section 5.5's literal pinned positive values would
+  // reintroduce the divergence this comment documents -- so no code change
+  // was made here. What remains genuinely unresolved is that
+  // docs/spec/03-tejas-data.md sections 5.2 (CD's Mach 0.2/0.6 +0.015
+  // offset; CL's Mach-0.2-column landing-CLmax inflation, tejasAeroTables.ts)
+  // and 5.5 (this gain-sign block) were never updated to state these actual
+  // shipped values, so "the spec is law" and "the shipped code" now disagree
+  // on record. That edit is out of this module's-fixer-pass file ownership
+  // (docs/spec/03-tejas-data.md is not under src/aircraft/ or this module's
+  // own test paths -- see 00-architecture.md section 11's module-03 file
+  // list, which does not include the spec document itself) -- flagged here,
+  // and in this pass's own returned review-concern note, for whoever owns
+  // that document to reconcile.
   // NOTE on sign (both gLoadGain and pitchRateGain are NEGATIVE, contrary to
   // 03-tejas-data.md section 5.5's literal pinned "+1.0"/"+0.3" table
   // values, and contrary to that section's own claim that +1.0 "matches

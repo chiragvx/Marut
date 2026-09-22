@@ -4,17 +4,19 @@ import { NO_ENTITY_ID, WarningBit } from '../../src/contracts/core';
 import type {
   AircraftTelemetry,
   AirportNavDb,
+  Contact,
   DamageState,
   EntityId,
   EntityState,
   HeightSampler,
   Mission,
   Pilot,
+  PilotContext,
   PilotInputs,
   SimEvent,
   Vec3Like,
 } from '../../src/contracts/core';
-import type { FlightModelPort, SimEnvironment, WorldDependencies } from '../../src/contracts/sim';
+import type { CombatPort, FlightModelPort, SimEnvironment, WorldDependencies } from '../../src/contracts/sim';
 
 function fakeSampler(): HeightSampler {
   return {
@@ -167,6 +169,60 @@ describe('World', () => {
     const stallEvents = allEvents.filter((e) => e.type === 'warning' && e.bit === WarningBit.Stall);
     expect(stallEvents.length).toBe(1);
     expect(stallEvents[0]).toMatchObject({ type: 'warning', bit: WarningBit.Stall, active: true });
+  });
+
+  it("AI PilotContext.contacts reflects the CombatPort's getContacts, not a hard-wired empty array", () => {
+    const fakeContact: Contact = {
+      id: 999,
+      team: 1,
+      kind: 'aircraft',
+      pos: { x: 500, y: 1000, z: 0 },
+      vel: { x: 0, y: 0, z: 0 },
+      rangeM: 500,
+      bearingRad: 0,
+      elevationRad: 0,
+      closureMps: 0,
+      detectedBy: 'radar',
+      identified: true,
+    };
+    // A CombatPort that also implements the (non-contract) CombatPortWithContacts
+    // surface combatAdapter.ts exposes — see src/core/combatContext.ts.
+    const combatWithContacts: CombatPort & { getContacts: (id: EntityId) => readonly Contact[] } = {
+      step: () => {},
+      getContacts: (_id: EntityId) => [fakeContact],
+    };
+    const observedContexts: PilotContext[] = [];
+    const deps: WorldDependencies = {
+      ...baseDeps(makeIntegratingFlightModel()),
+      combat: combatWithContacts,
+      createAiPilot: (): Pilot => ({
+        update: (ctx: PilotContext): void => {
+          observedContexts.push(ctx);
+        },
+      }),
+    };
+    const mission: Mission = {
+      ...minimalMission(),
+      aiFlights: [
+        {
+          id: 'bandit-flight',
+          aircraftId: 'tejas-mk1',
+          team: 1,
+          difficulty: 'veteran',
+          startPos: { x: 2000, y: 1000, z: 0 },
+          startHeadingRad: 0,
+          startSpeedMps: 100,
+          count: 1,
+        },
+      ],
+    };
+
+    const world = createWorld(deps);
+    world.loadMission(mission);
+    world.stepOnce();
+
+    expect(observedContexts.length).toBeGreaterThan(0);
+    expect(observedContexts[0]?.contacts).toEqual([fakeContact]);
   });
 
   it('EntityPool exhaustion surfaces through World.spawnEntity without throwing', () => {

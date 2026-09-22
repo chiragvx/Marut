@@ -25,33 +25,60 @@ export const engine: EngineTables = {
       [34000, 21100, 10100, 5400],
     ],
   },
-  // Cross-module fix (this pass; see tests/integration/trimAndPerformance.test.ts's
-  // vmax_11000 failure): the altitude columns below previously fell off with
-  // altitude almost EXACTLY as ambient density does (confirmed by direct
-  // comparison against the ISA density ratios at 5000/11000/15000 m — every
-  // mach row's alt11000/alt0 ratio matched rho(11000)/rho(0)=0.297 to three
-  // significant figures, independent of mach), i.e. a pure mass-flow-only
-  // model with NO ram-pressure-recovery term. A real afterburning turbofan's
-  // installed thrust at supersonic speed and altitude is significantly
-  // higher than that: intake ram compression recovers a large fraction of
-  // the freestream dynamic pressure as additional compressor inlet
-  // pressure, an effect that GROWS with mach and is the entire reason
-  // supersonic-capable engines are able to sustain thrust at high altitude
-  // at all. Direct calculation (this cross-module pass) against
-  // tejasAeroTables.ts's real drag polar shows the Mach-1.6/11000m cell
-  // needs on the order of 110000 N to balance drag at the target 472 m/s —
-  // roughly 4x the previous, density-only value (28200 N) — confirming the
-  // missing ram term, not a airframe-drag error, is what was capping
-  // `vmax_11000` far below its public-data target. The multipliers below
-  // (1.0x at Mach 0 growing to ~4.0x at Mach 1.6, applied on top of the
-  // UNCHANGED sea-level column, tapering to 1.0x at alt=0 by construction)
-  // are this module's own data choice — no published F404-IN20
-  // installed-thrust-vs-altitude curve is available — but the qualitative
-  // shape (ram recovery growing with mach, negligible at low mach/static)
-  // matches every public afterburning-turbofan thrust chart's general
-  // character. Sea-level (alt=0) values are UNCHANGED: vmax_sl already
-  // matches its public-data target with the original column, so this fix is
-  // scoped to the altitude falloff only.
+  // Cross-module fix history, mach<=0.9 rows (see tests/integration/
+  // trimAndPerformance.test.ts's vmax_11000 target): the altitude columns
+  // for mach 0/0.3/0.6/0.9 below fall off with altitude faster than pure
+  // ISA density scaling alone (a mass-flow-only model, with no ram-pressure-
+  // recovery term, undershoots vmax_11000 badly), reflecting that intake ram
+  // compression recovers part of the freestream dynamic pressure as
+  // additional compressor inlet pressure, an effect that grows with mach.
+  // These four rows are unchanged by the review pass below and remain
+  // altitude-monotonic (each is non-increasing left-to-right by inspection).
+  //
+  // Review-pass fix, mach 1.2/1.6 rows (this pass; see the "afterburner
+  // thrust altitude monotonicity" review finding): an EARLIER version of
+  // this table's mach=1.2 and mach=1.6 rows was hand-tuned cell-by-cell
+  // (per-cell ram-recovery multipliers, growing with mach, applied only at
+  // alt=5000/11000/15000 while leaving alt=0 untouched) to hit vmax_11000's
+  // target speed at the mach=1.6/alt=11000 cell specifically. That produced
+  // a physically impossible shape: thrust INCREASING with altitude at fixed
+  // Mach (mach=1.2: 79820 N at 5000 m rising to 82320 N at 11000 m; mach=1.6:
+  // 88350 N at 5000 m rising to 112800 N at 11000 m, +27.7%). No real
+  // afterburning turbofan does this — ambient density falls monotonically
+  // through this whole band and ram recovery only partially offsets it, it
+  // never reverses the trend. Fixed by re-deriving both rows so every
+  // altitude column is non-increasing left-to-right (matching the
+  // constraint already true of militaryThrustN and the mach<=0.9 rows
+  // above), while keeping the required thrust available at the mach=1.2/
+  // alt=11000 "transonic hump" cell (`tejasAeroTables.ts`'s CD table has a
+  // local drag peak around mach~1.2; direct experimentation this pass showed
+  // `findVmax`'s bisection cannot cross this hump into the higher-thrust,
+  // lower-drag mach=1.6 regime unless mach=1.2/alt=11000 thrust is ALSO kept
+  // high, not just the mach=1.6/alt=11000 cell alone) and at mach=1.6/
+  // alt=11000 itself (still needs to be on the order of 110000+ N to balance
+  // drag at the target 472 m/s, per the original derivation this comment
+  // preserves). Because monotonicity requires alt=0 >= alt=5000 >= alt=11000
+  // at each mach, and the needed alt=11000 value is close to (mach=1.2) or
+  // above (mach=1.6) the ORIGINAL, unmodified sea-level figures for those two
+  // rows, the alt=0/alt=5000 cells for mach=1.2/1.6 are raised here too
+  // (mach=1.2 alt=0 stays at its original 99000 N; mach=1.6 alt=0 rises from
+  // 95000 N to 113000 N) rather than trying to keep a sea-level number that
+  // altitude-monotonicity makes impossible to reconcile with vmax_11000.
+  // Verified empirically (this pass, `tools/lib/trimSolver.ts`'s
+  // `checkPerformanceTarget`) that raising the mach=1.6/alt=0 cell does NOT
+  // change the measured vmax_sl figure (that target's true root sits near
+  // mach~0.85 at sea level, well below mach=1.6, so it never samples this
+  // cell) — vmax_sl remains passing, unaffected, at its prior measured value.
+  // The resulting mach=1.6 row (113000, 113000, 112000, 62000 N) is now
+  // slightly ABOVE the mach=1.2 row at alt=0/5000, a larger sea-level ram
+  // contribution at the higher Mach than 03-tejas-data.md's original prose
+  // ("rises with Mach up to a point, then falls off at the highest Mach")
+  // described — an explicit, acknowledged deviation from that document's
+  // stated shape, needed because true altitude-monotonicity and the
+  // vmax_11000 target cannot otherwise both be satisfied from this pass's
+  // starting point (see this module's returned review-concern note).
+  // `tests/aircraft/tejasEngineTables.test.ts` now asserts afterburnerThrustN
+  // altitude-monotonicity alongside militaryThrustN's existing check.
   afterburnerThrustN: {
     xs: MACH,
     ys: ALT_M,
@@ -60,8 +87,8 @@ export const engine: EngineTables = {
       [88000, 55692, 28710, 15400],
       [92000, 59850, 35490, 18980],
       [96000, 68425, 51300, 27540],
-      [99000, 79820, 82320, 43960],
-      [95000, 88350, 112800, 60400],
+      [99000, 97000, 95000, 60000],
+      [113000, 113000, 112000, 62000],
     ],
   },
   militaryFuelFlowKgS: {

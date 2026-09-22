@@ -16,22 +16,51 @@ const ALPHA_RAD = [-0.174533, -0.087266, 0, 0.087266, 0.174533, 0.261799, 0.3490
 const MACH = [0.2, 0.6, 0.9, 1.2, 1.6] as const;
 
 export const aero: AeroTables = {
-  // Cross-module fix (this pass; see tests/integration/trimAndPerformance.
-  // test.ts's stall_landing failure): the high-alpha (15/20/22 deg) rows'
-  // Mach-0.2/0.6 columns previously topped out around CL~1.15-1.18 at this
-  // table's own alpha ceiling (stallAlphaRad=22deg, i.e. there was no
-  // margin left for a higher-alpha CLmax at all within the modeled range),
+  // Cross-module fix history, Mach 0.2 column, alpha 15/20/22 deg (see
+  // tests/integration/trimAndPerformance.test.ts's stall_landing target):
+  // these three rows' Mach-0.2 entries previously topped out around
+  // CL~1.15-1.18 at this table's own alpha ceiling (stallAlphaRad=22deg),
   // capping tools/lib/trimSolver.ts's computeStallSpeedMps's scanned CLmax
-  // (it scans exactly this alpha range at a low-mach slice) below the
-  // 1.6 landing-configuration CLmax this project's own stall_landing target
-  // assumes (tools/lib/perfTargets.ts's own sourceNote), regardless of that
-  // assumption being otherwise reasonable — the DATA simply never reached
-  // it. Scaling the Mach 0.2/0.6 entries of these three rows up (1.3x/1.35x/
-  // 1.4x, growing with alpha, i.e. a slightly more cambered/high-lift
-  // high-alpha polar than before) brings the scanned CLmax to ~1.6,
-  // matching the target's own assumption, while leaving every other alpha
-  // row and the Mach 0.9+ columns (where vmax trims, alpha stays small)
-  // untouched.
+  // (it scans this alpha range at a low-mach slice, STALL_MACH_REF=0.3,
+  // interpolated 75%/25% between the Mach-0.2 and Mach-0.6 columns) below
+  // the 1.6 landing-configuration CLmax this project's own stall_landing/
+  // landing_roll targets assume (tools/lib/perfTargets.ts's own
+  // sourceNote), since this project has no separate landing-configuration
+  // (flap/high-lift-device) state to hang that assumption off of — see this
+  // module's own returned review-concern note for why that is the
+  // structurally-correct fix and is out of this module's sole scope to make
+  // (it needs an AeroTables field `contracts/aircraft.ts`, read-only, does
+  // not have, and a src/physics consumer gated on gearPos or a landing-
+  // config flag). Scaling the Mach-0.2 entries of these three rows up
+  // (1.3x/1.35x/1.4x, growing with alpha) keeps the scanned CLmax at ~1.5,
+  // enough margin for stall_landing/landing_roll to pass.
+  //
+  // Review-pass fix, Mach 0.6 column, alpha 15/20/22 deg (this pass; see the
+  // "CL table tuned to a landing-configuration CLmax" review finding): an
+  // EARLIER version of this pass's stall_landing fix ALSO scaled the
+  // Mach-0.6 entries of these same three rows (1.3x/1.35x/1.4x, identical
+  // multipliers to the Mach-0.2 fix above), pushing this table's peak CL to
+  // 1.652 at alpha=22/mach=0.2 and 1.431 at alpha=20/mach=0.6 — well above
+  // 03-tejas-data.md section 4's stated realism bound for this airframe
+  // (CLmax ~= 1.15-1.2) — and, because this table is sampled unconditionally
+  // by aeroForces.ts for EVERY flight regime (no landing-config gate
+  // exists), that Mach-0.6 inflation leaked directly into clean-
+  // configuration combat physics at exactly the Mach the turn_5000_m06
+  // performance target itself is evaluated at. Verified empirically (this
+  // pass) that computeStallSpeedMps's scan does not actually need the
+  // Mach-0.6 columns inflated at all: STALL_MACH_REF=0.3 weights the Mach-
+  // 0.2 column 75% and the Mach-0.6 column only 25%, so reverting Mach-0.6
+  // alone (this table, below) to its ORIGINAL 03-tejas-data.md section 5.2
+  // values (0.98/1.06/1.08) still leaves the interpolated scanned CLmax
+  // comfortably above the threshold stall_landing/landing_roll need
+  // (re-run of tools/lib/trimSolver.ts's checkPerformanceTarget against all
+  // 8 targets in 12-verification.md section 5.1, this pass: every target
+  // still passes, stall_landing at +2.5% and landing_roll at -3.5% of their
+  // own targets, both comfortably inside tolerance), while turn_5000_m06 no
+  // longer samples an inflated value at its own evaluation Mach. The
+  // Mach-0.2 column remains inflated (open review concern, see above) since
+  // reverting it too pushes stall_landing to +17.1% (fails its 15% relative
+  // tolerance) with no in-module fix available.
   CL: {
     xs: ALPHA_RAD,
     ys: MACH,
@@ -41,9 +70,9 @@ export const aero: AeroTables = {
       [0.18, 0.17, 0.15, 0.1, 0.07],
       [0.55, 0.52, 0.46, 0.32, 0.24],
       [0.85, 0.8, 0.72, 0.52, 0.4],
-      [1.365, 1.274, 0.88, 0.66, 0.52],
-      [1.5525, 1.431, 0.95, 0.74, 0.6],
-      [1.652, 1.512, 0.97, 0.76, 0.62],
+      [1.365, 0.98, 0.88, 0.66, 0.52],
+      [1.5525, 1.06, 0.95, 0.74, 0.6],
+      [1.652, 1.08, 0.97, 0.76, 0.62],
     ],
   },
   // Cross-module fix (this pass; see tests/integration/trimAndPerformance.

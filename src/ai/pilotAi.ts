@@ -3,7 +3,7 @@
  * core.ts's `Pilot` / contracts/ai.ts's `AiPilot`. See docs/spec/06-ai.md
  * section 4.1.
  */
-import type { Contact, EntityId, PilotContext, PilotInputs } from '../contracts/core';
+import type { Contact, EntityId, PilotContext, PilotInputs, Vec3Like } from '../contracts/core';
 import { ENTITY_INDEX_RADIX, MAX_ENTITIES, NO_ENTITY_ID } from '../contracts/core';
 import type {
   AiDifficultyProfile,
@@ -68,6 +68,18 @@ class AiPilotImpl implements AiPilot {
   private targetScore = 0;
 
   private readonly goal: FlightGoal = defaultFlightGoal();
+
+  // Patrol anchor for a flight with no mission-supplied `patrolCenterWorld`
+  // (a solo AI or a formation leader — 06-ai.md section 5.7's own note, and
+  // this project's own dogfight1v1.json `bandit-1`). Captured ONCE, from
+  // ctx.self.pos, the first tick Patrol (or a patrol-fallback goal) is built
+  // after (re-)entering TacticalState.Patrol from a different state — never
+  // re-derived every tick, which would otherwise make the "circular
+  // racetrack" anchor a moving target the aircraft can never close on (see
+  // 06-ai.md section 4.12's "at first entry" phrasing). Pre-allocated once;
+  // only its fields are mutated, never reallocated.
+  private readonly patrolAnchorWorld: Vec3Like = { x: 0, y: 0, z: 0 };
+  private patrolAnchorCaptured = false;
 
   private readonly firstSeenSimTimeSec = new Float64Array(MAX_ENTITIES).fill(-1);
   private readonly firstSeenJitterSec = new Float64Array(MAX_ENTITIES);
@@ -154,6 +166,7 @@ class AiPilotImpl implements AiPilot {
       this.timeInStateSec = 0;
       this.manoeuvre = undefined;
       this.timeInManoeuvreSec = 0;
+      if (next === TacticalState.Patrol) this.patrolAnchorCaptured = false;
     }
 
     const prevTargetId = this.targetId;
@@ -236,6 +249,26 @@ class AiPilotImpl implements AiPilot {
     return this.perceivedContactsScratch;
   }
 
+  /**
+   * The patrol anchor to fly a racetrack around: the mission-supplied fixed
+   * `patrolCenterWorld` when set, otherwise this pilot's own captured
+   * anchor (frozen at Patrol entry — see `patrolAnchorWorld`'s doc comment
+   * above; never `ctx.self.pos` fresh on every call, which would collapse
+   * the "tangent point on the circle" geometry to a fixed offset from a
+   * moving point and never converge). No allocation: mutates the
+   * pre-allocated `patrolAnchorWorld` in place only on first capture.
+   */
+  private resolvePatrolAnchor(ctx: PilotContext): Readonly<Vec3Like> | undefined {
+    if (this.params.patrolCenterWorld !== undefined) return this.params.patrolCenterWorld;
+    if (!this.patrolAnchorCaptured) {
+      this.patrolAnchorWorld.x = ctx.self.pos.x;
+      this.patrolAnchorWorld.y = ctx.self.pos.y;
+      this.patrolAnchorWorld.z = ctx.self.pos.z;
+      this.patrolAnchorCaptured = true;
+    }
+    return this.patrolAnchorWorld;
+  }
+
   private formationLeaderAlive(ctx: PilotContext): boolean {
     const formation = this.params.formation;
     if (formation === undefined || formation.role !== FormationRole.Wingman) return true;
@@ -257,13 +290,13 @@ class AiPilotImpl implements AiPilot {
     switch (this.state) {
       case TacticalState.Patrol: {
         if (isWingman && this.tryBuildFormationFollowGoal(ctx)) return;
-        buildPatrolGoal(ctx, this.params.patrolCenterWorld, this.params.patrolRadiusM, this.goal);
+        buildPatrolGoal(ctx, this.resolvePatrolAnchor(ctx), this.params.patrolRadiusM, this.goal);
         return;
       }
       case TacticalState.Intercept: {
         if (isWingman && this.tryBuildFormationFollowGoal(ctx)) return;
         if (target !== undefined) buildInterceptGoal(ctx, target, this.goal);
-        else buildPatrolGoal(ctx, this.params.patrolCenterWorld, this.params.patrolRadiusM, this.goal);
+        else buildPatrolGoal(ctx, this.resolvePatrolAnchor(ctx), this.params.patrolRadiusM, this.goal);
         return;
       }
       case TacticalState.Rtb: {
@@ -273,12 +306,12 @@ class AiPilotImpl implements AiPilot {
       }
       case TacticalState.EngageBvr: {
         if (target !== undefined) buildGoalForEngageBvr(ctx, target, this.goal);
-        else buildPatrolGoal(ctx, this.params.patrolCenterWorld, this.params.patrolRadiusM, this.goal);
+        else buildPatrolGoal(ctx, this.resolvePatrolAnchor(ctx), this.params.patrolRadiusM, this.goal);
         return;
       }
       case TacticalState.Merge: {
         if (target !== undefined) buildGoalForMerge(ctx, target, this.goal);
-        else buildPatrolGoal(ctx, this.params.patrolCenterWorld, this.params.patrolRadiusM, this.goal);
+        else buildPatrolGoal(ctx, this.resolvePatrolAnchor(ctx), this.params.patrolRadiusM, this.goal);
         return;
       }
       case TacticalState.Disengage: {
@@ -289,7 +322,7 @@ class AiPilotImpl implements AiPilot {
       case TacticalState.Bfm:
       case TacticalState.Defensive: {
         if (target === undefined) {
-          buildPatrolGoal(ctx, this.params.patrolCenterWorld, this.params.patrolRadiusM, this.goal);
+          buildPatrolGoal(ctx, this.resolvePatrolAnchor(ctx), this.params.patrolRadiusM, this.goal);
           return;
         }
         const nextManoeuvre = selectBfmManoeuvre(ctx, target, this.state, this.diffProfile, this.manoeuvre, this.timeInManoeuvreSec);
@@ -307,7 +340,7 @@ class AiPilotImpl implements AiPilot {
         return;
       }
       default:
-        buildPatrolGoal(ctx, this.params.patrolCenterWorld, this.params.patrolRadiusM, this.goal);
+        buildPatrolGoal(ctx, this.resolvePatrolAnchor(ctx), this.params.patrolRadiusM, this.goal);
     }
   }
 

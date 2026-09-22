@@ -140,6 +140,7 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
       const cap = RENDER_QUALITY_TABLE[tier].pixelRatioCap;
       const ratio = Math.min(devicePixelRatio, cap);
       renderer.setPixelRatio(ratio);
+      composer.setPixelRatio(ratio);
       renderer.setSize(widthPx, heightPx, false);
       composer.setSize(widthPx, heightPx);
       camera.aspect = widthPx / Math.max(heightPx, 1);

@@ -68,6 +68,7 @@ import { createEventQueue } from './eventQueue';
 import { subSeed } from './seed';
 import { writeSnapshot as writeSnapshotBuffer } from './snapshotWriter';
 import { computeIlsDeviation, forwardWorldInto, rightWorldInto } from './hudTelemetry';
+import type { CombatPortWithContacts } from './combatContext';
 
 const SIM_DT_SEC_LOCAL = 1 / 120; // avoid importing SIM_DT_SEC just to re-derive it; core.ts already fixes this at 1/120 (SIM_HZ)
 
@@ -181,6 +182,11 @@ class WorldImpl implements World {
   private readonly ilsScratch = { loc: 0, gs: 0 };
   private readonly fwdScratch: Vec3Like = { x: 0, y: 0, z: 0 };
   private readonly rightScratch: Vec3Like = { x: 0, y: 0, z: 0 };
+  // Step 9 (mission objective evaluation) runs every tick until the mission
+  // ends — src/core's step loop is a 120 Hz hot path (00-architecture.md
+  // section 2/13), so this is a reused, .length-reset array rather than a
+  // fresh `string[]` literal on every stepOnce() call.
+  private readonly completedObjectivesScratch: string[] = [];
 
   constructor(deps: WorldDependencies) {
     this.deps = deps;
@@ -419,7 +425,14 @@ class WorldImpl implements World {
       selfDamage: damage,
       telemetry: rec.telemetry,
       get contacts() {
-        return EMPTY_CONTACTS;
+        // Populated by CombatPort.step (combatAdapter.ts) via updateSensors,
+        // exposed back to World through the CombatPortWithContacts surface
+        // (combatContext.ts) — see 10-core-worker.md section 4.1 step 2 and
+        // section 9 item 6. Falls back to EMPTY_CONTACTS for any combat.step
+        // fake/stub that only implements the pinned CombatPort interface
+        // (e.g. this module's own unit tests).
+        const combat = self.deps.combat as Partial<CombatPortWithContacts>;
+        return combat.getContacts ? combat.getContacts(id) : EMPTY_CONTACTS;
       },
       combat: rec.combat,
       sampler: self.deps.sampler,
@@ -671,16 +684,22 @@ class WorldImpl implements World {
 
   private evaluateObjectives(mission: Mission): { outcome: MissionOutcome; objectivesCompleted: string[] } | undefined {
     const playerState = this.getEntityState(this.playerEntityIdInternal);
+    const completed = this.completedObjectivesScratch;
+    completed.length = 0;
     if (!playerState || !playerState.alive) {
+      // Mission-ending outcome: a small, rare (at most once per mission,
+      // never once-per-tick) copy is fine here — see 00-architecture.md's
+      // own carve-out for SimEvent payload allocation — and avoids aliasing
+      // a `[]`/scratch array that could later be mutated by a subsequent
+      // loadMission/reset on this same World into an event a caller retained.
       return { outcome: MissionOutcome.Failure, objectivesCompleted: [] };
     }
 
-    const completed: string[] = [];
     for (const obj of mission.objectives) {
       if (this.isObjectiveComplete(obj, playerState)) completed.push(obj.id);
     }
     if (completed.length === mission.objectives.length && mission.objectives.length > 0) {
-      return { outcome: MissionOutcome.Success, objectivesCompleted: completed };
+      return { outcome: MissionOutcome.Success, objectivesCompleted: completed.slice() };
     }
     return undefined;
   }
