@@ -92,9 +92,43 @@ export const fcsLimits: FcsLimits = {
   maxRudderRad: 0.349066,
   maxElevonRateRadS: 3.0,
   maxRudderRateRadS: 3.0,
-  pitchRateGain: 0.3,
+  // NOTE on sign: per this project's elevon convention (00-architecture.md
+  // section 6.2), +elevonSym = trailing-edge-down = NOSE-DOWN moment
+  // (Cm_elevon is negative, tejasAeroTables.ts). fcs.ts's literal pitch law
+  // (02-flight-model.md section 4.9) is
+  //   elevonSymCmd = gLoadGain*(gCmd-gLoad) - pitchRateGain*q + trimIntegral
+  // For this to be a STABILIZING (not destabilizing) g-command/rate-damper
+  // pair given that convention, both gains must be NEGATIVE: to gain MORE g
+  // (gCmd>gLoad) the correction must command a NOSE-UP moment, i.e. a
+  // NEGATIVE elevonSym; to damp an existing nose-up rate (q>0) the term
+  // -pitchRateGain*q must be POSITIVE (nose-down), which also requires
+  // pitchRateGain negative. With positive gains (the "natural" reading of
+  // "Kg"/"Kq" as plain positive proportional/damping gains) this closed loop
+  // is inverted: the g-loop fights itself and the rate term reinforces
+  // rather than opposes pitch rate, which is exactly what
+  // tests/physics/relaxedStability.test.ts's fixture already documents
+  // (that file's own fixture uses gLoadGain=-1.0/pitchRateGain=-2.0 and
+  // explains why in its file-level comment) — this was previously left
+  // positive here, which made every trim search and any aggressive
+  // (AI-commanded) pitch maneuver diverge instead of converge.
+  //
+  // NOTE on magnitude (pitchRateGain): -0.3 (the smallest magnitude that
+  // still has the correct sign) leaves the closed loop only marginally
+  // damped for this airframe's fast open-loop pitch instability (see
+  // 03-tejas-data.md's own dCm/dalpha figure) -- tests/integration/
+  // aiDogfight.test.ts's ace-vs-ace case (high commanded-G, aggressive AI
+  // stick inputs) drives a sustained-enough oscillation to briefly depart
+  // controlled flight. -0.4 is the smallest increase found (by comparing
+  // against that test and tools/sim-check.ts's climb-rate target, which
+  // both move in opposite directions as this magnitude grows) that keeps
+  // aiDogfight passing without needlessly sacrificing climb performance;
+  // see this module's contractConcerns for why a single fixed gain still
+  // cannot cleanly stabilize the full low-speed part of the envelope (a
+  // real gain-scheduled FCS would vary this with dynamic pressure, which
+  // FcsLimits has no provision for).
+  pitchRateGain: -0.4,
   rollRateGain: 0.5,
   yawRateGain: 0.4,
   alphaLimitGain: 3.0,
-  gLoadGain: 1.0,
+  gLoadGain: -1.0,
 };

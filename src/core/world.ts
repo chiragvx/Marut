@@ -56,8 +56,9 @@ import type {
   World,
   WorldDependencies,
 } from '../contracts/sim';
-import { createEntityPoolInternal } from './entityPool';
+import { createEntityPoolInternal, unpackEntityId } from './entityPool';
 import type { WorldEntityPool } from './entityPool';
+import { resetFcsTrimState } from '../physics';
 import type { WorldCombatTickContext } from './combatContext';
 import { isaAtmosphereInto } from './atmosphere';
 import type { IsaAtmosphereResult } from './atmosphere';
@@ -366,6 +367,18 @@ class WorldImpl implements World {
     if (id === NO_ENTITY_ID) return NO_ENTITY_ID;
     const state = this.pool.get(id);
     if (!state) return NO_ENTITY_ID;
+    // src/physics/fcs.ts keeps its trim-integral/last-gLoad state in a
+    // module-private, pool-index-keyed table (not part of EntityState/
+    // DamageState — see 02-flight-model.md section 4.9/9) precisely so a
+    // freshly (re)spawned aircraft never inherits a stale value left behind
+    // by whichever previous occupant used this same pool slot — including,
+    // critically, a previous occupant from a DIFFERENT World instance in the
+    // same process (fcs.ts's arrays are module-level, not per-World). This
+    // call was previously missing, which made a fresh World's physics
+    // depend on unrelated earlier World instances' history in the same
+    // process — a real, reproducible determinism bug (two fresh
+    // SimWorldHandles built from the same seed/inputs diverging).
+    resetFcsTrimState(unpackEntityId(id).index);
     state.pos.x = pos.x;
     state.pos.y = pos.y;
     state.pos.z = pos.z;

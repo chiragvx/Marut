@@ -229,9 +229,46 @@ function probe<TDef>(
 }
 
 /**
+ * How many extra `SIM_DT_SEC`-sized steps are run (at the just-accepted
+ * pitchStick/throttle command) at the end of each Newton iteration, before
+ * the NEXT iteration's residual/Jacobian are measured. See the
+ * `contractConcerns` note in this module's header comment: with actuator/
+ * engine dynamics (elevon rate limit, ~2.5s engine spool lag) that are far
+ * slower than `TRIM_PROBE_DT_SEC` (2ms), probing a literal fixed `seedState`
+ * every Newton iteration (as 12-verification.md section 4.2's pseudocode
+ * reads most literally) makes the finite-difference Jacobian exactly
+ * singular in practice: a command far from what the rate-limited elevon can
+ * reach saturates identically for both the `+eps`/`-eps` perturbations,
+ * giving a zero derivative. Carrying the state forward between iterations
+ * (a standard shooting/Newton hybrid) gives the actuators the elapsed
+ * simulated time they need to actually respond to each iteration's command
+ * before the next linearization, without changing the residual/Jacobian
+ * formulas or any TRIM_* contract constant.
+ */
+const TRIM_SETTLE_STEPS_PER_ITERATION = 30;
+
+/**
+ * Trust-region cap on the raw (pre-bounds-clamp) Newton step for pitchStick
+ * per iteration, on top of TRIM_STEP_DAMPING. The Jacobian here comes from a
+ * physical, actuator-rate-limited, closed-loop (and, for this airframe's
+ * data, only lightly damped -- see this module's contractConcerns) system,
+ * not a clean analytic function: near a saturating regime it can be small
+ * or noisy, and an undamped Newton step through a near-singular Jacobian
+ * can fling pitchStick straight to +-1 (commanding an unreachable g) in one
+ * iteration, from which the search never recovers (every subsequent probe
+ * is deep in a stalled/departed regime with no useful gradient back toward
+ * the real root). Capping the per-iteration step keeps the search inside a
+ * trust region where the local linearization stays meaningful, a standard
+ * safeguard for Newton iteration on a numerically-estimated Jacobian.
+ */
+const TRIM_MAX_PITCH_STEP_PER_ITERATION = 0.1;
+const TRIM_MAX_THROTTLE_STEP_PER_ITERATION = 0.1;
+
+/**
  * Newton trim solver over (pitchStick, throttle) with a central-difference
  * numerical Jacobian. See 12-verification.md section 4.2 for the full
- * algorithm; this is a direct, line-for-line implementation of it.
+ * algorithm; this is a direct implementation of it, with one necessary
+ * addition — see `TRIM_SETTLE_STEPS_PER_ITERATION` above.
  */
 export function findTrim<TDef>(
   step: StepAircraftLike<TDef>,
@@ -242,18 +279,62 @@ export function findTrim<TDef>(
   const damage = makeFullHealthDamageState();
   const env = buildTrimEnvironment(condition.altitudeM);
   const outScratch = cloneEntityState(seedState);
+  let settleScratch = cloneEntityState(seedState);
 
   let pitchStick = 0;
   let throttle = 0.7;
   let afterburnerUsed = false;
-  let retriedAfterSingular = false;
+
+  // The base state THIS iteration's probes measure from. Starts at
+  // `seedState` (never mutated — see `probe`'s own contract) and is advanced
+  // after every iteration by `settleForward` below.
+  let currentState: EntityState = seedState;
+
+  const settleForward = (base: EntityState, pitch: number, thr: number): EntityState => {
+    const settleInputs = makeProbeInputs(pitch, thr);
+    let cur = cloneEntityState(base);
+    for (let s = 0; s < TRIM_SETTLE_STEPS_PER_ITERATION; s++) {
+      step(cur, damage, settleInputs, env, def, SIM_DT_SEC, settleScratch);
+      const tmp = cur;
+      cur = settleScratch;
+      settleScratch = tmp;
+    }
+    // Re-anchor the KINEMATIC part of state (pos/rot/vel/omega) back to the
+    // exact nominal trim condition before returning: the settle phase exists
+    // only to give actuator/engine lag (elevon rate limit, spool time
+    // constant) real elapsed time to respond to the latest command, per
+    // TRIM_SETTLE_STEPS_PER_ITERATION's note above -- it is not meant to
+    // simulate a real trajectory, and letting position/velocity/attitude
+    // drift away from the condition being trimmed (compounding over up to
+    // TRIM_MAX_ITERATIONS iterations) would bias the residual/Jacobian away
+    // from that condition. Actuator/engine fields (elevons, rudder,
+    // throttle, afterburner, gearPos, fuelKg) are exactly what's meant to
+    // carry forward, so those are left as settleForward produced them.
+    cur.pos.x = seedState.pos.x;
+    cur.pos.y = seedState.pos.y;
+    cur.pos.z = seedState.pos.z;
+    cur.rot.x = seedState.rot.x;
+    cur.rot.y = seedState.rot.y;
+    cur.rot.z = seedState.rot.z;
+    cur.rot.w = seedState.rot.w;
+    cur.vel.x = seedState.vel.x;
+    cur.vel.y = seedState.vel.y;
+    cur.vel.z = seedState.vel.z;
+    cur.omega.x = seedState.omega.x;
+    cur.omega.y = seedState.omega.y;
+    cur.omega.z = seedState.omega.z;
+    return cur;
+  };
 
   for (let iter = 1; iter <= TRIM_MAX_ITERATIONS; iter++) {
-    const center = probe(step, def, seedState, damage, env, pitchStick, throttle, outScratch);
+    const center = probe(step, def, currentState, damage, env, pitchStick, throttle, outScratch);
     const residualMag = Math.sqrt(center.rVertical * center.rVertical + center.rForward * center.rForward);
-    // Capture alpha from the center probe's output NOW — outScratch is about
-    // to be overwritten by the Jacobian's finite-difference probes below.
+    // Capture alpha AND a full state snapshot from the center probe's output
+    // NOW — outScratch is about to be overwritten by the Jacobian's
+    // finite-difference probes below, and the snapshot is what this
+    // iteration's settle phase (below) advances forward from.
     const centerAlphaRad = computeAlphaRad(outScratch);
+    const centerState = cloneEntityState(outScratch);
     if (throttle >= 0.999) afterburnerUsed = true;
 
     if (residualMag < TRIM_RESIDUAL_TOLERANCE_MPS2) {
@@ -269,10 +350,10 @@ export function findTrim<TDef>(
       };
     }
 
-    const pPlus = probe(step, def, seedState, damage, env, pitchStick + TRIM_FD_EPSILON, throttle, outScratch);
-    const pMinus = probe(step, def, seedState, damage, env, pitchStick - TRIM_FD_EPSILON, throttle, outScratch);
-    const tPlus = probe(step, def, seedState, damage, env, pitchStick, throttle + TRIM_FD_EPSILON, outScratch);
-    const tMinus = probe(step, def, seedState, damage, env, pitchStick, throttle - TRIM_FD_EPSILON, outScratch);
+    const pPlus = probe(step, def, currentState, damage, env, pitchStick + TRIM_FD_EPSILON, throttle, outScratch);
+    const pMinus = probe(step, def, currentState, damage, env, pitchStick - TRIM_FD_EPSILON, throttle, outScratch);
+    const tPlus = probe(step, def, currentState, damage, env, pitchStick, throttle + TRIM_FD_EPSILON, outScratch);
+    const tMinus = probe(step, def, currentState, damage, env, pitchStick, throttle - TRIM_FD_EPSILON, outScratch);
 
     const j00 = (pPlus.rVertical - pMinus.rVertical) / (2 * TRIM_FD_EPSILON);
     const j10 = (pPlus.rForward - pMinus.rForward) / (2 * TRIM_FD_EPSILON);
@@ -281,7 +362,18 @@ export function findTrim<TDef>(
 
     const solved = solve2x2(j00, j01, j10, j11, center.rVertical, center.rForward);
     if (Math.abs(solved.det) < 1e-9) {
-      if (retriedAfterSingular) {
+      // A singular Jacobian this early is expected on iteration 1 (before
+      // `currentState` has had any settle time at all — see
+      // `TRIM_SETTLE_STEPS_PER_ITERATION`'s note): a fresh, zero-elevon
+      // state's rate-limited actuator saturates identically for the +eps/
+      // -eps perturbations. Keep perturbing and settling for the REST of
+      // the iteration budget (not just one extra try) rather than giving up
+      // immediately — by the time `currentState` has had a few settle
+      // rounds it is no longer pinned at the pristine seed and the Jacobian
+      // stops being exactly singular in practice.
+      pitchStick = clamp(pitchStick + 0.05, -1, 1);
+      currentState = settleForward(centerState, pitchStick, throttle);
+      if (iter === TRIM_MAX_ITERATIONS) {
         return {
           status: TrimStatus.OutOfControlAuthority,
           condition,
@@ -293,13 +385,14 @@ export function findTrim<TDef>(
           residualMps2: residualMag,
         };
       }
-      retriedAfterSingular = true;
-      pitchStick = clamp(pitchStick + 0.05, -1, 1);
       continue;
     }
 
-    pitchStick = clamp(pitchStick - TRIM_STEP_DAMPING * solved.x0, -1, 1);
-    throttle = clamp(throttle - TRIM_STEP_DAMPING * solved.x1, 0, 1);
+    const pitchStep = clamp(TRIM_STEP_DAMPING * solved.x0, -TRIM_MAX_PITCH_STEP_PER_ITERATION, TRIM_MAX_PITCH_STEP_PER_ITERATION);
+    const throttleStep = clamp(TRIM_STEP_DAMPING * solved.x1, -TRIM_MAX_THROTTLE_STEP_PER_ITERATION, TRIM_MAX_THROTTLE_STEP_PER_ITERATION);
+    pitchStick = clamp(pitchStick - pitchStep, -1, 1);
+    throttle = clamp(throttle - throttleStep, 0, 1);
+    currentState = settleForward(centerState, pitchStick, throttle);
 
     if (iter === TRIM_MAX_ITERATIONS) {
       return {

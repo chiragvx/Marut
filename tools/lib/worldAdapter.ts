@@ -48,6 +48,8 @@ import type { SnapshotEntityView, World } from '../../src/contracts/sim';
 import { EVENT_QUEUE_CAPACITY } from '../../src/contracts/sim';
 import type { SimWorldHandle } from '../../src/contracts/verify';
 import { readSnapshotEntity, readSnapshotHeader } from '../../src/core/snapshotReader';
+import { unpackEntityId } from '../../src/core/entityPool';
+import { resetFcsTrimState } from '../../src/physics';
 
 interface ManualPilotBinding {
   entityId: EntityId;
@@ -114,6 +116,34 @@ export function adaptWorldToHandle(world: World): SimWorldHandle {
     flags: 0,
   };
 
+  // src/physics/fcs.ts keeps its trim-integral/last-gLoad state in a
+  // MODULE-LEVEL (process-wide, not per-World) table indexed by pool slot
+  // (see 02-flight-model.md section 4.9/9). `src/core`'s own spawn path
+  // resets an entity's slot when it is (re)spawned, but that reset happens
+  // once, at spawn time -- it does not protect against a SECOND, INDEPENDENT
+  // `World` instance in this same process running to completion (and
+  // writing fresh values into those same module-level slots) BETWEEN this
+  // world's spawns and this world's own first tick, which is exactly what
+  // two `createTestWorld`-built `SimWorldHandle`s (spawned back-to-back,
+  // then stepped one to completion before the other starts, as
+  // tests/integration/determinism.test.ts does) do. In real gameplay only
+  // one `World` ever exists per worker process, so this never surfaces
+  // there; it is a test/tooling-only hazard whenever multiple `World`s
+  // share a process. Clearing every currently-alive entity's slot
+  // immediately before THIS handle's very first tick guarantees this
+  // world's own run starts from a clean slate regardless of what any other
+  // World in the same process already did.
+  let hasSteppedOnce = false;
+  const resetAllFcsTrimState = (): void => {
+    world.writeSnapshot(snapshotScratch);
+    const header = readSnapshotHeader(snapshotScratch);
+    for (let i = 0; i < header.entityCount; i++) {
+      const view = readSnapshotEntity(snapshotScratch, i, entityViewScratch);
+      if (view.kind !== 'aircraft') continue;
+      resetFcsTrimState(unpackEntityId(view.id).index);
+    }
+  };
+
   return {
     get tick() {
       return world.tick;
@@ -122,6 +152,10 @@ export function adaptWorldToHandle(world: World): SimWorldHandle {
       return world.simTimeSec;
     },
     stepFixed(): void {
+      if (!hasSteppedOnce) {
+        hasSteppedOnce = true;
+        resetAllFcsTrimState();
+      }
       for (const binding of manualBindings) {
         const self = world.getEntityState(binding.entityId);
         const selfDamage = world.getDamageState(binding.entityId);
