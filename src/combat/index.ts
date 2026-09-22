@@ -1,0 +1,31 @@
+/**
+ * src/combat/index.ts — barrel re-export for the whole combat module.
+ * See docs/spec/07-combat.md section 3 for the grouping this mirrors.
+ */
+
+// 3.2 Weapon stations & loadout
+export { createWeaponsState, writeCombatStatus, createCombatRngState, fireWeapons } from './weaponStation';
+
+// 3.3 Damage
+export { createDamageState, applyHit, rollSubsystemHit, subsystemHitFromU01 } from './subsystemDamage';
+
+// 3.4 Sensors / radar / RWR
+export { updateSensors, radarDetectionRangeM, computeGeometry, computeMissileThreat } from './radarModel';
+export { irDetectionRangeM, updateIrGuidance, rotateTowards } from './irMissileSeeker';
+
+// 3.5 Projectile flight
+export { createProjectilePool, resetProjectile, initProjectile, stepProjectile } from './gunBallistics';
+export { computePnAccel } from './proportionalNavigation';
+export { updateRadarMissileGuidance } from './radarMissile';
+
+// 3.6 Hit detection
+export { segmentHitsEllipsoid, closestApproachOnSegment } from './hitDetection';
+
+// 3.7 Gunsight
+export { computeLeadSolution } from './leadComputingSight';
+
+// 3.8 Events
+export { pushExplosionEvent, resolveProjectileHit } from './effectsEvents';
+
+// Re-export every constant/type from contracts/combat so consumers need only this barrel.
+export * from '../contracts/combat';

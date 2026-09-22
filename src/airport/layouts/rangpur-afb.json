@@ -1,0 +1,40 @@
+{
+  "id": "rangpur-afb",
+  "name": "Rangpur Air Force Base",
+  "referenceWorldX": 0,
+  "referenceWorldZ": 0,
+  "elevationM": 620,
+  "flattenZones": [
+    { "centerWorldX": 1385.64, "centerWorldZ": -800.00, "elevationM": 620, "flatRadiusM": 1750, "blendRadiusM": 300 },
+    { "centerWorldX": 421.41, "centerWorldZ": -70.10, "elevationM": 620, "flatRadiusM": 200, "blendRadiusM": 150 }
+  ],
+  "runways": [
+    {
+      "id": "06", "thresholdWorldX": 0, "thresholdWorldZ": 0, "elevationM": 620,
+      "headingRad": 1.0471976, "lengthM": 3200, "widthM": 45, "surface": "concrete",
+      "reciprocalId": "24",
+      "ils": { "frequencyMhz": 109.90 },
+      "lights": { "edgeLights": true, "thresholdLights": true, "approachLights": true, "papi": true }
+    },
+    {
+      "id": "24", "thresholdWorldX": 2771.28, "thresholdWorldZ": -1600.00, "elevationM": 620,
+      "headingRad": 4.1887902, "lengthM": 3200, "widthM": 45, "surface": "concrete",
+      "reciprocalId": "06",
+      "lights": { "edgeLights": true, "thresholdLights": true, "approachLights": false, "papi": false }
+    }
+  ],
+  "taxiways": [
+    { "id": "TWY-1", "widthM": 20, "points": [ { "worldX": 321.86, "worldZ": -142.52 }, { "worldX": 421.41, "worldZ": -70.10 } ] }
+  ],
+  "aprons": [
+    { "id": "APRON-1", "points": [ { "worldX": 361.41, "worldZ": -110.10 }, { "worldX": 481.41, "worldZ": -110.10 }, { "worldX": 481.41, "worldZ": -30.10 }, { "worldX": 361.41, "worldZ": -30.10 } ] }
+  ],
+  "parkingSpots": [
+    { "id": "PARK-1", "worldX": 380, "worldZ": -70.10, "headingRad": 1.0471976, "type": "fighter" },
+    { "id": "PARK-2", "worldX": 398, "worldZ": -70.10, "headingRad": 1.0471976, "type": "fighter" },
+    { "id": "PARK-3", "worldX": 416, "worldZ": -70.10, "headingRad": 1.0471976, "type": "fighter" },
+    { "id": "PARK-4", "worldX": 434, "worldZ": -70.10, "headingRad": 1.0471976, "type": "fighter" },
+    { "id": "PARK-5", "worldX": 452, "worldZ": -70.10, "headingRad": 1.0471976, "type": "fighter" },
+    { "id": "PARK-6", "worldX": 470, "worldZ": -70.10, "headingRad": 1.0471976, "type": "fighter" }
+  ]
+}

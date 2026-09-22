@@ -1,0 +1,17 @@
+{
+  "name": "Tejas Flight Simulator",
+  "short_name": "Tejas Sim",
+  "description": "Browser-based real-physics flight simulator of the HAL Tejas Mk1.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "landscape",
+  "background_color": "#0a0d12",
+  "theme_color": "#0a0d12",
+  "categories": ["games", "simulation"],
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

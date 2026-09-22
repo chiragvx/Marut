@@ -1,0 +1,55 @@
+{
+  "id": "konarak-coastal",
+  "name": "Konarak Coastal Air Station",
+  "referenceWorldX": 60000,
+  "referenceWorldZ": 45000,
+  "elevationM": 8,
+  "flattenZones": [
+    { "centerWorldX": 60000, "centerWorldZ": 44800, "elevationM": 8, "flatRadiusM": 1550, "blendRadiusM": 300 },
+    { "centerWorldX": 60000, "centerWorldZ": 45200, "elevationM": 8, "flatRadiusM": 1550, "blendRadiusM": 300 },
+    { "centerWorldX": 58900, "centerWorldZ": 45000, "elevationM": 8, "flatRadiusM": 350, "blendRadiusM": 200 }
+  ],
+  "runways": [
+    {
+      "id": "09L", "thresholdWorldX": 58600, "thresholdWorldZ": 44800, "elevationM": 8,
+      "headingRad": 1.5707963, "lengthM": 2800, "widthM": 45, "surface": "asphalt",
+      "reciprocalId": "27L",
+      "ils": { "frequencyMhz": 110.30 },
+      "lights": { "edgeLights": true, "thresholdLights": true, "approachLights": true, "papi": true }
+    },
+    {
+      "id": "27L", "thresholdWorldX": 61400, "thresholdWorldZ": 44800, "elevationM": 8,
+      "headingRad": 4.7123890, "lengthM": 2800, "widthM": 45, "surface": "asphalt",
+      "reciprocalId": "09L",
+      "lights": { "edgeLights": true, "thresholdLights": true, "approachLights": false, "papi": false }
+    },
+    {
+      "id": "09R", "thresholdWorldX": 58600, "thresholdWorldZ": 45200, "elevationM": 8,
+      "headingRad": 1.5707963, "lengthM": 2800, "widthM": 45, "surface": "asphalt",
+      "reciprocalId": "27R",
+      "ils": { "frequencyMhz": 111.10 },
+      "lights": { "edgeLights": true, "thresholdLights": true, "approachLights": true, "papi": true }
+    },
+    {
+      "id": "27R", "thresholdWorldX": 61400, "thresholdWorldZ": 45200, "elevationM": 8,
+      "headingRad": 4.7123890, "lengthM": 2800, "widthM": 45, "surface": "asphalt",
+      "reciprocalId": "09R",
+      "lights": { "edgeLights": true, "thresholdLights": true, "approachLights": false, "papi": false }
+    }
+  ],
+  "taxiways": [
+    { "id": "TWY-A", "widthM": 20, "points": [ { "worldX": 58900, "worldZ": 45000 }, { "worldX": 58900, "worldZ": 44850 }, { "worldX": 58700, "worldZ": 44850 } ] },
+    { "id": "TWY-B", "widthM": 20, "points": [ { "worldX": 58900, "worldZ": 45000 }, { "worldX": 58900, "worldZ": 45150 }, { "worldX": 58700, "worldZ": 45150 } ] }
+  ],
+  "aprons": [
+    { "id": "APRON-1", "points": [ { "worldX": 58800, "worldZ": 44950 }, { "worldX": 59000, "worldZ": 44950 }, { "worldX": 59000, "worldZ": 45050 }, { "worldX": 58800, "worldZ": 45050 } ] }
+  ],
+  "parkingSpots": [
+    { "id": "PARK-1", "worldX": 58820, "worldZ": 45000, "headingRad": 1.5707963, "type": "fighter" },
+    { "id": "PARK-2", "worldX": 58852, "worldZ": 45000, "headingRad": 1.5707963, "type": "transport" },
+    { "id": "PARK-3", "worldX": 58884, "worldZ": 45000, "headingRad": 1.5707963, "type": "fighter" },
+    { "id": "PARK-4", "worldX": 58916, "worldZ": 45000, "headingRad": 1.5707963, "type": "transport" },
+    { "id": "PARK-5", "worldX": 58948, "worldZ": 45000, "headingRad": 1.5707963, "type": "fighter" },
+    { "id": "PARK-6", "worldX": 58980, "worldZ": 45000, "headingRad": 1.5707963, "type": "transport" }
+  ]
+}

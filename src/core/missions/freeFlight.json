@@ -1,0 +1,13 @@
+{
+  "id": "free-flight",
+  "name": "Free Flight — Konarak Coastal",
+  "seed": 1234567,
+  "terrain": { "seed": 1234567 },
+  "airportIds": ["konarak-coastal"],
+  "playerStart": { "airportId": "konarak-coastal", "runwayId": "09L", "speedMps": 0 },
+  "aiFlights": [],
+  "weather": { "windWorldMps": { "x": 3, "y": 0, "z": -1 }, "gustMps": 2, "turbulence": 0.1 },
+  "objectives": [
+    { "id": "obj-survive", "kind": "survive_time", "description": "Complete a circuit and land safely.", "params": { "seconds": 1800 } }
+  ]
+}

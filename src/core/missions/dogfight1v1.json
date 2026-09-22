@@ -1,0 +1,15 @@
+{
+  "id": "dogfight-1v1",
+  "name": "1v1 Dogfight — Rangpur Highlands",
+  "seed": 7654321,
+  "terrain": { "seed": 7654321 },
+  "airportIds": ["rangpur-afb"],
+  "playerStart": { "airportId": "rangpur-afb", "runwayId": "06", "speedMps": 0 },
+  "aiFlights": [
+    { "id": "bandit-1", "aircraftId": "tejas-mk1", "team": 1, "difficulty": "veteran", "startPos": { "x": 8000, "y": 4500, "z": -6000 }, "startHeadingRad": 3.14159265, "startSpeedMps": 230, "count": 1 }
+  ],
+  "weather": { "windWorldMps": { "x": 0, "y": 0, "z": 0 }, "gustMps": 1, "turbulence": 0.05 },
+  "objectives": [
+    { "id": "obj-kill", "kind": "destroy_all_hostiles", "description": "Destroy the hostile Tejas.", "params": {} }
+  ]
+}
