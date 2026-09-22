@@ -25,7 +25,7 @@ import type { TrimCondition } from '../src/contracts/verify';
 import { tejasDefinition } from '../src/aircraft';
 import { stepAircraft } from '../src/physics';
 import * as core from '../src/core';
-import { checkPerformanceTarget, findTrim, makeTrimSeedState, isaAt } from './lib/trimSolver';
+import { checkPerformanceTarget, findGCommandTrim, makeTrimSeedState, isaAt } from './lib/trimSolver';
 import { PERFORMANCE_TARGETS } from './lib/perfTargets';
 import { formatPerformanceTable } from './lib/table';
 import { hashSimState } from './lib/hash';
@@ -134,7 +134,17 @@ function runTrimMode(verbose: boolean): number {
       if (speedMps > TRIM_GRID_SPEED_OVER_SOUND_SKIP_FACTOR * isaAt(altitudeM).soundSpeedMps) continue;
       const condition: TrimCondition = { altitudeM, speedMps, bankRad: 0, massKg: TRIM_GRID_MASS_KG };
       const seed = makeTrimSeedState(condition);
-      const result = findTrim(stepAircraft, tejasDefinition, condition, seed);
+      // Cross-module fix: this grid probes src/physics/fcs.ts's real
+      // G-command closed loop, not an open-loop aircraft, so it must use
+      // `findGCommandTrim` (see that function's own doc comment in
+      // tools/lib/trimSolver.ts for why the generic 2D Newton `findTrim` —
+      // still correct and exercised by tests/tools/trimSolver.test.ts
+      // against a synthetic open-loop plant — cannot converge against this
+      // closed loop: a sustained gCmd != 1 in wings-level flight has no
+      // steady state for a pitchStick-perturbing Newton search to find).
+      // This was the direct cause of this grid's near-total
+      // out_of_control_authority/max_iterations_exceeded failure rate.
+      const result = findGCommandTrim(stepAircraft, tejasDefinition, condition, seed);
       if (verbose || result.status !== TrimStatus.Converged) {
         console.log(`  alt=${altitudeM.toString().padStart(5)} m  speed=${speedMps.toString().padStart(4)} m/s  -> ${result.status}`);
       }

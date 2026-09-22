@@ -996,7 +996,21 @@ function computeClimbRateMps<TDef>(step: StepAircraftLike<TDef>, def: TDef, alti
   let count = 0;
   for (let i = 0; i < totalSteps; i++) {
     const ias = vecLength(state.vel);
-    const error = CLIMB_TEST_IAS_MPS - ias;
+    // Cross-module fix: "pitch for airspeed" is the only sign that holds a
+    // constant-IAS climb (12-verification.md section 4/5.1's "climb rate
+    // test") stable — too FAST (ias above the Vy target) must PITCH UP
+    // (bleed speed into altitude), too SLOW must PITCH DOWN (trade altitude
+    // back for speed), i.e. `pitchStick` must carry the SAME sign as
+    // `(ias - CLIMB_TEST_IAS_MPS)`, not the opposite. The previous
+    // `Kp * (CLIMB_TEST_IAS_MPS - ias)` did the reverse (pitched down when
+    // already too fast, up when already too slow) — positive feedback, not
+    // negative: verified empirically (direct simulation) that it produces a
+    // monotonically accelerating dive from the very first tick (ias climbing
+    // 180 -> 277+ m/s while altitude drops thousands of metres over the
+    // 20s window) rather than a bounded climb, which is what actually made
+    // this target measure a large NEGATIVE vspeed instead of the small
+    // transient dip a correctly-signed P-loop settles out of.
+    const error = ias - CLIMB_TEST_IAS_MPS;
     const pitchStick = clamp(CLIMB_TEST_KP * error, -1, 1);
     const inputs = makeProbeInputs(pitchStick, 1);
     const env = buildTrimEnvironment(state.pos.y);

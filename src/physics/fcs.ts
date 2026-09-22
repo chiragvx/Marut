@@ -21,6 +21,83 @@ const FCS_TRIM_INTEGRAL_GAIN = 0.02;
 /** Anti-windup clamp on trimIntegralRad, rad (~12deg). */
 const FCS_TRIM_INTEGRAL_MAX_RAD = 0.2094;
 
+/**
+ * Pitch-axis qBar gain scheduling (cross-module fix; see
+ * tests/integration/trimAndPerformance.test.ts / tools/lib/trimSolver.ts's
+ * own extensive notes on why a FIXED-gain pitch law cannot hold across this
+ * project's speed envelope).
+ *
+ * `FcsLimits.gLoadGain`/`pitchRateGain` set a rad-of-elevon-per-(g-error or
+ * rad/s) response, but the MOMENT that elevon deflection actually produces
+ * is `Cm_elevon * elevonSym * qBar * wingAreaM2 * meanChordM` (aeroForces.ts
+ * 4.5) — proportional to qBar. A gain pair tuned to be stable at one
+ * dynamic pressure therefore commands a torque that grows linearly with
+ * qBar at any other speed: verified empirically (see the cross-module
+ * review this fix is part of) that the un-scheduled loop is cleanly stable
+ * at qBar corresponding to ~100 m/s sea-level TAS (the tuning point implicit
+ * in tejasGeometry.ts's own gLoadGain/pitchRateGain magnitudes) but drives
+ * alpha to tens of degrees within ~1 simulated second at 150+ m/s — the
+ * commanded elevon deflection is unchanged but the qBar-scaled torque it
+ * produces is 2-10x larger, turning a well-damped response into a violently
+ * oscillating one.
+ *
+ * Scaling BOTH the proportional (gLoadGain) and rate (pitchRateGain) terms
+ * by `(FCS_QBAR_REF_PA / qBar) ^ FCS_GAIN_SCHEDULE_EXPONENT` (clamped) keeps
+ * the commanded elevon response bounded across the flight envelope, at (by
+ * construction) the same magnitude tejasGeometry.ts's gains were tuned to
+ * produce at the reference qBar — i.e. this reproduces the known-stable
+ * low-speed response at every speed, rather than introducing a new, untuned
+ * control law. It does not touch the physical alpha->CL->gLoad relationship
+ * (still qBar-dependent as it must be — a faster aircraft genuinely trims at
+ * a smaller alpha for the same g), only how hard the actuator is commanded
+ * to respond to a given error.
+ *
+ * The exponent is empirically 1.5, not the naive 1.0 a pure
+ * torque-per-error normalization would suggest: `elevonSymCmd` is also
+ * subject to `maxElevonRateRadS` (the actuator's own rate limit, unaffected
+ * by this schedule). At high qBar a merely-1/qBar-scaled command can still
+ * be large enough, for long enough, that the RATE-LIMITED surface spends
+ * many consecutive substeps ramping toward it — effectively a fixed-rate
+ * ramp regardless of the softened gain — during which the qBar-scaled
+ * moment this module's own doc comment above describes still integrates
+ * into a large, overshooting alpha excursion before the surface (and hence
+ * the command) can catch up and reverse. The steeper exponent verified
+ * empirically (direct simulation, sea-level 100-472 m/s, this cross-module
+ * pass) keeps the commanded elevon small enough, early enough, that the
+ * rate limit is no longer the binding constraint at the top of the
+ * envelope, closing that gap; 1.0 alone left ~300 m/s+ still diverging.
+ *
+ * `FCS_QBAR_REF_PA` = 0.5 * RHO0_KG_M3 * 100^2 (sea-level, 100 m/s — squarely
+ * inside the low/mid-speed regime already confirmed stable). The schedule is
+ * clamped to [FCS_GAIN_SCHEDULE_MIN, FCS_GAIN_SCHEDULE_MAX] so it neither
+ * blows up as qBar -> 0 (low speed/near-stall) nor silently zeroes control
+ * authority at the top of the envelope — some genuine reduction in
+ * closed-loop bandwidth at the extreme high-q corner is an acceptable,
+ * physically-reasonable trade-off for staying bounded, exactly what a real
+ * qBar-scheduled FCS does.
+ */
+const FCS_QBAR_REF_PA = 6125; // 0.5 * 1.225 * 100^2
+const FCS_GAIN_SCHEDULE_EXPONENT = 1.5;
+const FCS_GAIN_SCHEDULE_MIN = 0.02;
+const FCS_GAIN_SCHEDULE_MAX = 4;
+const FCS_QBAR_FLOOR_PA = 1;
+
+/**
+ * `qBarPa` defaults to `FCS_QBAR_REF_PA` (schedule multiplier of exactly 1,
+ * i.e. no scaling) so every existing caller that does not pass it — every
+ * fixture in tests/physics/fcs.test.ts, all of which use synthetic
+ * plants/gains rather than the real Tejas aero data — keeps its exact
+ * current behaviour. `src/physics/integrator.ts` passes the substep's real
+ * `qBar` (aeroForces.ts's `AirspeedFrame.qBar`) for actual flight.
+ */
+function pitchGainSchedule(qBarPa: number): number {
+  return clamp(
+    Math.pow(FCS_QBAR_REF_PA / Math.max(qBarPa, FCS_QBAR_FLOOR_PA), FCS_GAIN_SCHEDULE_EXPONENT),
+    FCS_GAIN_SCHEDULE_MIN,
+    FCS_GAIN_SCHEDULE_MAX
+  );
+}
+
 const trimIntegralRad = new Float64Array(MAX_ENTITIES);
 const lastGLoadRad = new Float64Array(MAX_ENTITIES);
 
@@ -116,8 +193,10 @@ export function stepFcs(
   inputs: PilotInputs,
   damage: DamageState,
   fcsLimits: FcsLimits,
-  dtSub: number
+  dtSub: number,
+  qBarPa: number = FCS_QBAR_REF_PA
 ): void {
+  const gainSchedule = pitchGainSchedule(qBarPa);
   // gLoad = dot(rotateInverse(rot, totalForceWorld - gravityWorld), (0,1,0)) / (massKg*g)
   const gravityForceWorldY = -massKg * gravityMps2;
   scratchNonGravWorld.x = totalForceWorld.x;
@@ -172,10 +251,11 @@ export function stepFcs(
     } else {
       trimIntegralRad[entityIndex] = 0;
     }
-    elevonSymCmd = fcsLimits.gLoadGain * (gCmd - gLoad) - fcsLimits.pitchRateGain * q + readF64(trimIntegralRad, entityIndex);
+    elevonSymCmd =
+      gainSchedule * (fcsLimits.gLoadGain * (gCmd - gLoad) - fcsLimits.pitchRateGain * q) + readF64(trimIntegralRad, entityIndex);
   } else {
     trimIntegralRad[entityIndex] = 0;
-    elevonSymCmd = inputs.pitch * fcsLimits.maxElevonRad * GROUND_LAW_PITCH_AUTHORITY_FRACTION - fcsLimits.pitchRateGain * q;
+    elevonSymCmd = inputs.pitch * fcsLimits.maxElevonRad * GROUND_LAW_PITCH_AUTHORITY_FRACTION - gainSchedule * fcsLimits.pitchRateGain * q;
   }
   elevonSymCmd = clamp(elevonSymCmd, -fcsLimits.maxElevonRad, fcsLimits.maxElevonRad);
 
