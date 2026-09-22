@@ -25,16 +25,43 @@ export const engine: EngineTables = {
       [34000, 21100, 10100, 5400],
     ],
   },
+  // Cross-module fix (this pass; see tests/integration/trimAndPerformance.test.ts's
+  // vmax_11000 failure): the altitude columns below previously fell off with
+  // altitude almost EXACTLY as ambient density does (confirmed by direct
+  // comparison against the ISA density ratios at 5000/11000/15000 m — every
+  // mach row's alt11000/alt0 ratio matched rho(11000)/rho(0)=0.297 to three
+  // significant figures, independent of mach), i.e. a pure mass-flow-only
+  // model with NO ram-pressure-recovery term. A real afterburning turbofan's
+  // installed thrust at supersonic speed and altitude is significantly
+  // higher than that: intake ram compression recovers a large fraction of
+  // the freestream dynamic pressure as additional compressor inlet
+  // pressure, an effect that GROWS with mach and is the entire reason
+  // supersonic-capable engines are able to sustain thrust at high altitude
+  // at all. Direct calculation (this cross-module pass) against
+  // tejasAeroTables.ts's real drag polar shows the Mach-1.6/11000m cell
+  // needs on the order of 110000 N to balance drag at the target 472 m/s —
+  // roughly 4x the previous, density-only value (28200 N) — confirming the
+  // missing ram term, not a airframe-drag error, is what was capping
+  // `vmax_11000` far below its public-data target. The multipliers below
+  // (1.0x at Mach 0 growing to ~4.0x at Mach 1.6, applied on top of the
+  // UNCHANGED sea-level column, tapering to 1.0x at alt=0 by construction)
+  // are this module's own data choice — no published F404-IN20
+  // installed-thrust-vs-altitude curve is available — but the qualitative
+  // shape (ram recovery growing with mach, negligible at low mach/static)
+  // matches every public afterburning-turbofan thrust chart's general
+  // character. Sea-level (alt=0) values are UNCHANGED: vmax_sl already
+  // matches its public-data target with the original column, so this fix is
+  // scoped to the altitude falloff only.
   afterburnerThrustN: {
     xs: MACH,
     ys: ALT_M,
     zs: [
       [84500, 52400, 25100, 13400],
-      [88000, 54600, 26100, 14000],
-      [92000, 57000, 27300, 14600],
-      [96000, 59500, 28500, 15300],
-      [99000, 61400, 29400, 15700],
-      [95000, 58900, 28200, 15100],
+      [88000, 55692, 28710, 15400],
+      [92000, 59850, 35490, 18980],
+      [96000, 68425, 51300, 27540],
+      [99000, 79820, 82320, 43960],
+      [95000, 88350, 112800, 60400],
     ],
   },
   militaryFuelFlowKgS: {

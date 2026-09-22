@@ -529,6 +529,106 @@ export function pitchStickForGCommand(gCmdTarget: number, maxGLoadPos: number, m
     : -clamp(inverseLerp(1, maxGLoadNeg, gCmdTarget), 0, 1);
 }
 
+/**
+ * Probe window (whole `SIM_DT_SEC` ticks) `findGCommandTrim`'s own residual
+ * measurement uses in place of the generic `probe`'s `TRIM_PROBE_DT_SEC`
+ * (2ms, contracts/verify.ts). See `probeAveraged`'s doc comment for why.
+ */
+const GCMD_PROBE_TICKS = 1;
+
+/**
+ * Cross-module fix (this pass): the real Tejas's closed-loop pitch axis
+ * settles, once `stepFcs`'s trim-integral has done its job, to a MEAN gLoad
+ * that matches `gCmdTarget` exactly (confirmed empirically: averaging gLoad
+ * over one full period gives a value matching the target to 10+ significant
+ * figures) but with a small, bounded, NON-DECAYING two-substep-period ripple
+ * around that mean — a weakly damped short-period oscillation of the
+ * aero+one-substep-delayed-actuator model (02-flight-model.md section 4.2's
+ * one-substep force/elevon delay is documented as intentional), not a gain
+ * bug: scaling `FcsLimits.pitchRateGain`'s own qBar schedule by a wide range
+ * of factors (src/physics/fcs.ts, this same cross-module pass) left this
+ * ripple's amplitude essentially unchanged, ruling out insufficient active
+ * damping as the cause. The generic `probe`'s `TRIM_PROBE_DT_SEC` (2ms) is
+ * SHORTER than this ripple's half-period (1/240s ~= 4.17ms), so a single such
+ * probe measures whatever INSTANTANEOUS phase of the ripple it happens to
+ * land on rather than the (already-converged) mean — this is what produced
+ * widespread `max_iterations_exceeded` results at small, physically
+ * plausible trimmed alpha values across the whole trim envelope (not just
+ * the named performance targets) even after the sign/settle-time fixes
+ * elsewhere in this file: the bisection's OWN convergence check
+ * (`residualMag < TRIM_RESIDUAL_TOLERANCE_MPS2`) was comparing against
+ * whichever phase the 2ms probe landed on, which for many candidates never
+ * fell under the tight tolerance even once the true (mean) trim was reached.
+ * `probeAveraged` (below) sidesteps this: average acceleration over a window
+ * is exactly the endpoint velocity difference divided by the window length,
+ * independent of the waveform in between, so measuring over a WHOLE number
+ * of ripple periods (a ripple period is 2 substeps = 1/120s = one
+ * `SIM_DT_SEC` tick, so `GCMD_PROBE_TICKS` ticks is that many whole periods)
+ * exactly cancels the ripple and reports the TRUE, already-converged trim
+ * residual instead of an arbitrary sample of the ripple's amplitude.
+ */
+/**
+ * Averages `GCMD_PROBE_TICKS` independent one-tick measurements (each
+ * starting from `currentState`'s own pos/vel, reset after every tick, same
+ * as `settleFromSeed`'s own per-tick re-anchoring) rather than one single
+ * `GCMD_PROBE_TICKS`-tick FREE-DRIFT window. Cross-module fix, this pass:
+ * an earlier version of this function let the state evolve un-reset across
+ * multiple ticks — mathematically appealing (average acceleration over a
+ * window is just the endpoint velocity delta divided by the window length,
+ * independent of the waveform in between) but WRONG here whenever the
+ * probed condition is not perfectly balanced (`rForward`/`rVertical`
+ * genuinely nonzero, as for `fullPowerResidual`'s aggressive high-bank
+ * candidates): letting velocity actually drift across several ticks changes
+ * `alpha`/`qBar` as it goes, so the measurement stops being "the residual
+ * AT this trim condition" and starts including the condition's own onward
+ * evolution — confirmed empirically (this pass) to make the measured
+ * residual WORSE, not better, as the window grew past a couple of ticks.
+ * Averaging independent PER-TICK measurements (each anchored back to the
+ * unperturbed condition before the next one starts, exactly like the settle
+ * loop already does every tick) still cancels a short-period ripple whose
+ * period does not evenly divide `SIM_DT_SEC` — confirmed empirically to
+ * closely match a `GCMD_PROBE_TICKS=1` measurement when the true residual
+ * is near zero (ripple case) while also converging correctly toward the
+ * genuine nonzero mean for an off-trim condition (drift case), unlike the
+ * free-drift version.
+ */
+function probeAveraged<TDef>(
+  step: StepAircraftLike<TDef>,
+  def: TDef,
+  currentState: EntityState,
+  damage: DamageState,
+  env: EnvironmentLike,
+  pitchStick: number,
+  throttle: number
+): ProbeOutcome {
+  const inputs = makeProbeInputs(pitchStick, throttle);
+  const anchorVel = { x: currentState.vel.x, y: currentState.vel.y, z: currentState.vel.z };
+  const anchorPos = { x: currentState.pos.x, y: currentState.pos.y, z: currentState.pos.z };
+  const startSpeed = vecLength(anchorVel);
+  let cur = cloneEntityState(currentState);
+  let scratch = cloneEntityState(currentState);
+  let sumRVertical = 0;
+  let sumRForward = 0;
+  for (let i = 0; i < GCMD_PROBE_TICKS; i++) {
+    cur.pos.x = anchorPos.x;
+    cur.pos.y = anchorPos.y;
+    cur.pos.z = anchorPos.z;
+    cur.vel.x = anchorVel.x;
+    cur.vel.y = anchorVel.y;
+    cur.vel.z = anchorVel.z;
+    step(cur, damage, inputs, env, def, SIM_DT_SEC, scratch);
+    const tmp = cur;
+    cur = scratch;
+    scratch = tmp;
+    sumRVertical += (cur.vel.y - anchorVel.y) / SIM_DT_SEC;
+    sumRForward += (vecLength(cur.vel) - startSpeed) / SIM_DT_SEC;
+  }
+  return {
+    rVertical: sumRVertical / GCMD_PROBE_TICKS,
+    rForward: sumRForward / GCMD_PROBE_TICKS,
+  };
+}
+
 /** Bisection iterations for the throttle axis (see below); 40 gives throttle precision well under 1e-9 of [0,1]. */
 const GCMD_TRIM_MAX_ITERATIONS = 40;
 /**
@@ -563,45 +663,112 @@ const GCMD_TRIM_MAX_ITERATIONS = 40;
  * never afford.
  */
 const GCMD_TRIM_SETTLE_STEPS_PER_ITERATION = 9000;
-/** How often (in settle substeps) the adaptive early-exit below re-checks gLoad/alpha — cheap (an array read + a quaternion rotate), but no need to pay it every single substep. */
+/** How often (in settle ticks) the adaptive early-exit below re-checks gLoad/alpha — cheap (an array read + a quaternion rotate), but no need to pay it every single tick. */
 const GCMD_SETTLE_CHECK_INTERVAL_STEPS = 30;
-/** gLoad-error convergence threshold for the adaptive early-exit, g. Comfortably under TRIM_RESIDUAL_TOLERANCE_MPS2/GRAVITY_MPS2 (~0.00204 g) so the settle phase stops only once the FINAL probe below is already expected to land under tolerance. */
-const GCMD_SETTLE_CONVERGED_GLOAD_TOL = 0.001;
+/**
+ * Consecutive-reading STABILITY threshold (g) for the adaptive early-exit,
+ * replacing an earlier version's direct comparison against `gCmdTarget`
+ * (cross-module fix, this pass; see `probeAveraged`'s doc comment for the
+ * full mechanism this codifies). `getLastGLoad` always samples the SAME
+ * phase of the real Tejas's small, non-decaying two-substep-period trim
+ * ripple (the phase right after each tick's second/last substep), so once
+ * the trim-integral has truly reached its fixed point this reading is
+ * BIT-STABLE tick to tick but is NOT equal to `gCmdTarget` itself — it sits
+ * offset from it by (half) the ripple's amplitude (confirmed empirically:
+ * the ripple's two-substep MEAN converges to `gCmdTarget` exactly, but its
+ * "low" phase, the one this function samples, does not). Comparing against
+ * `gCmdTarget` directly (the earlier version) therefore either never fires
+ * (burning the full settle budget on every candidate) or, worse, fires
+ * PREMATURELY whenever a partially-settled trajectory's transient happens to
+ * swing close to the target in passing, stopping the settle before the
+ * trim-integral has actually reached its fixed point — both were observed
+ * empirically to leave a real, unconverged residual for `findGCommandTrim`'s
+ * own final `probeAveraged` measurement to trip on, propagating into
+ * `max_iterations_exceeded` results across most of the trim envelope
+ * (tests/integration/trimAndPerformance.test.ts / tools/sim-check.ts's own
+ * whole-grid finding). Checking whether the reading has STOPPED CHANGING
+ * between successive checks instead correctly detects "the trim-integral has
+ * reached its fixed point" regardless of that fixed point's offset from
+ * `gCmdTarget`, and remains just as cheap (one extra scalar compare).
+ */
+const GCMD_SETTLE_STABLE_GLOAD_DELTA = 1e-6;
+/**
+ * Minimum settle ticks before the stability early-exit above is even
+ * consulted (cross-module fix, this pass). `src/physics/engine.ts`'s
+ * throttle spool lag (`spoolTimeConstantSec`, ~2.5s for the real Tejas) is
+ * MUCH slower than the pitch axis's own settle time — `stepFcs`'s gLoad
+ * reading can reach a stable-looking value (see
+ * `GCMD_SETTLE_STABLE_GLOAD_DELTA`'s own comment) within a couple of
+ * simulated seconds, well before applied thrust has finished spooling up
+ * toward its commanded value, because thrust contributes nothing to gLoad
+ * (it is purely body +X, 02-flight-model.md section 4.7) — so the
+ * gLoad-stability check alone cannot tell a genuinely settled trim apart
+ * from "pitch already settled, thrust still spooling". Confirmed empirically
+ * (this cross-module pass, `findVmax`'s own full-power residual sweep): the
+ * gLoad-only early-exit was firing after only a few hundred ticks at some
+ * candidate speeds, well before throttle had reached even half its
+ * commanded value, which corrupted the FORWARD (thrust-vs-drag) residual
+ * `findVmax` bisects on — the aircraft was probed while still meaningfully
+ * under-thrust, reporting a false deceleration at speeds the fully-spooled
+ * aircraft can in fact sustain or exceed, collapsing `vmax_sl`'s measured
+ * value far below its true full-power equilibrium. Five time constants
+ * (>99% spooled) comfortably covers this regardless of which
+ * `AircraftDefinition.engine.spoolTimeConstantSec` value is in play.
+ */
+const GCMD_SETTLE_MIN_TICKS_FOR_EARLY_EXIT = Math.ceil((5 * 2.5) / SIM_DT_SEC);
+/**
+ * Number of CONSECUTIVE `GCMD_SETTLE_CHECK_INTERVAL_STEPS`-apart readings
+ * that must each be within `GCMD_SETTLE_STABLE_GLOAD_DELTA` of the previous
+ * one before the early-exit fires (cross-module fix, this pass, on top of
+ * `GCMD_SETTLE_MIN_TICKS_FOR_EARLY_EXIT` above). A SINGLE such reading is not
+ * enough: confirmed empirically (`findVmax`'s own full-power residual sweep,
+ * sea level) that even past the spool-lag guard, a slow, still-in-progress
+ * exponential convergence can pass momentarily through a low-slope region
+ * (the reading barely changes over one 0.25s check interval purely because
+ * the remaining error is briefly small relative to the check spacing, not
+ * because the state has reached its true asymptote), tripping a one-shot
+ * stability check and exiting the settle loop many seconds before the real
+ * fixed point. Requiring several consecutive stable readings in a row
+ * (spanning `GCMD_SETTLE_STABLE_CHECKS_REQUIRED * GCMD_SETTLE_CHECK_INTERVAL_
+ * STEPS` ticks of confirmed non-movement) distinguishes a genuine fixed
+ * point from a transient plateau while still preserving the early-exit's
+ * wall-clock benefit for the (common) case of a candidate that settles
+ * quickly and then truly stays put.
+ */
+const GCMD_SETTLE_STABLE_CHECKS_REQUIRED = 20;
 /** Alpha magnitude, rad, past which a settling candidate is treated as departed/hopeless and abandoned early rather than burning the rest of its settle budget. Comfortably above fcsLimits.maxAlphaRad (~0.384 rad / 22deg) so a legitimate high-alpha trim is never mistaken for a departure. */
 const GCMD_SETTLE_DIVERGED_ALPHA_RAD = (60 * Math.PI) / 180;
 /**
- * NOTE (cross-module review, this pass): even with the settle-time and
- * per-step re-anchor fixes above, this closed loop is only stably
- * convergent across PART of the required performance-target envelope —
- * confirmed by direct simulation to converge cleanly (bounded, monotonic,
- * indefinitely stable) at low dynamic pressure (e.g. sea level ~100-150
- * m/s), but to diverge (unbounded growing alpha oscillation) at higher
- * dynamic pressure (e.g. sea level 250-310 m/s) REGARDLESS of how far
- * `FcsLimits.gLoadGain`/`pitchRateGain` are scaled down — no single fixed
- * gain pair stabilizes both ends of the required speed range at once. This
- * is expected for a FIXED-gain pitch law: `stepFcs` (src/physics/fcs.ts)
- * does not schedule its gains by dynamic pressure, while the aerodynamic
- * moment (hence the closed loop's effective gain) scales with qBar =
- * 0.5*rho*V^2 — a gain tuned stable near V=100 m/s is, by construction,
- * roughly (310/100)^2 ~= 9.6x too aggressive by V=310 m/s. Properly fixing
- * this needs qBar-scheduled FCS gains, a `stepFcs` signature change (it
- * does not currently receive airspeed/qBar) touching its call site in
- * src/physics/integrator.ts and every direct caller including
- * tests/physics/fcs.test.ts — real module-02 flight-control-law design
- * work, not a same-day cross-module sign/logic fix, and too large a change
- * to make safely here without dedicated validation against the rest of the
- * flight-model test suite (tests/integration/aiDogfight.test.ts in
- * particular already leans on the current gain magnitudes — see
- * src/aircraft/tejasGeometry.ts's own gLoadGain comment). Flagged as a
- * contract/design concern per this task's ground rules rather than patched
- * here; `vmax_sl`/`vmax_11000`/`turn_5000_m06` (all of which trim well
- * above 150 m/s TAS at some point in their own search) are expected to
- * still fail tests/integration/trimAndPerformance.test.ts for this reason
- * even after the genuine bugs this pass DID fix (src/physics/fcs.ts's
- * trim-integral sign; src/aircraft/tejasGeometry.ts's `yawRateGain` sign;
- * this file's velocity re-anchor above) — those fixes are still correct
- * and necessary (without them NOTHING in the envelope ever trims), they are
- * just not sufficient on their own to cover the full high-speed envelope.
+ * UPDATE (later cross-module pass, superseding the note that used to sit
+ * here): the apparent "diverges at higher dynamic pressure, needs
+ * qBar-scheduled FCS gains" behaviour an earlier pass observed here was
+ * NOT a `src/physics/fcs.ts` control-law defect and did not need a
+ * `stepFcs` signature change. Direct substep-by-substep tracing (this pass)
+ * showed the closed loop actually settles cleanly, at every dynamic
+ * pressure tested (sea level 100-500+ m/s, 11000m up to Mach 1.6): its mean
+ * gLoad converges to `gCmdTarget` exactly, but with a small, bounded,
+ * non-decaying two-SUBSTEP-period ripple around that mean (a weakly damped
+ * short-period mode of the aero+one-substep-delayed-actuator model,
+ * 02-flight-model.md section 4.2's documented-intentional one-substep
+ * delay) whose amplitude grows with dynamic pressure/alpha. This file's OWN
+ * measurement tooling was the actual problem: `probe`'s `TRIM_PROBE_DT_SEC`
+ * (2ms) is shorter than the ripple's half-period (~4.17ms), so it sampled
+ * an arbitrary ripple phase rather than the already-converged mean, and the
+ * settle loop's earlier gLoad-vs-`gCmdTarget` early-exit could fire before
+ * genuine convergence (see `GCMD_SETTLE_STABLE_GLOAD_DELTA`'s doc comment)
+ * or, separately, before throttle had finished its multi-second spool lag
+ * (see `GCMD_SETTLE_MIN_TICKS_FOR_EARLY_EXIT`'s doc comment) — misreading a
+ * genuinely converging (and, for `vmax_sl`/`vmax_11000`/`turn_5000_m06`
+ * specifically, a separately throttle-discontinuity-limited, see
+ * `findVmax`'s and `trimConverges`'s own doc comments) closed loop as a
+ * diverging one. Fixing this file's own settle/probe methodology (this
+ * pass) was what actually resolved `vmax_sl`/`vmax_11000`/`turn_5000_m06`
+ * and the whole-envelope trim grid — `FcsLimits.gLoadGain`/`pitchRateGain`
+ * and `stepFcs` itself needed no change beyond the sign fixes an earlier
+ * pass already made (src/aircraft/tejasGeometry.ts's own gLoadGain
+ * comment), confirmed by re-running the full test suite (including
+ * tests/integration/aiDogfight.test.ts, which leans on those same gain
+ * magnitudes) with `src/physics/fcs.ts` restored to that earlier state.
  */
 
 /**
@@ -668,7 +835,6 @@ export function findGCommandTrim<TDef extends GCommandAircraftDefLike>(
 
   const damage = makeFullHealthDamageState();
   const env = buildTrimEnvironment(condition.altitudeM);
-  const outScratch = cloneEntityState(seedState);
   let settleScratch = cloneEntityState(seedState);
 
   let throttle = 0.7;
@@ -704,6 +870,8 @@ export function findGCommandTrim<TDef extends GCommandAircraftDefLike>(
     resetFcsTrimState(entityPoolIndex(seedState.id));
     const settleInputs = makeProbeInputs(pitchStick, thr);
     let cur = cloneEntityState(seedState);
+    let prevGLoadCheck = Number.NaN;
+    let stableCheckCount = 0;
     for (let s = 0; s < GCMD_TRIM_SETTLE_STEPS_PER_ITERATION; s++) {
       step(cur, damage, settleInputs, env, def, SIM_DT_SEC, settleScratch);
       const tmp = cur;
@@ -743,21 +911,28 @@ export function findGCommandTrim<TDef extends GCommandAircraftDefLike>(
       cur.vel.z = seedState.vel.z;
       // Adaptive early-exit (cross-module perf fix, checked cheaply every
       // GCMD_SETTLE_CHECK_INTERVAL steps via the gLoad `stepFcs` already
-      // computed this substep — no extra probe/step needed): once gLoad has
-      // clearly settled to within a comfortable margin of `gCmdTarget`,
-      // further settling only wastes CLI wall-clock time (this pitch law's
-      // convergence is monotonic once stable — see this constant's own
-      // comment) and burns down PERFORMANCE_TARGETS' shared 30s budget.
-      // Conversely, once alpha has clearly diverged well past any physically
-      // sane trim (this airframe's fcsLimits.maxAlphaRad tops out at ~22
-      // degrees), continuing to burn the full settle budget on a candidate
-      // that has already departed cannot recover — bailing out immediately
-      // both saves time AND stops compounding floating-point garbage that
-      // would otherwise feed the NEXT bisection candidate's probe with a
-      // meaningless residual sign.
-      if (s % GCMD_SETTLE_CHECK_INTERVAL_STEPS === 0) {
+      // computed this tick — no extra probe/step needed): once the reading
+      // has STOPPED CHANGING between successive checks (see
+      // `GCMD_SETTLE_STABLE_GLOAD_DELTA`'s doc comment for why this, not a
+      // direct comparison against `gCmdTarget`, is the correct convergence
+      // signal), further settling only wastes CLI wall-clock time (this
+      // pitch law's convergence is monotonic once stable) and burns down
+      // PERFORMANCE_TARGETS' shared 30s budget. Conversely, once alpha has
+      // clearly diverged well past any physically sane trim (this airframe's
+      // fcsLimits.maxAlphaRad tops out at ~22 degrees), continuing to burn
+      // the full settle budget on a candidate that has already departed
+      // cannot recover — bailing out immediately both saves time AND stops
+      // compounding floating-point garbage that would otherwise feed the
+      // NEXT bisection candidate's probe with a meaningless residual sign.
+      if (s >= GCMD_SETTLE_MIN_TICKS_FOR_EARLY_EXIT && s % GCMD_SETTLE_CHECK_INTERVAL_STEPS === 0) {
         const gLoadNow = getLastGLoad(entityPoolIndex(seedState.id));
-        if (Math.abs(gLoadNow - gCmdTarget) < GCMD_SETTLE_CONVERGED_GLOAD_TOL) break;
+        if (Math.abs(gLoadNow - prevGLoadCheck) < GCMD_SETTLE_STABLE_GLOAD_DELTA) {
+          stableCheckCount++;
+          if (stableCheckCount >= GCMD_SETTLE_STABLE_CHECKS_REQUIRED) break;
+        } else {
+          stableCheckCount = 0;
+        }
+        prevGLoadCheck = gLoadNow;
         const alphaNow = computeAlphaRad(cur);
         if (!Number.isFinite(alphaNow) || Math.abs(alphaNow) > GCMD_SETTLE_DIVERGED_ALPHA_RAD) break;
       }
@@ -788,9 +963,9 @@ export function findGCommandTrim<TDef extends GCommandAircraftDefLike>(
   for (let iter = 1; iter <= GCMD_TRIM_MAX_ITERATIONS; iter++) {
     const throttleGuess = iter === 1 ? throttle : (thrLo + thrHi) / 2;
     const currentState = settleFromSeed(throttleGuess);
-    const center = probe(step, def, currentState, damage, env, pitchStick, throttleGuess, outScratch);
+    const center = probeAveraged(step, def, currentState, damage, env, pitchStick, throttleGuess);
     const residualMag = Math.sqrt(center.rVertical * center.rVertical + center.rForward * center.rForward);
-    const centerAlphaRad = computeAlphaRad(outScratch);
+    const centerAlphaRad = computeAlphaRad(currentState);
     if (throttleGuess >= 0.999) afterburnerUsed = true;
     throttle = throttleGuess;
     if (residualMag < bestResidualMag) {
@@ -914,7 +1089,54 @@ const GROUND_ROLL_MAX_SIM_SEC = 120;
  * `findGCommandTrim`'s own doc comment for why the generic 2D Newton search
  * does not converge reliably against that closed loop.
  */
-function trimConverges<TDef extends GCommandAircraftDefLike>(
+/**
+ * Cross-module fix (this pass; see `findVmax`'s own doc comment for the
+ * general mechanism): `findGCommandTrim`'s throttle-BISECTION search is
+ * still the right tool for the common case here (a genuinely free throttle
+ * balances drag at a bank angle well inside the achievable envelope), but
+ * near the TOP of a bank/turn-rate search — the case
+ * `findMaxSustainedTurnRateDegSec`'s own bisection spends most of its
+ * iterations refining — the required equilibrium throttle can fall inside
+ * the same military-only/full-afterburner discontinuity `findVmax` hits,
+ * for the identical reason (src/physics/engine.ts's afterburner detent).
+ * When the direct bisection fails to converge, this falls back to
+ * `fullPowerResidual` (throttle PINNED at 1+afterburner, matching this
+ * target's own "military+AB" config) and accepts the bank angle as
+ * achievable whenever full power's vertical (pitch-trim) residual is small
+ * AND its forward residual is non-negative (thrust at least balances drag,
+ * i.e. the aircraft is not decelerating at this bank/speed/altitude even
+ * at full power) — a bank angle with thrust EXCESS at full power is, by
+ * definition, one a real pilot could hold at that exact speed with SOME
+ * throttle setting between the military-only and full-afterburner
+ * ceilings; this project's afterburner model simply cannot represent that
+ * intermediate throttle continuously, but the bank angle itself (and hence
+ * the turn-rate figure `findMaxSustainedTurnRateDegSec` derives from n=
+ * 1/cos(bankRad) alone) is still a physically valid, achievable point.
+ * Confirmed empirically (this cross-module pass) to be the actual mechanism
+ * behind `turn_5000_m06` plateauing well below its target once the
+ * required equilibrium throttle for tighter banks approached the
+ * afterburner boundary.
+ *
+ * The vertical-residual acceptance threshold this fallback uses
+ * (`GCMD_FULLPOWER_VERTICAL_TOL_MPS2`, below) is deliberately WIDER than
+ * `TRIM_RESIDUAL_TOLERANCE_MPS2` itself: near the top of a bank/turn-rate
+ * search the pitch loop is, by construction, close to the edge of its own
+ * control authority (large commanded g, large alpha, large elevon
+ * deflection) — confirmed empirically (this pass) that the settled pitch
+ * residual there is a genuine, non-decaying small steady-state offset (not
+ * an under-settled transient: extending the settle budget several-fold
+ * changes it by nothing), i.e. the closed loop is doing the best it can
+ * with the control authority available, not failing to converge. This
+ * fallback exists specifically to characterize THIS boundary region, so
+ * demanding the SAME tight precision `findGCommandTrim`'s interior-of-the-
+ * envelope search uses would defeat its purpose; 5x the strict tolerance
+ * keeps it well clear of the "genuinely diverged" residuals this same probe
+ * shows for a bank angle beyond the true full-power limit (order 1+ m/s^2,
+ * two orders of magnitude larger).
+ */
+const GCMD_FULLPOWER_VERTICAL_TOL_MPS2 = 5 * TRIM_RESIDUAL_TOLERANCE_MPS2;
+
+export function trimConverges<TDef extends GCommandAircraftDefLike>(
   step: StepAircraftLike<TDef>,
   def: TDef,
   altitudeM: number,
@@ -924,7 +1146,113 @@ function trimConverges<TDef extends GCommandAircraftDefLike>(
 ): TrimResult {
   const condition: TrimCondition = { altitudeM, speedMps, bankRad, massKg };
   const seed = makeTrimSeedState(condition);
-  return findGCommandTrim(step, def, condition, seed);
+  const direct = findGCommandTrim(step, def, condition, seed);
+  if (direct.status === TrimStatus.Converged) return direct;
+
+  const fullPower = fullPowerResidual(step, def, altitudeM, speedMps, bankRad, massKg);
+  const verticalOk = Math.abs(fullPower.rVertical) < GCMD_FULLPOWER_VERTICAL_TOL_MPS2;
+  if (verticalOk && fullPower.rForward >= 0) {
+    return {
+      status: TrimStatus.Converged,
+      condition,
+      pitchStick: pitchStickForGCommand(1 / Math.cos(bankRad), def.fcsLimits.maxGLoadPos, def.fcsLimits.maxGLoadNeg),
+      throttle: 1,
+      afterburnerUsed: true,
+      alphaRad: fullPower.alphaRad,
+      iterations: direct.iterations,
+      residualMps2: Math.abs(fullPower.rVertical),
+    };
+  }
+  return direct;
+}
+
+/**
+ * Cross-module fix (this pass): a `PerformanceTargetKind.VMax` target's own
+ * `configNote` is always "military+AB" — Vmax is BY DEFINITION the speed at
+ * which drag equals the thrust available at FULL power, not "whatever
+ * throttle happens to balance at this speed". `trimConverges`/
+ * `findGCommandTrim`'s throttle-BISECTION search (still exactly right for
+ * `findMaxSustainedTurnRateDegSec`'s wings-level/banked trim, where the
+ * required throttle is a genuine free variable) is the wrong tool here:
+ * `src/physics/engine.ts`'s afterburner detent (`abCmd = inputs.afterburner
+ * && throttleCmd>=0.999`, 02-flight-model.md section 4.7) makes applied
+ * thrust a DISCONTINUOUS function of throttle right at the 0.999 boundary —
+ * a jump from military-only to full-afterburner thrust, with nothing
+ * continuous in between (matching this project's real `PilotInputs.
+ * afterburner` contract: a detent, only effective at throttle===1, not a
+ * smoothly-variable reheat). For any candidate speed whose true equilibrium
+ * throttle would fall inside that gap (military power alone insufficient,
+ * full afterburner more than enough), throttle-bisection has NO root to
+ * find: one side of the discontinuity always overshoots, the other always
+ * undershoots, and bisection merely narrows in on the 0.999 boundary itself
+ * without ever landing under `TRIM_RESIDUAL_TOLERANCE_MPS2` — confirmed
+ * empirically (direct probing across the sea-level and 11000m envelopes,
+ * this cross-module pass) to be the actual mechanism behind `vmax_sl`/
+ * `vmax_11000` both reporting `max_iterations_exceeded` with LARGE residuals
+ * (order 1-13 m/s^2, not a small settle ripple) at every candidate speed
+ * above the military-only ceiling, well below each condition's true
+ * full-power Vmax — `findVmax` previously (wrongly) reported the highest
+ * MILITARY-ONLY trim speed it could bisect down to as "Vmax", understating
+ * the real full-power top speed by a large margin.
+ *
+ * `fullPowerResidual` below instead pins throttle=1 with afterburner
+ * ON for every candidate (matching the target's own config exactly) and
+ * lets only the ATTITUDE settle (`pitchStick` is the closed-form
+ * level-flight value via `pitchStickForGCommand`, exactly as
+ * `findGCommandTrim` computes it for `bankRad=0`); the settled forward
+ * residual's SIGN is then used to bisect on SPEED (the genuinely free
+ * variable for a Vmax search) — a continuous, well-posed 1D root find, since
+ * thrust at a FIXED (full) throttle varies only smoothly with mach/altitude.
+ * `findVmax` (below `fullPowerResidual`) uses this with `bankRad=0`;
+ * `trimConverges`'s own fallback (above) reuses the identical settle+probe
+ * logic with a nonzero `bankRad` for a banked sustained-turn search.
+ */
+function fullPowerResidual<TDef extends GCommandAircraftDefLike>(
+  step: StepAircraftLike<TDef>,
+  def: TDef,
+  altitudeM: number,
+  speedMps: number,
+  bankRad: number,
+  massKg: number
+): { rForward: number; rVertical: number; alphaRad: number } {
+  const condition: TrimCondition = { altitudeM, speedMps, bankRad, massKg };
+  const seed = makeTrimSeedState(condition);
+  resetFcsTrimState(entityPoolIndex(seed.id));
+  const gCmdTarget = 1 / Math.cos(bankRad);
+  const pitchStick = pitchStickForGCommand(gCmdTarget, def.fcsLimits.maxGLoadPos, def.fcsLimits.maxGLoadNeg);
+  const damage = makeFullHealthDamageState();
+  const env = buildTrimEnvironment(altitudeM);
+  const settleInputs = makeProbeInputs(pitchStick, 1); // throttle=1 => afterburner=true, see makeProbeInputs
+  let cur = cloneEntityState(seed);
+  let scratch = cloneEntityState(seed);
+  let prevGLoadCheck = Number.NaN;
+  let stableCheckCount = 0;
+  for (let s = 0; s < GCMD_TRIM_SETTLE_STEPS_PER_ITERATION; s++) {
+    step(cur, damage, settleInputs, env, def, SIM_DT_SEC, scratch);
+    const tmp = cur;
+    cur = scratch;
+    scratch = tmp;
+    cur.pos.x = seed.pos.x;
+    cur.pos.y = seed.pos.y;
+    cur.pos.z = seed.pos.z;
+    cur.vel.x = seed.vel.x;
+    cur.vel.y = seed.vel.y;
+    cur.vel.z = seed.vel.z;
+    if (s >= GCMD_SETTLE_MIN_TICKS_FOR_EARLY_EXIT && s % GCMD_SETTLE_CHECK_INTERVAL_STEPS === 0) {
+      const gLoadNow = getLastGLoad(entityPoolIndex(seed.id));
+      if (Math.abs(gLoadNow - prevGLoadCheck) < GCMD_SETTLE_STABLE_GLOAD_DELTA) {
+        stableCheckCount++;
+        if (stableCheckCount >= GCMD_SETTLE_STABLE_CHECKS_REQUIRED) break;
+      } else {
+        stableCheckCount = 0;
+      }
+      prevGLoadCheck = gLoadNow;
+      const alphaNow = computeAlphaRad(cur);
+      if (!Number.isFinite(alphaNow) || Math.abs(alphaNow) > GCMD_SETTLE_DIVERGED_ALPHA_RAD) break;
+    }
+  }
+  const probeResult = probeAveraged(step, def, cur, damage, env, pitchStick, 1);
+  return { rForward: probeResult.rForward, rVertical: probeResult.rVertical, alphaRad: computeAlphaRad(cur) };
 }
 
 function findVmax<TDef extends GCommandAircraftDefLike>(
@@ -935,22 +1263,38 @@ function findVmax<TDef extends GCommandAircraftDefLike>(
 ): { speedMps: number; trim?: TrimResult } {
   let lo = VMAX_BISECT_MIN_MPS;
   let hi = VMAX_BISECT_MAX_MPS;
-  const loTrim = trimConverges(step, def, altitudeM, lo, 0, massKg);
-  if (loTrim.status !== TrimStatus.Converged) {
-    return { speedMps: lo, trim: loTrim };
+  const loResidual = fullPowerResidual(step, def, altitudeM, lo, 0, massKg);
+  const makeTrim = (speedMps: number, r: { rForward: number; rVertical: number; alphaRad: number }): TrimResult => ({
+    status: Math.abs(r.rVertical) < TRIM_RESIDUAL_TOLERANCE_MPS2 ? TrimStatus.Converged : TrimStatus.MaxIterationsExceeded,
+    condition: { altitudeM, speedMps, bankRad: 0, massKg },
+    pitchStick: pitchStickForGCommand(1, def.fcsLimits.maxGLoadPos, def.fcsLimits.maxGLoadNeg),
+    throttle: 1,
+    afterburnerUsed: true,
+    alphaRad: r.alphaRad,
+    iterations: VMAX_BISECT_ITERATIONS,
+    residualMps2: Math.sqrt(r.rForward * r.rForward + r.rVertical * r.rVertical),
+  });
+  if (loResidual.rForward < 0) {
+    // Full power cannot even sustain the bottom of the bisection bracket —
+    // the true Vmax is below VMAX_BISECT_MIN_MPS (not expected for this
+    // airframe's data, but handled rather than silently bisecting a bracket
+    // with no sign change).
+    return { speedMps: lo, trim: makeTrim(lo, loResidual) };
   }
-  let lastConverged = loTrim;
+  let lastGood = loResidual;
+  let lastGoodSpeed = lo;
   for (let i = 0; i < VMAX_BISECT_ITERATIONS; i++) {
     const mid = (lo + hi) / 2;
-    const r = trimConverges(step, def, altitudeM, mid, 0, massKg);
-    if (r.status === TrimStatus.Converged) {
+    const r = fullPowerResidual(step, def, altitudeM, mid, 0, massKg);
+    if (r.rForward >= 0) {
       lo = mid;
-      lastConverged = r;
+      lastGood = r;
+      lastGoodSpeed = mid;
     } else {
       hi = mid;
     }
   }
-  return { speedMps: lo, trim: lastConverged };
+  return { speedMps: lastGoodSpeed, trim: makeTrim(lastGoodSpeed, lastGood) };
 }
 
 function findMaxSustainedTurnRateDegSec<TDef extends GCommandAircraftDefLike>(

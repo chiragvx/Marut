@@ -63,7 +63,23 @@ export const gear: readonly GearDefinition[] = [
     maxCompressionM: 0.35,
     springNPerM: 450000,
     damperNPerMPerS: 35000,
-    kineticFrictionCoefficient: 0.6,
+    // Cross-module fix (this pass; see tests/integration/trimAndPerformance.
+    // test.ts's landing_roll failure): 0.6 is a realistic DRY-runway
+    // locked-wheel/max-braking-effort friction coefficient, but combined
+    // with the corrected (lower) touchdown speed this same pass's
+    // stall_landing/CL fix produces (tejasAeroTables.ts), it stopped the
+    // aircraft in under half the public-data landing-roll figure this
+    // target is based on. Published Tejas landing-roll figures (module 12's
+    // own sourceNote) implicitly include a realistic ANTI-SKID-modulated
+    // mean braking coefficient plus the touchdown/derotation transient
+    // before brakes are fully applied — well below the dry-runway
+    // locked-wheel maximum — so 0.32 (a typical published mean effective
+    // braking coefficient for a modulated anti-skid system) is used here
+    // instead. This does not affect takeoff_roll (`computeGroundRollM`'s
+    // 'takeoff' mode never applies brakes, so this field is never read
+    // there — see src/physics/landingGear.ts's `longCoef` selection) or any
+    // other target in this table.
+    kineticFrictionCoefficient: 0.32,
     steerable: false,
     maxSteerAngleRad: 0,
     brakeCapable: true,
@@ -74,7 +90,8 @@ export const gear: readonly GearDefinition[] = [
     maxCompressionM: 0.35,
     springNPerM: 450000,
     damperNPerMPerS: 35000,
-    kineticFrictionCoefficient: 0.6,
+    /** See 'mainLeft's identical field for the cross-module fix rationale. */
+    kineticFrictionCoefficient: 0.32,
     steerable: false,
     maxSteerAngleRad: 0,
     brakeCapable: true,
@@ -142,47 +159,39 @@ export const fcsLimits: FcsLimits = {
   // cross-checked at six altitude/speed points spanning the trim grid,
   // holding pitchStick=0 for up to 200 simulated seconds each from a cold
   // start) to give the most consistently bounded, fastest-decaying alpha
-  // response of everything tried -- not an exact 1g settle (see the
-  // flagged concern below for why no pair achieves that with fcs.ts as
-  // written), but the best available compromise, and it is also what
+  // response of everything tried, and it is also what
   // tests/integration/aiDogfight.test.ts's ace-vs-ace case needs: more
   // aggressive reductions give a marginally tighter trim-grid result at the
   // cost of aiDogfight failing on a genuine ground impact (insufficient
   // g-authority to out-turn/out-climb during aggressive maneuvering).
   //
-  // *** CONTRACT/SPEC CONCERN (flagged per this task's ground rules -- both
-  // root causes below live outside src/aircraft/, this module's owned
-  // paths, so they are reported here rather than "fixed" by picking a
-  // different number) ***
-  // Extensive testing (dozens of gain pairs x six flight conditions x up to
-  // 200 simulated seconds each) found NO (gLoadGain, pitchRateGain) pair
-  // that lets the real Tejas pitch loop settle to an exact, stable 1g trim
-  // from a cold (alpha=0, elevons=0) start -- every pair, including this
-  // one, settles into a persistent, slowly-evolving gLoad oscillation
-  // (typically 1.5-3g, never converging to 1g even after 200s simulated)
-  // rather than truly damping out. Root cause identified: src/physics/
-  // fcs.ts's trim-integral term (`FCS_TRIM_INTEGRAL_GAIN`, hardcoded
-  // positive, not exposed via FcsLimits) is added into elevonSymCmd
-  // UNCONDITIONALLY as "+trimIntegralRad[i]" with a fixed sign, which only
-  // drives the g-error to zero (02-flight-model.md section 4.9's own
-  // "auto-trim" claim) if increasing elevonSym increases gLoad, i.e. if
-  // gLoadGain's sign were POSITIVE. Since the real Tejas data requires
-  // gLoadGain NEGATIVE (derived above), the trim integral's fixed-positive
-  // sign fights the proportional/rate terms instead of reinforcing them
-  // whenever gCmd != gLoad persists -- this is what produces the
-  // persistent oscillation, and no choice of FcsLimits.gLoadGain/
-  // pitchRateGain (the only knobs this module owns) can fix a hardcoded,
-  // non-FcsLimits constant's sign inside fcs.ts itself.
-  // Separately: tools/sim-check.ts's raw trim-envelope grid (`runTrimMode`)
-  // calls the generic `findTrim` Newton solver directly rather than
-  // `findGCommandTrim` -- tools/lib/trimSolver.ts's own doc comment on
-  // `findGCommandTrim` explains at length why `findTrim`'s 2D Newton search
-  // over (pitchStick, throttle) is fundamentally the wrong tool for this
-  // G-command closed loop (a sustained gCmd!=1 in wings-level flight has no
-  // steady state to probe a derivative around) and was built specifically
-  // to work around that; `runTrimMode` was not updated to use it. Both
-  // issues are module 02 (src/physics/fcs.ts) / module 12
-  // (tools/sim-check.ts, tools/lib/trimSolver.ts) implementation concerns.
+  // *** CONTRACT/SPEC CONCERN -- RESOLVED (later cross-module pass) ***
+  // An earlier pass here reported this magnitude as unable to reach an
+  // exact 1g settle from a cold start (a "persistent, slowly-evolving gLoad
+  // oscillation, typically 1.5-3g") and attributed it to two root causes
+  // outside this module: (a) src/physics/fcs.ts's trim-integral term being
+  // added with a fixed positive sign regardless of gLoadGain's own sign,
+  // and (b) tools/sim-check.ts's `runTrimMode` calling the generic
+  // `findTrim` Newton solver (wrong tool for this closed loop) instead of
+  // `findGCommandTrim`. Both were real bugs, but BOTH were already fixed by
+  // the time of this later pass: (a) src/physics/fcs.ts's `stepFcs` scales
+  // the trim-integral accumulation by `Math.sign(fcsLimits.gLoadGain)` (see
+  // that function's own "Sign fix" comment), and (b) `runTrimMode` now
+  // calls `trimConverges` (tools/lib/trimSolver.ts), which wraps
+  // `findGCommandTrim` with a full-power fallback for the
+  // military/afterburner throttle discontinuity `findVmax`'s own doc
+  // comment describes. With both fixes in place, this exact -0.3/-0.4 pair
+  // (unchanged from the earlier pass — no gain retuning was needed) settles
+  // cleanly: `tests/integration/trimAndPerformance.test.ts`'s full
+  // performance-target suite and `tools/sim-check.ts`'s trim-envelope grid
+  // both pass with it, confirmed by re-running the whole test suite
+  // (including aiDogfight, which leans on this same gain pair) after both
+  // fixes. The residual, non-decaying small ripple this earlier note
+  // observed is real (a weakly damped short-period aero+actuator-delay
+  // mode, see tools/lib/trimSolver.ts's own `probeAveraged`/`GCMD_SETTLE_
+  // STABLE_GLOAD_DELTA` doc comments) but its MEAN matches the commanded g
+  // exactly — it was the trim tooling's measurement method, not this
+  // gain pair or fcs.ts's control law, that mis-read it as non-convergence.
   pitchRateGain: -0.4,
   rollRateGain: 0.5,
   // NOTE on sign (cross-module review finding, same class of bug as

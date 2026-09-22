@@ -31,7 +31,14 @@ describe('tejasAeroTables', () => {
 
   it('CD(0, 0.3) falls in [0.015, 0.06]', () => {
     const cd = interpolate2D(aero.CD, 0, 0.3);
-    expect(cd).toBeCloseTo(0.02275, 5);
+    // Cross-module fix (this pass; see tests/integration/trimAndPerformance.
+    // test.ts's climb_sl failure and tejasAeroTables.ts's own CD table
+    // comment): the Mach 0.2/0.6 parasite-drag baseline was raised by a
+    // flat +0.015 to correct an excess-climb-rate error, moving this exact
+    // regression-pinned value from 0.02275 to 0.03775 — still comfortably
+    // inside the [0.015, 0.06] range this test's own name and the two
+    // checks below actually assert, which is the meaningful contract here.
+    expect(cd).toBeCloseTo(0.03775, 5);
     expect(cd).toBeGreaterThanOrEqual(0.015);
     expect(cd).toBeLessThanOrEqual(0.06);
   });
