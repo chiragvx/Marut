@@ -148,8 +148,24 @@ export function stepFcs(
     }
 
     if (!transitioned) {
+      // Sign fix (cross-module review; see src/aircraft/tejasGeometry.ts's
+      // FcsLimits.gLoadGain comment for the full derivation this codifies):
+      // the integral term is added directly into elevonSymCmd as
+      // "+trimIntegralRad" below, so it only drives (gCmd - gLoad) to zero if
+      // increasing elevonSym increases gLoad, i.e. if the PROPORTIONAL term's
+      // own sign convention (gLoadGain) is positive. For an airframe whose
+      // real aero data makes gLoadGain NEGATIVE (elevon's indirect
+      // alpha/CL(alpha) effect dominates its direct CL_elevon lift), a
+      // fixed-positive accumulation instead fights the proportional/rate
+      // terms whenever gCmd != gLoad persists, producing an undamped,
+      // non-converging gLoad oscillation instead of a trim. Scaling the
+      // accumulation by sign(gLoadGain) keeps the integral's contribution to
+      // elevonSymCmd aligned with the proportional term's own (airframe-
+      // dependent) sign in both cases, matching standard PI-controller
+      // practice of applying the same sign convention to the P and I terms.
+      const trimIntegralSign = Math.sign(fcsLimits.gLoadGain) || 1;
       trimIntegralRad[entityIndex] = clamp(
-        readF64(trimIntegralRad, entityIndex) + FCS_TRIM_INTEGRAL_GAIN * (gCmd - gLoad) * dtSub,
+        readF64(trimIntegralRad, entityIndex) + trimIntegralSign * FCS_TRIM_INTEGRAL_GAIN * (gCmd - gLoad) * dtSub,
         -FCS_TRIM_INTEGRAL_MAX_RAD,
         FCS_TRIM_INTEGRAL_MAX_RAD
       );

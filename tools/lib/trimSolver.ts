@@ -40,7 +40,7 @@ import {
 import { Quat, clamp, inverseLerp, interpolate2D, type Table2D } from '../../src/math';
 import { SIM_DT_SEC } from '../../src/contracts/core';
 import { resetFcsTrimState } from '../../src/physics';
-import { entityPoolIndex } from '../../src/physics/fcs';
+import { entityPoolIndex, getLastGLoad } from '../../src/physics/fcs';
 
 // -----------------------------------------------------------------------------
 // ISA atmosphere (module 12's own inlined copy — see 12-verification.md
@@ -536,14 +536,73 @@ const GCMD_TRIM_MAX_ITERATIONS = 40;
  * this function measures (both bisection endpoints and every midpoint) —
  * far larger than `findTrim`'s own `TRIM_SETTLE_STEPS_PER_ITERATION`.
  * Empirically, holding `pitchStick` fixed at the analytically-correct value
- * for a level (or banked) trim still needs on the order of a second or more
- * of real elapsed time for `stepFcs`'s trim-integral to bring `gLoad`
- * anywhere near `gCmd` at this airframe's deliberately weak `gLoadGain`
- * (src/aircraft/tejasGeometry.ts) — 0.25s (findTrim's own budget, tuned for
- * a pitch-searching solver that re-settles every iteration regardless) is
- * not enough here.
+ * for a level (or banked) trim still needs on the order of MINUTES of real
+ * elapsed simulated time for `stepFcs`'s trim-integral to bring `gLoad`
+ * within `TRIM_RESIDUAL_TOLERANCE_MPS2` of `gCmd`, given this airframe's
+ * deliberately gentle `FCS_TRIM_INTEGRAL_GAIN` (src/physics/fcs.ts, ~0.02
+ * rad/(g*s)) — 0.25s-1.5s (this constant's earlier, far smaller values,
+ * tuned before the cross-module fixes below) is nowhere near enough.
+ *
+ * This was masked by two independent sign bugs (both fixed as part of the
+ * same cross-module pass that raised this constant — see
+ * src/physics/fcs.ts's trim-integral sign fix and
+ * src/aircraft/tejasGeometry.ts's `yawRateGain` sign fix): with either bug
+ * present, a long settle window was actively harmful (the closed loop never
+ * truly converges — it either fights itself on the pitch axis, per fcs.ts's
+ * own comment, or develops an exponentially growing roll/yaw divergence from
+ * floating-point noise within roughly a minute of simulated time, per
+ * tejasGeometry.ts's own comment — so previous tuning passes had no reason
+ * to try a long settle here). With both fixed, the closed loop is genuinely,
+ * stably convergent (confirmed empirically over 100+ simulated seconds with
+ * no divergence), and giving the slow trim-integral gain enough elapsed time
+ * to actually close the residual gap is the correct fix rather than further
+ * gain surgery: `FCS_TRIM_INTEGRAL_GAIN` is deliberately gentle (a fast
+ * auto-trim would fight a human pilot's own stick inputs), and this file is
+ * free to spend CLI/test wall-clock time (a few hundred milliseconds per
+ * settle call at ~2us/step) that a real-time 120 Hz sim tick budget could
+ * never afford.
  */
-const GCMD_TRIM_SETTLE_STEPS_PER_ITERATION = 180;
+const GCMD_TRIM_SETTLE_STEPS_PER_ITERATION = 9000;
+/** How often (in settle substeps) the adaptive early-exit below re-checks gLoad/alpha — cheap (an array read + a quaternion rotate), but no need to pay it every single substep. */
+const GCMD_SETTLE_CHECK_INTERVAL_STEPS = 30;
+/** gLoad-error convergence threshold for the adaptive early-exit, g. Comfortably under TRIM_RESIDUAL_TOLERANCE_MPS2/GRAVITY_MPS2 (~0.00204 g) so the settle phase stops only once the FINAL probe below is already expected to land under tolerance. */
+const GCMD_SETTLE_CONVERGED_GLOAD_TOL = 0.001;
+/** Alpha magnitude, rad, past which a settling candidate is treated as departed/hopeless and abandoned early rather than burning the rest of its settle budget. Comfortably above fcsLimits.maxAlphaRad (~0.384 rad / 22deg) so a legitimate high-alpha trim is never mistaken for a departure. */
+const GCMD_SETTLE_DIVERGED_ALPHA_RAD = (60 * Math.PI) / 180;
+/**
+ * NOTE (cross-module review, this pass): even with the settle-time and
+ * per-step re-anchor fixes above, this closed loop is only stably
+ * convergent across PART of the required performance-target envelope —
+ * confirmed by direct simulation to converge cleanly (bounded, monotonic,
+ * indefinitely stable) at low dynamic pressure (e.g. sea level ~100-150
+ * m/s), but to diverge (unbounded growing alpha oscillation) at higher
+ * dynamic pressure (e.g. sea level 250-310 m/s) REGARDLESS of how far
+ * `FcsLimits.gLoadGain`/`pitchRateGain` are scaled down — no single fixed
+ * gain pair stabilizes both ends of the required speed range at once. This
+ * is expected for a FIXED-gain pitch law: `stepFcs` (src/physics/fcs.ts)
+ * does not schedule its gains by dynamic pressure, while the aerodynamic
+ * moment (hence the closed loop's effective gain) scales with qBar =
+ * 0.5*rho*V^2 — a gain tuned stable near V=100 m/s is, by construction,
+ * roughly (310/100)^2 ~= 9.6x too aggressive by V=310 m/s. Properly fixing
+ * this needs qBar-scheduled FCS gains, a `stepFcs` signature change (it
+ * does not currently receive airspeed/qBar) touching its call site in
+ * src/physics/integrator.ts and every direct caller including
+ * tests/physics/fcs.test.ts — real module-02 flight-control-law design
+ * work, not a same-day cross-module sign/logic fix, and too large a change
+ * to make safely here without dedicated validation against the rest of the
+ * flight-model test suite (tests/integration/aiDogfight.test.ts in
+ * particular already leans on the current gain magnitudes — see
+ * src/aircraft/tejasGeometry.ts's own gLoadGain comment). Flagged as a
+ * contract/design concern per this task's ground rules rather than patched
+ * here; `vmax_sl`/`vmax_11000`/`turn_5000_m06` (all of which trim well
+ * above 150 m/s TAS at some point in their own search) are expected to
+ * still fail tests/integration/trimAndPerformance.test.ts for this reason
+ * even after the genuine bugs this pass DID fix (src/physics/fcs.ts's
+ * trim-integral sign; src/aircraft/tejasGeometry.ts's `yawRateGain` sign;
+ * this file's velocity re-anchor above) — those fixes are still correct
+ * and necessary (without them NOTHING in the envelope ever trims), they are
+ * just not sufficient on their own to cover the full high-speed envelope.
+ */
 
 /**
  * Trim solver for `src/physics/fcs.ts`'s G-command pitch law (`stepFcs`'s
@@ -650,6 +709,58 @@ export function findGCommandTrim<TDef extends GCommandAircraftDefLike>(
       const tmp = cur;
       cur = settleScratch;
       settleScratch = tmp;
+      // Re-anchor the TRANSLATIONAL state to the nominal trim condition after
+      // EVERY substep (not just once, between outer throttle candidates, the
+      // way findTrim's own settleForward does between ITS iterations — this
+      // settle window is far longer, per GCMD_TRIM_SETTLE_STEPS_PER_
+      // ITERATION's own comment, specifically to give the slow trim-integral
+      // gain enough elapsed time to converge). Cross-module fix: without
+      // this, an off-trim throttle candidate (any candidate before bisection
+      // has narrowed in — including the very first guess) accelerates or
+      // decelerates the aircraft, UNCHECKED, for the entire multi-second-to-
+      // multi-minute settle window, drifting the airspeed far from the
+      // condition being trimmed and, empirically, eventually driving alpha
+      // into a departure (this was the actual mechanism behind
+      // `vmax_sl`/`vmax_11000` measuring stuck at the bisection's initial
+      // guess: even the FIRST candidate's settle diverged before ever
+      // reaching a usable probe). Altitude/speed direction are the trim
+      // CONDITION (held fixed by definition, exactly like findTrim's own
+      // re-anchor — see that function's comment), not free variables this
+      // solver is searching over (only `throttle` is, via the bisection
+      // above; `pitchStick` is the closed-form value computed once above);
+      // pinning velocity every substep also correctly isolates what this
+      // throttle candidate's OWN trimmed alpha/gLoad would be (thrust's
+      // small vertical/alpha-coupling contribution still varies with
+      // `thr` even though speed itself does not), which is exactly the
+      // quantity the probe below needs to measure. `rot`/`omega`/elevons/
+      // throttle/fuel are left exactly as `step` produced them — those are
+      // the free variables actually being solved for.
+      cur.pos.x = seedState.pos.x;
+      cur.pos.y = seedState.pos.y;
+      cur.pos.z = seedState.pos.z;
+      cur.vel.x = seedState.vel.x;
+      cur.vel.y = seedState.vel.y;
+      cur.vel.z = seedState.vel.z;
+      // Adaptive early-exit (cross-module perf fix, checked cheaply every
+      // GCMD_SETTLE_CHECK_INTERVAL steps via the gLoad `stepFcs` already
+      // computed this substep — no extra probe/step needed): once gLoad has
+      // clearly settled to within a comfortable margin of `gCmdTarget`,
+      // further settling only wastes CLI wall-clock time (this pitch law's
+      // convergence is monotonic once stable — see this constant's own
+      // comment) and burns down PERFORMANCE_TARGETS' shared 30s budget.
+      // Conversely, once alpha has clearly diverged well past any physically
+      // sane trim (this airframe's fcsLimits.maxAlphaRad tops out at ~22
+      // degrees), continuing to burn the full settle budget on a candidate
+      // that has already departed cannot recover — bailing out immediately
+      // both saves time AND stops compounding floating-point garbage that
+      // would otherwise feed the NEXT bisection candidate's probe with a
+      // meaningless residual sign.
+      if (s % GCMD_SETTLE_CHECK_INTERVAL_STEPS === 0) {
+        const gLoadNow = getLastGLoad(entityPoolIndex(seedState.id));
+        if (Math.abs(gLoadNow - gCmdTarget) < GCMD_SETTLE_CONVERGED_GLOAD_TOL) break;
+        const alphaNow = computeAlphaRad(cur);
+        if (!Number.isFinite(alphaNow) || Math.abs(alphaNow) > GCMD_SETTLE_DIVERGED_ALPHA_RAD) break;
+      }
     }
     return cur;
   };
