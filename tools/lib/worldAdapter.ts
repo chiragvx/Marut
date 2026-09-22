@@ -49,7 +49,7 @@ import { EVENT_QUEUE_CAPACITY } from '../../src/contracts/sim';
 import type { SimWorldHandle } from '../../src/contracts/verify';
 import { readSnapshotEntity, readSnapshotHeader } from '../../src/core/snapshotReader';
 import { unpackEntityId } from '../../src/core/entityPool';
-import { resetFcsTrimState } from '../../src/physics';
+import { resetFcsTrimState, getTrimIntegralRad, getLastGLoad, setFcsTrimState } from '../../src/physics/fcs';
 
 interface ManualPilotBinding {
   entityId: EntityId;
@@ -118,30 +118,59 @@ export function adaptWorldToHandle(world: World): SimWorldHandle {
 
   // src/physics/fcs.ts keeps its trim-integral/last-gLoad state in a
   // MODULE-LEVEL (process-wide, not per-World) table indexed by pool slot
-  // (see 02-flight-model.md section 4.9/9). `src/core`'s own spawn path
-  // resets an entity's slot when it is (re)spawned, but that reset happens
-  // once, at spawn time -- it does not protect against a SECOND, INDEPENDENT
-  // `World` instance in this same process running to completion (and
-  // writing fresh values into those same module-level slots) BETWEEN this
-  // world's spawns and this world's own first tick, which is exactly what
-  // two `createTestWorld`-built `SimWorldHandle`s (spawned back-to-back,
-  // then stepped one to completion before the other starts, as
-  // tests/integration/determinism.test.ts does) do. In real gameplay only
-  // one `World` ever exists per worker process, so this never surfaces
-  // there; it is a test/tooling-only hazard whenever multiple `World`s
-  // share a process. Clearing every currently-alive entity's slot
-  // immediately before THIS handle's very first tick guarantees this
-  // world's own run starts from a clean slate regardless of what any other
-  // World in the same process already did.
+  // (see 02-flight-model.md section 4.9/9). In real gameplay only one
+  // `World` ever exists per worker process, so this is invisible there; it
+  // is a test/tooling-only hazard whenever multiple `World`s share a
+  // process, which is exactly what two `createTestWorld`-built
+  // `SimWorldHandle`s stepped for direct comparison do
+  // (tests/integration/determinism.test.ts, tools/sim-check.ts's
+  // `determinism` mode). `src/core`'s own spawn path resets an entity's slot
+  // once, at spawn time, which is NOT enough on its own: those tests step
+  // worldA and worldB in an INTERLEAVED tick-by-tick pattern
+  // (`worldA.stepFixed(); worldB.stepFixed();` repeated), and since a
+  // second `World`'s entities are, in the ordinary case, spawned into the
+  // SAME low pool indices as the first `World`'s (both pools allocate
+  // their first aircraft at index 0, the second at index 1, etc.), every
+  // OTHER call after the very first tick overwrites the previous world's
+  // freshly-computed trim-integral/gLoad values with its own — a real,
+  // verified (not hypothetical) source of divergence: with only the
+  // once-at-first-tick reset below, worldA's and worldB's `elevonL/R`
+  // measurably differ by tick 5 of tools/sim-check.ts's `determinism` mode
+  // run (default free-flight mission), compounding into full state
+  // divergence by the first 5-second checkpoint.
+  //
+  // The fix: this handle keeps its OWN save of every aircraft entity IT
+  // owns' (trimIntegralRad, lastGLoadRad), restores that save into
+  // fcs.ts's module slots immediately before every `stepOnce()` (undoing
+  // whatever any interleaved OTHER `World`'s steps wrote there since this
+  // handle's own last step) and re-captures it immediately after (before
+  // control returns to the caller and, potentially, another `World` steps
+  // and clobbers the shared slots again). The very first tick has no prior
+  // save to restore from, so it instead resets to a clean zero, exactly
+  // matching what a freshly spawned aircraft's slot already ought to be.
   let hasSteppedOnce = false;
-  const resetAllFcsTrimState = (): void => {
+  const localFcsTrimState = new Map<number, { trimIntegralRad: number; lastGLoadRad: number }>();
+  const forEachOwnAircraftIndex = (fn: (entityIndex: number) => void): void => {
     world.writeSnapshot(snapshotScratch);
     const header = readSnapshotHeader(snapshotScratch);
     for (let i = 0; i < header.entityCount; i++) {
       const view = readSnapshotEntity(snapshotScratch, i, entityViewScratch);
       if (view.kind !== 'aircraft') continue;
-      resetFcsTrimState(unpackEntityId(view.id).index);
+      fn(unpackEntityId(view.id).index);
     }
+  };
+  const resetAllFcsTrimState = (): void => {
+    forEachOwnAircraftIndex((entityIndex) => resetFcsTrimState(entityIndex));
+  };
+  const restoreLocalFcsTrimState = (): void => {
+    for (const [entityIndex, saved] of localFcsTrimState) {
+      setFcsTrimState(entityIndex, saved.trimIntegralRad, saved.lastGLoadRad);
+    }
+  };
+  const saveLocalFcsTrimState = (): void => {
+    forEachOwnAircraftIndex((entityIndex) => {
+      localFcsTrimState.set(entityIndex, { trimIntegralRad: getTrimIntegralRad(entityIndex), lastGLoadRad: getLastGLoad(entityIndex) });
+    });
   };
 
   return {
@@ -155,6 +184,8 @@ export function adaptWorldToHandle(world: World): SimWorldHandle {
       if (!hasSteppedOnce) {
         hasSteppedOnce = true;
         resetAllFcsTrimState();
+      } else {
+        restoreLocalFcsTrimState();
       }
       for (const binding of manualBindings) {
         const self = world.getEntityState(binding.entityId);
@@ -182,6 +213,7 @@ export function adaptWorldToHandle(world: World): SimWorldHandle {
         world.setPlayerInput(binding.entityId, out);
       }
       world.stepOnce();
+      saveLocalFcsTrimState();
     },
     spawnAircraft(aircraftDefId, team, pos, headingRad, speedMps, pilot, difficulty) {
       const id = world.spawnEntity({

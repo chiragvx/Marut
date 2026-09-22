@@ -58,6 +58,26 @@ export function resetFcsTrimState(entityIndex: number): void {
   lastGLoadRad[entityIndex] = 0;
 }
 
+/**
+ * Writes an explicit (trimIntegralRad, lastGLoadRad) pair into a pool slot.
+ * Non-contract, like `getTrimIntegralRad`/`getLastGLoad` above: this module's
+ * state is process-wide, keyed only by pool INDEX, not by which `World`
+ * instance owns that index (00-architecture.md's own topology assumes
+ * exactly one `World` per sim-worker process, which is why this is safe in
+ * production). `tools/lib/worldAdapter.ts` uses this to give each
+ * independently-created `World` its own save/restore of this slot around
+ * every step, so two `World`s sharing a process (e.g.
+ * tests/integration/determinism.test.ts's/tools/sim-check.ts's `determinism`
+ * mode's worldA/worldB, stepped in an INTERLEAVED tick-by-tick pattern for
+ * direct comparison) do not silently overwrite each other's trim-integral
+ * history on a shared index every other tick — see that file's own comment
+ * for the full mechanism.
+ */
+export function setFcsTrimState(entityIndex: number, trimIntegralRadValue: number, lastGLoadRadValue: number): void {
+  trimIntegralRad[entityIndex] = trimIntegralRadValue;
+  lastGLoadRad[entityIndex] = lastGLoadRadValue;
+}
+
 /** Pure helper (exposed for test 16/17): the pitch g-command law's `gCmd`, before alpha-limiting. */
 export function computeGCommand(pitchStick: number, fcsLimits: Pick<FcsLimits, 'maxGLoadPos' | 'maxGLoadNeg'>): number {
   return pitchStick >= 0 ? lerp(1.0, fcsLimits.maxGLoadPos, pitchStick) : lerp(1.0, fcsLimits.maxGLoadNeg, -pitchStick);

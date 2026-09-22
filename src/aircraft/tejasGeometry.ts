@@ -112,23 +112,52 @@ export const fcsLimits: FcsLimits = {
   // positive here, which made every trim search and any aggressive
   // (AI-commanded) pitch maneuver diverge instead of converge.
   //
-  // NOTE on magnitude (pitchRateGain): -0.3 (the smallest magnitude that
-  // still has the correct sign) leaves the closed loop only marginally
-  // damped for this airframe's fast open-loop pitch instability (see
-  // 03-tejas-data.md's own dCm/dalpha figure) -- tests/integration/
-  // aiDogfight.test.ts's ace-vs-ace case (high commanded-G, aggressive AI
-  // stick inputs) drives a sustained-enough oscillation to briefly depart
-  // controlled flight. -0.4 is the smallest increase found (by comparing
-  // against that test and tools/sim-check.ts's climb-rate target, which
-  // both move in opposite directions as this magnitude grows) that keeps
-  // aiDogfight passing without needlessly sacrificing climb performance;
-  // see this module's contractConcerns for why a single fixed gain still
-  // cannot cleanly stabilize the full low-speed part of the envelope (a
-  // real gain-scheduled FCS would vary this with dynamic pressure, which
-  // FcsLimits has no provision for).
+  // NOTE on magnitude (gLoadGain): previously -1.0. That magnitude made the
+  // pitch axis diverge into a sustained, large (tens of degrees) alpha
+  // oscillation from EVERY probed point in the trim envelope
+  // (tools/sim-check.ts's whole-grid `out_of_control_authority` failures;
+  // tests/integration/trimAndPerformance.test.ts reproduces the same thing
+  // against the real Tejas data) -- not merely "marginally damped", but
+  // unstable even for a near-zero pitch-stick command. The cause: dCL/dalpha
+  // for this airframe (tejasAeroTables.ts) is steep enough (~3.3/rad at the
+  // tested Mach numbers) that at a representative cruise condition (200 m/s,
+  // sea level) roughly 37 g of load factor is produced per radian of alpha,
+  // so gLoadGain=-1.0 (1 full radian of elevon per g of error) closes an
+  // enormously high-gain alpha loop through the CL(alpha) table -- far past
+  // what the rate-limited elevon (maxElevonRateRadS=3.0) and this
+  // airframe's own pitch inertia can track without overshoot, so the
+  // proportional term saturates the surface and flips sign every cycle (a
+  // relay/bang-bang oscillation) instead of settling.
+  //
+  // -0.3 (a ~3x reduction) was chosen, over more aggressive reductions that
+  // damp the trim envelope considerably better on their own (values down to
+  // -0.04, combined with a larger pitchRateGain magnitude, were tried),
+  // specifically because tests/integration/aiDogfight.test.ts's ace-vs-ace
+  // case -- which needs enough g-command authority for the AI to actually
+  // out-turn/out-climb a threat or the ground during aggressive
+  // maneuvering, not just to hold a gentle cruise trim -- started failing
+  // with a genuine ground impact (minAltAglTeam1 deeply negative) under
+  // those more aggressive reductions: this airframe's real data does not
+  // admit one single fixed gain that is simultaneously well-damped for a
+  // slow, small-perturbation trim search AND responsive enough for
+  // aggressive combat maneuvering (the "real gain-scheduled FCS would vary
+  // this with dynamic pressure" limitation noted below cuts both ways). -0.3
+  // is the point found, by sweeping this value against both
+  // tests/integration/aiDogfight.test.ts and tools/sim-check.ts's trim
+  // grid, where aiDogfight keeps passing while the trim search stops
+  // diverging catastrophically everywhere and starts actually converging
+  // in parts of the envelope (previously 0 of the grid's probed
+  // altitude/speed cells converged; some now do, and most of the rest now
+  // settle into a bounded, moderate-alpha condition instead of the earlier
+  // unbounded oscillation) -- not a full fix of every named performance
+  // target (see tests/integration/trimAndPerformance.test.ts's own
+  // "expected review finding" framing for why a residual public-data-vs-
+  // real-coefficients mismatch on some targets is not automatically a bug),
+  // but a real, verified improvement over the previous universal
+  // divergence, without regressing a test this change does not own fixing.
   pitchRateGain: -0.4,
   rollRateGain: 0.5,
   yawRateGain: 0.4,
   alphaLimitGain: 3.0,
-  gLoadGain: -1.0,
+  gLoadGain: -0.3,
 };

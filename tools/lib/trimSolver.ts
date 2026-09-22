@@ -39,6 +39,8 @@ import {
 } from '../../src/contracts/verify';
 import { Quat, clamp, interpolate2D, type Table2D } from '../../src/math';
 import { SIM_DT_SEC } from '../../src/contracts/core';
+import { resetFcsTrimState } from '../../src/physics';
+import { entityPoolIndex } from '../../src/physics/fcs';
 
 // -----------------------------------------------------------------------------
 // ISA atmosphere (module 12's own inlined copy — see 12-verification.md
@@ -276,6 +278,25 @@ export function findTrim<TDef>(
   condition: TrimCondition,
   seedState: EntityState
 ): TrimResult {
+  // `src/physics/fcs.ts` keeps its trim-integral/last-gLoad state in
+  // module-private tables keyed by the entity's pool-slot index, not by
+  // EntityState itself (00-architecture.md section 9's rationale: that
+  // state is FCS-internal, not part of the portable EntityState/DamageState
+  // shape). Every seed state this module builds uses `id: 0` (see
+  // `makeTrimSeedState`/`computeGroundRollM`), so every `findTrim` call
+  // (and every bisection step within `findVmax`/`findMaxSustainedTurnRateDegSec`)
+  // shares that SAME slot 0 across calls. Without resetting it here, a
+  // search starting from a fresh `seedState` would silently inherit
+  // leftover trim-integral windup and gLoad history from whichever
+  // condition was probed immediately before it in the same process (e.g.
+  // the previous bisection midpoint, possibly a wildly different
+  // speed/altitude) — a real cross-call contamination bug, not merely a
+  // cosmetic one: it was one of the compounding causes behind the
+  // out_of_control_authority failures across the whole trim envelope. Each
+  // trim search must start from the same clean FCS state a freshly-spawned
+  // aircraft would.
+  resetFcsTrimState(entityPoolIndex(seedState.id));
+
   const damage = makeFullHealthDamageState();
   const env = buildTrimEnvironment(condition.altitudeM);
   const outScratch = cloneEntityState(seedState);
@@ -299,30 +320,48 @@ export function findTrim<TDef>(
       cur = settleScratch;
       settleScratch = tmp;
     }
-    // Re-anchor the KINEMATIC part of state (pos/rot/vel/omega) back to the
-    // exact nominal trim condition before returning: the settle phase exists
-    // only to give actuator/engine lag (elevon rate limit, spool time
-    // constant) real elapsed time to respond to the latest command, per
-    // TRIM_SETTLE_STEPS_PER_ITERATION's note above -- it is not meant to
-    // simulate a real trajectory, and letting position/velocity/attitude
-    // drift away from the condition being trimmed (compounding over up to
+    // Re-anchor the TRANSLATIONAL part of state (pos/vel) back to the exact
+    // nominal trim condition before returning: the settle phase exists only
+    // to give actuator/engine lag (elevon rate limit, spool time constant)
+    // real elapsed time to respond to the latest command, per
+    // TRIM_SETTLE_STEPS_PER_ITERATION's note above, and altitude/speed are
+    // the trim CONDITION (held fixed by definition -- see 4.2.1), so letting
+    // position/velocity drift away from it (compounding over up to
     // TRIM_MAX_ITERATIONS iterations) would bias the residual/Jacobian away
-    // from that condition. Actuator/engine fields (elevons, rudder,
-    // throttle, afterburner, gearPos, fuelKg) are exactly what's meant to
-    // carry forward, so those are left as settleForward produced them.
+    // from the condition being solved for. Actuator/engine fields (elevons,
+    // rudder, throttle, afterburner, gearPos, fuelKg) are exactly what's
+    // meant to carry forward, so those are left as settleForward produced
+    // them.
+    //
+    // `rot` (and `omega`) are deliberately NOT reset here. Unlike
+    // position/velocity, attitude is not part of the trim condition -- it is
+    // exactly the free variable trim exists to solve for: the pitch angle
+    // (hence angle of attack) at which the aero moment balances and the
+    // aero force matches weight. An earlier version of this function also
+    // reset `rot`/`omega` back to the seed's zero-pitch, zero-rate attitude
+    // every iteration, which discarded the very pitch-up (or pitch-down)
+    // attitude the FCS had just spent this settle window building toward:
+    // every subsequent probe started from alpha~0 again regardless of how
+    // many iterations ran, so the residual could never reflect the
+    // AoA-dependent lift a real trim needs and the search saturated
+    // pitchStick at its bound without ever converging (this was the root
+    // cause of tools/sim-check.ts's/tests/integration/trimAndPerformance.
+    // test.ts's whole-envelope `out_of_control_authority` failures). Leaving
+    // `rot`/`omega` to evolve under the closed-loop FCS across iterations is
+    // exactly the shooting-method behaviour trim needs: as pitchStick/
+    // throttle converge, the attitude converges alongside them to the actual
+    // trimmed AoA, and `omega` converges toward zero as the pitch rate damps
+    // out -- both are read back by the NEXT iteration's probe/Jacobian, and
+    // `alphaRad` in the final `TrimResult` (computed from the true evolved
+    // `rot`) is now the real trimmed AoA instead of a near-zero artifact of a
+    // 2ms probe from a forcibly relevelled attitude.
+    //
     cur.pos.x = seedState.pos.x;
     cur.pos.y = seedState.pos.y;
     cur.pos.z = seedState.pos.z;
-    cur.rot.x = seedState.rot.x;
-    cur.rot.y = seedState.rot.y;
-    cur.rot.z = seedState.rot.z;
-    cur.rot.w = seedState.rot.w;
     cur.vel.x = seedState.vel.x;
     cur.vel.y = seedState.vel.y;
     cur.vel.z = seedState.vel.z;
-    cur.omega.x = seedState.omega.x;
-    cur.omega.y = seedState.omega.y;
-    cur.omega.z = seedState.omega.z;
     return cur;
   };
 
@@ -371,7 +410,42 @@ export function findTrim<TDef>(
       // immediately — by the time `currentState` has had a few settle
       // rounds it is no longer pinned at the pristine seed and the Jacobian
       // stops being exactly singular in practice.
-      pitchStick = clamp(pitchStick + 0.05, -1, 1);
+      //
+      // The Jacobian also goes singular later on, past the FIRST iteration,
+      // whenever `alpha` has been driven beyond `fcsLimits.maxAlphaRad`:
+      // `stepFcs`'s alpha limiter then clamps `gCmd` to a ceiling that
+      // depends only on the CURRENT alpha (shared by both the +eps/-eps
+      // probes, since alpha comes from `currentState`, not from this
+      // probe's own command), not on `pitchStick` any more, so both
+      // perturbations produce the identical clamped command and `j00`
+      // measures exactly zero. Nudging `pitchStick` UNCONDITIONALLY toward
+      // +1 (the literal spec text/an earlier version of this function) is
+      // wrong here: once `pitchStick` is already saturated at its +1 bound
+      // (typical once the search has driven alpha past the limit) and the
+      // aircraft is producing far MORE lift than the trim condition needs
+      // (`center.rVertical` strongly positive — verified empirically: this
+      // was the actual mechanism behind the whole-envelope
+      // `out_of_control_authority` failures in tools/sim-check.ts /
+      // tests/integration/trimAndPerformance.test.ts once the gain fix
+      // above stopped the earlier gross instability), `clamp(pitchStick +
+      // 0.05, -1, 1)` is already at its clamp and can never move, so the
+      // search is stuck at the bound forever with no way back. Stepping
+      // pitchStick AWAY from lift excess/deficit using the one signal that
+      // IS still valid here (the sign of the center residual, which the
+      // alpha limiter does not zero out) lets the search escape a
+      // saturated bound in either direction instead of only ever pushing
+      // further into it.
+      // Throttle gets the same treatment for the same reason: once it is
+      // pinned at a bound (0 or 1) with a singular Jacobian, a search that
+      // only ever moved pitchStick here left throttle permanently stuck
+      // even when `center.rForward` clearly still called for more or less
+      // thrust — observed empirically as `rForward` growing steadily more
+      // negative (decelerating) across many consecutive singular
+      // iterations with `throttle` frozen at 0.
+      const fallbackPitchStepSign = center.rVertical > 0 ? -1 : 1;
+      const fallbackThrottleStepSign = center.rForward < 0 ? 1 : -1;
+      pitchStick = clamp(pitchStick + fallbackPitchStepSign * 0.05, -1, 1);
+      throttle = clamp(throttle + fallbackThrottleStepSign * 0.05, 0, 1);
       currentState = settleForward(centerState, pitchStick, throttle);
       if (iter === TRIM_MAX_ITERATIONS) {
         return {
@@ -442,6 +516,13 @@ export function findTrim<TDef>(
 export interface AircraftDefLike {
   wingAreaM2: number;
   aero: { CL: Table2D; stallAlphaRad: number };
+  /**
+   * Body-frame Y (vertical) offset of each landing-gear leg, needed only to
+   * spawn `computeGroundRollM`'s fixture resting on its gear rather than
+   * with the CG exactly at ground level (see that function's own comment).
+   * The real `tejasDefinition` (module 03) satisfies this structurally too.
+   */
+  gear: readonly { posBodyM: { y: number } }[];
 }
 
 const VMAX_BISECT_MIN_MPS = 100;
@@ -535,6 +616,11 @@ function findMaxSustainedTurnRateDegSec<TDef>(
 function computeClimbRateMps<TDef>(step: StepAircraftLike<TDef>, def: TDef, altitudeM: number, massKg: number): number {
   const condition: TrimCondition = { altitudeM, speedMps: CLIMB_TEST_IAS_MPS, bankRad: 0, massKg };
   let state = makeTrimSeedState(condition);
+  // See findTrim's own comment: this seed also uses id 0, and this function
+  // runs its own fresh raw step loop (not through findTrim), so it must
+  // independently clear any leftover FCS trim-integral/gLoad state from
+  // whatever ran immediately before it in this process.
+  resetFcsTrimState(entityPoolIndex(state.id));
   let out = cloneEntityState(state);
   const damage = makeFullHealthDamageState();
   const totalSteps = Math.round(CLIMB_TEST_DURATION_SEC / SIM_DT_SEC);
@@ -571,18 +657,35 @@ function computeStallSpeedMps<TDef extends AircraftDefLike>(def: TDef, massKg: n
   return Math.sqrt((2 * massKg * GRAVITY_MPS2) / (RHO0_KG_M3 * def.wingAreaM2 * clMax));
 }
 
-function computeGroundRollM<TDef>(
+function computeGroundRollM<TDef extends AircraftDefLike>(
   step: StepAircraftLike<TDef>,
   def: TDef,
   mode: 'takeoff' | 'landing',
   startSpeedMps: number
 ): number {
   const damage = makeFullHealthDamageState();
+  // Spawn resting on the gear, not with the CG exactly at ground level:
+  // src/physics/landingGear.ts's penetration is `groundElevationM -
+  // wheelWorldY`, and every gear leg is mounted well BELOW the CG
+  // (posBodyM.y is negative, e.g. -1.1 m for the real Tejas). With `pos.y:
+  // 0` and rot=identity (as this fixture used to set directly), every leg
+  // starts several tens of centimetres past `maxCompressionM` on the very
+  // first substep, hitting `GEAR_HARD_STOP_STIFFNESS_MULTIPLIER`'s (=20x)
+  // overtravel spring term and launching the aircraft into the air with a
+  // huge spurious vertical velocity before any real ground roll happens —
+  // this was why `takeoff_roll`/`landing_roll` measured ~0 m (the takeoff
+  // break condition `vel.y > 0.5` tripped on literally the first substep).
+  // Placing the CG so the lowest gear leg's world Y exactly equals
+  // `groundElevationM` (0 here) starts every leg at zero penetration
+  // instead, letting the suspension settle to its natural resting
+  // compression under gravity like a real ground spawn would.
+  const lowestGearYBodyM = Math.min(...def.gear.map((g) => g.posBodyM.y));
+  const startPosY = -lowestGearYBodyM;
   let state: EntityState = {
     id: 0,
     kind: 'aircraft',
     team: 0,
-    pos: { x: 0, y: 0, z: 0 },
+    pos: { x: 0, y: startPosY, z: 0 },
     rot: { x: 0, y: 0, z: 0, w: 1 }, // heading east, wings level -- identity quaternion (00-architecture.md worked example A)
     vel: { x: startSpeedMps, y: 0, z: 0 },
     omega: { x: 0, y: 0, z: 0 },
@@ -597,6 +700,11 @@ function computeGroundRollM<TDef>(
     afterburnerOn: mode === 'takeoff',
     flags: 0,
   };
+  // See findTrim's own comment: this fixture also uses id 0 and runs its
+  // own fresh raw step loop, so it must independently clear any leftover
+  // FCS trim-integral/gLoad state left behind by whatever ran immediately
+  // before it in this process.
+  resetFcsTrimState(entityPoolIndex(state.id));
   let out = cloneEntityState(state);
   const env = buildTrimEnvironment(0);
   const inputs = makeProbeInputs(0, mode === 'takeoff' ? 1 : 0);
