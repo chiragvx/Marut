@@ -37,7 +37,7 @@ import {
   TRIM_STEP_DAMPING,
   PerformanceTargetKind,
 } from '../../src/contracts/verify';
-import { Quat, clamp, interpolate2D, type Table2D } from '../../src/math';
+import { Quat, clamp, inverseLerp, interpolate2D, type Table2D } from '../../src/math';
 import { SIM_DT_SEC } from '../../src/contracts/core';
 import { resetFcsTrimState } from '../../src/physics';
 import { entityPoolIndex } from '../../src/physics/fcs';
@@ -497,6 +497,256 @@ export function findTrim<TDef>(
 }
 
 // -----------------------------------------------------------------------------
+// findGCommandTrim — a trim solver SPECIFIC to src/physics/fcs.ts's G-command
+// pitch law, used below by trimConverges (hence by findVmax/
+// findMaxSustainedTurnRateDegSec) instead of the generic findTrim above. See
+// that function's own doc comment for the full rationale; findTrim itself is
+// left completely unmodified (tests/tools/trimSolver.test.ts still exercises
+// it, unchanged, against a synthetic OPEN-LOOP aircraft where a 2D Newton
+// search over (pitchStick, throttle) is exactly the right tool).
+// -----------------------------------------------------------------------------
+
+/**
+ * The narrow structural subset of AircraftDefinition's FcsLimits
+ * (contracts/aircraft.ts) that `computeGCommand`'s inverse
+ * (`pitchStickForGCommand` below) needs. The real `tejasDefinition`
+ * (module 03) satisfies this structurally with no cast.
+ */
+export interface GCommandAircraftDefLike {
+  fcsLimits: { maxGLoadPos: number; maxGLoadNeg: number };
+}
+
+/**
+ * Exact inverse of `src/physics/fcs.ts`'s exported `computeGCommand`: the
+ * `pitchStick` for which `computeGCommand(pitchStick, fcsLimits) ===
+ * gCmdTarget` (using the same `lerp` computeGCommand itself uses, so this
+ * stays byte-for-byte consistent with the real FCS law rather than
+ * re-deriving an approximate inverse).
+ */
+export function pitchStickForGCommand(gCmdTarget: number, maxGLoadPos: number, maxGLoadNeg: number): number {
+  return gCmdTarget >= 1
+    ? clamp(inverseLerp(1, maxGLoadPos, gCmdTarget), 0, 1)
+    : -clamp(inverseLerp(1, maxGLoadNeg, gCmdTarget), 0, 1);
+}
+
+/** Bisection iterations for the throttle axis (see below); 40 gives throttle precision well under 1e-9 of [0,1]. */
+const GCMD_TRIM_MAX_ITERATIONS = 40;
+/**
+ * Settle steps run (at real `SIM_DT_SEC`) before EVERY throttle candidate
+ * this function measures (both bisection endpoints and every midpoint) —
+ * far larger than `findTrim`'s own `TRIM_SETTLE_STEPS_PER_ITERATION`.
+ * Empirically, holding `pitchStick` fixed at the analytically-correct value
+ * for a level (or banked) trim still needs on the order of a second or more
+ * of real elapsed time for `stepFcs`'s trim-integral to bring `gLoad`
+ * anywhere near `gCmd` at this airframe's deliberately weak `gLoadGain`
+ * (src/aircraft/tejasGeometry.ts) — 0.25s (findTrim's own budget, tuned for
+ * a pitch-searching solver that re-settles every iteration regardless) is
+ * not enough here.
+ */
+const GCMD_TRIM_SETTLE_STEPS_PER_ITERATION = 180;
+
+/**
+ * Trim solver for `src/physics/fcs.ts`'s G-command pitch law (`stepFcs`'s
+ * "normal law", 02-flight-model.md section 4.9), used by `trimConverges`
+ * below in place of the generic `findTrim`.
+ *
+ * `findTrim`'s generic 2D Newton search over (pitchStick, throttle) —
+ * unmodified above, and still exactly what `tests/tools/trimSolver.test.ts`
+ * exercises against a synthetic, OPEN-LOOP aircraft whose `pitchStick` sets
+ * a commanded alpha directly and instantaneously every step — assumes a
+ * "roughly linear, non-self-correcting" pitchStick -> specific-force
+ * response: perturbing `pitchStick` by `TRIM_FD_EPSILON` for the tiny
+ * `TRIM_PROBE_DT_SEC` should produce a small, roughly-instantaneous shift.
+ *
+ * The real Tejas's `stepFcs` breaks that assumption on two independent
+ * levels, not just a noisy one:
+ *   1. `pitchStick` does not set an elevon angle — it sets a COMMANDED LOAD
+ *      FACTOR (`computeGCommand`), and the elevon chases it through a
+ *      rate-limited actuator (`rateLimitStep`) plus a trim-integral. A 2ms
+ *      probe run from an actuator that is not already within one substep's
+ *      rate-limit budget of its (perturbed) target sees `rateLimitStep`
+ *      saturate to the IDENTICAL value for both the `+eps`/`-eps` probes
+ *      (confirmed empirically: `pPlus`/`pMinus` came back bit-for-bit equal
+ *      on most iterations), making the finite-difference Jacobian's pitch
+ *      column measure exact noise/zero far more often than not.
+ *   2. More fundamentally: a sustained `gCmd != 1` in WINGS-LEVEL
+ *      (`bankRad = 0`) flight has NO steady state to settle to at all — a
+ *      constant load factor above/below 1g with zero bank is, by
+ *      definition, a continuously-curving pitch-up/pitch-down maneuver
+ *      (the aircraft's attitude rate settles toward `g*(n-1)/V`, not
+ *      toward zero), not a trimmable condition. Only `gCmd =
+ *      1/cos(bankRad)` is ever a legitimate sustained trim point. A Newton
+ *      search that perturbs `pitchStick` away from that one analytically-
+ *      correct value for its finite-difference probes is therefore not
+ *      measuring a noisy version of the right derivative on the pitch axis
+ *      — it is probing a state that never settles, which is exactly the
+ *      `out_of_control_authority` non-convergence this project's
+ *      integration tests found across the real-Tejas trim envelope.
+ *
+ * This solver sidesteps the pitch axis instead of trying to out-tune it:
+ * `computeGCommand`'s own design makes the correct `pitchStick` for any
+ * wings-level-or-banked, unaccelerated trim condition an exact, closed-form
+ * function of `bankRad` alone (`pitchStickForGCommand`, `gCmdTarget =
+ * 1/cos(bankRad)`). That value is computed once and held FIXED for the
+ * whole search; the FCS's own trim-integral (empirically well-behaved once
+ * it is not being yanked around by a pitch-axis Newton step every
+ * iteration) is simply given real elapsed settle time to bring `gLoad` to
+ * `gCmd`, exactly as it would for a human pilot holding a fixed stick
+ * position. Only `throttle` — a genuinely well-conditioned, roughly-linear
+ * 1D thrust-vs-drag balance with no closed-loop pitch coupling — is left
+ * for Newton iteration.
+ */
+export function findGCommandTrim<TDef extends GCommandAircraftDefLike>(
+  step: StepAircraftLike<TDef>,
+  def: TDef,
+  condition: TrimCondition,
+  seedState: EntityState
+): TrimResult {
+  resetFcsTrimState(entityPoolIndex(seedState.id));
+
+  const gCmdTarget = 1 / Math.cos(condition.bankRad);
+  const pitchStick = pitchStickForGCommand(gCmdTarget, def.fcsLimits.maxGLoadPos, def.fcsLimits.maxGLoadNeg);
+
+  const damage = makeFullHealthDamageState();
+  const env = buildTrimEnvironment(condition.altitudeM);
+  const outScratch = cloneEntityState(seedState);
+  let settleScratch = cloneEntityState(seedState);
+
+  let throttle = 0.7;
+  let afterburnerUsed = false;
+
+  // Unlike findTrim's own settleForward, this ALWAYS re-settles from the
+  // pristine `seedState` (never carries rot/omega across outer iterations).
+  // findTrim's carry-forward is a genuine shooting-method necessity there
+  // because pitchStick itself is the thing being searched for, so each
+  // iteration's attitude IS the running estimate of the trim solution.
+  // Here `pitchStick` is fixed for the whole search (only `throttle`
+  // moves), so there is no "running attitude estimate" to preserve — and
+  // carrying rot/omega forward while resetting pos/vel every iteration
+  // (as findTrim does) would instead let any small per-settle-window
+  // pitch-rate bias compound, unbounded, across all
+  // GCMD_TRIM_MAX_ITERATIONS iterations (confirmed empirically: alpha grew
+  // iteration over iteration instead of settling). Always starting the
+  // settle from the same clean seed removes that compounding entirely, at
+  // the cost of redoing the settle from scratch each iteration — cheap
+  // relative to GCMD_TRIM_MAX_ITERATIONS being small and this being CLI/
+  // test-only code, never a hot path.
+  const settleFromSeed = (thr: number): EntityState => {
+    // `stepFcs`'s trim-integral/last-gLoad state (src/physics/fcs.ts) is
+    // module-private and keyed only by pool INDEX (always 0 here — every
+    // EntityState this file builds uses `id: 0`), not by this EEntityState
+    // value itself. Since `cur` below is reset to a fresh clone of
+    // `seedState` every call, the FCS-internal integral must be reset
+    // alongside it every call too, or it keeps winding up across outer
+    // Newton iterations even though the visible EntityState does not
+    // (confirmed empirically: alpha grew steadily iteration-over-iteration
+    // despite every iteration re-settling from the identical fresh seed,
+    // until this reset was added).
+    resetFcsTrimState(entityPoolIndex(seedState.id));
+    const settleInputs = makeProbeInputs(pitchStick, thr);
+    let cur = cloneEntityState(seedState);
+    for (let s = 0; s < GCMD_TRIM_SETTLE_STEPS_PER_ITERATION; s++) {
+      step(cur, damage, settleInputs, env, def, SIM_DT_SEC, settleScratch);
+      const tmp = cur;
+      cur = settleScratch;
+      settleScratch = tmp;
+    }
+    return cur;
+  };
+
+  // Bisection, not Newton, for the throttle axis: `TRIM_FD_EPSILON`
+  // (1e-3) over `TRIM_PROBE_DT_SEC` (2ms) is nowhere near enough elapsed
+  // time for `src/physics/engine.ts`'s first-order spool lag
+  // (`spoolTimeConstantSec`, ~2.5s for the real Tejas) to produce a
+  // measurable, reliably-signed response — confirmed empirically: the
+  // finite-difference throttle derivative came back both minuscule
+  // (~1e-4, orders of magnitude below the forward residual it was being
+  // divided into) AND inconsistently signed run to run, which sent a
+  // Newton step the WRONG way (throttle climbing toward 1 while already
+  // accelerating). Thrust vs. drag is otherwise a textbook-monotonic,
+  // single-root 1D problem once each candidate throttle is given real
+  // settle time (`settleFromSeed`, not a 2ms probe) to reach its own
+  // steady state, so bisection on the SIGN of the settled residual sidesteps
+  // the unmeasurable-derivative problem entirely rather than working around
+  // it.
+  let thrLo = 0;
+  let thrHi = 1;
+  let bestAlphaRad = 0;
+  let bestResidualMag = Number.POSITIVE_INFINITY;
+
+  for (let iter = 1; iter <= GCMD_TRIM_MAX_ITERATIONS; iter++) {
+    const throttleGuess = iter === 1 ? throttle : (thrLo + thrHi) / 2;
+    const currentState = settleFromSeed(throttleGuess);
+    const center = probe(step, def, currentState, damage, env, pitchStick, throttleGuess, outScratch);
+    const residualMag = Math.sqrt(center.rVertical * center.rVertical + center.rForward * center.rForward);
+    const centerAlphaRad = computeAlphaRad(outScratch);
+    if (throttleGuess >= 0.999) afterburnerUsed = true;
+    throttle = throttleGuess;
+    if (residualMag < bestResidualMag) {
+      bestResidualMag = residualMag;
+      bestAlphaRad = centerAlphaRad;
+    }
+
+    if (residualMag < TRIM_RESIDUAL_TOLERANCE_MPS2) {
+      return {
+        status: TrimStatus.Converged,
+        condition,
+        pitchStick,
+        throttle,
+        afterburnerUsed,
+        alphaRad: centerAlphaRad,
+        iterations: iter,
+        residualMps2: residualMag,
+      };
+    }
+
+    // center.rForward > 0: still accelerating past the trim speed at this
+    // throttle -> the true balance point is at a LOWER throttle (and vice
+    // versa). This is exactly a bisection step, using `throttleGuess` as
+    // both the probed point and (after the first iteration) the bisection
+    // midpoint.
+    if (center.rForward > 0) {
+      thrHi = throttleGuess;
+    } else {
+      thrLo = throttleGuess;
+    }
+
+    if (iter === GCMD_TRIM_MAX_ITERATIONS) {
+      // thrLo/thrHi never bracketing a root at all (both bounds pushed to
+      // the same side, e.g. insufficient thrust even at throttle=1, or
+      // already decelerating at throttle=0) is a genuine
+      // out-of-control-authority condition for this trim condition, not
+      // merely a slow search — distinguished from "still converging" by
+      // whether bisection ever moved a bound away from its initial value.
+      const bracketed = thrLo > 0 || thrHi < 1;
+      return {
+        status: bracketed ? TrimStatus.MaxIterationsExceeded : TrimStatus.OutOfControlAuthority,
+        condition,
+        pitchStick,
+        throttle,
+        afterburnerUsed,
+        alphaRad: bestAlphaRad,
+        iterations: iter,
+        residualMps2: bestResidualMag,
+      };
+    }
+  }
+
+  // Unreachable (the loop above always returns), but keeps control flow
+  // exhaustive for strict mode.
+  return {
+    status: TrimStatus.MaxIterationsExceeded,
+    condition,
+    pitchStick,
+    throttle,
+    afterburnerUsed,
+    alphaRad: 0,
+    iterations: GCMD_TRIM_MAX_ITERATIONS,
+    residualMps2: Number.POSITIVE_INFINITY,
+  };
+}
+
+// -----------------------------------------------------------------------------
 // CheckPerformanceTarget — evaluates one PerformanceTarget (12-verification.md
 // section 5.1) by driving `step`/`findTrim` through the recipe that target
 // kind calls for. Bundled in this file (rather than a separate tools/lib
@@ -513,7 +763,7 @@ export function findTrim<TDef>(
  * conservative local subset rather than an invented full re-declaration — the
  * real `tejasDefinition` (module 03) satisfies it structurally with no cast.
  */
-export interface AircraftDefLike {
+export interface AircraftDefLike extends GCommandAircraftDefLike {
   wingAreaM2: number;
   aero: { CL: Table2D; stallAlphaRad: number };
   /**
@@ -547,7 +797,13 @@ const LANDING_APPROACH_SPEED_FACTOR = 1.15;
 /** Hard cap on ground-roll integration steps so a physics bug that never reaches liftoff/stop cannot hang the CLI. */
 const GROUND_ROLL_MAX_SIM_SEC = 120;
 
-function trimConverges<TDef>(
+/**
+ * Uses `findGCommandTrim` (not the generic `findTrim`) since every caller
+ * here trims the REAL Tejas against its real G-command FCS — see
+ * `findGCommandTrim`'s own doc comment for why the generic 2D Newton search
+ * does not converge reliably against that closed loop.
+ */
+function trimConverges<TDef extends GCommandAircraftDefLike>(
   step: StepAircraftLike<TDef>,
   def: TDef,
   altitudeM: number,
@@ -557,10 +813,10 @@ function trimConverges<TDef>(
 ): TrimResult {
   const condition: TrimCondition = { altitudeM, speedMps, bankRad, massKg };
   const seed = makeTrimSeedState(condition);
-  return findTrim(step, def, condition, seed);
+  return findGCommandTrim(step, def, condition, seed);
 }
 
-function findVmax<TDef>(
+function findVmax<TDef extends GCommandAircraftDefLike>(
   step: StepAircraftLike<TDef>,
   def: TDef,
   altitudeM: number,
@@ -586,7 +842,7 @@ function findVmax<TDef>(
   return { speedMps: lo, trim: lastConverged };
 }
 
-function findMaxSustainedTurnRateDegSec<TDef>(
+function findMaxSustainedTurnRateDegSec<TDef extends GCommandAircraftDefLike>(
   step: StepAircraftLike<TDef>,
   def: TDef,
   altitudeM: number,
