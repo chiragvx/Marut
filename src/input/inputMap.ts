@@ -19,13 +19,17 @@ import type {
 import { InputControlScheme } from '../contracts/input';
 
 export const INPUT_MAP_STORAGE_KEY = 'tejas.inputMap.v1';
-export const INPUT_MAP_VERSION = 1;
+// Bumped 1 -> 2 for the PageUp/PageDown -> Z/X throttle rebind below: loadInputMap() discards
+// and re-defaults on any version mismatch, so this makes the new default take effect even for a
+// browser that already has an old InputMapData saved in localStorage, without needing the player
+// to manually hit "Reset Defaults".
+export const INPUT_MAP_VERSION = 2;
 
 /**
- * The literal default binding/tuning data, matching 09-input.md section 5.1
- * exactly. `loadInputMap`/`resetInputMapToDefaults` always hand out a fresh
- * clone of this object (via `cloneInputMapData`), never this shared const,
- * so callers can freely mutate what they receive.
+ * The literal default binding/tuning data, matching 09-input.md section 5.1 (throttle keys
+ * since customized off that baseline — negative='KeyX'/positive='KeyZ', not PageDown/PageUp).
+ * `loadInputMap`/`resetInputMapToDefaults` always hand out a fresh clone of this object (via
+ * `cloneInputMapData`), never this shared const, so callers can freely mutate what they receive.
  */
 export const DEFAULT_INPUT_MAP_DATA: InputMapData = {
   version: INPUT_MAP_VERSION,
@@ -35,7 +39,10 @@ export const DEFAULT_INPUT_MAP_DATA: InputMapData = {
       pitch: { negative: 'KeyW', positive: 'KeyS' },
       roll: { negative: 'KeyA', positive: 'KeyD' },
       yaw: { negative: 'KeyQ', positive: 'KeyE' },
-      throttle: { negative: 'PageDown', positive: 'PageUp' },
+      // Z = more thrust, X = less thrust. Note KeyX is also bound to `brakes` below (unchanged,
+      // per the request as given) — pressing X now both reduces throttle and brakes, which is
+      // actually a natural pairing on landing rollout, but worth knowing if it ever feels wrong.
+      throttle: { negative: 'KeyX', positive: 'KeyZ' },
     },
     buttons: {
       trigger: 'Space',

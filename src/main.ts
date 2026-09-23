@@ -333,8 +333,8 @@ function showMissionSelect(): void {
 }
 
 // Previously main.ts passed `keyBindings: []` and no-op rebind callbacks here, so the settings
-// screen always showed '—' for every action (throttle genuinely was, and still is, PageUp/
-// PageDown — it just had no way to be seen) and "Rebind" silently did nothing. See
+// screen always showed '—' for every action (throttle genuinely worked — it just had no way to
+// be seen) and "Rebind" silently did nothing. See
 // src/core/inputBindingsAdapter.ts's header for the full module-09/module-11 naming-mismatch
 // story this wiring has to bridge, including the one keyboard-axis-capture limitation it
 // inherits (and refuses to silently mis-apply) from module 09.

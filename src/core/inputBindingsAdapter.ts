@@ -11,7 +11,7 @@
  *     row means, via 00-architecture.md's PilotInputs sign convention (+1 = the intuitive
  *     "more"/"right"/"up" direction — confirmed against inputMap.ts's DEFAULT_INPUT_MAP_DATA:
  *     pitch positive='KeyS' (stick back = nose up), roll positive='KeyD' (roll right), yaw
- *     positive='KeyE' (nose right), throttle positive='PageUp').
+ *     positive='KeyE' (nose right), throttle positive='KeyZ').
  *   - Three button/meta actions were simply named differently by the two modules: module 11's
  *     `airbrake`/`noseWheelSteer`/`pauseToggle` are module 09's `airbrakeToggle`/`nwsToggle`/
  *     `menuToggle`.

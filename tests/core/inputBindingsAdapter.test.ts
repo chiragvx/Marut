@@ -20,9 +20,9 @@ describe('buildKeyBindingsFromInputMap', () => {
     expect(bindings.length).toBe(Object.values(BindableAction).length);
   });
 
-  it('resolves throttleUp/throttleDown from the real default keyboard axis (PageUp/PageDown), matching the live app', () => {
-    expect(codeFor(BindableAction.ThrottleUp)).toBe('PageUp');
-    expect(codeFor(BindableAction.ThrottleDown)).toBe('PageDown');
+  it('resolves throttleUp/throttleDown from the real default keyboard axis (Z/X), matching the live app', () => {
+    expect(codeFor(BindableAction.ThrottleUp)).toBe('KeyZ');
+    expect(codeFor(BindableAction.ThrottleDown)).toBe('KeyX');
   });
 
   it('resolves pitch/roll/yaw per the architecture sign convention (positive = nose up / roll right / nose right)', () => {
