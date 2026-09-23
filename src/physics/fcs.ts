@@ -22,6 +22,25 @@ const FCS_TRIM_INTEGRAL_GAIN = 0.02;
 const FCS_TRIM_INTEGRAL_MAX_RAD = 0.2094;
 
 /**
+ * Max onset rate of the FCS-shaped pitch/roll stick, in stick-fraction (-1..1) units per second —
+ * quadruplex-FBW-style command shaping on the PILOT's raw demand itself (distinct from
+ * gLoadGain/pitchRateGain/rollRateGain above, which damp the AIRCRAFT's measured rate/response,
+ * not the pilot's input). Previously a raw, instantaneous stick value fed straight into
+ * computeGCommand/pCmd with no shaping at all — only playerPilot.ts's keyboard-specific
+ * KEYBOARD_AXIS_RAMP_RATE_PER_SEC=2.5 (0->full in 0.4s) gave keyboard players any onset lag, and
+ * gamepad/mouse/touch got none whatsoever. Live-testing (holding a full pitch key) showed this
+ * produced a classic underdamped step-response ring even on keyboard: a full pull crossed the
+ * commanded +8.0g ceiling at 393ms then overshot to a peak of +9.49g (+18.6%) by 597ms; a full
+ * push overshot the -3.0g ceiling to -4.74g (+58%) — the felt "very sensitive" controls.
+ * 1/2.0 = 0.5s for 0->full deflection: slower than the keyboard ramp above, so this becomes the
+ * new binding onset limit for every input device (keyboard included), directly damping that ring
+ * by giving the closed loop time to track the commanded value instead of having it "arrive"
+ * abruptly. Does not touch steady-state trim (once fully ramped, the commanded value is
+ * unchanged) — see tools/sim-check.ts re-validation after this was added.
+ */
+const FCS_STICK_SHAPE_RATE_PER_SEC = 2.0;
+
+/**
  * Pitch-axis qBar gain scheduling (cross-module fix; see
  * tests/integration/trimAndPerformance.test.ts / tools/lib/trimSolver.ts's
  * own extensive notes on why a FIXED-gain pitch law cannot hold across this
@@ -100,6 +119,9 @@ function pitchGainSchedule(qBarPa: number): number {
 
 const trimIntegralRad = new Float64Array(MAX_ENTITIES);
 const lastGLoadRad = new Float64Array(MAX_ENTITIES);
+/** FCS_STICK_SHAPE_RATE_PER_SEC-limited pitch/roll stick, module-private per-slot state like trimIntegralRad/lastGLoadRad above. */
+const shapedPitchStick = new Float64Array(MAX_ENTITIES);
+const shapedRollStick = new Float64Array(MAX_ENTITIES);
 
 /** `noUncheckedIndexedAccess`-safe read of a Float64Array slot (never actually undefined for an in-range index; the array is fixed-size and zero-initialized). */
 function readF64(arr: Float64Array, index: number): number {
@@ -133,6 +155,8 @@ export function getTrimIntegralRad(entityIndex: number): number {
 export function resetFcsTrimState(entityIndex: number): void {
   trimIntegralRad[entityIndex] = 0;
   lastGLoadRad[entityIndex] = 0;
+  shapedPitchStick[entityIndex] = 0;
+  shapedRollStick[entityIndex] = 0;
 }
 
 /**
@@ -216,9 +240,14 @@ export function stepFcs(
   const r = bodyRateR(omega);
   const transitioned = currentOnGround !== wasOnGroundAtEntry;
 
+  shapedPitchStick[entityIndex] = rateLimitStep(readF64(shapedPitchStick, entityIndex), inputs.pitch, FCS_STICK_SHAPE_RATE_PER_SEC, dtSub);
+  shapedRollStick[entityIndex] = rateLimitStep(readF64(shapedRollStick, entityIndex), inputs.roll, FCS_STICK_SHAPE_RATE_PER_SEC, dtSub);
+  const pitchStickShaped = readF64(shapedPitchStick, entityIndex);
+  const rollStickShaped = readF64(shapedRollStick, entityIndex);
+
   let elevonSymCmd: number;
   if (!currentOnGround) {
-    let gCmd = computeGCommand(inputs.pitch, fcsLimits);
+    let gCmd = computeGCommand(pitchStickShaped, fcsLimits);
     if (alpha > fcsLimits.maxAlphaRad) {
       gCmd = Math.min(gCmd, 1.0 - fcsLimits.alphaLimitGain * (alpha - fcsLimits.maxAlphaRad));
     }
@@ -255,11 +284,11 @@ export function stepFcs(
       gainSchedule * (fcsLimits.gLoadGain * (gCmd - gLoad) - fcsLimits.pitchRateGain * q) + readF64(trimIntegralRad, entityIndex);
   } else {
     trimIntegralRad[entityIndex] = 0;
-    elevonSymCmd = inputs.pitch * fcsLimits.maxElevonRad * GROUND_LAW_PITCH_AUTHORITY_FRACTION - gainSchedule * fcsLimits.pitchRateGain * q;
+    elevonSymCmd = pitchStickShaped * fcsLimits.maxElevonRad * GROUND_LAW_PITCH_AUTHORITY_FRACTION - gainSchedule * fcsLimits.pitchRateGain * q;
   }
   elevonSymCmd = clamp(elevonSymCmd, -fcsLimits.maxElevonRad, fcsLimits.maxElevonRad);
 
-  const pCmd = inputs.roll * fcsLimits.maxRollRateRadS;
+  const pCmd = rollStickShaped * fcsLimits.maxRollRateRadS;
   const elevonDiffCmd = clamp(fcsLimits.rollRateGain * (pCmd - p), -fcsLimits.maxElevonRad, fcsLimits.maxElevonRad);
 
   const rudderCmd = clamp(inputs.yaw * fcsLimits.maxRudderRad - fcsLimits.yawRateGain * r, -fcsLimits.maxRudderRad, fcsLimits.maxRudderRad);

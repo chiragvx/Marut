@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { stepFcs, computeGCommand, getTrimIntegralRad, resetFcsTrimState, entityPoolIndex, type FcsSurfaces } from '../../src/physics/fcs';
+import { rateLimitStep } from '../../src/math';
 import type { PilotInputs, DamageState } from '../../src/contracts/core';
 import type { FcsLimits } from '../../src/contracts/aircraft';
 
@@ -159,5 +160,86 @@ describe('stepFcs', () => {
     expect(Math.abs(gLoadAt2s - 1.0) / 1.0).toBeGreaterThan(0.05);
     // The integral term closes it to within 1% by t=20s.
     expect(Math.abs(gLoad - 1.0) / 1.0).toBeLessThan(0.01);
+  });
+});
+
+// Regression coverage for the "controls are very sensitive" fix: a snapped full stick input used
+// to feed instantly into computeGCommand/pCmd with zero onset shaping, producing a classic
+// underdamped step-response overshoot (live-measured: a full pull crossed the commanded +8.0g
+// ceiling then overshot to +9.49g, +18.6%, before settling). FCS_STICK_SHAPE_RATE_PER_SEC now
+// rate-limits the raw stick itself before it reaches any of the control laws — these tests pin
+// that the onset is genuinely gradual (not instant) and that the STEADY-STATE command is
+// unchanged once fully ramped, i.e. no control authority is permanently lost.
+describe('pitch/roll stick command shaping (quadruplex FBW onset limiting)', () => {
+  it('a snapped full-pitch input does NOT saturate the elevon on the very first substep (previously it would have)', () => {
+    const index = entityPoolIndex(300);
+    resetFcsTrimState(index);
+    const surfaces: FcsSurfaces = { elevonL: 0, elevonR: 0, rudder: 0 };
+    const limits = makeFcsLimits({ maxGLoadPos: 9, maxElevonRad: 2, gLoadGain: 1 });
+
+    stepFcs(index, surfaces, false, false, 0, ZERO3, ZERO3, IDENTITY, 10000, 9.80665, makeInputs({ pitch: 1 }), makeDamage(), limits, 1 / 120);
+
+    // Old (unshaped) behaviour: computeGCommand(1, limits)=9, elevonSymCmd clamps straight to
+    // maxElevonRad=2 -- i.e. full saturation on tick one. The shaped stick has only reached
+    // 2.0*(1/120)=1/60 of full deflection by this point, so the command is nowhere near that.
+    expect(Math.abs(surfaces.elevonL)).toBeLessThan(limits.maxElevonRad * 0.3);
+  });
+
+  it('a snapped full-roll input does NOT reach maxRollRateRadS worth of demand on the very first substep', () => {
+    const index = entityPoolIndex(301);
+    resetFcsTrimState(index);
+    const surfaces: FcsSurfaces = { elevonL: 0, elevonR: 0, rudder: 0 };
+    const limits = makeFcsLimits({ maxRollRateRadS: 5, rollRateGain: 1, maxElevonRad: 2 });
+
+    stepFcs(index, surfaces, false, false, 0, ZERO3, ZERO3, IDENTITY, 10000, 9.80665, makeInputs({ roll: 1 }), makeDamage(), limits, 1 / 120);
+
+    // Old (unshaped): pCmd=inputs.roll*maxRollRateRadS=5 directly, elevonDiffCmd clamps to
+    // maxElevonRad=2 immediately (full aileron authority on tick one).
+    const elevonDiffCmd = surfaces.elevonL - surfaces.elevonR;
+    expect(Math.abs(elevonDiffCmd)).toBeLessThan(limits.maxElevonRad * 0.3);
+  });
+
+  it('steady-state (after the ~0.5s onset has fully ramped) reaches the same full authority a raw stick command always could -- no permanent authority loss, only a slower onset', () => {
+    // Note: there is no longer a way to construct a genuinely "unshaped" call to compare
+    // against -- the shaping in stepFcs applies unconditionally to every call now, which is the
+    // whole point (every input device gets it, not just keyboard's own separate ramp). So this
+    // asserts against the known analytic ceiling (computeGCommand(1,limits)=9g, clamped by
+    // maxElevonRad=2) instead of a same-call comparison.
+    const index = entityPoolIndex(302);
+    resetFcsTrimState(index);
+    const surfaces: FcsSurfaces = { elevonL: 0, elevonR: 0, rudder: 0 };
+    const limits = makeFcsLimits({ maxGLoadPos: 9, maxElevonRad: 2, gLoadGain: 1, maxElevonRateRadS: 1000 }); // fast actuator so it isn't the binding constraint here
+    const dt = 1 / 120;
+
+    // Run well past FCS_STICK_SHAPE_RATE_PER_SEC's 0.5s full-scale ramp time.
+    for (let i = 0; i < 120; i++) {
+      stepFcs(index, surfaces, false, false, 0, ZERO3, ZERO3, IDENTITY, 10000, 9.80665, makeInputs({ pitch: 1 }), makeDamage(), limits, dt);
+    }
+
+    expect(surfaces.elevonL).toBeCloseTo(limits.maxElevonRad, 1); // fully saturated (9g commanded >> 2rad authority) once the ramp has converged
+  });
+
+  it('resetFcsTrimState zeroes the shaped-stick state so a recycled pool slot does not inherit a previous occupant\'s ramp position', () => {
+    const index = entityPoolIndex(304);
+    const surfaces: FcsSurfaces = { elevonL: 0, elevonR: 0, rudder: 0 };
+    const limits = makeFcsLimits({ maxGLoadPos: 9, maxElevonRad: 2, gLoadGain: 1 });
+    // Ramp it up first.
+    for (let i = 0; i < 60; i++) {
+      stepFcs(index, surfaces, false, false, 0, ZERO3, ZERO3, IDENTITY, 10000, 9.80665, makeInputs({ pitch: 1 }), makeDamage(), limits, 1 / 120);
+    }
+    expect(Math.abs(surfaces.elevonL)).toBeGreaterThan(limits.maxElevonRad * 0.3); // partway ramped by now
+
+    resetFcsTrimState(index);
+    surfaces.elevonL = 0;
+    surfaces.elevonR = 0;
+    stepFcs(index, surfaces, false, false, 0, ZERO3, ZERO3, IDENTITY, 10000, 9.80665, makeInputs({ pitch: 1 }), makeDamage(), limits, 1 / 120);
+    // Back to a fresh, near-zero onset -- same bound as the very-first-substep test above.
+    expect(Math.abs(surfaces.elevonL)).toBeLessThan(limits.maxElevonRad * 0.3);
+  });
+
+  it('rateLimitStep itself (already used elsewhere in this module for actuator slewing) behaves as this fix assumes: 0.5s to go 0->1 at rate 2.0/s', () => {
+    let v = 0;
+    for (let i = 0; i < 60; i++) v = rateLimitStep(v, 1, 2.0, 1 / 120); // 60 steps @ 1/120s = 0.5s
+    expect(v).toBeCloseTo(1, 5);
   });
 });
