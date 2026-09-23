@@ -44,6 +44,7 @@ import {
   WARNING_OVER_G_POS,
   WARNING_TERRAIN_PULLUP_AGL_M,
   WARNING_TERRAIN_PULLUP_SINK_MPS,
+  TERRAIN_IMPACT_PENETRATION_M,
 } from '../contracts/sim';
 import type {
   AiFormationSlotLike,
@@ -656,6 +657,17 @@ class WorldImpl implements World {
 
       const damage = this.pool.getDamage(state.id);
       if (damage) {
+        // Terrain-impact fallback (see TERRAIN_IMPACT_PENETRATION_M's doc comment in
+        // contracts/sim.ts for why this exists): ground contact is otherwise only checked at
+        // the 3 gear legs, which go inert whenever gear is retracted, so without this an
+        // aircraft can fly straight through solid ground with no consequence at all. Forcing
+        // structurePct to 0 here reuses the existing crossing-detection immediately below
+        // (crash event + alive=false), which is what actually halts the aircraft: a dead
+        // entity's flight-model step is skipped from the next tick on, freezing pos/vel in
+        // place instead of letting it keep falling.
+        if (damage.structurePct > 0 && rec.telemetry.altAglM < TERRAIN_IMPACT_PENETRATION_M) {
+          damage.structurePct = 0;
+        }
         const isStructureAliveNow = damage.structurePct > 0;
         if (rec.wasStructureAlive && !isStructureAliveNow) {
           this.eventQueue.push({ type: 'crash', entityId: state.id, pos: { x: state.pos.x, y: state.pos.y, z: state.pos.z } });

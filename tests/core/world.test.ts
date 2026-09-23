@@ -316,4 +316,63 @@ describe('World', () => {
       expect(state?.gearPos).toBe(0);
     });
   });
+
+  // Regression coverage for the "aircraft flies straight through the ground, forever, with no
+  // collision response" bug found by live-flying the built app: ground contact is only modeled
+  // at the 3 gear legs (landingGear.ts), which go inert whenever gear is retracted (or a leg
+  // simply doesn't reach whatever terrain feature the aircraft is over) — with no general
+  // fuselage collision anywhere in the physics model, nothing stopped an aircraft from falling
+  // to an arbitrarily large negative altitude. Step 5 now treats a deep-enough negative altAglM
+  // as an unambiguous terrain impact.
+  describe('terrain-impact fallback (Step 5) — deep negative altAglM forces a crash', () => {
+    /** Unlike makeIntegratingFlightModel, exposes state.pos.y as telemetry.altAglM so tests can drive it directly via velocity. */
+    function makeFallingFlightModel(): FlightModelPort {
+      return {
+        hasDefinition: (id: string) => id === 'tejas-mk1',
+        step(_defId: string, state: EntityState, _damage: DamageState, _inputs: PilotInputs, _env: SimEnvironment, dtSec: number, out: EntityState): void {
+          out.pos.x = state.pos.x + state.vel.x * dtSec;
+          out.pos.y = state.pos.y + state.vel.y * dtSec;
+          out.pos.z = state.pos.z + state.vel.z * dtSec;
+        },
+        computeTelemetry(_defId: string, state: EntityState, _damage: DamageState, _env: SimEnvironment, out: AircraftTelemetry): void {
+          Object.assign(out, zeroTelemetry());
+          out.altAglM = state.pos.y;
+        },
+        maxFuelKg: () => 1000,
+      };
+    }
+
+    it('crosses TERRAIN_IMPACT_PENETRATION_M -> structurePct is zeroed, a crash event fires, alive becomes false, and position FREEZES on subsequent ticks instead of continuing to fall', () => {
+      const world = createWorld(baseDeps(makeFallingFlightModel()));
+      world.loadMission({ ...minimalMission(), playerStart: { pos: { x: 0, y: 10, z: 0 }, headingRad: 0, speedMps: 0 } });
+      const playerId = world.getPlayerEntityId();
+      const state = world.getEntityState(playerId)!;
+      state.vel.y = -50; // fast sink so it crosses the -3m threshold within a handful of ticks
+
+      expect(world.getDamageState(playerId)?.structurePct).toBe(1);
+
+      let crashedAtTick = -1;
+      for (let i = 0; i < 200 && crashedAtTick === -1; i++) {
+        world.stepOnce();
+        if (!world.getEntityState(playerId)!.alive) crashedAtTick = i;
+      }
+      expect(crashedAtTick).toBeGreaterThan(-1);
+      expect(world.getDamageState(playerId)?.structurePct).toBe(0);
+
+      const posAtCrash = { ...world.getEntityState(playerId)!.pos };
+      for (let i = 0; i < 20; i++) world.stepOnce();
+      expect(world.getEntityState(playerId)!.pos).toEqual(posAtCrash); // frozen, not still falling
+    });
+
+    it('a small negative altAglM (e.g. gear-compression slop) never triggers it', () => {
+      const world = createWorld(baseDeps(makeFallingFlightModel()));
+      world.loadMission({ ...minimalMission(), playerStart: { pos: { x: 0, y: -1, z: 0 }, headingRad: 0, speedMps: 0 } });
+      const playerId = world.getPlayerEntityId();
+
+      for (let i = 0; i < 60; i++) world.stepOnce();
+
+      expect(world.getEntityState(playerId)?.alive).toBe(true);
+      expect(world.getDamageState(playerId)?.structurePct).toBe(1);
+    });
+  });
 });

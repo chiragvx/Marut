@@ -102,27 +102,37 @@ describe('PlayerInputSystem — raw passthrough booleans', () => {
 });
 
 describe('PlayerInputSystem — gearDown toggle', () => {
+  it('starts down (true) — see playerPilot.ts\'s gearDownState comment for why', () => {
+    const system = makeSystem();
+    const ctx = makeThrowingCtx();
+    const out = makeOut();
+
+    system.update(ctx, 0.1, out);
+    expect(out.gearDown).toBe(true);
+  });
+
   it('flips on a rising edge and holds its value after release', () => {
     const system = makeSystem();
     const ctx = makeThrowingCtx();
     const out = makeOut();
 
-    dispatchKey('keydown', 'KeyG');
-    system.update(ctx, 0.1, out);
-    expect(out.gearDown).toBe(true);
-
-    dispatchKey('keyup', 'KeyG');
-    system.update(ctx, 0.1, out);
-    expect(out.gearDown).toBe(true);
-    system.update(ctx, 0.1, out);
-    expect(out.gearDown).toBe(true);
-
+    // Starts true (down); first press toggles it up.
     dispatchKey('keydown', 'KeyG');
     system.update(ctx, 0.1, out);
     expect(out.gearDown).toBe(false);
+
     dispatchKey('keyup', 'KeyG');
     system.update(ctx, 0.1, out);
     expect(out.gearDown).toBe(false);
+    system.update(ctx, 0.1, out);
+    expect(out.gearDown).toBe(false);
+
+    dispatchKey('keydown', 'KeyG');
+    system.update(ctx, 0.1, out);
+    expect(out.gearDown).toBe(true);
+    dispatchKey('keyup', 'KeyG');
+    system.update(ctx, 0.1, out);
+    expect(out.gearDown).toBe(true);
   });
 });
 

@@ -80,6 +80,22 @@ export const WARNING_TERRAIN_PULLUP_SINK_MPS = 10;
 export const WARNING_GEAR_UNSAFE_AGL_M = 300;
 export const WARNING_GEAR_UNSAFE_SINK_MPS = 1;
 
+/**
+ * Ground contact is otherwise only modeled at the 3 landing-gear legs (src/physics/
+ * landingGear.ts's computeGearLeg), which produce zero force whenever `gearPos` is below
+ * GEAR_CONTACT_GEARPOS_THRESHOLD (gear retracted, or damaged) — there is no general fuselage/
+ * wingtip collision term anywhere in the physics model. Without a fallback, an aircraft with
+ * gear up (or over terrain a gear leg simply doesn't reach) has nothing stopping it from flying
+ * straight through solid ground. World.stepOnce's crash detection (10-core-worker.md section
+ * 4.1 step 5) treats `telemetry.altAglM` dropping below this (deliberately generous — main gear
+ * legs reach ~1.1-1.4m below CG at full extension per AircraftDefinition.gear, see
+ * 03-tejas-data.md) NEGATIVE threshold as an unambiguous terrain impact: it zeroes
+ * DamageState.structurePct, which the existing structure-failure path (crash event, `alive =
+ * false`) already turns into a hard stop next tick, since a dead entity's flight-model step is
+ * skipped entirely.
+ */
+export const TERRAIN_IMPACT_PENETRATION_M = -3;
+
 // -----------------------------------------------------------------------------
 // 2. Entity pool.
 // -----------------------------------------------------------------------------

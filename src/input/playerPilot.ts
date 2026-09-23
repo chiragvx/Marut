@@ -89,7 +89,17 @@ export function createPlayerInputSystem(config: PlayerInputConfig): PlayerInputS
   let mouseStickY = 0;
 
   // Persisted toggle levels (survive control-scheme switches — 09-input.md acceptance criterion 8).
-  let gearDownState = false;
+  // gearDownState starts true (not false): a fresh PlayerInputSystem has no way to know whether
+  // it's about to fly a ground-start mission (aircraft resting on a runway, gear already down —
+  // see src/core/world.ts's startOnGround spawn handling) or an airborne one, and defaulting to
+  // "up" meant every ground-start mission had its gear auto-retract within
+  // GEAR_TRAVEL_RATE_PER_SEC's ~2s of launch (landingGear.ts), disabling the only ground-contact
+  // force the physics model has (computeGearLeg short-circuits to zero force below
+  // GEAR_CONTACT_GEARPOS_THRESHOLD) and leaving the aircraft to fall through the world with
+  // nothing to stop it. "Down" is also the safer default in general (mirrors real
+  // emergency-procedure convention and world.ts's own defaultPilotInputs().gearDown=true) — a
+  // player who never touches the gear key ends up in the safe state, not the unsafe one.
+  let gearDownState = true;
   let airbrakeState = false;
   let nwsState = false;
 
