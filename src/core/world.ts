@@ -73,6 +73,37 @@ import type { CombatPortWithContacts } from './combatContext';
 
 const SIM_DT_SEC_LOCAL = 1 / 120; // avoid importing SIM_DT_SEC just to re-derive it; core.ts already fixes this at 1/120 (SIM_HZ)
 
+/**
+ * Vertical clearance added to `runway.elevationM` when spawning an aircraft ON a runway (gear
+ * down — see spawnAircraftOnly's `startOnGround`), so the wheels rest AT the ground surface
+ * (zero initial gear-leg penetration) rather than already deep inside it.
+ *
+ * Derivation, tied to tejasGeometry.ts's actual GearDefinition data (all three legs share
+ * `posBodyM.y = -1.1`): a spawn at `elevationM + 0.5` (the original, pre-this-fix value) put the
+ * wheel-contact reference point at `elevationM + 0.5 - 1.1 = elevationM - 0.6`, i.e. 0.6m BELOW
+ * `env.groundElevationM` (which equals `elevationM` inside the airport's flatten zone) — a
+ * `penetrationM` of 0.6m against a max gear-leg travel of only 0.28-0.35m
+ * (GearDefinition.maxCompressionM), so EVERY leg started already past its hard-stop threshold
+ * on tick one. With GEAR_HARD_STOP_STIFFNESS_MULTIPLIER=20x and springNPerM up to 450000 N/m,
+ * that computed out to roughly 6.5 MN of combined reaction force at spawn — around 70x the
+ * airframe's own weight — violently launching and typically tumbling the aircraft (confirmed
+ * live: AoA already -48 to -50deg within 0.5s of launch, no player input given). This bug was
+ * DORMANT before gearPos was fixed to start at 1 for ground spawns (see spawnAircraftOnly's own
+ * doc comment) — with gear starting retracted, computeGearLeg always short-circuited to zero
+ * force, so this force path never actually fired until that earlier fix exposed it.
+ *
+ * `elevationM - posBodyM.y` (i.e. `elevationM + 1.1`) is the exact zero-penetration point; this
+ * lets gravity settle the gear into its natural, well-damped static compression (well within
+ * travel — a rough static estimate is on the order of 0.1m) over the first few ticks instead of
+ * either freefalling from a large gap (this project's earlier, now-fixed "always retracted"
+ * failure mode) or slamming straight into the hard stop (this one).
+ *
+ * NOT aircraft-generic (FlightModelPort exposes no way to query gear geometry from World, and
+ * this project currently only ever spawns 'tejas-mk1') — revisit if/when a second aircraft type
+ * with different gear geometry is added.
+ */
+const RUNWAY_SPAWN_CLEARANCE_M = 1.1;
+
 function defaultPilotInputs(): PilotInputs {
   return {
     pitch: 0,
@@ -263,7 +294,7 @@ class WorldImpl implements World {
       const runway = this.deps.navDb.getRunway(ps.airportId, ps.runwayId);
       if (runway) {
         const fwd = forwardWorldInto(runway.headingRad, this.fwdScratch);
-        playerPos = { x: runway.thresholdPos.x + fwd.x * 200, y: runway.elevationM + 0.5, z: runway.thresholdPos.z + fwd.z * 200 };
+        playerPos = { x: runway.thresholdPos.x + fwd.x * 200, y: runway.elevationM + RUNWAY_SPAWN_CLEARANCE_M, z: runway.thresholdPos.z + fwd.z * 200 };
         playerHeadingRad = runway.headingRad;
         playerSpeedMps = ps.speedMps ?? 0;
         playerStartOnGround = true;
@@ -303,7 +334,7 @@ class WorldImpl implements World {
           if (runway) {
             headingRad = runway.headingRad;
             speedMps = flight.startSpeedMps ?? 0;
-            pos = { x: runway.thresholdPos.x, y: runway.elevationM + 0.5, z: runway.thresholdPos.z };
+            pos = { x: runway.thresholdPos.x, y: runway.elevationM + RUNWAY_SPAWN_CLEARANCE_M, z: runway.thresholdPos.z };
             startOnGround = true;
           } else {
             headingRad = flight.startHeadingRad ?? 0;
@@ -377,11 +408,12 @@ class WorldImpl implements World {
    * Shared by spawnEntity (manual path) and loadMission's AI-flight loop (formation-aware path).
    *
    * `startOnGround` must be true for any spawn placed via a runway lookup (position is
-   * `runway.elevationM + 0.5`, i.e. resting height, not airborne clearance): gearPos otherwise
-   * starts at the pool's zeroed default (fully retracted) and takes GEAR_TRAVEL_RATE_PER_SEC's
-   * full ~2s to extend past GEAR_CONTACT_GEARPOS_THRESHOLD (landingGear.ts), so a "parked on the
-   * runway" spawn would free-fall through its 0.5m clearance for two seconds before any gear
-   * contact force could ever apply — producing an uncontrolled tumble (large computed AoA from
+   * `runway.elevationM + RUNWAY_SPAWN_CLEARANCE_M`, i.e. resting height, not airborne
+   * clearance — see that constant's own doc comment for the exact derivation): gearPos
+   * otherwise starts at the pool's zeroed default (fully retracted) and takes
+   * GEAR_TRAVEL_RATE_PER_SEC's full ~2s to extend past GEAR_CONTACT_GEARPOS_THRESHOLD
+   * (landingGear.ts), so a "parked on the runway" spawn would free-fall for two seconds before
+   * any gear contact force could ever apply — producing an uncontrolled tumble (large computed AoA from
    * the resulting fall velocity) before the player or AI ever gets a tick of authority. Airborne
    * spawns (AI flights via startPos/startSpeedMps, or the player's non-runway pos fallback)
    * correctly want gear retracted at spawn, so they must NOT set this.

@@ -240,13 +240,22 @@ describe('World', () => {
   // (Free Flight's `speedMps: 0` runway start): spawnAircraftOnly used to leave every
   // fresh aircraft's gearPos at the entity pool's zeroed default (fully retracted).
   // Landing gear takes ~2s to extend past GEAR_CONTACT_GEARPOS_THRESHOLD
-  // (landingGear.ts), so an aircraft placed at "runway.elevationM + 0.5" for a ground
+  // (landingGear.ts), so an aircraft placed at a runway-surface spawn height for a ground
   // start had no supporting force for two full seconds and fell straight through its
-  // 0.5m clearance before gear could ever register contact -- producing an
-  // uncontrolled tumble (huge computed AoA from the resulting fall velocity) on every
-  // single ground-start mission. Fix: spawnAircraftOnly now takes an explicit
-  // `startOnGround` flag and sets gearPos=1 immediately for any spawn resolved via a
-  // real runway lookup.
+  // clearance before gear could ever register contact -- producing an uncontrolled tumble
+  // (huge computed AoA from the resulting fall velocity) on every single ground-start
+  // mission. Fix: spawnAircraftOnly now takes an explicit `startOnGround` flag and sets
+  // gearPos=1 immediately for any spawn resolved via a real runway lookup.
+  //
+  // A SECOND bug was found later (live-testing after the above fix landed): the original
+  // spawn height formula (`runway.elevationM + 0.5`) put the wheel-contact point 0.6m
+  // BELOW ground (0.5 clearance minus the gear legs' -1.1 posBodyM.y offset) -- deeper
+  // than every leg's maxCompressionM (0.28-0.35m), triggering the 20x hard-stop multiplier
+  // on tick one and launching the aircraft with ~70x its own weight in reaction force. This
+  // bug was dormant (masked by the first bug above -- gear was never down at spawn to
+  // begin with) until the gearPos=1 fix shipped, which is what exposed it. Fixed by
+  // RUNWAY_SPAWN_CLEARANCE_M (`elevationM + 1.1`, zero gear-leg penetration at spawn) --
+  // see that constant's own doc comment in world.ts for the full derivation.
   describe('ground-start spawns begin with gear down (not animating up from retracted)', () => {
     function fakeRunway(overrides: Partial<import('../../src/contracts/core').RunwayInfo> = {}): import('../../src/contracts/core').RunwayInfo {
       return {
@@ -273,9 +282,24 @@ describe('World', () => {
       const state = world.getEntityState(playerId);
       expect(state?.gearPos).toBe(1);
       // Spawn height must be exactly the resting height on the runway surface, per the
-      // runway-spawn formula (`runway.elevationM + 0.5`) -- pins the position half of
-      // the fix alongside the gear half.
-      expect(state?.pos.y).toBeCloseTo(12.5, 10);
+      // runway-spawn formula (`runway.elevationM + RUNWAY_SPAWN_CLEARANCE_M`) -- pins the
+      // position half of the fix alongside the gear half.
+      expect(state?.pos.y).toBeCloseTo(13.1, 10);
+    });
+
+    it('the spawn height leaves the gear legs at exactly zero penetration, not overtravel (see RUNWAY_SPAWN_CLEARANCE_M\'s doc comment for the ~70x-weight hard-stop launch bug this pins)', () => {
+      const navDb: AirportNavDb = { ...fakeNavDb(), getRunway: () => fakeRunway() };
+      const world = createWorld({ ...baseDeps(makeIntegratingFlightModel()), navDb });
+      world.loadMission({ ...minimalMission(), playerStart: { airportId: 'konarak-coastal', runwayId: '09L', speedMps: 0 } });
+      const playerId = world.getPlayerEntityId();
+      const state = world.getEntityState(playerId);
+      // Every tejasGeometry.ts gear leg shares posBodyM.y = -1.1: wheel-contact world Y (level
+      // spawn attitude) is spawnY + (-1.1). penetrationM (landingGear.ts) = groundElevationM
+      // (== runway.elevationM inside the flatten zone) - wheelY, and must be <= 0 (wheel at or
+      // above ground, never already inside it) for a fresh, gear-down spawn.
+      const wheelY = state!.pos.y + -1.1;
+      const penetrationM = fakeRunway().elevationM - wheelY;
+      expect(penetrationM).toBeCloseTo(0, 10);
     });
 
     it('AI flight spawned via startAirportId/startRunwayId also has gearPos=1 immediately', () => {
