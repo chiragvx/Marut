@@ -40,6 +40,7 @@ export const createSettingsScreen: CreateSettingsScreen = (container, initial, c
     mouseSensitivityMultiplier: initial.mouseSensitivityMultiplier,
     invertPitch: initial.invertPitch,
     speedUnit: initial.speedUnit,
+    alphaLimiterEnabled: initial.alphaLimiterEnabled,
   };
 
   let capturingAction: BindableAction | null = null;
@@ -86,6 +87,14 @@ export const createSettingsScreen: CreateSettingsScreen = (container, initial, c
   invertLabel.appendChild(invertInput);
   invertSection.appendChild(invertLabel);
 
+  // --- AoA limiter ---
+  const alphaLimiterSection = el('div', { className: 'tj-settings-section' });
+  const alphaLimiterLabel = el('label', { text: 'AoA limiter' });
+  const alphaLimiterInput = el('input', { attrs: { 'data-role': 'alpha-limiter', type: 'checkbox' } }) as HTMLInputElement;
+  alphaLimiterInput.checked = current.alphaLimiterEnabled;
+  alphaLimiterLabel.appendChild(alphaLimiterInput);
+  alphaLimiterSection.appendChild(alphaLimiterLabel);
+
   // --- Key bindings ---
   const bindingsSection = el('div', { className: 'tj-settings-bindings' });
   const bindingRows = new Map<BindableAction, { row: HTMLDivElement; codeLabel: HTMLSpanElement; button: HTMLButtonElement }>();
@@ -110,7 +119,7 @@ export const createSettingsScreen: CreateSettingsScreen = (container, initial, c
   const backBtn = actionButton('back', 'Back');
   nav.append(resetBtn, backBtn);
 
-  root.append(title, qualitySection, speedUnitSection, sensitivitySection, invertSection, bindingsSection, nav);
+  root.append(title, qualitySection, speedUnitSection, sensitivitySection, invertSection, alphaLimiterSection, bindingsSection, nav);
 
   function fireChange(): void {
     // Hand out a fresh snapshot; keyBindings is always a new array too.
@@ -121,6 +130,7 @@ export const createSettingsScreen: CreateSettingsScreen = (container, initial, c
       mouseSensitivityMultiplier: current.mouseSensitivityMultiplier,
       invertPitch: current.invertPitch,
       speedUnit: current.speedUnit,
+      alphaLimiterEnabled: current.alphaLimiterEnabled,
     };
     callbacks.onChange(current);
   }
@@ -174,6 +184,10 @@ export const createSettingsScreen: CreateSettingsScreen = (container, initial, c
     current.invertPitch = invertInput.checked;
     fireChange();
   });
+  alphaLimiterInput.addEventListener('change', () => {
+    current.alphaLimiterEnabled = alphaLimiterInput.checked;
+    fireChange();
+  });
   resetBtn.addEventListener('click', () => callbacks.onResetDefaults());
   backBtn.addEventListener('click', () => callbacks.onBack());
 
@@ -194,6 +208,7 @@ export const createSettingsScreen: CreateSettingsScreen = (container, initial, c
         mouseSensitivityMultiplier: current.mouseSensitivityMultiplier,
         invertPitch: current.invertPitch,
         speedUnit: current.speedUnit,
+        alphaLimiterEnabled: current.alphaLimiterEnabled,
       };
       const entry = bindingRows.get(action);
       if (entry !== undefined) {

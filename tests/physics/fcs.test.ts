@@ -77,6 +77,32 @@ describe('stepFcs', () => {
     expect(limited.elevonL).toBeLessThan(unlimited.elevonL);
   });
 
+  // Regression coverage for the "disable AoA limiter" setting (user report: the limiter fights
+  // the pilot and oscillates near the boundary; PilotInputs.alphaLimiterDisabled lets a pilot fly
+  // past the protected envelope instead). With it set, alpha crossing the limit must produce
+  // IDENTICAL elevon authority to a fixture where alpha never crosses it at all.
+  it('alphaLimiterDisabled bypasses the alpha limiter: full raw-stick authority regardless of alpha', () => {
+    const massKg = 10000;
+    const g = 9.80665;
+    const limits = makeFcsLimits({ alphaLimitGain: 2 });
+    const alphaOverLimit = limits.maxAlphaRad + 0.1;
+
+    // Fresh indices, explicitly reset: fcs.ts's trim/shaping state is module-level and persists
+    // across tests by pool slot, so reusing an index another test already touched (as this
+    // file's other stepFcs tests do, relying on loose assertions) would leak a tiny leftover
+    // trim-integral/shaping difference into this test's exact-equality check.
+    resetFcsTrimState(90);
+    resetFcsTrimState(91);
+
+    const overLimit: FcsSurfaces = { elevonL: 0, elevonR: 0, rudder: 0 };
+    stepFcs(90, overLimit, false, false, alphaOverLimit, ZERO3, ZERO3, IDENTITY, massKg, g, makeInputs({ pitch: 1, alphaLimiterDisabled: true }), makeDamage(), limits, 1 / 120);
+
+    const underLimit: FcsSurfaces = { elevonL: 0, elevonR: 0, rudder: 0 };
+    stepFcs(91, underLimit, false, false, 0, ZERO3, ZERO3, IDENTITY, massKg, g, makeInputs({ pitch: 1, alphaLimiterDisabled: true }), makeDamage(), limits, 1 / 120);
+
+    expect(overLimit.elevonL).toBeCloseTo(underLimit.elevonL, 10);
+  });
+
   it('hydraulics failure freezes the surfaces and resets the trim integral', () => {
     const index = entityPoolIndex(42);
     resetFcsTrimState(index);

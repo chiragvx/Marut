@@ -112,6 +112,7 @@ export function createPlayerInputSystem(config: PlayerInputConfig): PlayerInputS
   let gearDownState = true;
   let airbrakeState = false;
   let nwsState = false;
+  let alphaLimiterDisabledState = false;
 
   const gearEdge = createEdgeDetector();
   const airbrakeEdge = createEdgeDetector();
@@ -432,6 +433,7 @@ export function createPlayerInputSystem(config: PlayerInputConfig): PlayerInputS
       out.cycleWeapon = rawCycleWeapon;
       out.cycleTarget = rawCycleTarget;
       out.nwsEnabled = nwsState;
+      out.alphaLimiterDisabled = alphaLimiterDisabledState;
     },
 
     getControlScheme(): InputControlSchemeType {
@@ -442,6 +444,13 @@ export function createPlayerInputSystem(config: PlayerInputConfig): PlayerInputS
         d.controlScheme = scheme;
       });
       touchReader.setVisible(isTouchScheme(scheme));
+    },
+
+    isAlphaLimiterDisabled(): boolean {
+      return alphaLimiterDisabledState;
+    },
+    setAlphaLimiterDisabled(disabled: boolean): void {
+      alphaLimiterDisabledState = disabled;
     },
 
     onMetaAction(handler: (action: MetaActionType) => void): () => void {

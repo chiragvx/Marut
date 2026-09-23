@@ -119,6 +119,7 @@ function defaultPilotInputs(): PilotInputs {
     cycleWeapon: false,
     cycleTarget: false,
     nwsEnabled: false,
+    alphaLimiterDisabled: false,
   };
 }
 

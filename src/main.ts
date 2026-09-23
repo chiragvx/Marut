@@ -87,6 +87,8 @@ interface PersistedSettings {
   cachedAutoTier?: QualityTier;
   /** HUD airspeed-tape display unit (src/ui/settings.ts's "Speed unit" control). Optional so old saved data (from before this field existed) still parses fine; missing means 'ms', matching SnapshotHud.IAS_MPS's own wire unit. */
   speedUnit?: SpeedUnit;
+  /** src/ui/settings.ts's "AoA limiter" control; see PilotInputs.alphaLimiterDisabled's doc comment. Optional so old saved data still parses fine; missing means the limiter stays enabled (the safe default). */
+  alphaLimiterEnabled?: boolean;
 }
 
 function loadPersistedSettings(): PersistedSettings | undefined {
@@ -97,6 +99,7 @@ function loadPersistedSettings(): PersistedSettings | undefined {
     if (parsed.version !== 1 || typeof parsed.qualityTierOverride !== 'string') return undefined;
     if (parsed.cachedAutoTier !== undefined && typeof parsed.cachedAutoTier !== 'string') return undefined;
     if (parsed.speedUnit !== undefined && typeof parsed.speedUnit !== 'string') return undefined;
+    if (parsed.alphaLimiterEnabled !== undefined && typeof parsed.alphaLimiterEnabled !== 'boolean') return undefined;
     return parsed as PersistedSettings;
   } catch {
     return undefined;
@@ -398,10 +401,16 @@ function showSettingsOverlay(): void {
     mouseSensitivityMultiplier: 1,
     invertPitch: false,
     speedUnit: currentSpeedUnit,
+    alphaLimiterEnabled: inputSystem ? !inputSystem.isAlphaLimiterDisabled() : true,
   };
   const handle: SettingsScreenHandle = createSettingsScreen(uiRoot, initial, {
     onChange: (next) => {
-      savePersistedSettings({ qualityTierOverride: next.qualityOverride, version: 1, speedUnit: next.speedUnit });
+      savePersistedSettings({
+        qualityTierOverride: next.qualityOverride,
+        version: 1,
+        speedUnit: next.speedUnit,
+        alphaLimiterEnabled: next.alphaLimiterEnabled,
+      });
       if (next.qualityOverride !== 'auto') {
         currentQualityTier = next.qualityOverride;
         renderer?.setQualityTier(currentQualityTier);
@@ -409,6 +418,7 @@ function showSettingsOverlay(): void {
       }
       currentSpeedUnit = next.speedUnit;
       hud?.setSpeedUnit(currentSpeedUnit);
+      inputSystem?.setAlphaLimiterDisabled(!next.alphaLimiterEnabled);
     },
     onRebindStart: (action) => {
       if (!inputSystem) return;
@@ -679,6 +689,7 @@ async function boot(): Promise<void> {
   loading.setProgress(0.3, 'Starting simulation…');
   await initWorkersAndRenderer(currentQualityTier);
   hud.setSpeedUnit(currentSpeedUnit);
+  inputSystem.setAlphaLimiterDisabled((persisted?.alphaLimiterEnabled ?? true) === false);
   // Size renderer/HUD from the current window/DPR once, synchronously, right
   // now — before the first requestAnimationFrame(frame) callback draws
   // anything. onResize() is otherwise wired only as a 'resize' listener

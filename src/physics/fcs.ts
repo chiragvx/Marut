@@ -299,34 +299,41 @@ export function stepFcs(
   let elevonSymCmd: number;
   if (!currentOnGround) {
     let gCmd = computeGCommand(pitchStickShaped, fcsLimits);
-    // Anticipated (rate-predicted) alpha, per ALPHA_LIMIT_ANTICIPATION_SEC's doc comment: the
-    // limiter is reactive on raw `alpha` alone, which was measured (live testing) to let a
-    // sustained pull overshoot the limit by roughly 20deg before gCmd got reduced enough to
-    // matter. Using q (pitch rate) to extrapolate alpha ANTICIPATION_SEC ahead triggers the same
-    // limiter formula earlier, while alpha is still rising fast, instead of only after it has
-    // already blown past the line.
-    const alphaAnticipated = alpha + q * ALPHA_LIMIT_ANTICIPATION_SEC;
-    // Deliberately RAW alpha here, not alphaAnticipated: this only gates the trim-integral
-    // freeze below (see that comment), which should stay narrow — an ordinary sustained climb
-    // that legitimately operates close to (without exceeding) the limit still needs its trim
-    // integral to converge normally. Widening this to the anticipated value regressed exactly
-    // that case (tests/integration/spawnFlyLand.test.ts's 25s scripted climb never actually
-    // exceeds the limit but grazes close enough that the anticipated value did, freezing trim
-    // for most of the climb and leaving the aircraft poorly trimmed heading into cruise/descent
-    // — eventually crashing during the landing rollout). The gCmd reduction below still uses the
-    // anticipated value, which is what actually targets the overshoot this was added to fix.
-    const alphaLimitActive = alpha > fcsLimits.maxAlphaRad || alpha < fcsLimits.minAlphaRad;
-    // See ALPHA_LIMIT_BLEND_RAD's doc comment: blended over that band rather than assigned
-    // outright, so gCmd is continuous with the raw pilot demand at overshoot=0.
-    if (alphaAnticipated > fcsLimits.maxAlphaRad) {
-      const overshootRad = alphaAnticipated - fcsLimits.maxAlphaRad;
-      const blend = clamp(overshootRad / ALPHA_LIMIT_BLEND_RAD, 0, 1);
-      gCmd = lerp(gCmd, 1.0 - fcsLimits.alphaLimitGain * overshootRad, blend);
-    }
-    if (alphaAnticipated < fcsLimits.minAlphaRad) {
-      const overshootRad = fcsLimits.minAlphaRad - alphaAnticipated;
-      const blend = clamp(overshootRad / ALPHA_LIMIT_BLEND_RAD, 0, 1);
-      gCmd = lerp(gCmd, 1.0 - fcsLimits.alphaLimitGain * (alphaAnticipated - fcsLimits.minAlphaRad), blend);
+    // Per PilotInputs.alphaLimiterDisabled's own doc comment: a player-facing Settings escape
+    // hatch that bypasses this whole block, leaving gCmd as the raw pilot demand unconditionally
+    // (alphaLimitActive stays false so the trim-integral freeze below never engages either — with
+    // no limiter there is no boundary for it to freeze around). AI pilots never set this flag.
+    let alphaLimitActive = false;
+    if (!inputs.alphaLimiterDisabled) {
+      // Anticipated (rate-predicted) alpha, per ALPHA_LIMIT_ANTICIPATION_SEC's doc comment: the
+      // limiter is reactive on raw `alpha` alone, which was measured (live testing) to let a
+      // sustained pull overshoot the limit by roughly 20deg before gCmd got reduced enough to
+      // matter. Using q (pitch rate) to extrapolate alpha ANTICIPATION_SEC ahead triggers the same
+      // limiter formula earlier, while alpha is still rising fast, instead of only after it has
+      // already blown past the line.
+      const alphaAnticipated = alpha + q * ALPHA_LIMIT_ANTICIPATION_SEC;
+      // Deliberately RAW alpha here, not alphaAnticipated: this only gates the trim-integral
+      // freeze below (see that comment), which should stay narrow — an ordinary sustained climb
+      // that legitimately operates close to (without exceeding) the limit still needs its trim
+      // integral to converge normally. Widening this to the anticipated value regressed exactly
+      // that case (tests/integration/spawnFlyLand.test.ts's 25s scripted climb never actually
+      // exceeds the limit but grazes close enough that the anticipated value did, freezing trim
+      // for most of the climb and leaving the aircraft poorly trimmed heading into cruise/descent
+      // — eventually crashing during the landing rollout). The gCmd reduction below still uses the
+      // anticipated value, which is what actually targets the overshoot this was added to fix.
+      alphaLimitActive = alpha > fcsLimits.maxAlphaRad || alpha < fcsLimits.minAlphaRad;
+      // See ALPHA_LIMIT_BLEND_RAD's doc comment: blended over that band rather than assigned
+      // outright, so gCmd is continuous with the raw pilot demand at overshoot=0.
+      if (alphaAnticipated > fcsLimits.maxAlphaRad) {
+        const overshootRad = alphaAnticipated - fcsLimits.maxAlphaRad;
+        const blend = clamp(overshootRad / ALPHA_LIMIT_BLEND_RAD, 0, 1);
+        gCmd = lerp(gCmd, 1.0 - fcsLimits.alphaLimitGain * overshootRad, blend);
+      }
+      if (alphaAnticipated < fcsLimits.minAlphaRad) {
+        const overshootRad = fcsLimits.minAlphaRad - alphaAnticipated;
+        const blend = clamp(overshootRad / ALPHA_LIMIT_BLEND_RAD, 0, 1);
+        gCmd = lerp(gCmd, 1.0 - fcsLimits.alphaLimitGain * (alphaAnticipated - fcsLimits.minAlphaRad), blend);
+      }
     }
 
     if (transitioned) {

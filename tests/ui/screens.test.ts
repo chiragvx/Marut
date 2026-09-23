@@ -91,6 +91,7 @@ describe('screen factories: mount / destroy contract', () => {
       mouseSensitivityMultiplier: 1,
       invertPitch: false,
       speedUnit: 'ms',
+      alphaLimiterEnabled: true,
     };
     const handle = createSettingsScreen(container, initial, { onChange: noop, onRebindStart: noop, onResetDefaults: noop, onBack: noop });
     expect(container.children.length).toBe(1);
@@ -123,6 +124,7 @@ describe('createSettingsScreen rebind flow', () => {
       mouseSensitivityMultiplier: 1,
       invertPitch: false,
       speedUnit: 'ms',
+      alphaLimiterEnabled: true,
     };
     const handle = createSettingsScreen(container, initial, { onChange, onRebindStart, onResetDefaults: noop, onBack: noop });
 
@@ -151,6 +153,7 @@ describe('createSettingsScreen speed unit', () => {
       mouseSensitivityMultiplier: 1,
       invertPitch: false,
       speedUnit: 'ms',
+      alphaLimiterEnabled: true,
     };
     createSettingsScreen(container, initial, { onChange, onRebindStart: noop, onResetDefaults: noop, onBack: noop });
 
@@ -163,6 +166,36 @@ describe('createSettingsScreen speed unit', () => {
     expect(onChange).toHaveBeenCalledTimes(1);
     const next = onChange.mock.calls[0]![0] as SettingsState;
     expect(next.speedUnit).toBe('kt');
+  });
+});
+
+// Regression coverage for the "disable AoA limiter" setting (user report: the FBW alpha limiter
+// fights the pilot and oscillates near the boundary; this control lets a pilot fly past the
+// protected envelope instead). Mirrors the speed-unit select test above.
+describe('createSettingsScreen AoA limiter', () => {
+  it('defaults the checkbox to initial.alphaLimiterEnabled and reports the new value through onChange on toggle', () => {
+    const container = makeContainer();
+    const onChange = vi.fn();
+    const initial: SettingsState = {
+      qualityOverride: 'auto',
+      detectedTier: 'medium',
+      keyBindings: [],
+      mouseSensitivityMultiplier: 1,
+      invertPitch: false,
+      speedUnit: 'ms',
+      alphaLimiterEnabled: true,
+    };
+    createSettingsScreen(container, initial, { onChange, onRebindStart: noop, onResetDefaults: noop, onBack: noop });
+
+    const checkbox = container.querySelector('[data-role="alpha-limiter"]') as HTMLInputElement;
+    expect(checkbox.checked).toBe(true);
+
+    checkbox.checked = false;
+    checkbox.dispatchEvent(new Event('change', { bubbles: true }));
+
+    expect(onChange).toHaveBeenCalledTimes(1);
+    const next = onChange.mock.calls[0]![0] as SettingsState;
+    expect(next.alphaLimiterEnabled).toBe(false);
   });
 });
 

@@ -183,6 +183,8 @@ export interface SettingsState {
   invertPitch: boolean;
   /** Display unit for the HUD airspeed tape; see contracts/core.ts's SpeedUnit doc comment. */
   speedUnit: SpeedUnit;
+  /** false = fly with PilotInputs.alphaLimiterDisabled=true (no FBW alpha protection); see that field's own doc comment. Defaults to true (limiter active, the safe/real-Tejas default). */
+  alphaLimiterEnabled: boolean;
 }
 
 export interface SettingsCallbacks {

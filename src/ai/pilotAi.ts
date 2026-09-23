@@ -184,6 +184,7 @@ class AiPilotImpl implements AiPilot {
     decideWeaponEmployment(ctx, target, this.diffProfile, this.timeInStateSec, dtSec, this.weaponEmploymentState, this.rng, out);
     out.cycleTarget = target?.id !== prevTargetId;
     out.nwsEnabled = undefined;
+    out.alphaLimiterDisabled = undefined;
 
     this.syncDebugState(activeGoal);
   }

@@ -291,6 +291,19 @@ export interface PilotInputs {
   cycleTarget: boolean;
   /** Nose-wheel steering enabled (ground ops only). Omitted/undefined is treated as false. */
   nwsEnabled?: boolean;
+  /**
+   * Bypasses fcs.ts's alpha limiter (the g-command reduction that keeps alpha within
+   * FcsLimits.maxAlphaRad/minAlphaRad) when true. Omitted/undefined is treated as false (limiter
+   * active), matching every real FBW jet's default and every non-player pilot (AI never sets
+   * this — see src/ai/pilotAi.ts). A player-facing Settings option ("AoA limiter") for pilots who
+   * want to fly past the FBW-protected envelope and risk a real departure/stall instead of the
+   * limiter holding them at the boundary. NOTE: src/aircraft/tejasAeroTables.ts's CL/CD/Cm tables
+   * only cover alpha up to FcsLimits.maxAlphaRad (22deg) and clamp flat beyond it (see
+   * src/math/table2d.ts's edge-clamping) — there is no modelled post-stall lift/moment dropoff,
+   * so disabling this does not currently produce a classic "nose drops as CL collapses" stall
+   * break; it lets alpha climb unbounded while the aero model keeps using the 22deg coefficients.
+   */
+  alphaLimiterDisabled?: boolean;
 }
 
 /** Aerodynamic/engine/nav telemetry for the aircraft a Pilot is flying, recomputed by src/physics every SIM_DT_SEC and handed to Pilot.update via PilotContext. */

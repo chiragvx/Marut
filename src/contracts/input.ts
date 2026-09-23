@@ -449,6 +449,10 @@ export interface PlayerInputSystem extends Pilot {
   getControlScheme(): InputControlScheme;
   setControlScheme(scheme: InputControlScheme): void;
 
+  /** Whether update() writes PilotInputs.alphaLimiterDisabled=true (a player-facing Settings option; see that field's own doc comment). Defaults to false (limiter active). */
+  isAlphaLimiterDisabled(): boolean;
+  setAlphaLimiterDisabled(disabled: boolean): void;
+
   /** Subscribes to meta actions (camera cycle, menu toggle). Returns an unsubscribe function. Fires at most once per rising edge, regardless of source device. */
   onMetaAction(handler: (action: MetaAction) => void): () => void;
 
