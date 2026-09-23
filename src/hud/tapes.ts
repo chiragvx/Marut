@@ -110,3 +110,32 @@ export function drawAoaGReadout(ctx: CanvasRenderingContext2D, hud: Float64Array
   ctx.fillText(`G ${g.toFixed(1)}`, xPx, yPx + 16);
   ctx.restore();
 }
+
+/**
+ * Throttle % and afterburner-engaged cue. Added because the HUD previously gave the player NO
+ * indication of throttle setting or afterburner state at all — engine.ts's afterburner detent
+ * only engages when PilotInputs.afterburner (a separate key from the 0..1 throttle axis) is held
+ * AND throttle is already at/near max, and every sim-check-validated performance target (Vmax,
+ * climb rate, takeoff roll) assumes afterburner is engaged, so a player flying military-power-only
+ * without ever knowing afterburner exists as a separate control would reasonably perceive the
+ * aircraft as underpowered. `throttleFrac`/`afterburnerOn` come straight off the player's own
+ * entity block in the raw snapshot (SnapshotEntity.THROTTLE/AFTERBURNER_ON) — not the HUD block,
+ * which has no afterburner field (see hudCanvas.ts's ingestSnapshot for how these are read).
+ */
+/** Clamps a raw throttle fraction to [0,1] and rounds to an integer percent for display. */
+export function throttlePercent(throttleFrac: number): number {
+  return Math.round(Math.max(0, Math.min(1, throttleFrac)) * 100);
+}
+
+export function drawPowerIndicator(ctx: CanvasRenderingContext2D, throttleFrac: number, afterburnerOn: boolean, xPx: number, yPx: number): void {
+  const pct = throttlePercent(throttleFrac);
+  ctx.save();
+  ctx.font = '12px monospace';
+  ctx.fillStyle = '#40ff60';
+  ctx.fillText(`THR ${pct}%`, xPx, yPx);
+  if (afterburnerOn) {
+    ctx.fillStyle = '#ff9040';
+    ctx.fillText('AB', xPx, yPx + 16);
+  }
+  ctx.restore();
+}

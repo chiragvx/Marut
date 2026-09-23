@@ -61,12 +61,20 @@ export interface ScreenHandle {
 /** Cap applied to `window.devicePixelRatio` everywhere in this project (rendering AND the benchmark canvas), so a 3x/4x phone panel is treated as 2x. */
 export const DEVICE_PIXEL_RATIO_CAP = 2;
 
-/** Total wall-clock duration of one quality-tier benchmark run, ms. */
-export const BENCHMARK_DURATION_MS = 2000;
+/**
+ * Total wall-clock duration of one quality-tier benchmark run, ms. This (plus
+ * BENCHMARK_WARMUP_MS/TRIANGLE_COUNT below) used to run unconditionally on EVERY page load
+ * (main.ts now caches the result — see PersistedSettings.cachedAutoTier — so it only runs once
+ * per browser), which is what made every load visibly "lag the entire browser and PC" for its
+ * duration. Shrunk 5x/3.4x from the original 2000ms/300k-triangle run for the one-off cost that
+ * remains; still comfortably enough frames at any real frame rate to produce a stable fps
+ * average for ComputeQualityTier's bucket thresholds below.
+ */
+export const BENCHMARK_DURATION_MS = 800;
 /** Leading portion of BENCHMARK_DURATION_MS discarded before averaging (JIT/driver warm-up), ms. */
-export const BENCHMARK_WARMUP_MS = 500;
+export const BENCHMARK_WARMUP_MS = 150;
 /** Triangle count of the synthetic benchmark scene (a single static triangle-soup VBO, regenerated with `Math.random()` per 00-architecture.md §2's "cosmetic-only" allowance — this never feeds simulation state). */
-export const BENCHMARK_TRIANGLE_COUNT = 300_000;
+export const BENCHMARK_TRIANGLE_COUNT = 60_000;
 
 /** Benchmark fps buckets used by ComputeQualityTier. fps >= ULTRA -> benchmarkScore 3, >= HIGH -> 2, >= MEDIUM -> 1, else 0. */
 export const QUALITY_BENCHMARK_FPS_THRESHOLDS = {

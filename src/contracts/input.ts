@@ -282,6 +282,13 @@ export interface TouchReader {
   attach(container: HTMLElement): void;
   /** Recomputes fixed-zone pixel rects from `container`'s current bounding box; call on resize/orientation change. */
   relayout(): void;
+  /**
+   * Shows/hides the overlay DOM (touch listeners and hit-testing keep working regardless — this
+   * is a pure visibility toggle, not a functional enable/disable). No-op before `attach()`.
+   * Callers should hide it for any non-Touch InputControlScheme, since the overlay was previously
+   * always visible even on a desktop keyboard/mouse/gamepad session.
+   */
+  setVisible(visible: boolean): void;
   dispose(): void;
 }
 export type CreateTouchReader = () => TouchReader;

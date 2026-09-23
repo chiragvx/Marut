@@ -13,21 +13,28 @@ function chunkKey(chunkX: number, chunkZ: number, lod: number): string {
   return `${chunkX}:${chunkZ}:${lod}`;
 }
 
-/** 08-render.md section 4.5.1 — one shared ShaderMaterial for ALL chunks at all LODs. */
+/**
+ * 08-render.md section 4.5.1 — one shared ShaderMaterial for ALL chunks at all LODs.
+ *
+ * TESTING MODE: flat solid `uGroundColor` instead of the altitude/slope-tinted gradient this
+ * originally had. Requested so terrain reads as one clean, uniform reference surface while
+ * verifying flight-model/collision fixes visually (a solid color makes any aircraft-vs-ground
+ * clipping or mesh artifact far easier to spot at a glance than a gradient). Also a little
+ * cheaper per-fragment (no altitude branch chain, no slope mix) — a minor, secondary win, not a
+ * fix for the real load-time cost (that's CPU-side chunk generation, see the perf investigation).
+ * To restore the original altitude/slope coloring later, see git history for this file.
+ */
 export function createTerrainMaterial(): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
     uniforms: {
       uFogColor: { value: new THREE.Color(0xbcd4e8) },
+      uGroundColor: { value: new THREE.Color(0x4a6b3a) },
       uFogStart: { value: 1500 },
       uFogEnd: { value: 5000 },
     },
     vertexShader: `
-      varying float vAltitudeM;
-      varying float vSlope;
       varying vec3 vViewPos;
       void main() {
-        vAltitudeM = position.y;
-        vSlope = 1.0 - dot(normalize(normal), vec3(0.0, 1.0, 0.0));
         vec4 viewPos4 = modelViewMatrix * vec4(position, 1.0);
         vViewPos = viewPos4.xyz;
         gl_Position = projectionMatrix * viewPos4;
@@ -35,21 +42,13 @@ export function createTerrainMaterial(): THREE.ShaderMaterial {
     `,
     fragmentShader: `
       uniform vec3 uFogColor;
+      uniform vec3 uGroundColor;
       uniform float uFogStart;
       uniform float uFogEnd;
-      varying float vAltitudeM;
-      varying float vSlope;
       varying vec3 vViewPos;
-      vec3 altitudeColor(float altM) {
-        if (altM < 0.0)    return vec3(0.76, 0.70, 0.50);
-        if (altM < 200.0)  return mix(vec3(0.20,0.45,0.15), vec3(0.35,0.55,0.20), altM/200.0);
-        if (altM < 1200.0) return mix(vec3(0.35,0.55,0.20), vec3(0.45,0.40,0.30), (altM-200.0)/1000.0);
-        return mix(vec3(0.45,0.40,0.30), vec3(0.95,0.95,0.97), clamp((altM-1200.0)/800.0, 0.0, 1.0));
-      }
       void main() {
-        vec3 base = mix(altitudeColor(vAltitudeM), vec3(0.5, 0.47, 0.45), clamp(vSlope*1.6, 0.0, 1.0));
         float fogT = clamp((length(vViewPos) - uFogStart) / max(uFogEnd - uFogStart, 1.0), 0.0, 1.0);
-        gl_FragColor = vec4(mix(base, uFogColor, fogT), 1.0);
+        gl_FragColor = vec4(mix(uGroundColor, uFogColor, fogT), 1.0);
       }
     `,
   });

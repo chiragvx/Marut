@@ -20,6 +20,7 @@
 import type { CreateTouchReader, TouchReader, TouchControlsState, TouchLayoutRectPx, TouchZoneId as TouchZoneIdType } from '../contracts/input';
 import { TouchZoneId } from '../contracts/input';
 import { applyRadialDeadzone, applyLinearDeadzone, shapeCurve } from './deadzones';
+import { buttonIconSvgMarkup } from './touchIcons';
 
 export const TOUCH_STICK_RADIUS_PX = 70;
 export const TOUCH_STICK_DEADZONE_FRAC = 0.08;
@@ -115,6 +116,14 @@ export const createTouchReader: CreateTouchReader = () => {
 
   let container: HTMLElement | null = null;
   let probeEl: HTMLDivElement | null = null;
+  // Wraps every VISIBLE overlay element (not probeEl, which is invisible/pointer-events:none
+  // and used only to measure safe-area insets — nesting it under a display:none ancestor would
+  // zero out its getBoundingClientRect() reading, breaking readSafeAreaInsets). setVisible()
+  // toggles this one element's display instead of each child individually. Added because the
+  // overlay was previously always mounted and always visible regardless of the active
+  // InputControlScheme — a desktop keyboard/mouse/gamepad session showed a full set of empty
+  // touch buttons with nothing to do with it.
+  let overlayRootEl: HTMLDivElement | null = null;
   let stickBaseEl: HTMLDivElement | null = null;
   let stickKnobEl: HTMLDivElement | null = null;
   let yawBarEl: HTMLDivElement | null = null;
@@ -434,24 +443,37 @@ export const createTouchReader: CreateTouchReader = () => {
       probeEl.style.pointerEvents = 'none';
       el.appendChild(probeEl);
 
+      // Touch hit-testing is entirely coordinate-based (rectContains against buttonRects, from
+      // touch events listened for on `el`/container itself, not on these child elements) — so
+      // CSS pointer-events on this wrapper or its children has no effect on functionality either
+      // way; it exists purely so setVisible() has one element to toggle display on.
+      overlayRootEl = doc.createElement('div');
+      overlayRootEl.style.position = 'absolute';
+      overlayRootEl.style.inset = '0';
+      el.appendChild(overlayRootEl);
+
       stickBaseEl = createOverlayDiv(doc);
       stickBaseEl.style.opacity = '0';
       stickKnobEl = createOverlayDiv(doc);
       stickKnobEl.style.opacity = '0';
       stickKnobEl.style.background = 'rgba(255,255,255,0.28)';
-      el.appendChild(stickBaseEl);
-      el.appendChild(stickKnobEl);
+      overlayRootEl.appendChild(stickBaseEl);
+      overlayRootEl.appendChild(stickKnobEl);
 
       yawBarEl = createOverlayDiv(doc);
-      el.appendChild(yawBarEl);
+      yawBarEl.setAttribute('aria-label', TouchZoneId.YawBar);
+      overlayRootEl.appendChild(yawBarEl);
 
       throttleEl = createOverlayDiv(doc);
-      el.appendChild(throttleEl);
+      throttleEl.setAttribute('aria-label', TouchZoneId.Throttle);
+      overlayRootEl.appendChild(throttleEl);
 
       for (const zone of BUTTON_ZONE_ORDER) {
         const btn = createOverlayDiv(doc);
+        btn.setAttribute('aria-label', zone);
+        btn.innerHTML = buttonIconSvgMarkup(zone);
         buttonEls.set(zone, btn);
-        el.appendChild(btn);
+        overlayRootEl.appendChild(btn);
       }
 
       el.addEventListener('touchstart', onTouchStart, { passive: false });
@@ -464,13 +486,19 @@ export const createTouchReader: CreateTouchReader = () => {
     relayout(): void {
       computeLayout();
     },
+    setVisible(visible: boolean): void {
+      if (overlayRootEl !== null) overlayRootEl.style.display = visible ? '' : 'none';
+    },
     dispose(): void {
       if (container !== null) {
         container.removeEventListener('touchstart', onTouchStart);
         container.removeEventListener('touchmove', onTouchMove);
         container.removeEventListener('touchend', onTouchEndOrCancel);
         container.removeEventListener('touchcancel', onTouchEndOrCancel);
-        for (const child of [probeEl, stickBaseEl, stickKnobEl, yawBarEl, throttleEl, ...buttonEls.values()]) {
+        // stickBaseEl/stickKnobEl/yawBarEl/throttleEl/buttonEls all live inside overlayRootEl
+        // now (not directly under container — see overlayRootEl's own comment above), so
+        // removing probeEl + overlayRootEl detaches everything else with them.
+        for (const child of [probeEl, overlayRootEl]) {
           if (child !== null && child.parentNode === container) {
             container.removeChild(child);
           }
@@ -484,6 +512,7 @@ export const createTouchReader: CreateTouchReader = () => {
       state.yawBar = 0;
       container = null;
       probeEl = null;
+      overlayRootEl = null;
       stickBaseEl = null;
       stickKnobEl = null;
       yawBarEl = null;

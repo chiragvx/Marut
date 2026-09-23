@@ -77,6 +77,14 @@ import { buildKeyBindingsFromInputMap, isAxisRebindMiscapturePositive, targetFor
 interface PersistedSettings {
   qualityTierOverride: QualityTier | 'auto';
   version: 1;
+  /**
+   * Result of the last auto-detection (detectQualityTier), cached so the ~2.5s/300k-triangle GPU
+   * benchmark (src/ui/benchmark.ts) only ever has to run once per browser instead of on every
+   * single page load — it was previously unconditional whenever qualityTierOverride === 'auto'
+   * (the default), which is what made every load "lag the entire browser and PC" for its
+   * duration. Optional so old saved data (from before this field existed) still parses fine.
+   */
+  cachedAutoTier?: QualityTier;
 }
 
 function loadPersistedSettings(): PersistedSettings | undefined {
@@ -85,6 +93,7 @@ function loadPersistedSettings(): PersistedSettings | undefined {
     if (!raw) return undefined;
     const parsed = JSON.parse(raw) as Partial<PersistedSettings>;
     if (parsed.version !== 1 || typeof parsed.qualityTierOverride !== 'string') return undefined;
+    if (parsed.cachedAutoTier !== undefined && typeof parsed.cachedAutoTier !== 'string') return undefined;
     return parsed as PersistedSettings;
   } catch {
     return undefined;
@@ -630,10 +639,13 @@ async function boot(): Promise<void> {
   const persisted = loadPersistedSettings();
   if (persisted && persisted.qualityTierOverride !== 'auto') {
     currentQualityTier = persisted.qualityTierOverride;
+  } else if (persisted && persisted.cachedAutoTier) {
+    currentQualityTier = persisted.cachedAutoTier;
   } else {
     const benchCanvas = document.createElement('canvas');
     const report = await detectQualityTier(benchCanvas);
     currentQualityTier = report.tier;
+    savePersistedSettings({ qualityTierOverride: 'auto', version: 1, cachedAutoTier: currentQualityTier });
   }
   orientationPrompt = mountOrientationPrompt(uiRoot);
 

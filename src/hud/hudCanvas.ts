@@ -16,7 +16,7 @@
  * unaffected (none of them depended on camera mode per that same section).
  */
 
-import { NO_ENTITY_ID, SnapshotHud, type QualityTier } from '../contracts/core';
+import { NO_ENTITY_ID, SnapshotEntity, SnapshotHud, entityFieldOffset, type QualityTier } from '../contracts/core';
 import { RENDER_QUALITY_TABLE, type CameraState, type CreateHudRenderer, type HudRenderer } from '../contracts/render';
 
 import { drawLadder } from './ladder';
@@ -30,7 +30,7 @@ import {
   ingestSnapshotIntoHudBuffer,
   interpolateHudEntity,
 } from './snapshotView';
-import { drawAltitudeTape, drawAoaGReadout, drawHeadingTape, drawSpeedTape } from './tapes';
+import { drawAltitudeTape, drawAoaGReadout, drawHeadingTape, drawPowerIndicator, drawSpeedTape } from './tapes';
 import { createScreenProjection, drawLeadSight, drawTargetBox, hasTarget } from './targetBox';
 import { createWeaponStatusState, drawWeaponStatus, ingestWeaponEvents, setWeaponLoadout as applyWeaponLoadout } from './weaponStatus';
 import { drawWarnings } from './warnings';
@@ -47,6 +47,12 @@ export const createHudRenderer: CreateHudRenderer = (canvas, initialTier) => {
   const interpTarget = createInterpolatedHudEntity();
   const weaponState = createWeaponStatusState();
   const scratchProjection = createScreenProjection();
+
+  // Player's own throttle/afterburner state, read straight off the per-entity snapshot block
+  // (SnapshotEntity.THROTTLE/AFTERBURNER_ON) since the HUD block itself carries no afterburner
+  // field — see drawPowerIndicator's doc comment in tapes.ts for why this exists.
+  let playerThrottleFrac = 0;
+  let playerAfterburnerOn = false;
 
   const api: HudRenderer = {
     resize(widthPxArg, heightPxArg, devicePixelRatio) {
@@ -67,6 +73,11 @@ export const createHudRenderer: CreateHudRenderer = (canvas, initialTier) => {
 
     ingestSnapshot(view) {
       ingestSnapshotIntoHudBuffer(buf, view, performance.now());
+      const pSlot = buf.curr.playerSlot;
+      if (pSlot >= 0) {
+        playerThrottleFrac = view[entityFieldOffset(pSlot, SnapshotEntity.THROTTLE)] ?? 0;
+        playerAfterburnerOn = (view[entityFieldOffset(pSlot, SnapshotEntity.AFTERBURNER_ON)] ?? 0) !== 0;
+      }
     },
 
     ingestEvents(events) {
@@ -92,6 +103,7 @@ export const createHudRenderer: CreateHudRenderer = (canvas, initialTier) => {
       drawAltitudeTape(ctx, hud, widthPx - 50, heightPx * 0.5, heightPx * 0.32);
       drawHeadingTape(ctx, hud, widthPx * 0.5, 16, widthPx * 0.28);
       drawAoaGReadout(ctx, hud, 16, heightPx - 44);
+      drawPowerIndicator(ctx, playerThrottleFrac, playerAfterburnerOn, 100, heightPx - 44);
       drawIlsNeedles(ctx, hud, widthPx, heightPx);
 
       const tierSettings = RENDER_QUALITY_TABLE[tier];

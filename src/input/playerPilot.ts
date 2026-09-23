@@ -54,6 +54,10 @@ function clamp(x: number, lo: number, hi: number): number {
   return x < lo ? lo : x > hi ? hi : x;
 }
 
+function isTouchScheme(scheme: InputControlSchemeType): boolean {
+  return scheme === InputControlScheme.Touch || scheme === InputControlScheme.TouchGyro;
+}
+
 function isLogicalAxis(action: RebindableAction): action is 'pitch' | 'roll' | 'yaw' | 'throttle' {
   return action === LogicalAxis.Pitch || action === LogicalAxis.Roll || action === LogicalAxis.Yaw || action === LogicalAxis.Throttle;
 }
@@ -77,6 +81,12 @@ export function createPlayerInputSystem(config: PlayerInputConfig): PlayerInputS
   const gamepadReader = createGamepadReader(win);
   const touchReader = createTouchReader();
   touchReader.attach(config.touchOverlayContainer);
+  // The overlay used to always be visible regardless of scheme — a desktop keyboard/mouse/
+  // gamepad session showed a full set of empty touch buttons with nothing to do with it. Show it
+  // only for the two touch-based schemes (TouchGyro still uses the overlay's yaw bar/throttle/
+  // buttons, just not the stick — see this file's own header note); setControlScheme (below)
+  // keeps this in sync on any later scheme change.
+  touchReader.setVisible(isTouchScheme(initialData.controlScheme));
   const deviceOrientationReader = createDeviceOrientationReader(win);
 
   // Persisted per-axis ramp state (one number per axis), and mouse-aim
@@ -431,6 +441,7 @@ export function createPlayerInputSystem(config: PlayerInputConfig): PlayerInputS
       withMutatedData((d) => {
         d.controlScheme = scheme;
       });
+      touchReader.setVisible(isTouchScheme(scheme));
     },
 
     onMetaAction(handler: (action: MetaActionType) => void): () => void {
