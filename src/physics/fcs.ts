@@ -72,6 +72,26 @@ const FCS_ROLL_STICK_SHAPE_RATE_PER_SEC = 2.0;
 const ALPHA_LIMIT_ANTICIPATION_SEC = 0.3;
 
 /**
+ * Width, rad (~2deg), of the blend band the alpha limiter (stepFcs, below) ramps the raw
+ * g-command DOWN to its "1.0 - alphaLimitGain*overshoot" target over, instead of assigning that
+ * target outright the instant anticipated alpha first crosses the limit.
+ *
+ * Added after live-testing a genuinely SUSTAINED high-AoA hold (not just a quick pull): a large,
+ * ~8-10s-period oscillation that never damped out (gLoad cycling roughly 3g-9g, alpha 8-27deg).
+ * Root cause was the un-blended assignment itself: right at the crossing (overshoot=0) its target
+ * evaluates to ~1.0, so a hard pull commanding gCmd=8 would SNAP straight down to ~1.0 the instant
+ * alphaAnticipated first touched the limit, then snap back to 8 the instant it receded below it a
+ * moment later -- a relay/bang-bang oscillator, not a limiter. Blending over a small band keeps
+ * the command continuous with the raw pilot demand at overshoot=0 (no snap) while still reaching
+ * the exact same, already-tuned target once overshoot exceeds this width, so no protection is
+ * lost far from the boundary -- confirmed necessary by a regression this band fixes:
+ * tests/integration/spawnFlyLand.test.ts's 25s scripted climb only grazes the limit slightly, and
+ * a plain (unblended) linear reduction proportional to overshoot was too weak that close to the
+ * boundary to hold it, letting alpha drift enough to crash on landing much later in the flight.
+ */
+const ALPHA_LIMIT_BLEND_RAD = 0.035;
+
+/**
  * Pitch-axis qBar gain scheduling (cross-module fix; see
  * tests/integration/trimAndPerformance.test.ts / tools/lib/trimSolver.ts's
  * own extensive notes on why a FIXED-gain pitch law cannot hold across this
@@ -296,11 +316,17 @@ export function stepFcs(
     // — eventually crashing during the landing rollout). The gCmd reduction below still uses the
     // anticipated value, which is what actually targets the overshoot this was added to fix.
     const alphaLimitActive = alpha > fcsLimits.maxAlphaRad || alpha < fcsLimits.minAlphaRad;
+    // See ALPHA_LIMIT_BLEND_RAD's doc comment: blended over that band rather than assigned
+    // outright, so gCmd is continuous with the raw pilot demand at overshoot=0.
     if (alphaAnticipated > fcsLimits.maxAlphaRad) {
-      gCmd = Math.min(gCmd, 1.0 - fcsLimits.alphaLimitGain * (alphaAnticipated - fcsLimits.maxAlphaRad));
+      const overshootRad = alphaAnticipated - fcsLimits.maxAlphaRad;
+      const blend = clamp(overshootRad / ALPHA_LIMIT_BLEND_RAD, 0, 1);
+      gCmd = lerp(gCmd, 1.0 - fcsLimits.alphaLimitGain * overshootRad, blend);
     }
     if (alphaAnticipated < fcsLimits.minAlphaRad) {
-      gCmd = Math.max(gCmd, 1.0 - fcsLimits.alphaLimitGain * (alphaAnticipated - fcsLimits.minAlphaRad));
+      const overshootRad = fcsLimits.minAlphaRad - alphaAnticipated;
+      const blend = clamp(overshootRad / ALPHA_LIMIT_BLEND_RAD, 0, 1);
+      gCmd = lerp(gCmd, 1.0 - fcsLimits.alphaLimitGain * (alphaAnticipated - fcsLimits.minAlphaRad), blend);
     }
 
     if (transitioned) {
