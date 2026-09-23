@@ -499,7 +499,15 @@ async function initWorkersAndRenderer(qualityTier: QualityTier): Promise<void> {
     if (e.data.type === 'terrainReady') {
       terrainReady = true;
       for (const m of pendingTerrainMsgs.splice(0)) terrainWorker.postMessage(m);
-      return;
+      // Deliberately no `return` here (see this file's own git history for the bug this fixes):
+      // this branch used to swallow the terrainReady message entirely, so ChunkManager's own
+      // internal `ready` flag (set only inside its handleTerrainWorkerMessage, which gates its
+      // trySendRequests -- see src/terrain/chunkManager.ts) NEVER got set. That meant
+      // ChunkManager never sent a single requestChunk message, for the entire life of the
+      // session, no matter how long you waited -- terrain simply never streamed in. This queue
+      // (terrainReady/pendingTerrainMsgs) and ChunkManager's own readiness gate were two
+      // independently-built mechanisms for the same handshake that were never actually
+      // connected. Falling through here lets ChunkManager also learn the worker is ready.
     }
     chunkManager?.handleTerrainWorkerMessage(e.data);
   };
