@@ -339,9 +339,11 @@ if (out.flags & EntityFlag.OnGround) == 0:                              // airbo
     elevonSymCmd = def.fcsLimits.gLoadGain * (gCmd - gLoad) - def.fcsLimits.pitchRateGain * q + trimIntegralRad[i]
 else:                                                                     // on ground: direct law, no trim integral
     trimIntegralRad[i] = 0
-    elevonSymCmd = inputs.pitch * def.fcsLimits.maxElevonRad * GROUND_LAW_PITCH_AUTHORITY_FRACTION - def.fcsLimits.pitchRateGain * q
+    elevonSymCmd = -inputs.pitch * def.fcsLimits.maxElevonRad * GROUND_LAW_PITCH_AUTHORITY_FRACTION - def.fcsLimits.pitchRateGain * q
 elevonSymCmd = clamp(elevonSymCmd, -def.fcsLimits.maxElevonRad, def.fcsLimits.maxElevonRad)
 ```
+
+*Sign note (corrected; this formula's direct term was originally pinned positive here and carried that sign into the implementation unnoticed for some time):* this project's elevon convention (section 6.2 of `00-architecture.md`) is `+elevonSym` = trailing-edge-down = NOSE-DOWN moment, and `inputs.pitch = +1` means "stick full aft = nose-up command" (`contracts/core.ts`'s `PilotInputs.pitch` doc comment). The direct stick term above must therefore be NEGATED for `inputs.pitch=+1` to produce nose-up authority — without the negation, pulling up during the ground roll commands nose-DOWN instead, and the aircraft only leaves the ground once raw aerodynamic lift overpowers that for itself, well past a normal rotation speed. This mirrors exactly how `gLoadGain` (the airborne law's own pitch term, just above) had to be negative for the same reason; the difference is this ground-law term has no gain constant of its own to carry that sign, so it needs the negation written explicitly.
 
 *Auto-trim*: because `gCmd = 1.0` exactly at `inputs.pitch = 0` (both branches of the lerp meet at 1.0), stick-centered flight always commands 1 g, not a fixed elevon angle. The proportional term `Kg*(gCmd-gLoad)` alone only APPROXIMATES this (for a local linearization `gLoad ≈ k·elevonSym` near trim, the P-loop's fixed point is `gLoad_eq = gCmd·(Kg·k)/(1+Kg·k)`, which is strictly less than `gCmd` for any finite `Kg`, `k` — e.g. at Tejas scale, `Kg=1 rad/g` and `k≈7 g/rad` still leaves roughly a 12% steady-state g error). The `trimIntegralRad[i]` term above is what removes this steady-state error: it integrates the g-error at rate `FCS_TRIM_INTEGRAL_GAIN` (section 5.3) for as long as `gCmd ≠ gLoad`, so `elevonSymCmd` keeps climbing until `gLoad` reaches `gCmd` exactly (integral action drives DC error to zero at steady state, independent of `Kg`/`k`) — this integral state, not the proportional term by itself, is the auto-trim mechanism, and it IS persisted state (per-entity, held in `trimIntegralRad`, reset on hydraulics loss or ground contact as above). See section 9 for why this state lives in `src/physics`-private storage rather than `EntityState`/`DamageState`.
 
@@ -355,8 +357,10 @@ elevonDiffCmd = clamp( def.fcsLimits.rollRateGain * (pCmd - p), -def.fcsLimits.m
 **Yaw — direct law + damper, always:**
 
 ```
-rudderCmd = clamp( inputs.yaw * def.fcsLimits.maxRudderRad - def.fcsLimits.yawRateGain * r, -def.fcsLimits.maxRudderRad, def.fcsLimits.maxRudderRad )
+rudderCmd = clamp( -inputs.yaw * def.fcsLimits.maxRudderRad - def.fcsLimits.yawRateGain * r, -def.fcsLimits.maxRudderRad, def.fcsLimits.maxRudderRad )
 ```
+
+*Sign note (corrected, same class of error as the ground pitch law above):* `Cn_rudder < 0` (section 5.2) combined with this project's `r = -omega.y` mapping means `+rudder` (trailing-edge left) produces a NOSE-LEFT moment, while `inputs.yaw = +1` means "nose-right command" (`PilotInputs.yaw`'s doc comment). The direct stick term must be negated for right rudder input to actually yaw the nose right; the un-negated form pinned here originally did the opposite. `yawRateGain`'s own sign (the damping term just after) was already corrected elsewhere in this section's history — only this direct term was missed, for the same reason noted above: it carries no gain constant of its own for a sign-sweep review to catch.
 
 **Combine and rate-limit (actuator model, applied to ALL three every substep):**
 

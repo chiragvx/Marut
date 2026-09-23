@@ -374,14 +374,40 @@ export function stepFcs(
       gainSchedule * (fcsLimits.gLoadGain * (gCmd - gLoad) - fcsLimits.pitchRateGain * q) + readF64(trimIntegralRad, entityIndex);
   } else {
     trimIntegralRad[entityIndex] = 0;
-    elevonSymCmd = pitchStickShaped * fcsLimits.maxElevonRad * GROUND_LAW_PITCH_AUTHORITY_FRACTION - gainSchedule * fcsLimits.pitchRateGain * q;
+    // Negated (user report: pulling up during the takeoff roll should raise the nose and make
+    // the aircraft struggle to get airborne, not the reverse). This project's mandatory elevon
+    // sign convention (tejasGeometry.ts's gLoadGain comment, 00-architecture.md section 6.2) is
+    // "+elevonSym = trailing-edge-down = NOSE-DOWN moment". The air law above gets this right
+    // because gLoadGain is itself negative, so a positive g-error correctly yields a negative
+    // (nose-up) elevonSymCmd. This ground law has no such gain to carry the sign -- it maps the
+    // raw stick straight through -- and was missing the negation, so pitchStickShaped=+1 (pilot
+    // pulling up) produced a POSITIVE elevonSymCmd, i.e. commanded NOSE-DOWN the entire ground
+    // roll. Confirmed live: pitch attitude measurably DECREASED while holding full aft stick from
+    // brakes-release. This bug was inherited verbatim from docs/spec/02-flight-model.md section
+    // 4.9's own worked formula (also fixed there) -- it predates this project's later "sign fix"
+    // review passes on gLoadGain/pitchRateGain/yawRateGain (tejasGeometry.ts's own extensive
+    // history of those), which swept GAIN CONSTANTS by checking for closed-loop divergence from a
+    // stick-centered trim; that method cannot catch a wrong-signed DIRECT proportional term like
+    // this one, since it's hard-clamped to +-maxElevonRad and produces no divergence to detect --
+    // it just stably pushes the aircraft the wrong way. See the rudder fix below for the other
+    // instance of this exact same class of bug.
+    elevonSymCmd = -pitchStickShaped * fcsLimits.maxElevonRad * GROUND_LAW_PITCH_AUTHORITY_FRACTION - gainSchedule * fcsLimits.pitchRateGain * q;
   }
   elevonSymCmd = clamp(elevonSymCmd, -fcsLimits.maxElevonRad, fcsLimits.maxElevonRad);
 
   const pCmd = rollStickShaped * fcsLimits.maxRollRateRadS;
   const elevonDiffCmd = clamp(fcsLimits.rollRateGain * (pCmd - p), -fcsLimits.maxElevonRad, fcsLimits.maxElevonRad);
 
-  const rudderCmd = clamp(inputs.yaw * fcsLimits.maxRudderRad - fcsLimits.yawRateGain * r, -fcsLimits.maxRudderRad, fcsLimits.maxRudderRad);
+  // Negated, same bug class and same root cause as the ground pitch law above (found auditing
+  // for other instances after that fix): tejasGeometry.ts's yawRateGain comment establishes
+  // "+rudder (trailing-edge LEFT) produces +wy / a NOSE-LEFT moment" (Cn_rudder<0), while
+  // PilotInputs.yaw's own doc comment is "+1 = nose-right command". The un-negated direct term
+  // (inputs.yaw*maxRudderRad) therefore commanded +rudder -- nose-LEFT -- for a pilot pressing
+  // right rudder. The damping term (-yawRateGain*r) was already correctly signed since
+  // yawRateGain itself went through the gain-constant review; only this direct term, inherited
+  // from the same spec formula (docs/spec/02-flight-model.md section 4.9, also fixed there), was
+  // never checked by that review for the reason explained above.
+  const rudderCmd = clamp(-inputs.yaw * fcsLimits.maxRudderRad - fcsLimits.yawRateGain * r, -fcsLimits.maxRudderRad, fcsLimits.maxRudderRad);
 
   const healthL = damage.controlSurfaces.elevonL;
   const healthR = damage.controlSurfaces.elevonR;

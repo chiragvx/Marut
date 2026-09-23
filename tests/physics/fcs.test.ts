@@ -103,6 +103,31 @@ describe('stepFcs', () => {
     expect(overLimit.elevonL).toBeCloseTo(underLimit.elevonL, 10);
   });
 
+  // Regression coverage for a sign bug found auditing the "premature rotation" user report
+  // (pulling up during the takeoff roll, before flying speed, should raise the nose and make the
+  // aircraft struggle to get airborne -- it should NOT do the opposite). The ground law's direct
+  // stick term was missing a negation this project's elevon convention (+elevonSym = trailing-
+  // edge-down = NOSE-DOWN) requires: full aft stick (pitch=+1, a nose-up demand per PilotInputs'
+  // own doc comment) was producing a POSITIVE (nose-down) elevonSymCmd. Confirmed live before the
+  // fix: pitch attitude measurably decreased while holding full aft stick from brakes-release.
+  it('ground pitch law: full aft stick (nose-up demand) commands a NEGATIVE (nose-up) elevonSymCmd, not positive', () => {
+    resetFcsTrimState(92);
+    const surfaces: FcsSurfaces = { elevonL: 0, elevonR: 0, rudder: 0 };
+    stepFcs(92, surfaces, true, true, 0, ZERO3, ZERO3, IDENTITY, 10000, 9.80665, makeInputs({ pitch: 1 }), makeDamage(), makeFcsLimits(), 1 / 120);
+    expect(surfaces.elevonL).toBeLessThan(0);
+  });
+
+  // Same bug class, found in the same audit: the rudder's direct stick term had the identical
+  // missing negation. tejasGeometry.ts's yawRateGain comment establishes "+rudder = trailing-edge
+  // LEFT = NOSE-LEFT moment"; PilotInputs.yaw's own doc comment is "+1 = nose-right command", so
+  // right-rudder input must produce a NEGATIVE rudderCmd to actually yaw the nose right.
+  it('rudder: right stick (nose-right demand) commands a NEGATIVE (nose-right, per this project convention) rudderCmd, not positive', () => {
+    resetFcsTrimState(93);
+    const surfaces: FcsSurfaces = { elevonL: 0, elevonR: 0, rudder: 0 };
+    stepFcs(93, surfaces, false, false, 0, ZERO3, ZERO3, IDENTITY, 10000, 9.80665, makeInputs({ yaw: 1 }), makeDamage(), makeFcsLimits(), 1 / 120);
+    expect(surfaces.rudder).toBeLessThan(0);
+  });
+
   it('hydraulics failure freezes the surfaces and resets the trim integral', () => {
     const index = entityPoolIndex(42);
     resetFcsTrimState(index);
