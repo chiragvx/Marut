@@ -29,7 +29,9 @@ import { RunwaySurface } from './contracts/airport';
 import type { AirportLayout, RunwayDef, TaxiwayDef, ApronDef } from './contracts/airport';
 import type { CameraState, HudRenderer, SceneRenderer } from './contracts/render';
 import type { PlayerInputSystem } from './contracts/input';
+import { RebindDeviceKind } from './contracts/input';
 import type {
+  BindableAction,
   DebriefStats,
   EditorAirportLayout,
   EditorRunway,
@@ -66,6 +68,7 @@ import { tejasDefinition } from './aircraft';
 import { resolveBuiltinMission } from './core/missions/index';
 import { readSnapshotEntity, readSnapshotHeader } from './core/snapshotReader';
 import { subSeed } from './core/seed';
+import { buildKeyBindingsFromInputMap, isAxisRebindMiscapturePositive, targetForBindableAction } from './core/inputBindingsAdapter';
 
 // -----------------------------------------------------------------------------
 // Settings persistence (10-core-worker.md section 4.10.2).
@@ -329,11 +332,45 @@ function showMissionSelect(): void {
   });
 }
 
+// Previously main.ts passed `keyBindings: []` and no-op rebind callbacks here, so the settings
+// screen always showed '—' for every action (throttle genuinely was, and still is, PageUp/
+// PageDown — it just had no way to be seen) and "Rebind" silently did nothing. See
+// src/core/inputBindingsAdapter.ts's header for the full module-09/module-11 naming-mismatch
+// story this wiring has to bridge, including the one keyboard-axis-capture limitation it
+// inherits (and refuses to silently mis-apply) from module 09.
+//
+// REBIND_TIMEOUT_MS below must match settings.ts's own (private) REBIND_TIMEOUT_MS: that module
+// reverts a row's "press any key…" display after 5s but has no way to tell US a capture timed
+// out (its timeout is purely visual), so this file runs its own matching timer to cancel the
+// REAL pending capture on inputSystem — without this, a capture nobody completed would leave
+// PlayerInputSystem stuck skipping normal input assembly (see startRebind's doc comment: while a
+// rebind is pending, update() only runs capture logic) even after the player leaves Settings.
+const SETTINGS_REBIND_TIMEOUT_MS = 5000;
+let settingsRebindTimeoutHandle: ReturnType<typeof setTimeout> | undefined;
+let settingsRebindUnsubscribe: (() => void) | undefined;
+let settingsPendingAction: BindableAction | undefined;
+
+function clearSettingsRebindTimeout(): void {
+  if (settingsRebindTimeoutHandle !== undefined) {
+    clearTimeout(settingsRebindTimeoutHandle);
+    settingsRebindTimeoutHandle = undefined;
+  }
+}
+
+/** Cancels any in-flight rebind capture and drops the subscription. Safe to call when nothing is pending. */
+function closeSettingsRebindState(): void {
+  clearSettingsRebindTimeout();
+  settingsPendingAction = undefined;
+  if (inputSystem && inputSystem.isRebinding()) inputSystem.cancelRebind();
+  settingsRebindUnsubscribe?.();
+  settingsRebindUnsubscribe = undefined;
+}
+
 function showSettingsOverlay(): void {
   const initial: SettingsState = {
     qualityOverride: (loadPersistedSettings()?.qualityTierOverride ?? 'auto') as QualityTier | 'auto',
     detectedTier: currentQualityTier,
-    keyBindings: [],
+    keyBindings: inputSystem ? buildKeyBindingsFromInputMap(inputSystem.inputMap.data) : [],
     mouseSensitivityMultiplier: 1,
     invertPitch: false,
   };
@@ -346,10 +383,50 @@ function showSettingsOverlay(): void {
         hud?.setQualityTier(currentQualityTier);
       }
     },
-    onRebindStart: () => {},
-    onResetDefaults: () => {},
-    onBack: () => handle.destroy(),
+    onRebindStart: (action) => {
+      if (!inputSystem) return;
+      closeSettingsRebindState();
+      if (isAxisRebindMiscapturePositive(action)) {
+        // Refuse rather than mis-rebind: module 09's keyboard axis capture always writes the
+        // NEGATIVE key of the pair (see inputBindingsAdapter.ts), so rebinding e.g. "throttleUp"
+        // would silently overwrite "throttleDown"'s key instead. settings.ts's own 5s
+        // capture-timeout reverts the row's "press any key…" display on its own since we never
+        // start a real capture for it.
+        return;
+      }
+      settingsPendingAction = action;
+      const target = targetForBindableAction(action);
+      inputSystem.startRebind(target.rebindAction, RebindDeviceKind.Keyboard);
+      settingsRebindTimeoutHandle = setTimeout(() => {
+        settingsRebindTimeoutHandle = undefined;
+        inputSystem.cancelRebind();
+      }, SETTINGS_REBIND_TIMEOUT_MS);
+    },
+    onResetDefaults: () => {
+      closeSettingsRebindState();
+      if (!inputSystem) return;
+      inputSystem.resetInputMapToDefaults();
+      inputSystem.saveInputMap();
+      handle.destroy();
+      showSettingsOverlay(); // simplest correct refresh: rebuild the whole screen from the now-reset live data
+    },
+    onBack: () => {
+      closeSettingsRebindState();
+      handle.destroy();
+    },
   });
+
+  if (inputSystem) {
+    settingsRebindUnsubscribe = inputSystem.onRebindComplete((result) => {
+      clearSettingsRebindTimeout();
+      const action = settingsPendingAction;
+      settingsPendingAction = undefined;
+      if (result.cancelled || result.binding === undefined || action === undefined) return;
+      // Keyboard-only UI: onRebindStart above only ever requests RebindDeviceKind.Keyboard, so
+      // `binding` here is always a KeyboardCode string, never a GamepadButtonBinding/AxisBinding.
+      handle.setCapturedKey(action, String(result.binding));
+    });
+  }
 }
 
 function showPauseMenu(): void {

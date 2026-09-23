@@ -376,6 +376,19 @@ export interface TerrainInitMessage {
   type: 'terrainInit';
   params: TerrainParams;
   flattenZones: readonly AirportFlattenZone[];
+  /**
+   * `TERRAIN_QUALITY_PROFILES[activeQualityTier].chunkGridQuads` at the moment ChunkManager was
+   * constructed. Without this, terrain.worker.ts has no way to learn the active quality tier at
+   * all (see this file's own section 9 "open assumption" note, and 04-terrain.md section 4.10) and
+   * previously fell back to permanently building every chunk at Low's 12x12 resolution regardless
+   * of tier — at the finest LOD depth (REFERENCE_CHUNK_SIZE_M ~= 781m / 12 quads ~= 65m between
+   * vertices) this is coarse enough that the rendered surface visibly diverges from the analytic
+   * HeightSampler height physics uses for ground contact, i.e. visible ground clipping on anything
+   * but dead-flat (flattened-airport) terrain. Runtime tier changes still are not propagated (no
+   * message currently exists for that — the open assumption above is unchanged); this field only
+   * fixes the INITIAL resolution matching the detected/selected tier at boot.
+   */
+  chunkGridQuads: number;
 }
 export interface TerrainReadyMessage {
   type: 'terrainReady';

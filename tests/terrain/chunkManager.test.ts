@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { createChunkManager } from '../../src/terrain';
-import { DEFAULT_TERRAIN_PARAMS } from '../../src/contracts/terrain';
+import { DEFAULT_TERRAIN_PARAMS, TERRAIN_QUALITY_PROFILES } from '../../src/contracts/terrain';
 import type { MainToTerrainMessage, TerrainRequestChunkMessage } from '../../src/contracts/core';
-import type { MainToTerrainMessageExt, ResidentChunkInfo, ChunkKey } from '../../src/contracts/terrain';
+import type { MainToTerrainMessageExt, TerrainInitMessage, ResidentChunkInfo, ChunkKey } from '../../src/contracts/terrain';
 
 function isRequestChunk(msg: MainToTerrainMessage | MainToTerrainMessageExt): msg is TerrainRequestChunkMessage {
   return msg.type === 'requestChunk';
@@ -26,6 +26,23 @@ describe('ChunkManager — buffers requests until terrainReady', () => {
     // Low @ (0,2000,0) cold start = 4 desired chunks (see quadtree.test.ts), all
     // within MAX_REQUESTS_PER_UPDATE (4), so all 4 flush in this one call.
     expect(sent.filter(isRequestChunk).length).toBe(4);
+  });
+
+  // Regression: terrainInit previously omitted chunkGridQuads entirely, so
+  // terrain.worker.ts had no way to learn the active tier and silently built
+  // every chunk at Low's resolution regardless of what was configured here —
+  // visible as ground clipping on any tier above Low. Pin that the message
+  // actually carries the CONFIGURED tier's resolution, not Low's, whenever a
+  // higher tier is requested.
+  it('terrainInit carries the configured quality tier\'s chunkGridQuads, not a hardcoded Low fallback', () => {
+    const sent: (MainToTerrainMessage | MainToTerrainMessageExt)[] = [];
+    createChunkManager({ qualityTier: 'high', terrainParams: DEFAULT_TERRAIN_PARAMS, flattenZones: [] }, (msg) => sent.push(msg));
+
+    expect(sent.length).toBe(1);
+    const init = sent[0] as TerrainInitMessage;
+    expect(init.type).toBe('terrainInit');
+    expect(init.chunkGridQuads).toBe(TERRAIN_QUALITY_PROFILES.high.chunkGridQuads);
+    expect(init.chunkGridQuads).not.toBe(TERRAIN_QUALITY_PROFILES.low.chunkGridQuads);
   });
 });
 

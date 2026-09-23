@@ -257,6 +257,7 @@ class WorldImpl implements World {
     let playerPos: Vec3Like;
     let playerHeadingRad: number;
     let playerSpeedMps: number;
+    let playerStartOnGround: boolean;
     if (ps.airportId !== undefined && ps.runwayId !== undefined) {
       const runway = this.deps.navDb.getRunway(ps.airportId, ps.runwayId);
       if (runway) {
@@ -264,24 +265,24 @@ class WorldImpl implements World {
         playerPos = { x: runway.thresholdPos.x + fwd.x * 200, y: runway.elevationM + 0.5, z: runway.thresholdPos.z + fwd.z * 200 };
         playerHeadingRad = runway.headingRad;
         playerSpeedMps = ps.speedMps ?? 0;
+        playerStartOnGround = true;
       } else {
         playerPos = ps.pos ?? { x: 0, y: 1000, z: 0 };
         playerHeadingRad = ps.headingRad ?? 0;
         playerSpeedMps = ps.speedMps ?? 0;
+        playerStartOnGround = false;
       }
     } else {
       playerPos = ps.pos ?? { x: 0, y: 1000, z: 0 };
       playerHeadingRad = ps.headingRad ?? 0;
       playerSpeedMps = ps.speedMps ?? 0;
+      playerStartOnGround = false;
     }
-    const playerId = this.spawnEntity({
-      kind: EntityKind.Aircraft,
-      team: 0,
-      pos: playerPos,
-      headingRad: playerHeadingRad,
-      speedMps: playerSpeedMps,
-      aircraftDefId: 'tejas-mk1',
-    });
+    // Spawns directly via spawnAircraftOnly (not the public spawnEntity path) solely to thread
+    // playerStartOnGround through — see spawnAircraftOnly's doc comment for why a runway spawn
+    // must start with gear down. Player-specific bookkeeping (IsPlayer flag, playerEntityIdInternal)
+    // below mirrors exactly what spawnEntity's aircraft branch would otherwise have done.
+    const playerId = this.spawnAircraftOnly(0, playerPos, playerHeadingRad, playerSpeedMps, 'tejas-mk1', playerStartOnGround);
     if (playerId !== NO_ENTITY_ID) {
       const state = this.pool.get(playerId);
       if (state) state.flags |= EntityFlag.IsPlayer;
@@ -295,27 +296,31 @@ class WorldImpl implements World {
         let pos: Vec3Like;
         let headingRad: number;
         let speedMps: number;
+        let startOnGround: boolean;
         if (flight.startAirportId !== undefined && flight.startRunwayId !== undefined) {
           const runway = this.deps.navDb.getRunway(flight.startAirportId, flight.startRunwayId);
           if (runway) {
             headingRad = runway.headingRad;
             speedMps = flight.startSpeedMps ?? 0;
             pos = { x: runway.thresholdPos.x, y: runway.elevationM + 0.5, z: runway.thresholdPos.z };
+            startOnGround = true;
           } else {
             headingRad = flight.startHeadingRad ?? 0;
             speedMps = flight.startSpeedMps ?? 0;
             pos = flight.startPos ?? { x: 0, y: 1000, z: 0 };
+            startOnGround = false;
           }
         } else {
           headingRad = flight.startHeadingRad ?? 0;
           speedMps = flight.startSpeedMps ?? 0;
           pos = flight.startPos ?? { x: 0, y: 1000, z: 0 };
+          startOnGround = false;
         }
         if (j > 0) {
           const right = rightWorldInto(headingRad, this.rightScratch);
           pos = { x: pos.x + right.x * 40 * j, y: pos.y, z: pos.z + right.z * 40 * j };
         }
-        const entityId = this.spawnAircraftOnly(flight.team, pos, headingRad, speedMps, flight.aircraftId);
+        const entityId = this.spawnAircraftOnly(flight.team, pos, headingRad, speedMps, flight.aircraftId, startOnGround);
         if (entityId === NO_ENTITY_ID) continue;
         if (j === 0) flightLeaderId = entityId;
         if (flight.team !== 0) this.hostileAircraftIds.add(entityId);
@@ -366,8 +371,21 @@ class WorldImpl implements World {
 
   // ---- spawning ----
 
-  /** Allocates an aircraft entity + its World-owned bookkeeping records, WITHOUT attaching a Pilot. Shared by spawnEntity (manual path) and loadMission's AI-flight loop (formation-aware path). */
-  private spawnAircraftOnly(team: 0 | 1, pos: Vec3Like, headingRad: number, speedMps: number, aircraftDefId: string): EntityId {
+  /**
+   * Allocates an aircraft entity + its World-owned bookkeeping records, WITHOUT attaching a Pilot.
+   * Shared by spawnEntity (manual path) and loadMission's AI-flight loop (formation-aware path).
+   *
+   * `startOnGround` must be true for any spawn placed via a runway lookup (position is
+   * `runway.elevationM + 0.5`, i.e. resting height, not airborne clearance): gearPos otherwise
+   * starts at the pool's zeroed default (fully retracted) and takes GEAR_TRAVEL_RATE_PER_SEC's
+   * full ~2s to extend past GEAR_CONTACT_GEARPOS_THRESHOLD (landingGear.ts), so a "parked on the
+   * runway" spawn would free-fall through its 0.5m clearance for two seconds before any gear
+   * contact force could ever apply — producing an uncontrolled tumble (large computed AoA from
+   * the resulting fall velocity) before the player or AI ever gets a tick of authority. Airborne
+   * spawns (AI flights via startPos/startSpeedMps, or the player's non-runway pos fallback)
+   * correctly want gear retracted at spawn, so they must NOT set this.
+   */
+  private spawnAircraftOnly(team: 0 | 1, pos: Vec3Like, headingRad: number, speedMps: number, aircraftDefId: string, startOnGround: boolean): EntityId {
     if (!this.deps.flightModel.hasDefinition(aircraftDefId)) return NO_ENTITY_ID;
     const id = this.pool.allocate(EntityKind.Aircraft, team);
     if (id === NO_ENTITY_ID) return NO_ENTITY_ID;
@@ -394,11 +412,17 @@ class WorldImpl implements World {
     state.vel.y = fwd.y * speedMps;
     state.vel.z = fwd.z * speedMps;
     state.fuelKg = this.deps.flightModel.maxFuelKg(aircraftDefId);
-    // gearPos/EntityFlag.GearDownCommanded are left at the pool's zeroed
-    // defaults here — PilotInputs.gearDown defaults to true (see
+    // gearPos starts at the pool's zeroed default (fully retracted) EXCEPT
+    // for a ground start (see this method's doc comment), where it must be
+    // set to fully-down immediately so the very first physics tick already
+    // finds ground contact at the spawn height instead of free-falling
+    // through it while gear spends ~2s animating up from 0.
+    // EntityFlag.GearDownCommanded is left at the pool's zeroed default in
+    // both cases — PilotInputs.gearDown defaults to true (see
     // defaultPilotInputs()) and it is the flight model's own job
-    // (FlightModelPort.step) to drive gearPos/OnGround/GearDownCommanded
-    // from that input over subsequent ticks, not World's.
+    // (FlightModelPort.step) to derive that flag from the input every tick,
+    // not World's; it self-corrects on the first tick regardless.
+    state.gearPos = startOnGround ? 1 : 0;
 
     const rec: AircraftRecord = {
       aircraftDefId,
@@ -448,7 +472,9 @@ class WorldImpl implements World {
     if (spec.kind === EntityKind.Aircraft) {
       if (!spec.aircraftDefId) return NO_ENTITY_ID;
       const speedMps = spec.speedMps ?? 0;
-      const id = this.spawnAircraftOnly(spec.team, spec.pos, spec.headingRad, speedMps, spec.aircraftDefId);
+      // Manual spawn path (no runway lookup available in SpawnSpec) — always airborne-default
+      // (gear retracted), matching every current caller (debug/editor spawn commands).
+      const id = this.spawnAircraftOnly(spec.team, spec.pos, spec.headingRad, speedMps, spec.aircraftDefId, false);
       if (id === NO_ENTITY_ID) return NO_ENTITY_ID;
       const rec = this.aircraft.get(id);
       if (spec.difficulty && rec) {

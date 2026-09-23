@@ -77,7 +77,12 @@ class ChunkManagerImpl implements ChunkManager {
 
   constructor(config: ChunkManagerConfig, sendToTerrainWorker: SendToTerrainWorker) {
     this.sendToTerrainWorker = sendToTerrainWorker;
-    const init: TerrainInitMessage = { type: 'terrainInit', params: config.terrainParams, flattenZones: config.flattenZones };
+    const init: TerrainInitMessage = {
+      type: 'terrainInit',
+      params: config.terrainParams,
+      flattenZones: config.flattenZones,
+      chunkGridQuads: TERRAIN_QUALITY_PROFILES[config.qualityTier].chunkGridQuads,
+    };
     this.sendToTerrainWorker(init);
   }
 

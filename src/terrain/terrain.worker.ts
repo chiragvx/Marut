@@ -14,13 +14,18 @@ import { buildChunkGeometry } from './chunkGeometryBuilder';
 
 let sampler: HeightSampler | undefined;
 
-// KNOWN CONTRACT GAP (see docs/spec/04-terrain.md section 4.10/9, and this
-// module's return-value contractConcerns): TerrainRequestChunkMessage carries
-// `lod` (quadtree depth) but neither it nor TerrainInitMessage carries the
-// active quality tier's `chunkGridQuads`, so this worker cannot actually learn
-// which tier is active from any message the fixed protocol defines. Per the
-// spec's own documented fallback, default to the Low tier's chunkGridQuads and
-// never change it (there is no legal message that could tell us to).
+// FIXED CONTRACT GAP (see docs/spec/04-terrain.md section 4.10/9, and this
+// module's return-value contractConcerns): TerrainInitMessage now carries the
+// active quality tier's `chunkGridQuads` directly (contracts/terrain.ts), so
+// this no longer needs to guess. Default to Low only until the first
+// `terrainInit` message arrives (mirrors the pre-fix fallback so a
+// protocol-violating `requestChunk` sent before `terrainInit` — already
+// defensively ignored below — still has a sane value to fall back to).
+// Runtime quality-tier CHANGES still are not propagated (no message exists
+// for that yet); this only fixes the resolution matching the tier active at
+// boot, which is what was producing visible ground-clipping (the render mesh
+// sitting meters away from the physics-exact HeightSampler height it should
+// track) regardless of the selected tier.
 let activeGridQuads: number = TERRAIN_QUALITY_PROFILES.low.chunkGridQuads;
 
 self.onmessage = (ev: MessageEvent<MainToTerrainMessage | MainToTerrainMessageExt>): void => {
@@ -28,6 +33,7 @@ self.onmessage = (ev: MessageEvent<MainToTerrainMessage | MainToTerrainMessageEx
 
   if (msg.type === 'terrainInit') {
     sampler = createHeightSampler(msg.params, msg.flattenZones);
+    activeGridQuads = msg.chunkGridQuads;
     const ready: TerrainReadyMessage = { type: 'terrainReady' };
     self.postMessage(ready);
     return;
