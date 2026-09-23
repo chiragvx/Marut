@@ -13,7 +13,7 @@
 import type { EntityId, PilotInputs, DamageState, QuatLike, Vec3Like } from '../contracts/core';
 import { MAX_ENTITIES, ENTITY_INDEX_RADIX } from '../contracts/core';
 import type { FcsLimits } from '../contracts/aircraft';
-import { GROUND_LAW_PITCH_AUTHORITY_FRACTION } from '../contracts/flight';
+import { GROUND_LAW_MAX_ROTATION_RATE_RAD_S } from '../contracts/flight';
 import { Quat, clamp, lerp, rateLimitStep, bodyRateP, bodyRateQ, bodyRateR } from '../math';
 
 /** Ki — pitch trim-integral gain, rad/(g*s). */
@@ -291,12 +291,36 @@ export function stepFcs(
   const r = bodyRateR(omega);
   const transitioned = currentOnGround !== wasOnGroundAtEntry;
 
+  // Reset the onset-shaped sticks to 0 right at a ground/air transition, same idea as
+  // trimIntegralRad's own transition reset below: holding full aft stick through a whole ground
+  // roll fully ramps shapedPitchStick to 1 well before liftoff (it only takes
+  // FCS_PITCH_STICK_SHAPE_RATE_PER_SEC's own ~1s), so without this, the INSTANT control hands off
+  // to a different law, that law would receive an already-fully-ramped stick with no onset
+  // shaping left to apply, regardless of how gentle the just-ended law's own response was. First
+  // tried as the fix for a post-liftoff q spike reported during the ground-law rewrite below --
+  // it wasn't the actual cause of that spike (see the ground law's own gainSchedule comment for
+  // what was), but forcing a fresh onset ramp on whichever law is newly entered is a reasonable
+  // improvement in its own right, so it's kept: giving a freshly-engaged law the SAME onset
+  // protection a fresh input would get, instead of skipping it purely because the stick happened
+  // to already be at full deflection when the underlying law changed shape.
+  if (transitioned) {
+    shapedPitchStick[entityIndex] = 0;
+    shapedRollStick[entityIndex] = 0;
+  }
   shapedPitchStick[entityIndex] = rateLimitStep(readF64(shapedPitchStick, entityIndex), inputs.pitch, FCS_PITCH_STICK_SHAPE_RATE_PER_SEC, dtSub);
   shapedRollStick[entityIndex] = rateLimitStep(readF64(shapedRollStick, entityIndex), inputs.roll, FCS_ROLL_STICK_SHAPE_RATE_PER_SEC, dtSub);
   const pitchStickShaped = readF64(shapedPitchStick, entityIndex);
   const rollStickShaped = readF64(shapedRollStick, entityIndex);
 
   let elevonSymCmd: number;
+  // Anticipated (rate-predicted) alpha, per ALPHA_LIMIT_ANTICIPATION_SEC's doc comment: the
+  // limiter is reactive on raw `alpha` alone, which was measured (live testing) to let a
+  // sustained pull overshoot the limit by roughly 20deg before gCmd got reduced enough to
+  // matter. Using q (pitch rate) to extrapolate alpha ANTICIPATION_SEC ahead triggers the same
+  // limiter formula earlier, while alpha is still rising fast, instead of only after it has
+  // already blown past the line. Computed here, before the ground/air branch, because the
+  // ground law now needs it too — see that branch's own comment for why.
+  const alphaAnticipated = alpha + q * ALPHA_LIMIT_ANTICIPATION_SEC;
   if (!currentOnGround) {
     let gCmd = computeGCommand(pitchStickShaped, fcsLimits);
     // Per PilotInputs.alphaLimiterDisabled's own doc comment: a player-facing Settings escape
@@ -305,13 +329,6 @@ export function stepFcs(
     // no limiter there is no boundary for it to freeze around). AI pilots never set this flag.
     let alphaLimitActive = false;
     if (!inputs.alphaLimiterDisabled) {
-      // Anticipated (rate-predicted) alpha, per ALPHA_LIMIT_ANTICIPATION_SEC's doc comment: the
-      // limiter is reactive on raw `alpha` alone, which was measured (live testing) to let a
-      // sustained pull overshoot the limit by roughly 20deg before gCmd got reduced enough to
-      // matter. Using q (pitch rate) to extrapolate alpha ANTICIPATION_SEC ahead triggers the same
-      // limiter formula earlier, while alpha is still rising fast, instead of only after it has
-      // already blown past the line.
-      const alphaAnticipated = alpha + q * ALPHA_LIMIT_ANTICIPATION_SEC;
       // Deliberately RAW alpha here, not alphaAnticipated: this only gates the trim-integral
       // freeze below (see that comment), which should stay narrow — an ordinary sustained climb
       // that legitimately operates close to (without exceeding) the limit still needs its trim
@@ -374,24 +391,58 @@ export function stepFcs(
       gainSchedule * (fcsLimits.gLoadGain * (gCmd - gLoad) - fcsLimits.pitchRateGain * q) + readF64(trimIntegralRad, entityIndex);
   } else {
     trimIntegralRad[entityIndex] = 0;
-    // Negated (user report: pulling up during the takeoff roll should raise the nose and make
-    // the aircraft struggle to get airborne, not the reverse). This project's mandatory elevon
-    // sign convention (tejasGeometry.ts's gLoadGain comment, 00-architecture.md section 6.2) is
-    // "+elevonSym = trailing-edge-down = NOSE-DOWN moment". The air law above gets this right
-    // because gLoadGain is itself negative, so a positive g-error correctly yields a negative
-    // (nose-up) elevonSymCmd. This ground law has no such gain to carry the sign -- it maps the
-    // raw stick straight through -- and was missing the negation, so pitchStickShaped=+1 (pilot
-    // pulling up) produced a POSITIVE elevonSymCmd, i.e. commanded NOSE-DOWN the entire ground
-    // roll. Confirmed live: pitch attitude measurably DECREASED while holding full aft stick from
-    // brakes-release. This bug was inherited verbatim from docs/spec/02-flight-model.md section
-    // 4.9's own worked formula (also fixed there) -- it predates this project's later "sign fix"
-    // review passes on gLoadGain/pitchRateGain/yawRateGain (tejasGeometry.ts's own extensive
-    // history of those), which swept GAIN CONSTANTS by checking for closed-loop divergence from a
+    // RATE-command law (same structure as the roll law just below: qCmd from the stick, gain on
+    // the rate ERROR, not a raw position command) -- rewritten from an earlier direct-position
+    // formula (`-stick*maxElevonRad*GROUND_LAW_PITCH_AUTHORITY_FRACTION - gainSchedule*
+    // pitchRateGain*q`) that had two problems, both found live-testing a sustained full-aft-stick
+    // rotation from brakes-release:
+    //
+    // (1) SIGN: that formula's direct term was missing a negation. This project's mandatory
+    // elevon sign convention (tejasGeometry.ts's gLoadGain comment, 00-architecture.md section
+    // 6.2) is "+elevonSym = trailing-edge-down = NOSE-DOWN moment"; the air law's gCmd term gets
+    // this right because gLoadGain is itself negative, but the old ground law mapped the raw
+    // stick straight through with a positive coefficient, so pulling up commanded NOSE-DOWN the
+    // entire ground roll. Inherited verbatim from docs/spec/02-flight-model.md section 4.9's own
+    // worked formula (also fixed there) -- it predates this project's later "sign fix" review
+    // passes on gLoadGain/pitchRateGain/yawRateGain (tejasGeometry.ts's own extensive history of
+    // those), which swept GAIN CONSTANTS by checking for closed-loop divergence from a
     // stick-centered trim; that method cannot catch a wrong-signed DIRECT proportional term like
     // this one, since it's hard-clamped to +-maxElevonRad and produces no divergence to detect --
     // it just stably pushes the aircraft the wrong way. See the rudder fix below for the other
     // instance of this exact same class of bug.
-    elevonSymCmd = -pitchStickShaped * fcsLimits.maxElevonRad * GROUND_LAW_PITCH_AUTHORITY_FRACTION - gainSchedule * fcsLimits.pitchRateGain * q;
+    //
+    // (2) UNBOUNDED RATE: with (1) fixed, the aircraft rotated the right way but violently --
+    // pitch running from 1deg to 24deg in under 3s (q spiking past 19deg/s) well before actually
+    // leaving the ground, handing an already-overcooked high-alpha, high-rate state to the air
+    // law's alpha limiter at the exact instant of the ground/air transition. A fixed POSITION
+    // command has no target rate to settle at -- only ever-growing damping error as q builds --
+    // so nothing bounded how fast rotation could accelerate before the aircraft simply left the
+    // ground mid-runaway. Capping alpha the way the air law does (tried first) didn't fix this:
+    // the runaway acceleration happens mostly BELOW maxAlphaRad, while alpha is still climbing
+    // through it, so by the time an alpha-based cap engaged, rotational momentum had already
+    // built up too far to arrest in time. A rate-command law is self-limiting by construction:
+    // once q reaches qCmdGround the (qCmdGround-q) error goes to zero and the command settles to
+    // whatever holds that rate steady, instead of continuing to accelerate --
+    // GROUND_LAW_MAX_ROTATION_RATE_RAD_S's own doc comment has the live-tested numbers and why
+    // 10deg/s was chosen. Also tapers qCmdGround toward zero (not negative -- avoid an active
+    // nose-down push while still substantially on the ground, which risks a nose-gear slam) as
+    // alphaAnticipated approaches/exceeds maxAlphaRad, as a second line of defence against a
+    // rotation held long enough post-liftoff to still climb alpha past the limit at the target
+    // rate; not gated by minAlphaRad/the symmetric case, since a ground rotation excursion only
+    // ever runs away in the nose-up direction.
+    let qCmdGround = pitchStickShaped * GROUND_LAW_MAX_ROTATION_RATE_RAD_S;
+    if (!inputs.alphaLimiterDisabled && alphaAnticipated > fcsLimits.maxAlphaRad) {
+      const overshootRad = alphaAnticipated - fcsLimits.maxAlphaRad;
+      const blend = clamp(overshootRad / ALPHA_LIMIT_BLEND_RAD, 0, 1);
+      qCmdGround = lerp(qCmdGround, 0, blend);
+    }
+    // gainSchedule (see its own doc comment above): a fixed pitchRateGain would let the ACTUAL
+    // torque this produces grow unboundedly with qBar as speed builds through the roll -- the
+    // exact same instability gainSchedule exists to prevent for the airborne law above, just
+    // rediscovered here: the first version of this rate-command law omitted it and still showed
+    // q overshooting the 10deg/s target by 3x+ (past 30-40deg/s) while STILL on the ground and
+    // well before any ground/air transition, ruling out the transition handoff as the cause.
+    elevonSymCmd = gainSchedule * fcsLimits.pitchRateGain * (qCmdGround - q);
   }
   elevonSymCmd = clamp(elevonSymCmd, -fcsLimits.maxElevonRad, fcsLimits.maxElevonRad);
 

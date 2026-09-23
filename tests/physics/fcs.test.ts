@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { stepFcs, computeGCommand, getTrimIntegralRad, resetFcsTrimState, entityPoolIndex, type FcsSurfaces } from '../../src/physics/fcs';
 import { rateLimitStep } from '../../src/math';
-import type { PilotInputs, DamageState } from '../../src/contracts/core';
+import { GROUND_LAW_MAX_ROTATION_RATE_RAD_S } from '../../src/contracts/flight';
+import type { PilotInputs, DamageState, Vec3Like } from '../../src/contracts/core';
 import type { FcsLimits } from '../../src/contracts/aircraft';
 
 function makeFcsLimits(overrides: Partial<FcsLimits> = {}): FcsLimits {
@@ -110,11 +111,42 @@ describe('stepFcs', () => {
   // edge-down = NOSE-DOWN) requires: full aft stick (pitch=+1, a nose-up demand per PilotInputs'
   // own doc comment) was producing a POSITIVE (nose-down) elevonSymCmd. Confirmed live before the
   // fix: pitch attitude measurably decreased while holding full aft stick from brakes-release.
+  // Overrides pitchRateGain (0 in makeFcsLimits' default, chosen so OTHER tests here can isolate
+  // behavior from pitch-rate damping) to a representative non-zero value: the ground law is now a
+  // rate-command law (GROUND_LAW_MAX_ROTATION_RATE_RAD_S's doc comment has the full why),
+  // structured like the roll law just below it, so pitchRateGain is its ONLY gain -- zero would
+  // zero out elevonSymCmd entirely regardless of sign, masking exactly the bug this test exists
+  // to catch.
   it('ground pitch law: full aft stick (nose-up demand) commands a NEGATIVE (nose-up) elevonSymCmd, not positive', () => {
     resetFcsTrimState(92);
     const surfaces: FcsSurfaces = { elevonL: 0, elevonR: 0, rudder: 0 };
-    stepFcs(92, surfaces, true, true, 0, ZERO3, ZERO3, IDENTITY, 10000, 9.80665, makeInputs({ pitch: 1 }), makeDamage(), makeFcsLimits(), 1 / 120);
+    stepFcs(92, surfaces, true, true, 0, ZERO3, ZERO3, IDENTITY, 10000, 9.80665, makeInputs({ pitch: 1 }), makeDamage(), makeFcsLimits({ pitchRateGain: -0.4 }), 1 / 120);
     expect(surfaces.elevonL).toBeLessThan(0);
+  });
+
+  // Regression coverage for the ground law's rate-command restructure itself (the fix for
+  // "violent"/runaway ground rotation): once actual pitch rate q reaches the commanded target
+  // (GROUND_LAW_MAX_ROTATION_RATE_RAD_S for full aft stick), the rate ERROR the law drives on is
+  // zero, so it must settle near zero output instead of continuing to demand more -- this is
+  // exactly the self-limiting property a fixed-position command never had.
+  it('ground pitch law is self-limiting: elevonSymCmd goes to ~zero once q reaches the commanded rate target', () => {
+    resetFcsTrimState(94);
+    const limits = makeFcsLimits({ pitchRateGain: -0.4 });
+    const dt = 1 / 120;
+    const surfaces: FcsSurfaces = { elevonL: 0, elevonR: 0, rudder: 0 };
+    // First let pitchStickShaped ramp fully to 1 (q=0 throughout -- FCS_PITCH_STICK_SHAPE_RATE_
+    // PER_SEC=1.0 takes 1s = 120 substeps at this dt) so qCmdGround reaches its full target
+    // before checking the self-limiting property below; otherwise a not-yet-ramped-up qCmdGround
+    // paired with an already-at-target q looks like a large (and correct!) corrective error, not
+    // the near-zero steady-state this test is actually after.
+    for (let i = 0; i < 120; i++) {
+      stepFcs(94, surfaces, true, true, 0, ZERO3, ZERO3, IDENTITY, 10000, 9.80665, makeInputs({ pitch: 1 }), makeDamage(), limits, dt);
+    }
+    // Now step once more with q AT the commanded target rate: the (qCmdGround-q) error is ~zero,
+    // so elevonSymCmd must be too -- the self-limiting property a fixed-position command never had.
+    const atTargetRate: Readonly<Vec3Like> = { x: 0, y: 0, z: GROUND_LAW_MAX_ROTATION_RATE_RAD_S };
+    stepFcs(94, surfaces, true, true, 0, atTargetRate, ZERO3, IDENTITY, 10000, 9.80665, makeInputs({ pitch: 1 }), makeDamage(), limits, dt);
+    expect(Math.abs(surfaces.elevonL)).toBeLessThan(0.01);
   });
 
   // Same bug class, found in the same audit: the rudder's direct stick term had the identical

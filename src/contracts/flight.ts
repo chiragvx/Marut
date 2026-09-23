@@ -195,5 +195,26 @@ export const GEAR_HARD_STOP_STIFFNESS_MULTIPLIER = 20;
 /** Lateral (cornering) stiffness gain, N per (m/s) of lateral slip velocity, used by the gear friction model before saturating at the leg's kinetic-friction limit. */
 export const GEAR_LATERAL_STIFFNESS_N_PER_MPS = 50000;
 
-/** Fraction of AircraftDefinition.fcsLimits.maxElevonRad the on-ground direct pitch law (used instead of the airborne g-command law while EntityFlag.OnGround) maps full aft stick to. */
-export const GROUND_LAW_PITCH_AUTHORITY_FRACTION = 0.5;
+/**
+ * Target pitch rate, rad/s, full aft stick commands during the on-ground rotation law (used
+ * instead of the airborne g-command law while EntityFlag.OnGround) — a RATE-command law, same
+ * structure as the already-validated roll law (`pCmd = rollStick*maxRollRateRadS`), not a raw
+ * position command.
+ *
+ * Replaces a previous `GROUND_LAW_PITCH_AUTHORITY_FRACTION` (a fixed fraction of maxElevonRad
+ * mapped directly to elevonSymCmd, damped only by `-pitchRateGain*q`): live-testing a sustained
+ * full-aft-stick rotation with that formula (after fixing an unrelated sign bug that had made it
+ * command nose-down instead of nose-up) showed pitch rate itself running away — q climbing past
+ * 19deg/s and pitch attitude from 1deg to 24deg in under 3s, well past where a real rotation
+ * levels off, handing an already-overcooked high-alpha, high-rate state to the airborne law the
+ * instant the aircraft left the ground. Root cause: a fixed position command has no notion of a
+ * TARGET rate to settle at, only ever-growing damping error as q builds, so nothing bounds how
+ * fast rotation can accelerate before the aircraft simply leaves the ground mid-runaway. A
+ * rate-command law is naturally self-limiting: once q reaches this target, the (qCmd-q) error
+ * driving elevonSymCmd goes to zero and the command settles to whatever holds that rate steady,
+ * instead of continuing to accelerate. 10deg/s (~0.175 rad/s) is a brisk but controlled rotation
+ * rate -- faster than a typical smooth airliner technique (3-6deg/s) but well short of the
+ * ~19deg/s+ runaway measured with the old formula, chosen to still feel responsive to a full-aft
+ * pull on a fast jet without being violent.
+ */
+export const GROUND_LAW_MAX_ROTATION_RATE_RAD_S = 0.174533;
