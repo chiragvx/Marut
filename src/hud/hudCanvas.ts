@@ -16,7 +16,7 @@
  * unaffected (none of them depended on camera mode per that same section).
  */
 
-import { NO_ENTITY_ID, SnapshotEntity, SnapshotHud, entityFieldOffset, type QualityTier } from '../contracts/core';
+import { NO_ENTITY_ID, SnapshotEntity, SnapshotHud, SpeedUnit, entityFieldOffset, type QualityTier } from '../contracts/core';
 import { RENDER_QUALITY_TABLE, type CameraState, type CreateHudRenderer, type HudRenderer } from '../contracts/render';
 
 import { drawLadder } from './ladder';
@@ -40,6 +40,7 @@ export const createHudRenderer: CreateHudRenderer = (canvas, initialTier) => {
   if (!ctx) throw new Error('hudCanvas: 2D rendering context unavailable');
 
   let tier: QualityTier = initialTier;
+  let speedUnit: SpeedUnit = SpeedUnit.Mps;
   let widthPx = canvas.width;
   let heightPx = canvas.height;
 
@@ -71,6 +72,10 @@ export const createHudRenderer: CreateHudRenderer = (canvas, initialTier) => {
       tier = t;
     },
 
+    setSpeedUnit(u) {
+      speedUnit = u;
+    },
+
     ingestSnapshot(view) {
       ingestSnapshotIntoHudBuffer(buf, view, performance.now());
       const pSlot = buf.curr.playerSlot;
@@ -99,7 +104,7 @@ export const createHudRenderer: CreateHudRenderer = (canvas, initialTier) => {
       const hud = curr.hud;
 
       drawLadder(ctx, hud, widthPx, heightPx);
-      drawSpeedTape(ctx, hud, 50, heightPx * 0.5, heightPx * 0.32);
+      drawSpeedTape(ctx, hud, 50, heightPx * 0.5, heightPx * 0.32, speedUnit);
       drawAltitudeTape(ctx, hud, widthPx - 50, heightPx * 0.5, heightPx * 0.32);
       drawHeadingTape(ctx, hud, widthPx * 0.5, 16, widthPx * 0.28);
       drawAoaGReadout(ctx, hud, 16, heightPx - 44);

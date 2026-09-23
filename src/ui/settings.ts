@@ -5,7 +5,7 @@
  * `onChange` hands the caller a full new SettingsState to persist however
  * it chooses.
  */
-import type { QualityTier } from '../contracts/core';
+import type { QualityTier, SpeedUnit } from '../contracts/core';
 import type {
   BindableAction,
   CreateSettingsScreen,
@@ -18,6 +18,8 @@ import { mountScreen } from './screenHandle';
 import { el, actionButton } from './domHelpers';
 
 const QUALITY_OPTIONS: readonly (QualityTier | 'auto')[] = ['auto', 'low', 'medium', 'high', 'ultra'];
+const SPEED_UNIT_OPTIONS: readonly SpeedUnit[] = ['ms', 'kt'];
+const SPEED_UNIT_LABELS: Readonly<Record<SpeedUnit, string>> = { ms: 'm/s', kt: 'knots' };
 
 const REBIND_TIMEOUT_MS = 5000;
 
@@ -37,6 +39,7 @@ export const createSettingsScreen: CreateSettingsScreen = (container, initial, c
     keyBindings: initial.keyBindings.map((b) => ({ action: b.action, code: b.code })),
     mouseSensitivityMultiplier: initial.mouseSensitivityMultiplier,
     invertPitch: initial.invertPitch,
+    speedUnit: initial.speedUnit,
   };
 
   let capturingAction: BindableAction | null = null;
@@ -55,6 +58,17 @@ export const createSettingsScreen: CreateSettingsScreen = (container, initial, c
   qualitySelect.value = current.qualityOverride;
   qualityLabel.appendChild(qualitySelect);
   qualitySection.appendChild(qualityLabel);
+
+  // --- Speed unit ---
+  const speedUnitSection = el('div', { className: 'tj-settings-section' });
+  const speedUnitLabel = el('label', { text: 'Speed unit' });
+  const speedUnitSelect = el('select', { attrs: { 'data-action': 'speed-unit' } });
+  for (const u of SPEED_UNIT_OPTIONS) {
+    speedUnitSelect.appendChild(el('option', { text: SPEED_UNIT_LABELS[u], attrs: { value: u } }));
+  }
+  speedUnitSelect.value = current.speedUnit;
+  speedUnitLabel.appendChild(speedUnitSelect);
+  speedUnitSection.appendChild(speedUnitLabel);
 
   // --- Mouse sensitivity ---
   const sensitivitySection = el('div', { className: 'tj-settings-section' });
@@ -96,7 +110,7 @@ export const createSettingsScreen: CreateSettingsScreen = (container, initial, c
   const backBtn = actionButton('back', 'Back');
   nav.append(resetBtn, backBtn);
 
-  root.append(title, qualitySection, sensitivitySection, invertSection, bindingsSection, nav);
+  root.append(title, qualitySection, speedUnitSection, sensitivitySection, invertSection, bindingsSection, nav);
 
   function fireChange(): void {
     // Hand out a fresh snapshot; keyBindings is always a new array too.
@@ -106,6 +120,7 @@ export const createSettingsScreen: CreateSettingsScreen = (container, initial, c
       keyBindings: current.keyBindings.map((b) => ({ action: b.action, code: b.code })),
       mouseSensitivityMultiplier: current.mouseSensitivityMultiplier,
       invertPitch: current.invertPitch,
+      speedUnit: current.speedUnit,
     };
     callbacks.onChange(current);
   }
@@ -147,6 +162,10 @@ export const createSettingsScreen: CreateSettingsScreen = (container, initial, c
     current.qualityOverride = qualitySelect.value as QualityTier | 'auto';
     fireChange();
   });
+  speedUnitSelect.addEventListener('change', () => {
+    current.speedUnit = speedUnitSelect.value as SpeedUnit;
+    fireChange();
+  });
   sensitivityInput.addEventListener('change', () => {
     current.mouseSensitivityMultiplier = Number(sensitivityInput.value);
     fireChange();
@@ -174,6 +193,7 @@ export const createSettingsScreen: CreateSettingsScreen = (container, initial, c
         keyBindings: next,
         mouseSensitivityMultiplier: current.mouseSensitivityMultiplier,
         invertPitch: current.invertPitch,
+        speedUnit: current.speedUnit,
       };
       const entry = bindingRows.get(action);
       if (entry !== undefined) {

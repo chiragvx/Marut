@@ -90,6 +90,7 @@ describe('screen factories: mount / destroy contract', () => {
       keyBindings: [],
       mouseSensitivityMultiplier: 1,
       invertPitch: false,
+      speedUnit: 'ms',
     };
     const handle = createSettingsScreen(container, initial, { onChange: noop, onRebindStart: noop, onResetDefaults: noop, onBack: noop });
     expect(container.children.length).toBe(1);
@@ -121,6 +122,7 @@ describe('createSettingsScreen rebind flow', () => {
       keyBindings: [],
       mouseSensitivityMultiplier: 1,
       invertPitch: false,
+      speedUnit: 'ms',
     };
     const handle = createSettingsScreen(container, initial, { onChange, onRebindStart, onResetDefaults: noop, onBack: noop });
 
@@ -132,6 +134,35 @@ describe('createSettingsScreen rebind flow', () => {
     expect(onChange).toHaveBeenCalledTimes(1);
     const next = onChange.mock.calls[0]![0] as SettingsState;
     expect(next.keyBindings).toContainEqual({ action: 'pitchUp', code: 'KeyT' });
+  });
+});
+
+// Regression coverage for the "convert HUD airspeed tape to knots" feature: the Settings screen's
+// new speed-unit control must default to `initial.speedUnit` and hand the selected unit back
+// through onChange exactly like the pre-existing quality-override select does.
+describe('createSettingsScreen speed unit', () => {
+  it('defaults the select to initial.speedUnit and reports the new value through onChange on selection', () => {
+    const container = makeContainer();
+    const onChange = vi.fn();
+    const initial: SettingsState = {
+      qualityOverride: 'auto',
+      detectedTier: 'medium',
+      keyBindings: [],
+      mouseSensitivityMultiplier: 1,
+      invertPitch: false,
+      speedUnit: 'ms',
+    };
+    createSettingsScreen(container, initial, { onChange, onRebindStart: noop, onResetDefaults: noop, onBack: noop });
+
+    const select = container.querySelector('[data-action="speed-unit"]') as HTMLSelectElement;
+    expect(select.value).toBe('ms');
+
+    select.value = 'kt';
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+
+    expect(onChange).toHaveBeenCalledTimes(1);
+    const next = onChange.mock.calls[0]![0] as SettingsState;
+    expect(next.speedUnit).toBe('kt');
   });
 });
 

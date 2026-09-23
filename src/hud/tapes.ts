@@ -5,11 +5,28 @@
  * 08-render.md section 4.9, table 5.6.
  */
 
-import { SnapshotHud } from '../contracts/core';
+import { SnapshotHud, SpeedUnit } from '../contracts/core';
 
 export const SPEED_TAPE_PX_PER_MPS = 4;
 export const SPEED_TAPE_MINOR_TICK_MPS = 10;
 export const SPEED_TAPE_MAJOR_TICK_MPS = 50;
+
+/** 1 knot in m/s (1 nautical mile/hour, exact by international definition). */
+export const MPS_PER_KNOT = 0.514444;
+
+/** Converts an m/s airspeed (the wire unit, SnapshotHud.IAS_MPS) to knots for display. */
+export function mpsToKnots(mps: number): number {
+  return mps / MPS_PER_KNOT;
+}
+
+// Same physical-speed-per-pixel density as the m/s tape (SPEED_TAPE_PX_PER_MPS), just expressed
+// per knot, so switching units doesn't change how fast the tape visually scrolls for a given
+// real acceleration. Minor/major tick spacing (20/100 kt) mirrors common real HUD speed-tape
+// granularity rather than a direct unit-for-unit translation of the 10/50 m/s spacing above.
+export const SPEED_TAPE_PX_PER_KT = SPEED_TAPE_PX_PER_MPS * MPS_PER_KNOT;
+export const SPEED_TAPE_MINOR_TICK_KT = 20;
+export const SPEED_TAPE_MAJOR_TICK_KT = 100;
+
 export const ALT_TAPE_PX_PER_M = 0.6;
 export const ALT_TAPE_MINOR_TICK_M = 20;
 export const ALT_TAPE_MAJOR_TICK_M = 100;
@@ -68,8 +85,28 @@ function drawVerticalTape(
   ctx.restore();
 }
 
-export function drawSpeedTape(ctx: CanvasRenderingContext2D, hud: Float64Array, centerX: number, centerY: number, halfHeightPx: number): void {
-  drawVerticalTape(ctx, hud[SnapshotHud.IAS_MPS]!, centerX, centerY, halfHeightPx, SPEED_TAPE_PX_PER_MPS, SPEED_TAPE_MINOR_TICK_MPS, SPEED_TAPE_MAJOR_TICK_MPS, 'left');
+export function drawSpeedTape(
+  ctx: CanvasRenderingContext2D,
+  hud: Float64Array,
+  centerX: number,
+  centerY: number,
+  halfHeightPx: number,
+  unit: SpeedUnit = SpeedUnit.Mps
+): void {
+  const iasMps = hud[SnapshotHud.IAS_MPS]!;
+  if (unit === SpeedUnit.Knots) {
+    drawVerticalTape(ctx, mpsToKnots(iasMps), centerX, centerY, halfHeightPx, SPEED_TAPE_PX_PER_KT, SPEED_TAPE_MINOR_TICK_KT, SPEED_TAPE_MAJOR_TICK_KT, 'left');
+  } else {
+    drawVerticalTape(ctx, iasMps, centerX, centerY, halfHeightPx, SPEED_TAPE_PX_PER_MPS, SPEED_TAPE_MINOR_TICK_MPS, SPEED_TAPE_MAJOR_TICK_MPS, 'left');
+  }
+  // Small unit tag just below the boxed readout (that box spans [centerX, centerX+45] for the
+  // 'left'-labelled tape drawVerticalTape always uses here) so switching units in Settings is
+  // visible on the HUD itself, not just a guess from the number's scale.
+  ctx.save();
+  ctx.fillStyle = '#40ff60';
+  ctx.font = '9px monospace';
+  ctx.fillText(unit === SpeedUnit.Knots ? 'KT' : 'M/S', centerX + 10, centerY + 22);
+  ctx.restore();
 }
 
 export function drawAltitudeTape(ctx: CanvasRenderingContext2D, hud: Float64Array, centerX: number, centerY: number, halfHeightPx: number): void {

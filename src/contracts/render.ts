@@ -26,7 +26,7 @@
  * =============================================================================
  */
 
-import type { AirportNavDb, QualityTier, SimEvent, TerrainChunkReadyMessage, Vec3Like, WeaponKind } from './core';
+import type { AirportNavDb, QualityTier, SimEvent, SpeedUnit, TerrainChunkReadyMessage, Vec3Like, WeaponKind } from './core';
 import { WarningBit } from './core';
 
 // -----------------------------------------------------------------------------
@@ -363,6 +363,8 @@ export interface SceneRenderer {
 export interface HudRenderer {
   resize(widthPx: number, heightPx: number, devicePixelRatio: number): void;
   setQualityTier(tier: QualityTier): void;
+  /** Display unit for the airspeed tape only; defaults to 'ms' (SnapshotHud.IAS_MPS's own wire unit) until called. */
+  setSpeedUnit(unit: SpeedUnit): void;
   /** Same synchronous-copy contract as SceneRenderer.ingestSnapshot. */
   ingestSnapshot(view: Float64Array): void;
   /** Drives ammo decrement (gunFire/missileLaunch), warning toasts, and lock/kill toasts. */

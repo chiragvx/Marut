@@ -28,7 +28,7 @@
  * =============================================================================
  */
 
-import type { AiDifficulty, HeightSampler, QualityTier, Result } from './core';
+import type { AiDifficulty, HeightSampler, QualityTier, Result, SpeedUnit } from './core';
 
 // -----------------------------------------------------------------------------
 // 1. Generic screen-mount conventions. Every DOM screen factory in this file
@@ -181,6 +181,8 @@ export interface SettingsState {
   /** [0.1, 3.0] multiplier applied to mouse-look input by whatever src/input actually does with it. */
   mouseSensitivityMultiplier: number;
   invertPitch: boolean;
+  /** Display unit for the HUD airspeed tape; see contracts/core.ts's SpeedUnit doc comment. */
+  speedUnit: SpeedUnit;
 }
 
 export interface SettingsCallbacks {

@@ -529,6 +529,13 @@ export const QualityTier = {
 } as const;
 export type QualityTier = (typeof QualityTier)[keyof typeof QualityTier];
 
+/** Display unit for the HUD airspeed tape (src/hud/tapes.ts's drawSpeedTape) — a presentation-only choice, never the wire unit (SnapshotHud.IAS_MPS is always m/s). */
+export const SpeedUnit = {
+  Mps: 'ms',
+  Knots: 'kt',
+} as const;
+export type SpeedUnit = (typeof SpeedUnit)[keyof typeof SpeedUnit];
+
 export const AiDifficulty = {
   Rookie: 'rookie',
   Veteran: 'veteran',

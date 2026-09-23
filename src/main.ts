@@ -7,7 +7,7 @@
  * exports of modules 04/08/09/11 rather than a contracts/*.ts file).
  */
 
-import { NO_ENTITY_ID, MissionObjectiveKind } from './contracts/core';
+import { NO_ENTITY_ID, MissionObjectiveKind, SpeedUnit } from './contracts/core';
 import type {
   AiDifficulty,
   EntityId,
@@ -85,6 +85,8 @@ interface PersistedSettings {
    * duration. Optional so old saved data (from before this field existed) still parses fine.
    */
   cachedAutoTier?: QualityTier;
+  /** HUD airspeed-tape display unit (src/ui/settings.ts's "Speed unit" control). Optional so old saved data (from before this field existed) still parses fine; missing means 'ms', matching SnapshotHud.IAS_MPS's own wire unit. */
+  speedUnit?: SpeedUnit;
 }
 
 function loadPersistedSettings(): PersistedSettings | undefined {
@@ -94,15 +96,27 @@ function loadPersistedSettings(): PersistedSettings | undefined {
     const parsed = JSON.parse(raw) as Partial<PersistedSettings>;
     if (parsed.version !== 1 || typeof parsed.qualityTierOverride !== 'string') return undefined;
     if (parsed.cachedAutoTier !== undefined && typeof parsed.cachedAutoTier !== 'string') return undefined;
+    if (parsed.speedUnit !== undefined && typeof parsed.speedUnit !== 'string') return undefined;
     return parsed as PersistedSettings;
   } catch {
     return undefined;
   }
 }
 
+/**
+ * Merges `s` onto whatever is already persisted rather than overwriting it outright — every call
+ * site here only ever intends to update the field(s) it actually knows about (e.g. onChange's
+ * quality-tier save doesn't know the cached benchmark tier; boot's benchmark-fallback save
+ * doesn't know the player's speed-unit choice), so a plain overwrite silently drops any OTHER
+ * optional field a different call site previously wrote (found by live-testing: switching the
+ * speed unit, then reloading twice, reverted it back to m/s because the intervening boot-time
+ * quality-tier save had overwritten the whole record without it). Merging keeps each optional
+ * field's last-written value until something explicitly changes it again.
+ */
 function savePersistedSettings(s: PersistedSettings): void {
   try {
-    localStorage.setItem('tejas.settings.v1', JSON.stringify(s));
+    const merged: PersistedSettings = { ...loadPersistedSettings(), ...s };
+    localStorage.setItem('tejas.settings.v1', JSON.stringify(merged));
   } catch {
     // Storage unavailable/full — silently ignored, matches this project's
     // "never throw for ordinary bad/missing data" convention.
@@ -127,6 +141,7 @@ let hud: HudRenderer;
 let inputSystem: PlayerInputSystem;
 let chunkManager: ChunkManager;
 let currentQualityTier: QualityTier;
+let currentSpeedUnit: SpeedUnit = SpeedUnit.Mps;
 let currentMission: Mission | undefined;
 let currentDifficulty: AiDifficulty = 'veteran';
 let playerEntityId: EntityId = NO_ENTITY_ID;
@@ -382,15 +397,18 @@ function showSettingsOverlay(): void {
     keyBindings: inputSystem ? buildKeyBindingsFromInputMap(inputSystem.inputMap.data) : [],
     mouseSensitivityMultiplier: 1,
     invertPitch: false,
+    speedUnit: currentSpeedUnit,
   };
   const handle: SettingsScreenHandle = createSettingsScreen(uiRoot, initial, {
     onChange: (next) => {
-      savePersistedSettings({ qualityTierOverride: next.qualityOverride, version: 1 });
+      savePersistedSettings({ qualityTierOverride: next.qualityOverride, version: 1, speedUnit: next.speedUnit });
       if (next.qualityOverride !== 'auto') {
         currentQualityTier = next.qualityOverride;
         renderer?.setQualityTier(currentQualityTier);
         hud?.setQualityTier(currentQualityTier);
       }
+      currentSpeedUnit = next.speedUnit;
+      hud?.setSpeedUnit(currentSpeedUnit);
     },
     onRebindStart: (action) => {
       if (!inputSystem) return;
@@ -655,10 +673,12 @@ async function boot(): Promise<void> {
     currentQualityTier = report.tier;
     savePersistedSettings({ qualityTierOverride: 'auto', version: 1, cachedAutoTier: currentQualityTier });
   }
+  currentSpeedUnit = persisted?.speedUnit ?? SpeedUnit.Mps;
   orientationPrompt = mountOrientationPrompt(uiRoot);
 
   loading.setProgress(0.3, 'Starting simulation…');
   await initWorkersAndRenderer(currentQualityTier);
+  hud.setSpeedUnit(currentSpeedUnit);
   // Size renderer/HUD from the current window/DPR once, synchronously, right
   // now — before the first requestAnimationFrame(frame) callback draws
   // anything. onResize() is otherwise wired only as a 'resize' listener
