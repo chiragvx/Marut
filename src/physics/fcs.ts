@@ -1,14 +1,15 @@
 /**
- * src/physics/fcs.ts — fly-by-wire control laws: pitch g/alpha-command law
- * (airborne) with trim integral, direct pitch law (on ground), roll
- * rate-command law, yaw direct law + damper, actuator rate-limiting and
- * damage-authority scaling. See docs/spec/02-flight-model.md section 4.9.
+ * src/physics/fcs.ts — fly-by-wire control laws: pitch g/alpha-command law (airborne, a cascaded
+ * outer g/alpha-error-loop -> inner pitch-rate-loop, see FCS_PITCH_OUTER_LOOP_GAIN's doc comment)
+ * with trim integral, pitch rate-command law (on ground), roll rate-command law, yaw direct law +
+ * damper, actuator rate-limiting and damage-authority scaling. See docs/spec/02-flight-model.md
+ * section 4.9.
  *
- * Owns two module-private `Float64Array(MAX_ENTITIES)` tables
- * (`trimIntegralRad`, `lastGLoadRad`), indexed by the pool-slot index
- * extracted from `EntityState.id` (see `entityPoolIndex` below) — see
- * 02-flight-model.md section 9 for why this state is module-private rather
- * than part of `EntityState`/`DamageState`.
+ * Owns several module-private `Float64Array(MAX_ENTITIES)` tables (`trimIntegralRad`,
+ * `lastGLoadRad`, `shapedPitchStick`, `shapedRollStick`, `shapedPitchRateCmd`), indexed by the
+ * pool-slot index extracted from `EntityState.id` (see `entityPoolIndex` below) — see
+ * 02-flight-model.md section 9 for why this state is module-private rather than part of
+ * `EntityState`/`DamageState`.
  */
 import type { EntityId, PilotInputs, DamageState, QuatLike, Vec3Like } from '../contracts/core';
 import { MAX_ENTITIES, ENTITY_INDEX_RADIX } from '../contracts/core';
@@ -97,30 +98,27 @@ const ALPHA_LIMIT_BLEND_RAD = 0.035;
  * own extensive notes on why a FIXED-gain pitch law cannot hold across this
  * project's speed envelope).
  *
- * `FcsLimits.gLoadGain`/`pitchRateGain` set a rad-of-elevon-per-(g-error or
- * rad/s) response, but the MOMENT that elevon deflection actually produces
- * is `Cm_elevon * elevonSym * qBar * wingAreaM2 * meanChordM` (aeroForces.ts
- * 4.5) — proportional to qBar. A gain pair tuned to be stable at one
- * dynamic pressure therefore commands a torque that grows linearly with
- * qBar at any other speed: verified empirically (see the cross-module
- * review this fix is part of) that the un-scheduled loop is cleanly stable
- * at qBar corresponding to ~100 m/s sea-level TAS (the tuning point implicit
- * in tejasGeometry.ts's own gLoadGain/pitchRateGain magnitudes) but drives
- * alpha to tens of degrees within ~1 simulated second at 150+ m/s — the
- * commanded elevon deflection is unchanged but the qBar-scaled torque it
- * produces is 2-10x larger, turning a well-damped response into a violently
+ * `FcsLimits.pitchRateGain` sets a rad-of-elevon-per-(rad/s of rate error)
+ * response (airborne AND ground laws both now use it as their sole inner-loop gain — see
+ * FCS_PITCH_OUTER_LOOP_GAIN's doc comment for the airborne law's own outer/inner restructuring),
+ * but the MOMENT that elevon deflection actually produces is `Cm_elevon * elevonSym * qBar *
+ * wingAreaM2 * meanChordM` (aeroForces.ts 4.5) — proportional to qBar. A gain tuned to be stable
+ * at one dynamic pressure therefore commands a torque that grows linearly with qBar at any other
+ * speed: verified empirically (see the cross-module review this fix is part of) that the
+ * un-scheduled loop is cleanly stable at qBar corresponding to ~100 m/s sea-level TAS (the tuning
+ * point implicit in tejasGeometry.ts's own gain magnitudes) but drives alpha to tens of degrees
+ * within ~1 simulated second at 150+ m/s — the commanded elevon deflection is unchanged but the
+ * qBar-scaled torque it produces is 2-10x larger, turning a well-damped response into a violently
  * oscillating one.
  *
- * Scaling BOTH the proportional (gLoadGain) and rate (pitchRateGain) terms
- * by `(FCS_QBAR_REF_PA / qBar) ^ FCS_GAIN_SCHEDULE_EXPONENT` (clamped) keeps
- * the commanded elevon response bounded across the flight envelope, at (by
- * construction) the same magnitude tejasGeometry.ts's gains were tuned to
- * produce at the reference qBar — i.e. this reproduces the known-stable
- * low-speed response at every speed, rather than introducing a new, untuned
- * control law. It does not touch the physical alpha->CL->gLoad relationship
- * (still qBar-dependent as it must be — a faster aircraft genuinely trims at
- * a smaller alpha for the same g), only how hard the actuator is commanded
- * to respond to a given error.
+ * Scaling the rate (pitchRateGain) term by `(FCS_QBAR_REF_PA / qBar) ^
+ * FCS_GAIN_SCHEDULE_EXPONENT` (clamped) keeps the commanded elevon response bounded across the
+ * flight envelope, at (by construction) the same magnitude tejasGeometry.ts's gain was tuned to
+ * produce at the reference qBar — i.e. this reproduces the known-stable low-speed response at
+ * every speed, rather than introducing a new, untuned control law. It does not touch the physical
+ * alpha->CL->gLoad relationship (still qBar-dependent as it must be — a faster aircraft genuinely
+ * trims at a smaller alpha for the same g), only how hard the actuator is commanded to respond to
+ * a given error.
  *
  * The exponent is empirically 1.5, not the naive 1.0 a pure
  * torque-per-error normalization would suggest: `elevonSymCmd` is also
@@ -168,11 +166,137 @@ function pitchGainSchedule(qBarPa: number): number {
   );
 }
 
+/**
+ * A SEPARATE, gentler qBar schedule for the airborne inner rate loop only (FCS_PITCH_INNER_
+ * LOOP_GAIN's own doc comment has the full rationale/derivation) — `FCS_PITCH_INNER_QBAR_
+ * EXPONENT` (1.0) vs. `pitchGainSchedule`'s 1.5, same reference/floor/clamp bounds otherwise.
+ */
+function pitchInnerLoopSchedule(qBarPa: number): number {
+  return clamp(
+    Math.pow(FCS_QBAR_REF_PA / Math.max(qBarPa, FCS_QBAR_FLOOR_PA), FCS_PITCH_INNER_QBAR_EXPONENT),
+    FCS_GAIN_SCHEDULE_MIN,
+    FCS_GAIN_SCHEDULE_MAX
+  );
+}
+
+/**
+ * Airborne pitch law restructuring: outer g-command loop -> target pitch rate -> inner
+ * rate-command loop (`FcsLimits.pitchRateGain`), replacing an earlier single-loop formula that
+ * drove elevonSymCmd directly off `(gCmd-gLoad)` via `FcsLimits.gLoadGain`. Root-caused
+ * (control-theory + real-FBW-architecture analysis, this pass) to actuator POSITION/RATE
+ * SATURATION, not underdamped gains: live-testing a sustained hard pull showed gLoad cycling
+ * ~3g-9g and elevon swinging near its full +-25deg travel in a non-decaying ~0.6-0.8s-period
+ * pattern, while the linearized loop's own damping ratio (zeta 0.58-0.92 across 100-160 m/s,
+ * computed from the real Cm_elevon/Cm_q/inertia data) is healthy -- gains were never the problem.
+ * The actual commanded elevon POSITION for a realistic g-error (`gLoadGain*(gCmd-gLoad)`) was ~2x
+ * maxElevonRad, so the surface railed at its travel/rate limit and rang at very nearly the linear
+ * plant's own natural frequency (predicted damped period 0.64-0.74s almost exactly matches the
+ * observed 0.6-0.8s) instead of settling -- every prior attempt that only retuned
+ * gLoadGain/pitchRateGain/the gain-schedule ceiling failed or made it worse for exactly this
+ * reason (this module's other doc comments' "prior attempts" notes cover those individually).
+ *
+ * The fix mirrors the pattern this file's own roll law (`pCmd = rollStickShaped*maxRollRateRadS;
+ * elevonDiffCmd = rollRateGain*(pCmd-p)`) and the ground pitch law (below,
+ * `GROUND_LAW_MAX_ROTATION_RATE_RAD_S`) already use: an outer loop picks a TARGET RATE for a fast,
+ * self-limiting inner rate loop to track, instead of feeding a position-scale error straight into
+ * the actuator. Once q reaches the target, `(qCmd-q)` goes to zero and the command settles --
+ * structurally incapable of demanding more than the actuator can track IF the target itself stays
+ * within what `pitchRateGain` can hold at `maxElevonRad` in steady state, which
+ * `FCS_PITCH_RATE_CMD_SATURATION_MARGIN`/`FCS_MAX_PITCH_RATE_CMD_RAD_S` below exist to guarantee.
+ *
+ * `FCS_PITCH_OUTER_LOOP_GAIN` (rad/s of target q per g of error, "Kgq") sizes a representative
+ * full-aft-stick pull (7g: 1g trim to tejasGeometry.ts's maxGLoadPos=8) to land close to (not
+ * exceeding) the reference-speed (100 m/s, gainSchedule=1) saturation-safe cap below
+ * (`0.75*maxElevonRad/(1*|pitchRateGain|)` = 0.818 rad/s): `0.818/7 ~= 0.12`.
+ *
+ * `FCS_PITCH_RATE_CMD_SATURATION_MARGIN` (0.75) leaves 25% elevon-travel headroom -- computed each
+ * substep as `margin*maxElevonRad/(gainSchedule*|pitchRateGain|)` -- above the pure `qCmd` term
+ * (which this formula sizes to land exactly at `maxElevonRad` with q=0), for the `(qCmd-q)`
+ * error's own `q` component and any transient overshoot before the inner loop fully converges.
+ * Naturally gets STRICTER at low speed (gainSchedule up to 4 near stall: cap ~11.7deg/s, matching
+ * the ground law's own 10deg/s -- a reassuring, independently-derived consistency) and looser at
+ * high speed (gainSchedule down to 0.02: the formula alone would allow deg/s figures no real
+ * aircraft should ever be commanded, which `FCS_MAX_PITCH_RATE_CMD_RAD_S` (60deg/s -- a
+ * deliberately much gentler absolute ceiling than roll's own maxRollRateRadS=300deg/s, since pitch
+ * should never be that aggressive) exists to additionally bound.
+ *
+ * `FCS_PITCH_RATE_CMD_ONSET_RAD_S2` rate-limits the shaped target itself (module state
+ * `shapedPitchRateCmd` below, reset at ground/air transitions like `shapedPitchStick`/
+ * `shapedRollStick`) -- defence in depth on top of the cap: even within the capped range, `gLoad`
+ * (an unshaped, measured quantity that can move quickly mid-maneuver) feeds directly into qCmd's
+ * raw value every substep, so bounding how fast the TARGET itself can change keeps the inner loop
+ * from ever being asked to jump instantly -- the same rationale FCS_PITCH_STICK_SHAPE_RATE_PER_SEC
+ * applies to the raw stick further upstream of gCmd.
+ */
+const FCS_PITCH_OUTER_LOOP_GAIN = 0.12;
+const FCS_PITCH_RATE_CMD_SATURATION_MARGIN = 0.75;
+const FCS_MAX_PITCH_RATE_CMD_RAD_S = 1.0472; // 60 deg/s
+const FCS_PITCH_RATE_CMD_ONSET_RAD_S2 = 5;
+
+/**
+ * FCS_PITCH_INNER_QBAR_EXPONENT/FCS_PITCH_INNER_LOOP_GAIN_MULT — sizing the AIRBORNE inner rate
+ * loop's own qBar schedule/gain (`pitchInnerLoopSchedule`, `stepFcs`'s airborne branch), found
+ * empirically necessary (this pass, direct trim-convergence tracing across the speed/altitude
+ * envelope, tools/lib/trimSolver.ts's own `findGCommandTrim`) after the cascaded outer/inner
+ * restructuring above initially FAILED tests/integration/trimAndPerformance.test.ts
+ * (vmax_sl/vmax_11000/turn_5000_m06 stopped converging) despite passing every unit test.
+ *
+ * Root cause: reusing `pitchGainSchedule`'s existing 1.5-exponent schedule (tuned for the OLD
+ * law, where a much LARGER proportional-on-g-error term dominated and `pitchRateGain` was only a
+ * secondary damping correction) left the new inner loop, now the SOLE source of elevon authority,
+ * too weak at high dynamic pressure to counter this airframe's own open-loop instability
+ * (relaxed static stability, Cm_alpha>0 -- tejasAeroTables.ts) during a transient: direct tracing
+ * at 300 m/s sea level from a deliberately-disturbed seed state (gLoad initially ~4.4, per
+ * findGCommandTrim's own settle methodology) showed q accelerating in the WRONG direction for
+ * over a second, continuing to diverge even well AFTER the outer loop had already reversed
+ * qCmdAir's sign to correct it -- the inner loop's commanded correction was simply too small,
+ * too late, not a sign or saturation bug.
+ *
+ * A 1.5-exponent schedule shrinks the elevon commanded for a GIVEN error roughly as 1/qBar^1.5,
+ * which (since aero MOMENT is itself proportional to qBar) makes the resulting CORRECTIVE torque
+ * for that error shrink as 1/qBar^0.5 -- while the airframe's own DESTABILIZING moment
+ * (Cm_alpha*alpha*qBar, unscheduled, a real physical quantity this control law cannot soften) only
+ * GROWS with qBar. The 1.5 exponent was chosen for the OLD law specifically to avoid a DIFFERENT
+ * failure mode (a merely-1/qBar-scaled command still saturating maxElevonRateRadS for long enough
+ * to blow through the alpha limiter, see FCS_GAIN_SCHEDULE_EXPONENT's own doc comment) that does
+ * not apply the same way to a bounded, self-limiting rate-command loop; carrying it over
+ * unmodified to the inner rate loop traded that saturation risk for a stability-margin one.
+ *
+ * `FCS_PITCH_INNER_QBAR_EXPONENT=1.0` (not 1.5) keeps the CORRECTIVE TORQUE for a given rate error
+ * exactly independent of qBar (rather than shrinking with it), matching general gain-scheduled-FBW
+ * practice of rolling off RATE/damping gains more gently than proportional/position gains, since
+ * damping/disturbance-rejection needs do not shrink with dynamic pressure the way position-error
+ * authority needs do. `FCS_PITCH_INNER_LOOP_GAIN_MULT=2` (found by direct empirical sweep, same
+ * tracing methodology, across sea-level and 11000m at 60-600 m/s) gives this now-qBar-independent
+ * torque enough absolute margin to arrest this specific airframe's instability within roughly 1-2s
+ * from a large disturbed transient, matching (usually improving on) the OLD law's own settle time
+ * where the old law converged at all. Both constants are LOCAL to the inner loop's own gain
+ * computation (`pitchInnerLoopSchedule`, below) -- `pitchGainSchedule`'s original 1.5-exponent
+ * schedule is unchanged and still used, unmodified, by the OUTER loop's own qCmdCapRadS derivation
+ * above and by the ground law below, neither of which showed this failure mode.
+ *
+ * Residual known gap (matches the OLD law's own behavior at the same conditions, not a regression):
+ * sea-level conditions above roughly 400-450 m/s (Mach 1.2+ at sea level, well outside this
+ * airframe's realistic operating envelope and past where tejasAeroTables.ts's data was validated)
+ * still fail to reach a clean trim under either law -- the OLD law settles into a stable-but-wrong
+ * equilibrium there (confirmed by direct comparison, same tracing), while this restructured law
+ * can still show a slower-settling or non-settling transient at those SAME extreme conditions.
+ * tools/lib/trimSolver.ts's `findVmax` bisects up to 600 m/s at any altitude (VMAX_BISECT_MAX_MPS)
+ * so it does probe this region, but only ever as intermediate bisection candidates far outside
+ * every named performance target's tolerance band -- confirmed (this pass) not to affect
+ * `checkPerformanceTarget`'s actual pass/fail for vmax_sl/vmax_11000/turn_5000_m06 or any other
+ * named target, all of which trim within the realistic envelope this fix targets.
+ */
+const FCS_PITCH_INNER_QBAR_EXPONENT = 1.0;
+const FCS_PITCH_INNER_LOOP_GAIN_MULT = 2;
+
 const trimIntegralRad = new Float64Array(MAX_ENTITIES);
 const lastGLoadRad = new Float64Array(MAX_ENTITIES);
 /** FCS_PITCH_STICK_SHAPE_RATE_PER_SEC/FCS_ROLL_STICK_SHAPE_RATE_PER_SEC-limited pitch/roll stick, module-private per-slot state like trimIntegralRad/lastGLoadRad above. */
 const shapedPitchStick = new Float64Array(MAX_ENTITIES);
 const shapedRollStick = new Float64Array(MAX_ENTITIES);
+/** FCS_PITCH_RATE_CMD_ONSET_RAD_S2-limited target pitch rate for the airborne law's outer loop, module-private per-slot state like the above. */
+const shapedPitchRateCmd = new Float64Array(MAX_ENTITIES);
 
 /** `noUncheckedIndexedAccess`-safe read of a Float64Array slot (never actually undefined for an in-range index; the array is fixed-size and zero-initialized). */
 function readF64(arr: Float64Array, index: number): number {
@@ -208,6 +332,7 @@ export function resetFcsTrimState(entityIndex: number): void {
   lastGLoadRad[entityIndex] = 0;
   shapedPitchStick[entityIndex] = 0;
   shapedRollStick[entityIndex] = 0;
+  shapedPitchRateCmd[entityIndex] = 0;
 }
 
 /**
@@ -306,6 +431,7 @@ export function stepFcs(
   if (transitioned) {
     shapedPitchStick[entityIndex] = 0;
     shapedRollStick[entityIndex] = 0;
+    shapedPitchRateCmd[entityIndex] = 0;
   }
   shapedPitchStick[entityIndex] = rateLimitStep(readF64(shapedPitchStick, entityIndex), inputs.pitch, FCS_PITCH_STICK_SHAPE_RATE_PER_SEC, dtSub);
   shapedRollStick[entityIndex] = rateLimitStep(readF64(shapedRollStick, entityIndex), inputs.roll, FCS_ROLL_STICK_SHAPE_RATE_PER_SEC, dtSub);
@@ -356,21 +482,19 @@ export function stepFcs(
     if (transitioned) {
       trimIntegralRad[entityIndex] = 0;
     } else if (!alphaLimitActive) {
-      // Sign fix (cross-module review; see src/aircraft/tejasGeometry.ts's
-      // FcsLimits.gLoadGain comment for the full derivation this codifies):
-      // the integral term is added directly into elevonSymCmd as
-      // "+trimIntegralRad" below, so it only drives (gCmd - gLoad) to zero if
-      // increasing elevonSym increases gLoad, i.e. if the PROPORTIONAL term's
-      // own sign convention (gLoadGain) is positive. For an airframe whose
-      // real aero data makes gLoadGain NEGATIVE (elevon's indirect
-      // alpha/CL(alpha) effect dominates its direct CL_elevon lift), a
-      // fixed-positive accumulation instead fights the proportional/rate
-      // terms whenever gCmd != gLoad persists, producing an undamped,
-      // non-converging gLoad oscillation instead of a trim. Scaling the
-      // accumulation by sign(gLoadGain) keeps the integral's contribution to
-      // elevonSymCmd aligned with the proportional term's own (airframe-
-      // dependent) sign in both cases, matching standard PI-controller
-      // practice of applying the same sign convention to the P and I terms.
+      // Sign (cross-module review; see src/aircraft/tejasGeometry.ts's FcsLimits.gLoadGain
+      // comment for the full derivation this codifies): the integral term is added directly into
+      // elevonSymCmd below, alongside the inner rate loop's own
+      // FCS_PITCH_INNER_LOOP_GAIN_MULT*innerSchedule*pitchRateGain*(qCmdAir-q) term, so it only
+      // drives (gCmd-gLoad) to zero if
+      // increasing elevonSym increases gLoad -- an AIRFRAME property (the real aero's net
+      // elevon->alpha->CL->gLoad effect), not a tuning knob of whichever control-law structure
+      // happens to be driving elevonSymCmd's other terms. `fcsLimits.gLoadGain` is no longer used
+      // as a direct multiplier anywhere in this formula (superseded by the outer/inner-loop
+      // restructuring — see FCS_PITCH_OUTER_LOOP_GAIN's own doc comment above), but it still
+      // correctly encodes that airframe sign (its own extensive derivation in tejasGeometry.ts
+      // covers why it must be negative for this specific aircraft) and is kept specifically to
+      // source it here, via Math.sign, exactly as before.
       const trimIntegralSign = Math.sign(fcsLimits.gLoadGain) || 1;
       trimIntegralRad[entityIndex] = clamp(
         readF64(trimIntegralRad, entityIndex) + trimIntegralSign * FCS_TRIM_INTEGRAL_GAIN * (gCmd - gLoad) * dtSub,
@@ -387,8 +511,40 @@ export function stepFcs(
     // direction — live-testing (holding a sustained pull) showed this pattern: alpha overshot to
     // ~46deg (gLoad ~6.8) then reversed into negative gLoad (~-1.2) within a fraction of a
     // second, a classic windup-driven oscillation, not a simple "response too fast" issue.
+
+    // OUTER LOOP: g-error (or, blended in above, the alpha limiter's already-tuned
+    // reduced/reversed g target near the boundary) -> a target pitch rate, capped and
+    // onset-shaped so the INNER loop below is never asked to reach further than maxElevonRad can
+    // hold in steady state — see FCS_PITCH_OUTER_LOOP_GAIN's doc comment for the full saturation
+    // analysis this sizes itself against. Uses the INNER loop's own gain/schedule
+    // (pitchInnerLoopSchedule, FCS_PITCH_INNER_LOOP_GAIN_MULT — see that constant's doc comment)
+    // in this cap's denominator, not the outer `gainSchedule` above, so the steady-state algebra
+    // (elevonSymCmd = innerGain*qCmdAir at q=0) actually lands at `margin*maxElevonRad` against
+    // the gain the inner loop below actually applies.
+    const innerSchedule = pitchInnerLoopSchedule(qBarPa);
+    const qCmdCapRadS = Math.min(
+      (FCS_PITCH_RATE_CMD_SATURATION_MARGIN * fcsLimits.maxElevonRad) /
+        (FCS_PITCH_INNER_LOOP_GAIN_MULT * innerSchedule * Math.abs(fcsLimits.pitchRateGain)),
+      FCS_MAX_PITCH_RATE_CMD_RAD_S
+    );
+    const qCmdAirRaw = clamp(FCS_PITCH_OUTER_LOOP_GAIN * (gCmd - gLoad), -qCmdCapRadS, qCmdCapRadS);
+    shapedPitchRateCmd[entityIndex] = rateLimitStep(
+      readF64(shapedPitchRateCmd, entityIndex),
+      qCmdAirRaw,
+      FCS_PITCH_RATE_CMD_ONSET_RAD_S2,
+      dtSub
+    );
+    const qCmdAir = readF64(shapedPitchRateCmd, entityIndex);
+
+    // INNER LOOP: rate error -> elevon, the same self-limiting structural pattern the roll law
+    // and the ground pitch law (below) already use — a single gain on (target-actual) instead of
+    // a raw position-scale proportional term. FCS_PITCH_INNER_LOOP_GAIN_MULT/
+    // FCS_PITCH_INNER_QBAR_EXPONENT (see that constant's own doc comment) size this specifically
+    // for disturbance-rejection authority against this airframe's open-loop instability, distinct
+    // from `gainSchedule`'s own (steeper-rolloff) schedule used by the outer loop's cap above and
+    // by the ground law below.
     elevonSymCmd =
-      gainSchedule * (fcsLimits.gLoadGain * (gCmd - gLoad) - fcsLimits.pitchRateGain * q) + readF64(trimIntegralRad, entityIndex);
+      FCS_PITCH_INNER_LOOP_GAIN_MULT * innerSchedule * fcsLimits.pitchRateGain * (qCmdAir - q) + readF64(trimIntegralRad, entityIndex);
   } else {
     trimIntegralRad[entityIndex] = 0;
     // RATE-command law (same structure as the roll law just below: qCmd from the stick, gain on

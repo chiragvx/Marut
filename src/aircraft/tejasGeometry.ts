@@ -244,5 +244,15 @@ export const fcsLimits: FcsLimits = {
   // other half of what made the pitch trim itself reliably convergent.
   yawRateGain: -0.4,
   alphaLimitGain: 3.0,
+  // UPDATE (later cross-module pass, airborne pitch law restructuring): this -0.3 value and its
+  // sign derivation above remain exactly correct and unchanged (the underlying airframe relation
+  // they document -- elevon's net effect on gLoad -- is a real-aero fact, independent of whatever
+  // control-law structure src/physics/fcs.ts uses to act on it). What changed is HOW fcs.ts's
+  // airborne law uses it: it is no longer the main formula's direct proportional multiplier on
+  // (gCmd-gLoad) -- that role is now filled by a new outer-loop gain (fcs.ts's
+  // FCS_PITCH_OUTER_LOOP_GAIN, see its own doc comment for the full restructuring rationale,
+  // root-caused to actuator saturation this position-command formula was producing). gLoadGain is
+  // kept, unchanged, specifically because its SIGN is still consulted (via Math.sign) to orient
+  // the trim-integral's accumulation -- see fcs.ts's "Sign" comment at that call site.
   gLoadGain: -0.3,
 };

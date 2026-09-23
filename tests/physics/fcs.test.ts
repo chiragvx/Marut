@@ -149,6 +149,22 @@ describe('stepFcs', () => {
     expect(Math.abs(surfaces.elevonL)).toBeLessThan(0.01);
   });
 
+  // Regression coverage for the airborne pitch law's own outer/inner-loop restructuring
+  // (FCS_PITCH_OUTER_LOOP_GAIN's doc comment in fcs.ts): a full aft stick (nose-up demand, gCmd
+  // rising above gLoad) must still command a NEGATIVE (nose-up) elevonSymCmd end to end through
+  // the new outer-loop-g-error -> target-rate -> inner-loop-rate-error chain, matching this
+  // project's mandatory elevon sign convention exactly as the pre-restructuring law did.
+  it('airborne pitch law: full aft stick (nose-up demand) commands a NEGATIVE (nose-up) elevonSymCmd, not positive', () => {
+    const index = entityPoolIndex(95);
+    resetFcsTrimState(index);
+    const surfaces: FcsSurfaces = { elevonL: 0, elevonR: 0, rudder: 0 };
+    // ZERO3 totalForceWorld makes gLoad settle to exactly 1 every step (see stepFcs's own gLoad
+    // derivation) regardless of attitude, so gCmd (rising above 1 as pitchStickShaped ramps)
+    // reliably stays above gLoad for the whole run -- a clean, sustained nose-up demand.
+    stepFcs(index, surfaces, false, false, 0, ZERO3, ZERO3, IDENTITY, 10000, 9.80665, makeInputs({ pitch: 1 }), makeDamage(), makeFcsLimits({ pitchRateGain: -0.4 }), 1 / 120);
+    expect(surfaces.elevonL).toBeLessThan(0);
+  });
+
   // Same bug class, found in the same audit: the rudder's direct stick term had the identical
   // missing negation. tejasGeometry.ts's yawRateGain comment establishes "+rudder = trailing-edge
   // LEFT = NOSE-LEFT moment"; PilotInputs.yaw's own doc comment is "+1 = nose-right command", so
@@ -201,22 +217,23 @@ describe('stepFcs', () => {
     expect(getTrimIntegralRad(index)).toBe(0);
   });
 
-  it('trim-integral action closes a steady-state g error a low proportional gain alone would leave', () => {
+  it('trim-integral action closes a steady-state g error with zero rate-loop gain to help', () => {
     // Synthetic linear plant: gLoad = k * elevonSym (elevonL === elevonR, no roll/rudder channel).
     const index = entityPoolIndex(45);
     resetFcsTrimState(index);
     const massKg = 10000;
     const g = 9.80665;
-    // Plant gain chosen for two constraints together: with
-    // maxElevonRateRadS effectively unlimited relative to dt, the actuator
-    // reaches its command almost exactly each step, making this a
-    // near-instantaneous (zero-lag) plant, so the discrete P-loop's
-    // step-to-step gain (gLoadGain*k) must stay under 1 to avoid
-    // oscillating/diverging rather than settling; AND the elevonSym the
-    // proportional term alone settles at (gLoadGain/(1+gLoadGain*k)) must
-    // leave enough headroom under FCS_TRIM_INTEGRAL_MAX_RAD (0.2094 rad,
-    // fcs.ts, non-FcsLimits-tunable) for the integral term to reach the
-    // elevonSym (=1/k) that actually zeroes the error.
+    // pitchRateGain=0 here means the inner rate loop (FCS_PITCH_OUTER_LOOP_GAIN's doc comment)
+    // contributes NOTHING to elevonSymCmd regardless of qCmdAir/q -- gLoadGain is likewise not a
+    // direct multiplier anywhere in the current formula (only its SIGN sources the trim-integral
+    // accumulation below, unchanged from before the outer/inner-loop restructuring). So this
+    // fixture isolates the trim integral completely: elevonSymCmd is PURELY trimIntegralRad from
+    // t=0, with no proportional or rate contribution whatsoever, unlike the old law's own
+    // partial-authority proportional response this test predates. `k` (plant gain) and
+    // `gLoadGain`'s magnitude only matter here via `Math.sign(gLoadGain)` (orienting the
+    // integral's accumulation direction, see stepFcs's own "Sign" comment) and via leaving enough
+    // headroom under FCS_TRIM_INTEGRAL_MAX_RAD (0.2094 rad, fcs.ts, non-FcsLimits-tunable) for the
+    // integral alone to reach the elevonSym (=1/k) that zeroes the error.
     const k = 30; // g per rad
     const limits = makeFcsLimits({ gLoadGain: 0.03233, pitchRateGain: 0, maxElevonRateRadS: 100, maxElevonRad: 2 });
     const inputs = makeInputs({ pitch: 0 }); // gCmd = 1
@@ -237,9 +254,9 @@ describe('stepFcs', () => {
       if (step === 2 * 120) gLoadAt2s = gLoad;
     }
 
-    // Proportional-only fixed point: gCmd*(Kg*k)/(1+Kg*k) with Kg*k≈0.97 is
-    // still only ≈0.492 of gCmd (a >5% error) at t=2s, before the integral
-    // term has had much time to act.
+    // With no proportional/rate contribution at all (see this test's own setup comment), gLoad
+    // starts at exactly 0 and only the slow trim integral moves it -- still far short of gCmd=1
+    // (a >5% error) at t=2s, before the integral has had much time to act.
     expect(Math.abs(gLoadAt2s - 1.0) / 1.0).toBeGreaterThan(0.05);
     // The integral term closes it to within 1% by t=20s.
     expect(Math.abs(gLoad - 1.0) / 1.0).toBeLessThan(0.01);
@@ -287,16 +304,21 @@ describe('pitch/roll stick command shaping (quadruplex FBW onset limiting)', () 
     expect(Math.abs(elevonDiffCmd)).toBeLessThan(limits.maxElevonRad * 0.3);
   });
 
-  it('steady-state (after the ~1s pitch onset has fully ramped) reaches the same full authority a raw stick command always could -- no permanent authority loss, only a slower onset', () => {
-    // Note: there is no longer a way to construct a genuinely "unshaped" call to compare
-    // against -- the shaping in stepFcs applies unconditionally to every call now, which is the
-    // whole point (every input device gets it, not just keyboard's own separate ramp). So this
-    // asserts against the known analytic ceiling (computeGCommand(1,limits)=9g, clamped by
-    // maxElevonRad=2) instead of a same-call comparison.
+  it('steady-state (after the ~1s pitch onset has fully ramped) stays BOUNDED well under full authority even under a sustained maximal (9g) g-error -- the outer/inner rate-command restructuring, not actuator saturation, is what now arrests it', () => {
+    // Superseded expectation (pre-restructuring): the old position-command law fed
+    // (gCmd-gLoad) straight into elevonSymCmd, so a persistent large g-error (as this fixture's
+    // static gLoad=1/omega=ZERO3 setup produces) drove it straight to full +-maxElevonRad
+    // authority. The new law (src/physics/fcs.ts's FCS_PITCH_OUTER_LOOP_GAIN doc comment) instead
+    // converts that same g-error into a CAPPED, onset-shaped target pitch RATE and tracks it via
+    // an inner rate loop -- so even a maximal, sustained g-error settles at a bounded elevon
+    // command (a fixed point of gainSchedule*pitchRateGain*(qCmdAirCap-0) + trimIntegral), never
+    // full authority, by construction. Computed directly (this fixture's exact inputs): settles to
+    // ~-0.56 rad (28% of maxElevonRad=2) -- asserting a band around that instead of the exact
+    // float keeps this test resilient to future re-tuning of the outer/inner gain constants.
     const index = entityPoolIndex(302);
     resetFcsTrimState(index);
     const surfaces: FcsSurfaces = { elevonL: 0, elevonR: 0, rudder: 0 };
-    const limits = makeFcsLimits({ maxGLoadPos: 9, maxElevonRad: 2, gLoadGain: 1, maxElevonRateRadS: 1000 }); // fast actuator so it isn't the binding constraint here
+    const limits = makeFcsLimits({ maxGLoadPos: 9, maxElevonRad: 2, gLoadGain: 1, pitchRateGain: -0.4, maxElevonRateRadS: 1000 }); // fast actuator so it isn't the binding constraint here
     const dt = 1 / 120;
 
     // Run well past FCS_PITCH_STICK_SHAPE_RATE_PER_SEC's 1s full-scale ramp time (240 steps =
@@ -305,25 +327,35 @@ describe('pitch/roll stick command shaping (quadruplex FBW onset limiting)', () 
       stepFcs(index, surfaces, false, false, 0, ZERO3, ZERO3, IDENTITY, 10000, 9.80665, makeInputs({ pitch: 1 }), makeDamage(), limits, dt);
     }
 
-    expect(surfaces.elevonL).toBeCloseTo(limits.maxElevonRad, 1); // fully saturated (9g commanded >> 2rad authority) once the ramp has converged
+    expect(Math.abs(surfaces.elevonL)).toBeGreaterThan(limits.maxElevonRad * 0.15); // still a meaningful, nonzero response
+    expect(Math.abs(surfaces.elevonL)).toBeLessThan(limits.maxElevonRad * 0.5); // but never approaches full authority
   });
 
   it('resetFcsTrimState zeroes the shaped-stick state so a recycled pool slot does not inherit a previous occupant\'s ramp position', () => {
     const index = entityPoolIndex(304);
     const surfaces: FcsSurfaces = { elevonL: 0, elevonR: 0, rudder: 0 };
-    const limits = makeFcsLimits({ maxGLoadPos: 9, maxElevonRad: 2, gLoadGain: 1 });
+    // pitchRateGain must be overridden (nonzero) here: the airborne law's inner rate loop is now
+    // the SOLE source of elevonSymCmd's non-trim authority (FCS_PITCH_OUTER_LOOP_GAIN's doc
+    // comment), so the default pitchRateGain=0 would zero out its entire response to the ramping
+    // stick, leaving only the (much smaller, slower-building) trim integral to distinguish
+    // "partway ramped" from "fresh" below.
+    const limits = makeFcsLimits({ maxGLoadPos: 9, maxElevonRad: 2, gLoadGain: 1, pitchRateGain: -0.4 });
     // Ramp it up first.
     for (let i = 0; i < 60; i++) {
       stepFcs(index, surfaces, false, false, 0, ZERO3, ZERO3, IDENTITY, 10000, 9.80665, makeInputs({ pitch: 1 }), makeDamage(), limits, 1 / 120);
     }
-    expect(Math.abs(surfaces.elevonL)).toBeGreaterThan(limits.maxElevonRad * 0.3); // partway ramped by now
+    // Threshold lowered from the pre-restructuring 0.3 (computed directly for this fixture: ~0.36
+    // rad / 18% of maxElevonRad after 60 steps under the new bounded rate-command law, vs. a
+    // position-command law's much larger, faster-saturating response) -- still cleanly separates
+    // "partway ramped" (~0.36) from "fresh" (~0.006, asserted below) with a wide margin.
+    expect(Math.abs(surfaces.elevonL)).toBeGreaterThan(limits.maxElevonRad * 0.1); // partway ramped by now
 
     resetFcsTrimState(index);
     surfaces.elevonL = 0;
     surfaces.elevonR = 0;
     stepFcs(index, surfaces, false, false, 0, ZERO3, ZERO3, IDENTITY, 10000, 9.80665, makeInputs({ pitch: 1 }), makeDamage(), limits, 1 / 120);
     // Back to a fresh, near-zero onset -- same bound as the very-first-substep test above.
-    expect(Math.abs(surfaces.elevonL)).toBeLessThan(limits.maxElevonRad * 0.3);
+    expect(Math.abs(surfaces.elevonL)).toBeLessThan(limits.maxElevonRad * 0.1);
   });
 
   it('rateLimitStep itself (already used elsewhere in this module for actuator slewing) behaves as this fix assumes: 0.5s to go 0->1 at rate 2.0/s', () => {
