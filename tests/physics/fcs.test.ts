@@ -166,8 +166,12 @@ describe('stepFcs', () => {
 // Regression coverage for the "controls are very sensitive" fix: a snapped full stick input used
 // to feed instantly into computeGCommand/pCmd with zero onset shaping, producing a classic
 // underdamped step-response overshoot (live-measured: a full pull crossed the commanded +8.0g
-// ceiling then overshot to +9.49g, +18.6%, before settling). FCS_STICK_SHAPE_RATE_PER_SEC now
-// rate-limits the raw stick itself before it reaches any of the control laws — these tests pin
+// ceiling then overshot to +9.49g, +18.6%, before settling). A first pass added a single shared
+// 0.5s onset (FCS_STICK_SHAPE_RATE_PER_SEC=2.0); live-testing that fix found it still let a
+// sustained pull run angle of attack from 0.8deg to 32.2deg in 1.25s -- straight through the
+// alpha limiter into a real stall -- so pitch was slowed further and split from roll:
+// FCS_PITCH_STICK_SHAPE_RATE_PER_SEC=1.0 (1s onset), FCS_ROLL_STICK_SHAPE_RATE_PER_SEC=2.0
+// (unchanged; roll wasn't implicated and doesn't carry the same stall risk). These tests pin
 // that the onset is genuinely gradual (not instant) and that the STEADY-STATE command is
 // unchanged once fully ramped, i.e. no control authority is permanently lost.
 describe('pitch/roll stick command shaping (quadruplex FBW onset limiting)', () => {
@@ -181,7 +185,8 @@ describe('pitch/roll stick command shaping (quadruplex FBW onset limiting)', () 
 
     // Old (unshaped) behaviour: computeGCommand(1, limits)=9, elevonSymCmd clamps straight to
     // maxElevonRad=2 -- i.e. full saturation on tick one. The shaped stick has only reached
-    // 2.0*(1/120)=1/60 of full deflection by this point, so the command is nowhere near that.
+    // 1.0*(1/120)=1/120 of full deflection by this point (pitch's own, slower rate), so the
+    // command is nowhere near that.
     expect(Math.abs(surfaces.elevonL)).toBeLessThan(limits.maxElevonRad * 0.3);
   });
 
@@ -199,7 +204,7 @@ describe('pitch/roll stick command shaping (quadruplex FBW onset limiting)', () 
     expect(Math.abs(elevonDiffCmd)).toBeLessThan(limits.maxElevonRad * 0.3);
   });
 
-  it('steady-state (after the ~0.5s onset has fully ramped) reaches the same full authority a raw stick command always could -- no permanent authority loss, only a slower onset', () => {
+  it('steady-state (after the ~1s pitch onset has fully ramped) reaches the same full authority a raw stick command always could -- no permanent authority loss, only a slower onset', () => {
     // Note: there is no longer a way to construct a genuinely "unshaped" call to compare
     // against -- the shaping in stepFcs applies unconditionally to every call now, which is the
     // whole point (every input device gets it, not just keyboard's own separate ramp). So this
@@ -211,8 +216,9 @@ describe('pitch/roll stick command shaping (quadruplex FBW onset limiting)', () 
     const limits = makeFcsLimits({ maxGLoadPos: 9, maxElevonRad: 2, gLoadGain: 1, maxElevonRateRadS: 1000 }); // fast actuator so it isn't the binding constraint here
     const dt = 1 / 120;
 
-    // Run well past FCS_STICK_SHAPE_RATE_PER_SEC's 0.5s full-scale ramp time.
-    for (let i = 0; i < 120; i++) {
+    // Run well past FCS_PITCH_STICK_SHAPE_RATE_PER_SEC's 1s full-scale ramp time (240 steps =
+    // 2s, not just the 120-step/1s edge the ramp only just reaches).
+    for (let i = 0; i < 240; i++) {
       stepFcs(index, surfaces, false, false, 0, ZERO3, ZERO3, IDENTITY, 10000, 9.80665, makeInputs({ pitch: 1 }), makeDamage(), limits, dt);
     }
 

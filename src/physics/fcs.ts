@@ -32,13 +32,44 @@ const FCS_TRIM_INTEGRAL_MAX_RAD = 0.2094;
  * produced a classic underdamped step-response ring even on keyboard: a full pull crossed the
  * commanded +8.0g ceiling at 393ms then overshot to a peak of +9.49g (+18.6%) by 597ms; a full
  * push overshot the -3.0g ceiling to -4.74g (+58%) — the felt "very sensitive" controls.
- * 1/2.0 = 0.5s for 0->full deflection: slower than the keyboard ramp above, so this becomes the
- * new binding onset limit for every input device (keyboard included), directly damping that ring
- * by giving the closed loop time to track the commanded value instead of having it "arrive"
- * abruptly. Does not touch steady-state trim (once fully ramped, the commanded value is
- * unchanged) — see tools/sim-check.ts re-validation after this was added.
+ *
+ * Split into a separate pitch/roll rate after a SECOND round of live-testing (holding the
+ * pitch-up key continuously) showed the original shared value of 2.0 (0.5s to full deflection)
+ * was still nowhere near slow enough on the pitch axis specifically: even with that shaping,
+ * angle of attack rocketed from 0.8deg to 32.2deg in just 1.25s of a sustained pull, blowing
+ * straight through the ~24-26deg alpha limiter (FcsLimits.maxAlphaRad) into a genuine stall --
+ * the alpha limiter only reacts AFTER alpha crosses the line, so it cannot itself prevent an
+ * overshoot fast enough when the commanded g is still ramping up quickly underneath it. Slowing
+ * PITCH specifically to 1s onset (roll is left at the original rate: it wasn't implicated by
+ * this report and a full-authority roll doesn't carry the same stall risk pitch does) gives the
+ * alpha limiter roughly twice as long to catch and arrest the buildup before it can run away.
+ * Still does not touch steady-state trim -- see tools/sim-check.ts re-validation after this was
+ * added, both when this constant was introduced and when it was split/slowed further.
  */
-const FCS_STICK_SHAPE_RATE_PER_SEC = 2.0;
+const FCS_PITCH_STICK_SHAPE_RATE_PER_SEC = 1.0;
+const FCS_ROLL_STICK_SHAPE_RATE_PER_SEC = 2.0;
+
+/**
+ * Look-ahead time, s, used to anticipate alpha for the alpha limiter (stepFcs, below): rather
+ * than comparing raw `alpha` against fcsLimits.maxAlphaRad/minAlphaRad, the limiter compares
+ * `alpha + q*ALPHA_LIMIT_ANTICIPATION_SEC` (q = body-frame pitch rate, positive = nose up, the
+ * standard "q-feedback" proxy for alpha rate real FBW alpha protection uses, since alpha-dot
+ * itself isn't directly available here).
+ *
+ * Added after slowing the stick onset (FCS_PITCH_STICK_SHAPE_RATE_PER_SEC, above) turned out NOT
+ * to be sufficient by itself: live-testing a sustained full pull still let alpha overshoot the
+ * ~24-26deg limit by roughly 20deg (peaking at 45.6deg / 6.8g) before reversing into a violent
+ * oscillation (down to -1.2g within a fraction of a second) — the limiter is REACTIVE on raw
+ * alpha alone, so by the time alpha actually crosses the line it can already be rising too fast
+ * for a same-instant gCmd reduction to arrest it in time. Comparing against the RATE-PREDICTED
+ * alpha instead triggers the exact same limiter formula earlier, while alpha is still climbing,
+ * giving the closed loop time to actually respond before the aircraft leaves the aero model's
+ * validated envelope. 0.3s is a modest anticipation window — enough to meaningfully pull the
+ * trigger point earlier without being so aggressive it clips ordinary maneuvering; re-tune here
+ * (not the stick-shape rate above) if alpha protection still isn't catching a sustained pull in
+ * time, since this constant is what actually targets that failure mode.
+ */
+const ALPHA_LIMIT_ANTICIPATION_SEC = 0.3;
 
 /**
  * Pitch-axis qBar gain scheduling (cross-module fix; see
@@ -119,7 +150,7 @@ function pitchGainSchedule(qBarPa: number): number {
 
 const trimIntegralRad = new Float64Array(MAX_ENTITIES);
 const lastGLoadRad = new Float64Array(MAX_ENTITIES);
-/** FCS_STICK_SHAPE_RATE_PER_SEC-limited pitch/roll stick, module-private per-slot state like trimIntegralRad/lastGLoadRad above. */
+/** FCS_PITCH_STICK_SHAPE_RATE_PER_SEC/FCS_ROLL_STICK_SHAPE_RATE_PER_SEC-limited pitch/roll stick, module-private per-slot state like trimIntegralRad/lastGLoadRad above. */
 const shapedPitchStick = new Float64Array(MAX_ENTITIES);
 const shapedRollStick = new Float64Array(MAX_ENTITIES);
 
@@ -240,22 +271,41 @@ export function stepFcs(
   const r = bodyRateR(omega);
   const transitioned = currentOnGround !== wasOnGroundAtEntry;
 
-  shapedPitchStick[entityIndex] = rateLimitStep(readF64(shapedPitchStick, entityIndex), inputs.pitch, FCS_STICK_SHAPE_RATE_PER_SEC, dtSub);
-  shapedRollStick[entityIndex] = rateLimitStep(readF64(shapedRollStick, entityIndex), inputs.roll, FCS_STICK_SHAPE_RATE_PER_SEC, dtSub);
+  shapedPitchStick[entityIndex] = rateLimitStep(readF64(shapedPitchStick, entityIndex), inputs.pitch, FCS_PITCH_STICK_SHAPE_RATE_PER_SEC, dtSub);
+  shapedRollStick[entityIndex] = rateLimitStep(readF64(shapedRollStick, entityIndex), inputs.roll, FCS_ROLL_STICK_SHAPE_RATE_PER_SEC, dtSub);
   const pitchStickShaped = readF64(shapedPitchStick, entityIndex);
   const rollStickShaped = readF64(shapedRollStick, entityIndex);
 
   let elevonSymCmd: number;
   if (!currentOnGround) {
     let gCmd = computeGCommand(pitchStickShaped, fcsLimits);
-    if (alpha > fcsLimits.maxAlphaRad) {
-      gCmd = Math.min(gCmd, 1.0 - fcsLimits.alphaLimitGain * (alpha - fcsLimits.maxAlphaRad));
+    // Anticipated (rate-predicted) alpha, per ALPHA_LIMIT_ANTICIPATION_SEC's doc comment: the
+    // limiter is reactive on raw `alpha` alone, which was measured (live testing) to let a
+    // sustained pull overshoot the limit by roughly 20deg before gCmd got reduced enough to
+    // matter. Using q (pitch rate) to extrapolate alpha ANTICIPATION_SEC ahead triggers the same
+    // limiter formula earlier, while alpha is still rising fast, instead of only after it has
+    // already blown past the line.
+    const alphaAnticipated = alpha + q * ALPHA_LIMIT_ANTICIPATION_SEC;
+    // Deliberately RAW alpha here, not alphaAnticipated: this only gates the trim-integral
+    // freeze below (see that comment), which should stay narrow — an ordinary sustained climb
+    // that legitimately operates close to (without exceeding) the limit still needs its trim
+    // integral to converge normally. Widening this to the anticipated value regressed exactly
+    // that case (tests/integration/spawnFlyLand.test.ts's 25s scripted climb never actually
+    // exceeds the limit but grazes close enough that the anticipated value did, freezing trim
+    // for most of the climb and leaving the aircraft poorly trimmed heading into cruise/descent
+    // — eventually crashing during the landing rollout). The gCmd reduction below still uses the
+    // anticipated value, which is what actually targets the overshoot this was added to fix.
+    const alphaLimitActive = alpha > fcsLimits.maxAlphaRad || alpha < fcsLimits.minAlphaRad;
+    if (alphaAnticipated > fcsLimits.maxAlphaRad) {
+      gCmd = Math.min(gCmd, 1.0 - fcsLimits.alphaLimitGain * (alphaAnticipated - fcsLimits.maxAlphaRad));
     }
-    if (alpha < fcsLimits.minAlphaRad) {
-      gCmd = Math.max(gCmd, 1.0 - fcsLimits.alphaLimitGain * (alpha - fcsLimits.minAlphaRad));
+    if (alphaAnticipated < fcsLimits.minAlphaRad) {
+      gCmd = Math.max(gCmd, 1.0 - fcsLimits.alphaLimitGain * (alphaAnticipated - fcsLimits.minAlphaRad));
     }
 
-    if (!transitioned) {
+    if (transitioned) {
+      trimIntegralRad[entityIndex] = 0;
+    } else if (!alphaLimitActive) {
       // Sign fix (cross-module review; see src/aircraft/tejasGeometry.ts's
       // FcsLimits.gLoadGain comment for the full derivation this codifies):
       // the integral term is added directly into elevonSymCmd as
@@ -277,9 +327,16 @@ export function stepFcs(
         -FCS_TRIM_INTEGRAL_MAX_RAD,
         FCS_TRIM_INTEGRAL_MAX_RAD
       );
-    } else {
-      trimIntegralRad[entityIndex] = 0;
     }
+    // else (alpha limiter actively engaged, no ground transition): FREEZE — leave
+    // trimIntegralRad exactly as it is. Standard anti-windup practice: a sustained high-alpha
+    // excursion (gCmd still saturated while gLoad lags behind, or vice versa) would otherwise
+    // keep winding the integral toward its +-FCS_TRIM_INTEGRAL_MAX_RAD clamp for as long as the
+    // excursion lasts; that stored bias then persists and fights the proportional/alpha-limit
+    // terms once alpha recovers, discharging as a large, ill-timed kick in the opposite
+    // direction — live-testing (holding a sustained pull) showed this pattern: alpha overshot to
+    // ~46deg (gLoad ~6.8) then reversed into negative gLoad (~-1.2) within a fraction of a
+    // second, a classic windup-driven oscillation, not a simple "response too fast" issue.
     elevonSymCmd =
       gainSchedule * (fcsLimits.gLoadGain * (gCmd - gLoad) - fcsLimits.pitchRateGain * q) + readF64(trimIntegralRad, entityIndex);
   } else {
