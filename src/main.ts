@@ -517,6 +517,17 @@ async function initWorkersAndRenderer(qualityTier: QualityTier): Promise<void> {
   renderer = createSceneRenderer(renderCanvas, qualityTier);
   hud = createHudRenderer(hudCanvas, qualityTier);
   inputSystem = createPlayerInputSystem({ window, touchOverlayContainer: uiRoot });
+
+  // Debug-only control-surface overlay toggle (F9 — not part of the rebindable BindableAction
+  // set, deliberately: this is an FCS dev/debug aid, not a gameplay control, so it bypasses
+  // src/input's whole rebind system rather than adding a permanent player-facing binding for it.
+  // See src/hud/controlSurfaceDebug.ts.
+  let debugSurfacesOn = false;
+  window.addEventListener('keydown', (e: KeyboardEvent) => {
+    if (e.code !== 'F9') return;
+    debugSurfacesOn = !debugSurfacesOn;
+    hud.setDebugSurfacesEnabled(debugSurfacesOn);
+  });
   renderer.registerAircraftModel(tejasDefinition.wireframe);
   renderer.setSunDirection({ x: 0.4, y: 0.7, z: -0.3 });
 

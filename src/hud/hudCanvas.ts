@@ -20,6 +20,7 @@ import { NO_ENTITY_ID, SnapshotEntity, SnapshotHud, SpeedUnit, entityFieldOffset
 import { RENDER_QUALITY_TABLE, type CameraState, type CreateHudRenderer, type HudRenderer } from '../contracts/render';
 
 import { drawLadder } from './ladder';
+import { drawControlSurfaceDebug } from './controlSurfaceDebug';
 import { drawIlsNeedles } from './ilsNeedles';
 import { drawRadarScope } from './radarScope';
 import {
@@ -54,6 +55,14 @@ export const createHudRenderer: CreateHudRenderer = (canvas, initialTier) => {
   // field — see drawPowerIndicator's doc comment in tapes.ts for why this exists.
   let playerThrottleFrac = 0;
   let playerAfterburnerOn = false;
+  // Same pattern for the debug control-surface overlay (controlSurfaceDebug.ts): elevonL/elevonR/
+  // rudder are 3D-wireframe-only fields per the HUD block's own design (see snapshotView.ts's
+  // InterpolatedHudEntity comment), so this reads them directly off the player's raw entity block
+  // rather than extending the shared HudSnapshotFrame parse every widget shares.
+  let playerElevonLRad = 0;
+  let playerElevonRRad = 0;
+  let playerRudderRad = 0;
+  let debugSurfacesEnabled = false;
 
   const api: HudRenderer = {
     resize(widthPxArg, heightPxArg, devicePixelRatio) {
@@ -82,6 +91,9 @@ export const createHudRenderer: CreateHudRenderer = (canvas, initialTier) => {
       if (pSlot >= 0) {
         playerThrottleFrac = view[entityFieldOffset(pSlot, SnapshotEntity.THROTTLE)] ?? 0;
         playerAfterburnerOn = (view[entityFieldOffset(pSlot, SnapshotEntity.AFTERBURNER_ON)] ?? 0) !== 0;
+        playerElevonLRad = view[entityFieldOffset(pSlot, SnapshotEntity.ELEVON_L)] ?? 0;
+        playerElevonRRad = view[entityFieldOffset(pSlot, SnapshotEntity.ELEVON_R)] ?? 0;
+        playerRudderRad = view[entityFieldOffset(pSlot, SnapshotEntity.RUDDER)] ?? 0;
       }
     },
 
@@ -92,6 +104,10 @@ export const createHudRenderer: CreateHudRenderer = (canvas, initialTier) => {
 
     setWeaponLoadout(ammoGun, missilesIr, missilesRadar) {
       applyWeaponLoadout(weaponState, ammoGun, missilesIr, missilesRadar);
+    },
+
+    setDebugSurfacesEnabled(enabled) {
+      debugSurfacesEnabled = enabled;
     },
 
     renderFrame(nowMs, camera: CameraState) {
@@ -130,6 +146,10 @@ export const createHudRenderer: CreateHudRenderer = (canvas, initialTier) => {
       drawLeadSight(ctx, camera, hud, widthPx, heightPx);
       drawWeaponStatus(ctx, hud, weaponState, widthPx - 16, heightPx - 44);
       drawWarnings(ctx, hud, nowMs, widthPx * 0.5, heightPx * 0.28);
+
+      if (debugSurfacesEnabled) {
+        drawControlSurfaceDebug(ctx, playerElevonLRad, playerElevonRRad, playerRudderRad, 16, 28);
+      }
     },
 
     dispose() {
