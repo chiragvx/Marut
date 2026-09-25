@@ -323,7 +323,7 @@ export const WEAPON_DISPLAY_LABEL: Readonly<Record<WeaponKind, string>> = {
  * layouts: ground colouring style, water level (absent = no water) and the runways to paint.
  */
 export interface SceneEnvironment {
-  surfaceStyle: 'default' | 'coastal' | 'farmland' | 'alpine';
+  surfaceStyle: 'default' | 'coastal' | 'farmland';
   waterLevelM?: number;
   /** One entry per physical runway (not per direction). */
   runways: readonly { centerX: number; centerZ: number; headingRad: number; lengthM: number; widthM: number }[];

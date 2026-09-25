@@ -164,7 +164,7 @@ export interface TerrainParams {
   /** Reference elevation, m MSL, for src/render's fog/water-plane placement (module 08's concern; this module's HeightSampler does not clip or special-case heights below this value). */
   seaLevelM: number;
   /**
-   * Theatre-specific large-scale landform (coast, river plains, mountain valleys). When set it
+   * Theatre-specific large-scale landform (coast, river plains). When set it
    * REPLACES the continental-band stack above: the shape function builds its own height from the
    * same fbm/ridge/warp noise fields (see src/terrain/theatreShapes.ts). Absent = the original
    * generic band terrain.
@@ -191,7 +191,6 @@ export const TerrainSurfaceStyle = {
   Default: 'default',
   Coastal: 'coastal',
   Farmland: 'farmland',
-  Alpine: 'alpine',
 } as const;
 export type TerrainSurfaceStyle = (typeof TerrainSurfaceStyle)[keyof typeof TerrainSurfaceStyle];
 
@@ -243,37 +242,7 @@ export interface PlainsShape {
   rivers: readonly RiverSpec[];
 }
 
-/** One flat-floored valley in an alpine theatre, along an infinite line through (originX, originZ) at `headingRad`. */
-export interface ValleySpec {
-  originX: number;
-  originZ: number;
-  headingRad: number;
-  /** Valley floor elevation at the origin. */
-  floorM: number;
-  /** Floor rise, m per km, in the +heading direction. */
-  floorSlopeMPerKm: number;
-  /** Half width of the flat floor. */
-  halfWidthM: number;
-  /** Distance over which the valley walls rise to the full massif height. */
-  wallRampM: number;
-  /** Amplitude and frequency of the valley's meander (zero offset at the origin). */
-  meanderAmpM: number;
-  meanderFreq: number;
-}
-
-/** High mountains cut by flat valleys (Ladakh). Height = nearest valley floor + wall ramp x (massif + ridges). */
-export interface AlpineShape {
-  kind: 'alpine';
-  valleys: readonly ValleySpec[];
-  /** Mean height of the mountain massif above the valley floor. */
-  massifHeightM: number;
-  /** Extra peak relief from the ridged noise on top of the massif. */
-  ridgeReliefM: number;
-  /** Relief on the valley floor itself (alluvial fans). */
-  floorReliefM: number;
-}
-
-export type TerrainShape = CoastShape | PlainsShape | AlpineShape;
+export type TerrainShape = CoastShape | PlainsShape;
 
 /** Numeric tags identifying which of this module's 5 independent noise fields a sub-seed is for. Passed to DeriveTerrainSubSeed. */
 export const TerrainNoiseSeedTag = {
@@ -311,11 +280,10 @@ export const DEFAULT_TERRAIN_PARAMS: TerrainParams = {
   seaLevelM: 0,
 };
 
-/** The three Indian theatres. Each has a matching home airbase layout in src/airport/layouts. */
+/** The Indian theatres. Each has a matching home airbase layout in src/airport/layouts. */
 export const TheatreId = {
   Konkan: 'konkan',
   Punjab: 'punjab',
-  Ladakh: 'ladakh',
 } as const;
 export type TheatreId = (typeof TheatreId)[keyof typeof TheatreId];
 
@@ -370,34 +338,6 @@ export const THEATRE_TERRAIN_PARAMS: Readonly<Record<TheatreId, TerrainParams>> 
     seaLevelM: 0,
     heightBoundsM: { minM: 218, maxM: 250 },
     surfaceStyle: 'farmland',
-  },
-  // Ladakh: flat valley floors at 3,000-3,500 m (Indus, Shyok/Nubra, Zanskar) between 5,500-6,500 m ridges.
-  ladakh: {
-    ...DEFAULT_TERRAIN_PARAMS,
-    fbm: { octaves: 6, baseFrequency: 1 / 7000, baseAmplitudeM: 1, lacunarity: 2.0, persistence: 0.5 },
-    // 5 octaves (finest ~440 m) with softened crests: anything finer or sharper than the in-game
-    // mesh spacing (98-260 m) only aliased into saw-tooth ridgelines; the shader adds rock detail instead.
-    ridge: { octaves: 5, baseFrequency: 1 / 7000, baseAmplitudeM: 1, lacunarity: 2.0, persistence: 0.5, gain: 0.6, sharpness: 2, crestSoftness: 0.1 },
-    // Warp kept below the point where it folds space (warp gradient ~1): past that it creases the
-    // terrain into ~75 m spikes, which read as saw-tooth ridgelines at mesh resolution.
-    domainWarp: { enabled: true, warpFrequency: 1 / 9000, warpAmplitudeM: 1500, octaves: 2 },
-    shape: {
-      kind: 'alpine',
-      valleys: [
-        // Indus, through Leh; the floor rises to the south-east (the river flows north-west).
-        { originX: -10000, originZ: 5000, headingRad: 2.1817, floorM: 3230, floorSlopeMPerKm: 1.2, halfWidthM: 3200, wallRampM: 5000, meanderAmpM: 2500, meanderFreq: 1 / 18000 },
-        // Shyok/Nubra, ~35 km north-east.
-        { originX: 10090, originZ: -23670, headingRad: 2.0944, floorM: 3050, floorSlopeMPerKm: 1.0, halfWidthM: 2500, wallRampM: 4500, meanderAmpM: 2000, meanderFreq: 1 / 16000 },
-        // Zanskar, ~30 km south-west.
-        { originX: -27200, originZ: 29570, headingRad: 2.4435, floorM: 3500, floorSlopeMPerKm: 1.5, halfWidthM: 1800, wallRampM: 4000, meanderAmpM: 1500, meanderFreq: 1 / 14000 },
-      ],
-      massifHeightM: 1900,
-      ridgeReliefM: 2000,
-      floorReliefM: 60,
-    },
-    seaLevelM: 0,
-    heightBoundsM: { minM: 2700, maxM: 7600 },
-    surfaceStyle: 'alpine',
   },
 };
 

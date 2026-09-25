@@ -1,13 +1,12 @@
 /**
- * src/terrain/theatreShapes.ts — theatre landforms (coast, river plains, alpine valleys).
+ * src/terrain/theatreShapes.ts — theatre landforms (coast, river plains).
  *
  * Each builder turns a `TerrainShape` into a RawTerrainHeightFn using the same noise fields the
  * generic band terrain uses (domain-warped fbm and ridged noise, normalised here to [-1,1] and
  * [0,1]). The shapes set the large-scale form deterministically — where the shoreline, rivers and
- * valleys are — so airports can be placed on known ground, and the noise only adds detail.
+ * rivers are — so airports can be placed on known ground, and the noise only adds detail.
  */
 import type {
-  AlpineShape,
   CoastShape,
   Noise2D,
   PlainsShape,
@@ -96,33 +95,6 @@ function buildPlains(s: PlainsShape, waterLevelM: number, n: ShapeNoiseFields, s
   };
 }
 
-function buildAlpine(s: AlpineShape, n: ShapeNoiseFields, scratch: Vec2Like): RawTerrainHeightFn {
-  const valleys = s.valleys.map((v, i) => {
-    const lane = 53.1 + i * 23.9;
-    return { v, dx: Math.sin(v.headingRad), dz: -Math.cos(v.headingRad), lane, phase0: n.meander(0, lane) };
-  });
-  return (x, z) => {
-    n.warp(x, z, scratch);
-    const fb = n.fbmN(scratch.x, scratch.z);
-    const massif = s.massifHeightM * (0.8 + 0.2 * fb) + s.ridgeReliefM * n.ridgeN(scratch.x, scratch.z);
-    let h = Infinity;
-    for (const va of valleys) {
-      const v = va.v;
-      const px = x - v.originX;
-      const pz = z - v.originZ;
-      const u = px * va.dx + pz * va.dz;
-      const w = px * -va.dz + pz * va.dx;
-      const f = v.meanderFreq;
-      const c = v.meanderAmpM * (n.meander(u * f, va.lane) - va.phase0);
-      const t = smoothstep(v.halfWidthM, v.halfWidthM + v.wallRampM, Math.abs(w - c));
-      const floor = v.floorM + (v.floorSlopeMPerKm * u) / 1000 + s.floorReliefM * (0.5 + 0.5 * fb) * (1 - t);
-      const cand = floor + t * massif;
-      if (cand < h) h = cand;
-    }
-    return h;
-  };
-}
-
 export function buildShapedHeight(shape: TerrainShape, waterLevelM: number | undefined, fields: ShapeNoiseFields): RawTerrainHeightFn {
   const scratch: Vec2Like = { x: 0, z: 0 };
   switch (shape.kind) {
@@ -130,7 +102,5 @@ export function buildShapedHeight(shape: TerrainShape, waterLevelM: number | und
       return buildCoast(shape, fields, scratch);
     case 'plains':
       return buildPlains(shape, waterLevelM ?? shape.baseElevationM - 8, fields, scratch);
-    case 'alpine':
-      return buildAlpine(shape, fields, scratch);
   }
 }

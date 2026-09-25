@@ -26,8 +26,6 @@ const SKY_BY_STYLE: Readonly<Record<SceneEnvironment['surfaceStyle'], readonly [
   coastal: [0x3f73a8, 0xc4d4df, 0x5f7f92],
   // Hazy, dusty plains.
   farmland: [0x4a78aa, 0xcdd2cc, 0x8a8468],
-  // Thin, dry air at altitude: deep blue zenith, crisp pale horizon.
-  alpine: [0x1f56a3, 0xaecbea, 0x8f8578],
 };
 
 export interface SkyFogSystem {

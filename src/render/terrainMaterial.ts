@@ -6,7 +6,6 @@
  *   0 default  — flat single colour, unlit (the flight-model testing surface; see the note below)
  *   1 coastal  — Konkan: beaches, lush green plain with laterite patches and tree canopy, forested Ghats
  *   2 farmland — Punjab: field patchwork with crop rows, canals with tree lines, villages, sandy river banks
- *   3 alpine   — Ladakh: khaki valley floors, stratified rock on steep faces, snow above ~5,600 m
  * plus water shading (fresnel sky reflection, sun glint, shallow-water colour and shore foam)
  * wherever the mesh sits at the terrain's water level, and runway asphalt with a grass strip
  * around it (the airport renderer only draws runway outlines).
@@ -18,7 +17,7 @@
  * Cost is spent where it is visible. `px`, the ground footprint of one pixel in metres (from
  * screen-space derivatives), gates every detail layer: near-camera pixels get a per-pixel detail
  * normal (rock, soil and canopy relief the mesh is far too coarse for), tree canopy with sun-cast
- * shadows, crop rows and rock strata; far pixels skip all of that and the small-scale colour
+ * shadows and crop rows; far pixels skip all of that and the small-scale colour
  * noise, and fall back to the average colour those patterns would blend to at that distance.
  * Distant terrain is most of the screen, so this keeps the per-frame cost near the previous
  * shader's (see the commit for measurements).
@@ -40,7 +39,6 @@ const STYLE_CODE: Readonly<Record<SceneEnvironment['surfaceStyle'], number>> = {
   default: 0,
   coastal: 1,
   farmland: 2,
-  alpine: 3,
 };
 
 /** Water body colour per style (display values; see skyFog.ts for the sky/fog side). */
@@ -48,7 +46,6 @@ const WATER_COLOR: Readonly<Record<SceneEnvironment['surfaceStyle'], [number, nu
   default: [0.1, 0.25, 0.35],
   coastal: [0.06, 0.2, 0.3], // Arabian Sea
   farmland: [0.22, 0.3, 0.26], // silty river water
-  alpine: [0.1, 0.3, 0.38],
 };
 
 /** hash12 / vnoise / fbm3, shared by the vertex and fragment shaders. */
@@ -85,9 +82,6 @@ const VERTEX_SHADER = /* glsl */ `
     vMacro = vec4(vnoise(p / 7000.0), 0.0, 0.0, 0.0);
     if (uStyle == 1) {
       vMacro.y = fbm3(p / 1500.0 + 7.0); // laterite clearings
-    } else if (uStyle == 3) {
-      vMacro.y = fbm3(p / 2000.0); // snow-line wobble
-      vMacro.z = vnoise(p / 500.0); // strata warp
     }
     vec4 wp = modelMatrix * vec4(position, 1.0);
     vWorld = position;
@@ -251,24 +245,6 @@ const FRAGMENT_SHADER = /* glsl */ `
     return mix(col, vec3(0.78, 0.72, 0.57), sand * uHasWater);
   }
 
-  vec3 alpineColor(vec3 w, vec3 n, float px, float near) {
-    float slope = 1.0 - n.y;
-    vec3 ground = mix(vec3(0.66, 0.58, 0.45), vec3(0.54, 0.46, 0.36), fbm3(w.xz / 700.0));
-    ground = mix(ground, vec3(0.50, 0.45, 0.41), smoothstep(4000.0, 4600.0, w.y));
-    float rockMix = smoothstep(0.30, 0.50, slope);
-    vec3 rock = vec3(0.35, 0.31, 0.30);
-    if (px < 60.0) rock = mix(vec3(0.40, 0.36, 0.34), vec3(0.29, 0.26, 0.25), vnoise(w.xz / 120.0));
-    // Sedimentary strata: warped horizontal bands across the rock faces.
-    // Bands are 26 m apart in height; on a steep face that is only a few metres on the ground, so they
-    // fade out well before they could alias into stripes.
-    rock *= 1.0 - 0.14 * (0.5 + 0.5 * sin(w.y / 26.0 + 4.0 * vMacro.z)) * (1.0 - smoothstep(2.0, 6.0, px));
-    vec3 col = mix(ground, rock, rockMix);
-    // Snow line ~5,600 m (summer), lower on north-facing slopes (north is -Z), shed from steep faces.
-    float snowline = 5600.0 + 500.0 * (vMacro.y - 0.5) - 400.0 * max(0.0, -n.z);
-    float snow = smoothstep(snowline - 120.0, snowline + 120.0, w.y) * (1.0 - smoothstep(0.55, 0.75, slope));
-    return mix(col, vec3(0.93, 0.95, 0.98), snow);
-  }
-
   void main() {
     float fogT = clamp((length(vViewPos) - uFogStart) / max(uFogEnd - uFogStart, 1.0), 0.0, 1.0);
     if (uStyle == 0) {
@@ -288,13 +264,12 @@ const FRAGMENT_SHADER = /* glsl */ `
       float near = 1.0 - smoothstep(3.0, 12.0, px);
       // (Not on farmland: flat fields show no visible relief at this scale; crop rows carry the detail.)
       if (near > 0.0 && uStyle != 2) {
-        vec2 g = uStyle == 3 ? detailGrad(vWorld.xz, 38.0, 7.0, px) : detailGrad(vWorld.xz, 22.0, 1.4, px);
+        vec2 g = detailGrad(vWorld.xz, 22.0, 1.4, px);
         n = normalize(n - vec3(g.x, 0.0, g.y) * near);
       }
       float shadow = 1.0;
       if (uStyle == 1) col = coastColor(vWorld, n, px, near, L, shadow);
-      else if (uStyle == 2) col = farmColor(vWorld, px);
-      else col = alpineColor(vWorld, n, px, near);
+      else col = farmColor(vWorld, px);
 
       for (int i = 0; i < ${MAX_TERRAIN_RUNWAYS}; i++) {
         if (i >= uRunwayCount) break;

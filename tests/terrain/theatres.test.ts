@@ -1,5 +1,5 @@
 /**
- * tests/terrain/theatres.test.ts — the three Indian theatres (Konkan coast, Punjab plains, Ladakh).
+ * tests/terrain/theatres.test.ts — the Indian theatres (Konkan coast, Punjab plains).
  * Checks each terrain stays inside its declared LOD height bounds, that its home airbase sits on
  * dry, flat ground at the layout's elevation, that the water is where the map says it is, and
  * (through the real World) that touching water is a crash even with the gear down.
@@ -13,10 +13,9 @@ import { createHeightSampler } from '../../src/terrain';
 import { buildWorldDependencies, createWorld, resolveBuiltinMission } from '../../src/core';
 import { Quat } from '../../src/math';
 
-const MISSION_FOR: Readonly<Record<TheatreId, 'konkan-free' | 'punjab-free' | 'ladakh-free'>> = {
+const MISSION_FOR: Readonly<Record<TheatreId, 'konkan-free' | 'punjab-free'>> = {
   konkan: 'konkan-free',
   punjab: 'punjab-free',
-  ladakh: 'ladakh-free',
 };
 
 function theatreSampler(id: TheatreId) {
@@ -25,7 +24,7 @@ function theatreSampler(id: TheatreId) {
   return { sampler: createHeightSampler(THEATRE_TERRAIN_PARAMS[id], layouts.flatMap((a) => a.flattenZones)), layout: layouts[0]! };
 }
 
-describe.each(['konkan', 'punjab', 'ladakh'] as const)('theatre %s', (id) => {
+describe.each(['konkan', 'punjab'] as const)('theatre %s', (id) => {
   test('stays within its declared height bounds (2 km grid over the whole world)', () => {
     const { sampler } = theatreSampler(id);
     const bounds = THEATRE_TERRAIN_PARAMS[id].heightBoundsM!;
@@ -84,16 +83,6 @@ describe('theatre landforms', () => {
     }
   });
 
-  test('Ladakh has valley floors near 3,000-3,500 m and peaks above 5,500 m', () => {
-    const { sampler } = theatreSampler('ladakh');
-    let peak = -Infinity;
-    for (let x = -60000; x <= 60000; x += 1000) {
-      for (let z = -60000; z <= 60000; z += 1000) peak = Math.max(peak, sampler.heightAt(x, z));
-    }
-    expect(peak).toBeGreaterThan(5500);
-    expect(sampler.heightAt(-10000, 5000)).toBeCloseTo(3256, 0); // Leh
-    expect(sampler.isWaterAt).toBeUndefined();
-  });
 });
 
 describe('water is a crash surface', () => {

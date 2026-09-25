@@ -345,8 +345,6 @@ const MISSION_SUMMARIES: readonly MissionSummary[] = [
   { id: 'konkan-dogfight', name: '1v1 Dogfight — Arabian Sea', description: 'One hostile Tejas off the Goa coast.', aircraftLabel: 'HAL Tejas Mk1' },
   { id: 'punjab-free', name: 'Free Flight — Punjab Plains', description: 'Adampur, over flat farmland crossed by the Sutlej and Beas.', aircraftLabel: 'HAL Tejas Mk1' },
   { id: 'punjab-dogfight', name: '1v1 Dogfight — Punjab Plains', description: 'One hostile Tejas low over the plains.', aircraftLabel: 'HAL Tejas Mk1' },
-  { id: 'ladakh-free', name: 'Free Flight — Leh, Ladakh', description: 'Leh at 3,256 m in the Indus valley, 6,000 m ridges around it. Thin air: expect a long takeoff roll.', aircraftLabel: 'HAL Tejas Mk1' },
-  { id: 'ladakh-dogfight', name: '1v1 Dogfight — Ladakh', description: 'One hostile Tejas above the Himalayan ridges.', aircraftLabel: 'HAL Tejas Mk1' },
   { id: 'free-flight', name: 'Free Flight — Konarak Coastal', description: 'Unopposed circuit and landing practice (original test terrain).', aircraftLabel: 'HAL Tejas Mk1' },
   { id: 'dogfight-1v1', name: '1v1 Dogfight — Rangpur Highlands', description: 'One hostile Tejas over mountainous terrain (original test terrain).', aircraftLabel: 'HAL Tejas Mk1' },
 ];
