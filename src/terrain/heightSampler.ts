@@ -24,8 +24,10 @@ export const createHeightSampler: CreateHeightSampler = (
   flattenZones: readonly AirportFlattenZone[]
 ): HeightSampler => {
   const rawHeight = createRawTerrainHeight(params);
+  const waterLevelM = params.waterLevelM;
 
-  function heightAt(x: number, z: number): number {
+  /** Ground height including airport flattening, before the water surface is applied. */
+  function groundHeightAt(x: number, z: number): number {
     const raw = rawHeight(x, z);
     let bestWeight = 0;
     let bestElevationM = raw;
@@ -43,6 +45,15 @@ export const createHeightSampler: CreateHeightSampler = (
       }
     }
     return raw + (bestElevationM - raw) * bestWeight;
+  }
+
+  function heightAt(x: number, z: number): number {
+    const h = groundHeightAt(x, z);
+    return waterLevelM !== undefined && h < waterLevelM ? waterLevelM : h;
+  }
+
+  function isWaterAt(x: number, z: number): boolean {
+    return waterLevelM !== undefined && groundHeightAt(x, z) < waterLevelM;
   }
 
   function normalAt(x: number, z: number, out: Vec3Like): Vec3Like {
@@ -67,5 +78,6 @@ export const createHeightSampler: CreateHeightSampler = (
     seed: params.seed,
     heightAt,
     normalAt,
+    ...(waterLevelM !== undefined ? { isWaterAt } : {}),
   };
 };

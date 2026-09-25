@@ -20,7 +20,8 @@ export { createEventQueue } from './eventQueue';
 export { advanceFixedStep, shouldEmitSnapshot } from './fixedStepLoop';
 export { subSeed } from './seed';
 export { extractHeadingPitchRoll, computeIlsDeviation, forwardWorldInto, rightWorldInto } from './hudTelemetry';
-export { buildWorldDependencies, loadMissionDescriptor, resolveBuiltinMission } from './missions/index';
+export { buildWorldDependencies, loadMissionDescriptor, resolveBuiltinMission, isBuiltinMissionId, BUILTIN_MISSION_IDS } from './missions/index';
+export type { BuiltinMissionId } from './missions/index';
 export type { WorldCombatTickContext } from './combatContext';
 
 // -----------------------------------------------------------------------------

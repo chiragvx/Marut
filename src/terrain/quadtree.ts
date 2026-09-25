@@ -15,6 +15,7 @@ import type {
   WasChunkSplitLastFrame,
   QualityTerrainProfile,
   SkirtDepthM,
+  TerrainParams,
 } from '../contracts/terrain';
 import {
   TERRAIN_WORLD_EXTENT_M,
@@ -32,14 +33,14 @@ import {
 
 export const chunkSizeAtDepth: ChunkSizeAtDepth = (depth: number): number => TERRAIN_WORLD_EXTENT_M / Math.pow(2, depth);
 
-export const chunkKeyToBounds: ChunkKeyToBounds = (key: ChunkKey, out: ChunkBounds): ChunkBounds => {
+export const chunkKeyToBounds: ChunkKeyToBounds = (key: ChunkKey, out: ChunkBounds, heightBoundsM?: TerrainParams['heightBoundsM']): ChunkBounds => {
   const size = chunkSizeAtDepth(key.depth);
   out.minX = -TERRAIN_WORLD_HALF_EXTENT_M + key.cx * size;
   out.maxX = out.minX + size;
   out.minZ = -TERRAIN_WORLD_HALF_EXTENT_M + key.cz * size;
   out.maxZ = out.minZ + size;
-  out.minY = TERRAIN_MIN_HEIGHT_M;
-  out.maxY = TERRAIN_MAX_HEIGHT_M;
+  out.minY = heightBoundsM ? heightBoundsM.minM : TERRAIN_MIN_HEIGHT_M;
+  out.maxY = heightBoundsM ? heightBoundsM.maxM : TERRAIN_MAX_HEIGHT_M;
   return out;
 };
 
@@ -102,14 +103,15 @@ export const computeDesiredChunks: ComputeDesiredChunks = (
   cameraWorldPos: Vec3Like,
   profile: QualityTerrainProfile,
   wasSplitLastFrame: WasChunkSplitLastFrame,
-  out: ChunkKey[]
+  out: ChunkKey[],
+  heightBoundsM?: TerrainParams['heightBoundsM']
 ): void => {
   out.length = 0;
   const streamRadiusM = profile.streamRadiusChunks * REFERENCE_CHUNK_SIZE_M;
 
   function recurse(key: ChunkKey): void {
     const size = chunkSizeAtDepth(key.depth);
-    const bounds = chunkKeyToBounds(key, scratchBounds);
+    const bounds = chunkKeyToBounds(key, scratchBounds, heightBoundsM);
     const dist = distanceToChunk(cameraWorldPos, bounds);
     if (dist > streamRadiusM + size * 0.75) return; // prune: entirely (with margin) outside draw distance
     const factor = wasSplitLastFrame(key) ? LOD_MERGE_DISTANCE_FACTOR : LOD_SPLIT_DISTANCE_FACTOR;

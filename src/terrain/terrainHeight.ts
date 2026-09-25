@@ -17,6 +17,7 @@ import { createNoise2D } from './noise';
 import { createFbmNoise2D } from './fbm';
 import { createRidgeNoise2D } from './ridge';
 import { createDomainWarp2D } from './domainWarp';
+import { buildShapedHeight } from './theatreShapes';
 
 /** Deterministic integer hash deriving an independent sub-seed for noise field `tag`. Never mulberry32 (see contracts/terrain.ts file header). */
 export const deriveTerrainSubSeed: DeriveTerrainSubSeed = (rootSeed: number, tag: TerrainNoiseSeedTag): number => {
@@ -72,6 +73,17 @@ export const createRawTerrainHeight: CreateRawTerrainHeight = (params: TerrainPa
   const warpXFbm = createFbmNoise2D(warpXNoise, warpFbmParams);
   const warpZFbm = createFbmNoise2D(warpZNoise, warpFbmParams);
   const warp = createDomainWarp2D(warpXFbm, warpZFbm, params.domainWarp);
+
+  if (params.shape) {
+    const fbmMax = sumGeometric(params.fbm.baseAmplitudeM, params.fbm.persistence, params.fbm.octaves) || 1;
+    const ridgeMax = sumGeometric(params.ridge.baseAmplitudeM, params.ridge.persistence, params.ridge.octaves) || 1;
+    return buildShapedHeight(params.shape, params.waterLevelM, {
+      fbmN: (x, z) => fbm(x, z) / fbmMax,
+      ridgeN: (x, z) => ridge(x, z) / ridgeMax,
+      meander: contNoise,
+      warp,
+    });
+  }
 
   const scratch: Vec2Like = { x: 0, z: 0 };
   const bands = params.bands;

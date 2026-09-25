@@ -1,0 +1,138 @@
+{
+  "id": "leh-afs",
+  "name": "Leh Air Force Station",
+  "referenceWorldX": -10000,
+  "referenceWorldZ": 5000,
+  "elevationM": 3256,
+  "flattenZones": [
+    {
+      "centerWorldX": -10000,
+      "centerWorldZ": 5000,
+      "elevationM": 3256,
+      "flatRadiusM": 1625.0,
+      "blendRadiusM": 800
+    }
+  ],
+  "runways": [
+    {
+      "id": "07",
+      "thresholdWorldX": -11292.08,
+      "thresholdWorldZ": 5470.28,
+      "elevationM": 3256,
+      "headingRad": 1.2217305,
+      "lengthM": 2750,
+      "widthM": 45,
+      "surface": "asphalt",
+      "reciprocalId": "25",
+      "ils": {
+        "frequencyMhz": 110.1
+      },
+      "lights": {
+        "edgeLights": true,
+        "thresholdLights": true,
+        "approachLights": true,
+        "papi": true
+      }
+    },
+    {
+      "id": "25",
+      "thresholdWorldX": -8707.92,
+      "thresholdWorldZ": 4529.72,
+      "elevationM": 3256,
+      "headingRad": 4.3633231,
+      "lengthM": 2750,
+      "widthM": 45,
+      "surface": "asphalt",
+      "reciprocalId": "07",
+      "lights": {
+        "edgeLights": true,
+        "thresholdLights": true,
+        "approachLights": false,
+        "papi": true
+      }
+    }
+  ],
+  "taxiways": [
+    {
+      "id": "TWY-A",
+      "widthM": 20,
+      "points": [
+        {
+          "worldX": -10516.83,
+          "worldZ": 5188.11
+        },
+        {
+          "worldX": -10445.01,
+          "worldZ": 5385.45
+        }
+      ]
+    }
+  ],
+  "aprons": [
+    {
+      "id": "APRON-1",
+      "points": [
+        {
+          "worldX": -10526.16,
+          "worldZ": 5425.63
+        },
+        {
+          "worldX": -10357.01,
+          "worldZ": 5364.06
+        },
+        {
+          "worldX": -10329.65,
+          "worldZ": 5439.24
+        },
+        {
+          "worldX": -10498.8,
+          "worldZ": 5500.8
+        }
+      ]
+    }
+  ],
+  "parkingSpots": [
+    {
+      "id": "PARK-1",
+      "worldX": -10494.96,
+      "worldZ": 5467.48,
+      "headingRad": 5.9341195,
+      "type": "fighter"
+    },
+    {
+      "id": "PARK-2",
+      "worldX": -10466.77,
+      "worldZ": 5457.22,
+      "headingRad": 5.9341195,
+      "type": "fighter"
+    },
+    {
+      "id": "PARK-3",
+      "worldX": -10438.58,
+      "worldZ": 5446.96,
+      "headingRad": 5.9341195,
+      "type": "fighter"
+    },
+    {
+      "id": "PARK-4",
+      "worldX": -10410.39,
+      "worldZ": 5436.7,
+      "headingRad": 5.9341195,
+      "type": "fighter"
+    },
+    {
+      "id": "PARK-5",
+      "worldX": -10382.2,
+      "worldZ": 5426.44,
+      "headingRad": 5.9341195,
+      "type": "fighter"
+    },
+    {
+      "id": "PARK-6",
+      "worldX": -10354.01,
+      "worldZ": 5416.18,
+      "headingRad": 5.9341195,
+      "type": "fighter"
+    }
+  ]
+}

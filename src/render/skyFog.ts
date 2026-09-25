@@ -7,6 +7,7 @@
 
 import * as THREE from 'three';
 import type { Vec3Like } from '../contracts/core';
+import type { SceneEnvironment } from '../contracts/render';
 
 export const SKY_ZENITH_COLOR_HEX = 0x3a6ea8;
 export const SKY_HORIZON_COLOR_HEX = 0xbcd4e8;
@@ -18,8 +19,23 @@ const SUN_LIGHT_DISTANCE_M = 10000;
 /** Fixed cascade split distance from camera, per 08-render.md section 4.11. */
 const SHADOW_CASCADE_SPLIT_M = 500;
 
+/** Sky tint per theatre: zenith, horizon (= fog colour) and below-horizon colour. */
+const SKY_BY_STYLE: Readonly<Record<SceneEnvironment['surfaceStyle'], readonly [number, number, number]>> = {
+  default: [SKY_ZENITH_COLOR_HEX, SKY_HORIZON_COLOR_HEX, SKY_GROUND_COLOR_HEX],
+  // Humid coastal haze; the sea fills the view below the horizon.
+  coastal: [0x3f73a8, 0xc4d4df, 0x5f7f92],
+  // Hazy, dusty plains.
+  farmland: [0x4a78aa, 0xcdd2cc, 0x8a8468],
+  // Thin, dry air at altitude: deep blue zenith, crisp pale horizon.
+  alpine: [0x1f56a3, 0xaecbea, 0x8f8578],
+};
+
 export interface SkyFogSystem {
   setFog(fogStartM: number, fogEndM: number): void;
+  /** Re-tints sky, background and fog for a theatre. */
+  setStyle(style: SceneEnvironment['surfaceStyle']): void;
+  /** The current horizon/fog colour (live object; copy it, don't keep it). */
+  readonly horizonColor: THREE.Color;
   setSunDirection(dirWorld: Readonly<Vec3Like>): void;
   setShadowsEnabled(enabled: boolean, cascades: 0 | 1 | 2): void;
   dispose(): void;
@@ -75,7 +91,21 @@ export function createSkyFogSystem(scene: THREE.Scene): SkyFogSystem {
   scene.add(sunLight);
   scene.add(sunLight.target);
 
+  const horizonColor = new THREE.Color(SKY_HORIZON_COLOR_HEX);
+
   return {
+    horizonColor,
+
+    setStyle(style) {
+      const [zenith, horizon, ground] = SKY_BY_STYLE[style];
+      horizonColor.setHex(horizon);
+      (skyMaterial.uniforms['uZenith']!.value as THREE.Color).setHex(zenith);
+      (skyMaterial.uniforms['uHorizon']!.value as THREE.Color).setHex(horizon);
+      (skyMaterial.uniforms['uGround']!.value as THREE.Color).setHex(ground);
+      (scene.fog as THREE.Fog).color.setHex(horizon);
+      (scene.background as THREE.Color).setHex(horizon);
+    },
+
     setFog(fogStartM, fogEndM) {
       const fog = scene.fog as THREE.Fog;
       fog.near = fogStartM;

@@ -318,6 +318,17 @@ export const WEAPON_DISPLAY_LABEL: Readonly<Record<WeaponKind, string>> = {
 //    in steady state (see 08-render.md section 6) and non-blocking.
 // -----------------------------------------------------------------------------
 
+/**
+ * The active theatre's look, derived by src/main from the mission's TerrainParams and airport
+ * layouts: ground colouring style, water level (absent = no water) and the runways to paint.
+ */
+export interface SceneEnvironment {
+  surfaceStyle: 'default' | 'coastal' | 'farmland' | 'alpine';
+  waterLevelM?: number;
+  /** One entry per physical runway (not per direction). */
+  runways: readonly { centerX: number; centerZ: number; headingRad: number; lengthM: number; widthM: number }[];
+}
+
 export interface SceneRenderer {
   /** Call on window resize / orientation change / initial mount. */
   resize(widthPx: number, heightPx: number, devicePixelRatio: number): void;
@@ -333,6 +344,8 @@ export interface SceneRenderer {
    */
   registerAircraftModel(model: WireframeModel): void;
   setNavDb(navDb: AirportNavDb): void;
+  /** Sets the theatre look (ground style, water, sky/fog tint, runways). Call on each mission load. */
+  setEnvironment(env: SceneEnvironment): void;
   /** World-frame unit vector toward the sun, used for sky gradient + directional light + shadows. */
   setSunDirection(dirWorld: Vec3Like): void;
   /**

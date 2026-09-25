@@ -18,7 +18,7 @@ import type {
 } from '../contracts/terrain';
 import { TERRAIN_QUALITY_PROFILES, MAX_RESIDENT_CHUNKS, MAX_REQUESTS_PER_UPDATE } from '../contracts/terrain';
 import { chunkParent, chunkKeyToBounds, computeDesiredChunks, distanceToChunk } from './quadtree';
-import type { ChunkBounds } from '../contracts/terrain';
+import type { ChunkBounds, TerrainParams } from '../contracts/terrain';
 
 interface Entry {
   key: ChunkKey;
@@ -66,6 +66,8 @@ class ChunkManagerImpl implements ChunkManager {
   // Reused across trySendRequests() calls (`.length = 0` reset) instead of a
   // fresh `[]` per call — see the perf note on trySendRequests() below.
   private readonly candidatesScratch: Entry[] = [];
+  /** The active terrain's vertical bounds for LOD distances (TerrainParams.heightBoundsM). */
+  private readonly heightBoundsM: TerrainParams['heightBoundsM'];
 
   private onChunkReadyCallback: ((chunk: ResidentChunkInfo) => void) | undefined;
   private onChunkEvictedCallback: ((key: ChunkKey) => void) | undefined;
@@ -77,6 +79,7 @@ class ChunkManagerImpl implements ChunkManager {
 
   constructor(config: ChunkManagerConfig, sendToTerrainWorker: SendToTerrainWorker) {
     this.sendToTerrainWorker = sendToTerrainWorker;
+    this.heightBoundsM = config.terrainParams.heightBoundsM;
     const init: TerrainInitMessage = {
       type: 'terrainInit',
       params: config.terrainParams,
@@ -93,7 +96,7 @@ class ChunkManagerImpl implements ChunkManager {
     this.lastCameraZ = cameraWorldPos.z;
 
     const profile = TERRAIN_QUALITY_PROFILES[qualityTier];
-    computeDesiredChunks(cameraWorldPos, profile, this.wasSplitLastFrameFn, this.scratchDesired);
+    computeDesiredChunks(cameraWorldPos, profile, this.wasSplitLastFrameFn, this.scratchDesired, this.heightBoundsM);
 
     // Single pass over this frame's desired keys: populate desiredSet AND
     // register any newly-desired entry, computing each key's hash exactly
@@ -188,7 +191,7 @@ class ChunkManagerImpl implements ChunkManager {
   }
 
   private distanceOfKey(key: ChunkKey): number {
-    chunkKeyToBounds(key, this.scratchBounds);
+    chunkKeyToBounds(key, this.scratchBounds, this.heightBoundsM);
     return distanceToChunk({ x: this.lastCameraX, y: this.lastCameraY, z: this.lastCameraZ }, this.scratchBounds);
   }
 

@@ -16,8 +16,8 @@
 
 import type { LoadMissionDescriptor, MissionDescriptor, WorldDependencies } from '../../contracts/sim';
 import type { Mission } from '../../contracts/core';
-import { DEFAULT_TERRAIN_PARAMS } from '../../contracts/terrain';
-import type { TerrainParams } from '../../contracts/terrain';
+import { DEFAULT_TERRAIN_PARAMS, THEATRE_TERRAIN_PARAMS } from '../../contracts/terrain';
+import type { TerrainParams, TheatreId } from '../../contracts/terrain';
 import type { AirportLayout } from '../../contracts/airport';
 import { loadAirportLayout, createAirportNavDb } from '../../airport';
 import { createHeightSampler } from '../../terrain';
@@ -27,8 +27,17 @@ import { aiPilotAdapter } from '../aiPilotAdapter';
 
 import freeFlightRaw from './freeFlight.json';
 import dogfight1v1Raw from './dogfight1v1.json';
+import konkanFreeFlightRaw from './konkanFreeFlight.json';
+import konkanDogfightRaw from './konkanDogfight.json';
+import punjabFreeFlightRaw from './punjabFreeFlight.json';
+import punjabDogfightRaw from './punjabDogfight.json';
+import ladakhFreeFlightRaw from './ladakhFreeFlight.json';
+import ladakhDogfightRaw from './ladakhDogfight.json';
 import rangpurAfbRaw from '../../airport/layouts/rangpur-afb.json';
 import konarakCoastalRaw from '../../airport/layouts/konarak-coastal.json';
+import insHansaRaw from '../../airport/layouts/ins-hansa.json';
+import adampurAfsRaw from '../../airport/layouts/adampur-afs.json';
+import lehAfsRaw from '../../airport/layouts/leh-afs.json';
 
 export const loadMissionDescriptor: LoadMissionDescriptor = (
   descriptor: MissionDescriptor,
@@ -65,6 +74,9 @@ export const loadMissionDescriptor: LoadMissionDescriptor = (
 const BUILTIN_AIRPORT_JSON: Readonly<Record<string, unknown>> = {
   'rangpur-afb': rangpurAfbRaw,
   'konarak-coastal': konarakCoastalRaw,
+  'ins-hansa': insHansaRaw,
+  'adampur-afs': adampurAfsRaw,
+  'leh-afs': lehAfsRaw,
 };
 
 function resolveBuiltinAirport(id: string): AirportLayout | undefined {
@@ -78,21 +90,39 @@ function resolveBuiltinAirport(id: string): AirportLayout | undefined {
   return result.value.layout;
 }
 
-/** The one real `resolveTerrainParams` this project needs: `descriptor.terrain` is always just `{ seed }` for the two built-in missions (10-core-worker.md section 5.3) — overlay it onto `DEFAULT_TERRAIN_PARAMS`. */
+/**
+ * The one real `resolveTerrainParams` this project needs: `descriptor.terrain` is `{ seed }` or
+ * `{ seed, theatre }` — overlay the seed onto that theatre's preset (THEATRE_TERRAIN_PARAMS), or onto
+ * `DEFAULT_TERRAIN_PARAMS` when no (or an unknown) theatre is named.
+ */
 function resolveBuiltinTerrainParams(raw: Readonly<Record<string, unknown>>): TerrainParams {
-  const seed = typeof raw.seed === 'number' ? raw.seed : DEFAULT_TERRAIN_PARAMS.seed;
-  return { ...DEFAULT_TERRAIN_PARAMS, seed };
+  const base = typeof raw.theatre === 'string' && raw.theatre in THEATRE_TERRAIN_PARAMS ? THEATRE_TERRAIN_PARAMS[raw.theatre as TheatreId] : DEFAULT_TERRAIN_PARAMS;
+  const seed = typeof raw.seed === 'number' ? raw.seed : base.seed;
+  return { ...base, seed };
 }
 
-const BUILTIN_DESCRIPTORS: Readonly<Record<string, MissionDescriptor>> = {
+const BUILTIN_DESCRIPTORS = {
   'free-flight': freeFlightRaw as unknown as MissionDescriptor,
   'dogfight-1v1': dogfight1v1Raw as unknown as MissionDescriptor,
-};
+  'konkan-free': konkanFreeFlightRaw as unknown as MissionDescriptor,
+  'konkan-dogfight': konkanDogfightRaw as unknown as MissionDescriptor,
+  'punjab-free': punjabFreeFlightRaw as unknown as MissionDescriptor,
+  'punjab-dogfight': punjabDogfightRaw as unknown as MissionDescriptor,
+  'ladakh-free': ladakhFreeFlightRaw as unknown as MissionDescriptor,
+  'ladakh-dogfight': ladakhDogfightRaw as unknown as MissionDescriptor,
+} as const satisfies Readonly<Record<string, MissionDescriptor>>;
+
+export type BuiltinMissionId = keyof typeof BUILTIN_DESCRIPTORS;
+export const BUILTIN_MISSION_IDS = Object.keys(BUILTIN_DESCRIPTORS) as BuiltinMissionId[];
+
+export function isBuiltinMissionId(id: string): id is BuiltinMissionId {
+  return id in BUILTIN_DESCRIPTORS;
+}
 
 const resolvedMissionCache = new Map<string, Mission>();
 
-/** Resolves one of the two built-in missions by id, eagerly and cached (sim.worker.ts calls this once per built-in id at worker startup — see 10-core-worker.md section 4.11). */
-export function resolveBuiltinMission(id: 'free-flight' | 'dogfight-1v1'): Mission {
+/** Resolves one of the built-in missions by id, cached. */
+export function resolveBuiltinMission(id: BuiltinMissionId): Mission {
   const cached = resolvedMissionCache.get(id);
   if (cached) return cached;
   const descriptor = BUILTIN_DESCRIPTORS[id];

@@ -497,6 +497,8 @@ export interface HeightSampler {
   heightAt(x: number, z: number): number;
   /** Writes the unit surface normal at world (x, z) into `out` and returns `out` (no allocation). */
   normalAt(x: number, z: number, out: Vec3Like): Vec3Like;
+  /** Present only for terrains with a water surface: true where `heightAt` is the water surface rather than ground. Touching water is a crash. */
+  isWaterAt?(x: number, z: number): boolean;
 }
 
 // -----------------------------------------------------------------------------

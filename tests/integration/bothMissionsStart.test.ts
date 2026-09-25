@@ -1,6 +1,6 @@
 /**
- * Adversarial-review probe: confirms both built-in missions in the mission
- * list ('free-flight', 'dogfight-1v1') actually start -- resolve, load
+ * Adversarial-review probe: confirms every built-in mission in the mission
+ * list actually starts -- resolve, load
  * (spawning the player from playerStart, plus any AI flights), and run a
  * couple of seconds of ticks without the player entity disappearing or the
  * world throwing.
@@ -10,7 +10,7 @@ import { resolveBuiltinMission } from '../../src/core';
 import { createRealWorld, adaptWorldToHandle } from '../../tools/lib/worldAdapter';
 import * as core from '../../src/core';
 
-describe.each(['free-flight', 'dogfight-1v1'] as const)('mission "%s" starts', (missionId) => {
+describe.each(core.BUILTIN_MISSION_IDS)('mission "%s" starts', (missionId) => {
   it('resolves, loads, spawns a player entity, and ticks for 2s without throwing', () => {
     const mission = resolveBuiltinMission(missionId);
     const result = createRealWorld(core, mission, 42);

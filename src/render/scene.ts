@@ -124,6 +124,9 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
     const settings = RENDER_QUALITY_TABLE[t];
     fxaaPass.enabled = settings.antialias !== AntiAliasMode.Off;
     skyFog.setFog(settings.fogStartM, settings.fogEndM);
+    // The terrain material fogs itself (it is a ShaderMaterial with fog: false), so it needs the
+    // same distances; before this it stayed at its built-in 1.5-5 km on every tier.
+    terrainConsumer.setFog(settings.fogStartM, settings.fogEndM);
     skyFog.setShadowsEnabled(settings.shadowsEnabled, settings.shadowCascades);
     terrainConsumer.setShadowsEnabled(settings.shadowsEnabled);
     effects.setBudget(settings.effectBudget);
@@ -175,6 +178,13 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
 
     setSunDirection(dirWorld) {
       skyFog.setSunDirection(dirWorld);
+      terrainConsumer.setSunDirection(dirWorld);
+    },
+
+    setEnvironment(env) {
+      skyFog.setStyle(env.surfaceStyle);
+      terrainConsumer.setFogColor(skyFog.horizonColor);
+      terrainConsumer.setEnvironment(env);
     },
 
     ingestSnapshot(view) {

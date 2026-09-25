@@ -1,0 +1,37 @@
+{
+  "id": "konkan-free",
+  "name": "Free Flight — Goa Coast",
+  "seed": 2468013,
+  "terrain": {
+    "seed": 2468013,
+    "theatre": "konkan"
+  },
+  "airportIds": [
+    "ins-hansa"
+  ],
+  "playerStart": {
+    "airportId": "ins-hansa",
+    "runwayId": "08",
+    "speedMps": 0
+  },
+  "aiFlights": [],
+  "weather": {
+    "windWorldMps": {
+      "x": 5,
+      "y": 0,
+      "z": 0
+    },
+    "gustMps": 2,
+    "turbulence": 0.1
+  },
+  "objectives": [
+    {
+      "id": "obj-survive",
+      "kind": "survive_time",
+      "description": "Complete a circuit and land safely.",
+      "params": {
+        "seconds": 1800
+      }
+    }
+  ]
+}

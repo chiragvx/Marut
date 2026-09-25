@@ -1,0 +1,37 @@
+{
+  "id": "punjab-free",
+  "name": "Free Flight — Punjab Plains",
+  "seed": 3141592,
+  "terrain": {
+    "seed": 3141592,
+    "theatre": "punjab"
+  },
+  "airportIds": [
+    "adampur-afs"
+  ],
+  "playerStart": {
+    "airportId": "adampur-afs",
+    "runwayId": "05",
+    "speedMps": 0
+  },
+  "aiFlights": [],
+  "weather": {
+    "windWorldMps": {
+      "x": 1,
+      "y": 0,
+      "z": 1
+    },
+    "gustMps": 1,
+    "turbulence": 0.05
+  },
+  "objectives": [
+    {
+      "id": "obj-survive",
+      "kind": "survive_time",
+      "description": "Complete a circuit and land safely.",
+      "params": {
+        "seconds": 1800
+      }
+    }
+  ]
+}

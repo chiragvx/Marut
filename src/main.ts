@@ -27,7 +27,7 @@ import type { MainToTerrainMessageExt, TerrainToMainMessageExt, AirportFlattenZo
 import { DEFAULT_TERRAIN_PARAMS } from './contracts/terrain';
 import { RunwaySurface } from './contracts/airport';
 import type { AirportLayout, RunwayDef, TaxiwayDef, ApronDef } from './contracts/airport';
-import type { CameraState, HudRenderer, SceneRenderer } from './contracts/render';
+import type { CameraState, HudRenderer, SceneEnvironment, SceneRenderer } from './contracts/render';
 import type { PlayerInputSystem } from './contracts/input';
 import { RebindDeviceKind } from './contracts/input';
 import type {
@@ -65,7 +65,7 @@ import { createChunkManager } from './terrain';
 import { createHeightSampler } from './terrain';
 import { createAirportNavDb, validateAirportLayout } from './airport';
 import { tejasDefinition } from './aircraft';
-import { resolveBuiltinMission } from './core/missions/index';
+import { isBuiltinMissionId, resolveBuiltinMission } from './core/missions/index';
 import { readSnapshotEntity, readSnapshotHeader } from './core/snapshotReader';
 import { subSeed } from './core/seed';
 import { buildKeyBindingsFromInputMap, isAxisRebindMiscapturePositive, targetForBindableAction } from './core/inputBindingsAdapter';
@@ -341,8 +341,14 @@ function showMainMenu(): void {
 }
 
 const MISSION_SUMMARIES: readonly MissionSummary[] = [
-  { id: 'free-flight', name: 'Free Flight — Konarak Coastal', description: 'Unopposed circuit and landing practice.', aircraftLabel: 'HAL Tejas Mk1' },
-  { id: 'dogfight-1v1', name: '1v1 Dogfight — Rangpur Highlands', description: 'One hostile Tejas over mountainous terrain.', aircraftLabel: 'HAL Tejas Mk1' },
+  { id: 'konkan-free', name: 'Free Flight — Goa Coast', description: 'INS Hansa on the Konkan coast. Mostly Arabian Sea, with the Western Ghats inland. Water is not a runway.', aircraftLabel: 'HAL Tejas Mk1' },
+  { id: 'konkan-dogfight', name: '1v1 Dogfight — Arabian Sea', description: 'One hostile Tejas off the Goa coast.', aircraftLabel: 'HAL Tejas Mk1' },
+  { id: 'punjab-free', name: 'Free Flight — Punjab Plains', description: 'Adampur, over flat farmland crossed by the Sutlej and Beas.', aircraftLabel: 'HAL Tejas Mk1' },
+  { id: 'punjab-dogfight', name: '1v1 Dogfight — Punjab Plains', description: 'One hostile Tejas low over the plains.', aircraftLabel: 'HAL Tejas Mk1' },
+  { id: 'ladakh-free', name: 'Free Flight — Leh, Ladakh', description: 'Leh at 3,256 m in the Indus valley, 6,000 m ridges around it. Thin air: expect a long takeoff roll.', aircraftLabel: 'HAL Tejas Mk1' },
+  { id: 'ladakh-dogfight', name: '1v1 Dogfight — Ladakh', description: 'One hostile Tejas above the Himalayan ridges.', aircraftLabel: 'HAL Tejas Mk1' },
+  { id: 'free-flight', name: 'Free Flight — Konarak Coastal', description: 'Unopposed circuit and landing practice (original test terrain).', aircraftLabel: 'HAL Tejas Mk1' },
+  { id: 'dogfight-1v1', name: '1v1 Dogfight — Rangpur Highlands', description: 'One hostile Tejas over mountainous terrain (original test terrain).', aircraftLabel: 'HAL Tejas Mk1' },
 ];
 
 function showMissionSelect(): void {
@@ -352,7 +358,7 @@ function showMissionSelect(): void {
   currentScreen = createMissionSelect(uiRoot, options, {
     onLaunch: (missionId, difficulty) => {
       currentDifficulty = difficulty;
-      const mission = resolveBuiltinMission(missionId === 'dogfight-1v1' ? 'dogfight-1v1' : 'free-flight');
+      const mission = resolveBuiltinMission(isBuiltinMissionId(missionId) ? missionId : 'free-flight');
       launchMission(mission);
     },
     onBack: showMainMenu,
@@ -611,6 +617,29 @@ function sendToTerrainWorker(msg: MainToTerrainMessage | MainToTerrainMessageExt
   terrainWorker.postMessage(msg);
 }
 
+/** The theatre look for the renderer: ground style and water from the terrain, runways from the layouts. */
+function buildSceneEnvironment(terrainParams: TerrainParams, airportLayouts: readonly AirportLayout[]): SceneEnvironment {
+  const runways: SceneEnvironment['runways'][number][] = [];
+  for (const layout of airportLayouts) {
+    for (const r of layout.runways) {
+      // Each physical runway appears twice (once per direction); keep the lower designator only.
+      if (r.reciprocalId !== undefined && r.reciprocalId < r.id) continue;
+      runways.push({
+        centerX: r.thresholdWorldX + (Math.sin(r.headingRad) * r.lengthM) / 2,
+        centerZ: r.thresholdWorldZ - (Math.cos(r.headingRad) * r.lengthM) / 2,
+        headingRad: r.headingRad,
+        lengthM: r.lengthM,
+        widthM: r.widthM,
+      });
+    }
+  }
+  return {
+    surfaceStyle: terrainParams.surfaceStyle ?? 'default',
+    ...(terrainParams.waterLevelM !== undefined ? { waterLevelM: terrainParams.waterLevelM } : {}),
+    runways,
+  };
+}
+
 function launchMission(mission: Mission): void {
   destroyCurrentScreen();
   appState = 'loading';
@@ -633,6 +662,7 @@ function launchMission(mission: Mission): void {
   const flattenZones: readonly AirportFlattenZone[] = airportLayouts.flatMap((a) => a.flattenZones);
   const navDb = createAirportNavDb(airportLayouts);
   renderer.setNavDb(navDb);
+  renderer.setEnvironment(buildSceneEnvironment(terrainParams, airportLayouts));
 
   terrainReady = false;
   pendingTerrainMsgs.length = 0;

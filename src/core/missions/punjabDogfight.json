@@ -1,0 +1,50 @@
+{
+  "id": "punjab-dogfight",
+  "name": "1v1 Dogfight — Punjab Plains",
+  "seed": 2718281,
+  "terrain": {
+    "seed": 2718281,
+    "theatre": "punjab"
+  },
+  "airportIds": [
+    "adampur-afs"
+  ],
+  "playerStart": {
+    "airportId": "adampur-afs",
+    "runwayId": "05",
+    "speedMps": 0
+  },
+  "aiFlights": [
+    {
+      "id": "bandit-1",
+      "aircraftId": "tejas-mk1",
+      "team": 1,
+      "difficulty": "veteran",
+      "startPos": {
+        "x": 9000,
+        "y": 4000,
+        "z": -8000
+      },
+      "startHeadingRad": 3.3,
+      "startSpeedMps": 230,
+      "count": 1
+    }
+  ],
+  "weather": {
+    "windWorldMps": {
+      "x": 1,
+      "y": 0,
+      "z": 1
+    },
+    "gustMps": 1,
+    "turbulence": 0.05
+  },
+  "objectives": [
+    {
+      "id": "obj-kill",
+      "kind": "destroy_all_hostiles",
+      "description": "Destroy the hostile Tejas.",
+      "params": {}
+    }
+  ]
+}

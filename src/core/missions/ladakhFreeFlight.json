@@ -1,0 +1,37 @@
+{
+  "id": "ladakh-free",
+  "name": "Free Flight — Leh, Ladakh",
+  "seed": 1618033,
+  "terrain": {
+    "seed": 1618033,
+    "theatre": "ladakh"
+  },
+  "airportIds": [
+    "leh-afs"
+  ],
+  "playerStart": {
+    "airportId": "leh-afs",
+    "runwayId": "07",
+    "speedMps": 0
+  },
+  "aiFlights": [],
+  "weather": {
+    "windWorldMps": {
+      "x": -3,
+      "y": 0,
+      "z": 4
+    },
+    "gustMps": 4,
+    "turbulence": 0.2
+  },
+  "objectives": [
+    {
+      "id": "obj-survive",
+      "kind": "survive_time",
+      "description": "Complete a circuit and land safely.",
+      "params": {
+        "seconds": 1800
+      }
+    }
+  ]
+}

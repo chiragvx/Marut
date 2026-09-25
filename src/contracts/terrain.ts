@@ -155,7 +155,117 @@ export interface TerrainParams {
   bands: readonly BiomeBand[];
   /** Reference elevation, m MSL, for src/render's fog/water-plane placement (module 08's concern; this module's HeightSampler does not clip or special-case heights below this value). */
   seaLevelM: number;
+  /**
+   * Theatre-specific large-scale landform (coast, river plains, mountain valleys). When set it
+   * REPLACES the continental-band stack above: the shape function builds its own height from the
+   * same fbm/ridge/warp noise fields (see src/terrain/theatreShapes.ts). Absent = the original
+   * generic band terrain.
+   */
+  shape?: TerrainShape;
+  /**
+   * Water surface elevation, m MSL. When set, the HeightSampler returns max(ground, waterLevelM)
+   * (so physics, AI terrain avoidance, radar line of sight and the chunk mesh all see a flat water
+   * surface) and `HeightSampler.isWaterAt` reports where that surface is water. Absent = no water.
+   */
+  waterLevelM?: number;
+  /** Conservative vertical bounds of this terrain, m MSL, for quadtree LOD distances. Absent = TERRAIN_MIN/MAX_HEIGHT_M. */
+  heightBoundsM?: { readonly minM: number; readonly maxM: number };
+  /** How src/render colours the ground. Absent = 'default' (the flat single-colour testing surface). */
+  surfaceStyle?: TerrainSurfaceStyle;
 }
+
+// -----------------------------------------------------------------------------
+// 3b. Theatre landforms. All distances in metres, frequencies in 1/m. World
+//     axes: +X east, -Z north (forwardWorld(heading) = (sin h, 0, -cos h)).
+// -----------------------------------------------------------------------------
+
+export const TerrainSurfaceStyle = {
+  Default: 'default',
+  Coastal: 'coastal',
+  Farmland: 'farmland',
+  Alpine: 'alpine',
+} as const;
+export type TerrainSurfaceStyle = (typeof TerrainSurfaceStyle)[keyof typeof TerrainSurfaceStyle];
+
+/** A north-south coastline: sea to the west (x < shoreline), a coastal plain, then a hill range inland. */
+export interface CoastShape {
+  kind: 'coast';
+  /** Mean shoreline world X. */
+  shorelineXM: number;
+  /** Amplitude of the shoreline's east-west meander (bays and headlands). */
+  shoreWiggleM: number;
+  /** Spatial frequency of that meander along Z. */
+  shoreWiggleFreq: number;
+  /** Average rise of the coastal plain, m per km inland. */
+  plainRiseMPerKm: number;
+  /** Amplitude of rolling relief on the plain (fbm-scaled). */
+  plainReliefM: number;
+  /** Distance inland from the shoreline where the hill range starts rising. */
+  hillsStartM: number;
+  /** Distance over which the hill range ramps to full height. */
+  hillsRampM: number;
+  /** Mean height of the hill range above the plain. */
+  hillsHeightM: number;
+  /** Peak height of the occasional offshore islands (0 = none). */
+  islandHeightM: number;
+}
+
+/** One river cut into a plains terrain: an infinite line through (x0,z0)-(x1,z1) with a noise meander. */
+export interface RiverSpec {
+  x0: number;
+  z0: number;
+  x1: number;
+  z1: number;
+  /** Mean width of the channel at the water surface. */
+  widthM: number;
+  /** Width of the sloping bank from the channel edge up to the plain. */
+  bankWidthM: number;
+  /** Amplitude of the meander perpendicular to the river line. */
+  meanderAmpM: number;
+  /** Spatial frequency of the meander along the river line. */
+  meanderFreq: number;
+}
+
+/** Very flat alluvial plain with rivers carved to `TerrainParams.waterLevelM`. */
+export interface PlainsShape {
+  kind: 'plains';
+  baseElevationM: number;
+  /** Amplitude of the gentle relief (fbm-scaled; keep small so the plain stays above the water level). */
+  reliefM: number;
+  rivers: readonly RiverSpec[];
+}
+
+/** One flat-floored valley in an alpine theatre, along an infinite line through (originX, originZ) at `headingRad`. */
+export interface ValleySpec {
+  originX: number;
+  originZ: number;
+  headingRad: number;
+  /** Valley floor elevation at the origin. */
+  floorM: number;
+  /** Floor rise, m per km, in the +heading direction. */
+  floorSlopeMPerKm: number;
+  /** Half width of the flat floor. */
+  halfWidthM: number;
+  /** Distance over which the valley walls rise to the full massif height. */
+  wallRampM: number;
+  /** Amplitude and frequency of the valley's meander (zero offset at the origin). */
+  meanderAmpM: number;
+  meanderFreq: number;
+}
+
+/** High mountains cut by flat valleys (Ladakh). Height = nearest valley floor + wall ramp x (massif + ridges). */
+export interface AlpineShape {
+  kind: 'alpine';
+  valleys: readonly ValleySpec[];
+  /** Mean height of the mountain massif above the valley floor. */
+  massifHeightM: number;
+  /** Extra peak relief from the ridged noise on top of the massif. */
+  ridgeReliefM: number;
+  /** Relief on the valley floor itself (alluvial fans). */
+  floorReliefM: number;
+}
+
+export type TerrainShape = CoastShape | PlainsShape | AlpineShape;
 
 /** Numeric tags identifying which of this module's 5 independent noise fields a sub-seed is for. Passed to DeriveTerrainSubSeed. */
 export const TerrainNoiseSeedTag = {
@@ -191,6 +301,90 @@ export const DEFAULT_TERRAIN_PARAMS: TerrainParams = {
     { fromContinental: 0.55, heightScale: 1.6, ridgeBlend: 0.9, baseElevationM: 600 },
   ],
   seaLevelM: 0,
+};
+
+/** The three Indian theatres. Each has a matching home airbase layout in src/airport/layouts. */
+export const TheatreId = {
+  Konkan: 'konkan',
+  Punjab: 'punjab',
+  Ladakh: 'ladakh',
+} as const;
+export type TheatreId = (typeof TheatreId)[keyof typeof TheatreId];
+
+/**
+ * Terrain for each theatre. `seed` is overwritten by the mission's seed like DEFAULT_TERRAIN_PARAMS.
+ * fbm/ridge amplitudes are 1 because theatreShapes.ts normalises both fields and applies its own
+ * heights; continental/bands are unused when `shape` is set and just carry the defaults.
+ * heightBoundsM were checked by sampling each terrain over a 1 km grid across the whole world
+ * (tests/terrain/theatres.test.ts).
+ */
+export const THEATRE_TERRAIN_PARAMS: Readonly<Record<TheatreId, TerrainParams>> = {
+  // West coast (Konkan/Goa): ~72% Arabian Sea to the west, coastal plain, Western Ghats inland.
+  konkan: {
+    ...DEFAULT_TERRAIN_PARAMS,
+    fbm: { octaves: 6, baseFrequency: 1 / 5000, baseAmplitudeM: 1, lacunarity: 2.0, persistence: 0.5 },
+    ridge: { octaves: 5, baseFrequency: 1 / 6000, baseAmplitudeM: 1, lacunarity: 2.0, persistence: 0.5, gain: 0.55, sharpness: 2 },
+    domainWarp: { enabled: true, warpFrequency: 1 / 8000, warpAmplitudeM: 1500, octaves: 3 },
+    shape: {
+      kind: 'coast',
+      shorelineXM: 45000,
+      shoreWiggleM: 5000,
+      shoreWiggleFreq: 1 / 25000,
+      plainRiseMPerKm: 2.5,
+      plainReliefM: 40,
+      hillsStartM: 28000,
+      hillsRampM: 14000,
+      hillsHeightM: 900,
+      islandHeightM: 90,
+    },
+    waterLevelM: 0,
+    seaLevelM: 0,
+    heightBoundsM: { minM: -80, maxM: 1800 },
+    surfaceStyle: 'coastal',
+  },
+  // Punjab: flat alluvial farmland at ~234 m, cut by two braided rivers (Sutlej- and Beas-like).
+  punjab: {
+    ...DEFAULT_TERRAIN_PARAMS,
+    fbm: { octaves: 4, baseFrequency: 1 / 9000, baseAmplitudeM: 1, lacunarity: 2.0, persistence: 0.5 },
+    domainWarp: { enabled: true, warpFrequency: 1 / 10000, warpAmplitudeM: 2000, octaves: 3 },
+    shape: {
+      kind: 'plains',
+      baseElevationM: 234,
+      reliefM: 2.5,
+      rivers: [
+        { x0: 80000, z0: 10000, x1: -80000, z1: 50000, widthM: 700, bankWidthM: 350, meanderAmpM: 2000, meanderFreq: 1 / 15000 },
+        { x0: 70000, z0: -100000, x1: 10000, z1: 30000, widthM: 450, bankWidthM: 250, meanderAmpM: 1500, meanderFreq: 1 / 12000 },
+      ],
+    },
+    waterLevelM: 226,
+    seaLevelM: 0,
+    heightBoundsM: { minM: 218, maxM: 250 },
+    surfaceStyle: 'farmland',
+  },
+  // Ladakh: flat valley floors at 3,000-3,500 m (Indus, Shyok/Nubra, Zanskar) between 5,500-6,500 m ridges.
+  ladakh: {
+    ...DEFAULT_TERRAIN_PARAMS,
+    fbm: { octaves: 6, baseFrequency: 1 / 7000, baseAmplitudeM: 1, lacunarity: 2.0, persistence: 0.5 },
+    ridge: { octaves: 7, baseFrequency: 1 / 7000, baseAmplitudeM: 1, lacunarity: 2.0, persistence: 0.5, gain: 0.6, sharpness: 2 },
+    domainWarp: { enabled: true, warpFrequency: 1 / 9000, warpAmplitudeM: 2500, octaves: 3 },
+    shape: {
+      kind: 'alpine',
+      valleys: [
+        // Indus, through Leh; the floor rises to the south-east (the river flows north-west).
+        { originX: -10000, originZ: 5000, headingRad: 2.1817, floorM: 3230, floorSlopeMPerKm: 1.2, halfWidthM: 3200, wallRampM: 5000, meanderAmpM: 2500, meanderFreq: 1 / 18000 },
+        // Shyok/Nubra, ~35 km north-east.
+        { originX: 10090, originZ: -23670, headingRad: 2.0944, floorM: 3050, floorSlopeMPerKm: 1.0, halfWidthM: 2500, wallRampM: 4500, meanderAmpM: 2000, meanderFreq: 1 / 16000 },
+        // Zanskar, ~30 km south-west.
+        { originX: -27200, originZ: 29570, headingRad: 2.4435, floorM: 3500, floorSlopeMPerKm: 1.5, halfWidthM: 1800, wallRampM: 4000, meanderAmpM: 1500, meanderFreq: 1 / 14000 },
+      ],
+      massifHeightM: 1900,
+      ridgeReliefM: 2000,
+      floorReliefM: 60,
+    },
+    seaLevelM: 0,
+    heightBoundsM: { minM: 2700, maxM: 7600 },
+    surfaceStyle: 'alpine',
+  },
 };
 
 /** Combined (pre-flattening) terrain height, world Y metres, at world (x,z). */
@@ -251,7 +445,7 @@ export interface ChunkBounds {
 export type ChunkSizeAtDepth = (depth: number) => number;
 
 /** Writes `key`'s world-space AABB into `out` (no allocation) and returns `out`. */
-export type ChunkKeyToBounds = (key: ChunkKey, out: ChunkBounds) => ChunkBounds;
+export type ChunkKeyToBounds = (key: ChunkKey, out: ChunkBounds, heightBoundsM?: TerrainParams['heightBoundsM']) => ChunkBounds;
 
 /** Writes `key`'s 4 children (`depth+1`) into the 4 slots of `out` (no allocation; caller owns and reuses `out`). Child order: [0]=(2cx,2cz) [1]=(2cx+1,2cz) [2]=(2cx,2cz+1) [3]=(2cx+1,2cz+1). */
 export type ChunkChildren = (key: ChunkKey, out: [ChunkKey, ChunkKey, ChunkKey, ChunkKey]) => void;
@@ -318,7 +512,9 @@ export type ComputeDesiredChunks = (
   cameraWorldPos: Vec3Like,
   profile: QualityTerrainProfile,
   wasSplitLastFrame: WasChunkSplitLastFrame,
-  out: ChunkKey[]
+  out: ChunkKey[],
+  /** The active terrain's `TerrainParams.heightBoundsM`; absent = the global TERRAIN_MIN/MAX_HEIGHT_M. */
+  heightBoundsM?: TerrainParams['heightBoundsM']
 ) => void;
 
 // -----------------------------------------------------------------------------

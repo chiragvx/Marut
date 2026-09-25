@@ -711,6 +711,11 @@ class WorldImpl implements World {
         if (damage.structurePct > 0 && rec.telemetry.altAglM < TERRAIN_IMPACT_PENETRATION_M) {
           damage.structurePct = 0;
         }
+        // Water is a surface to the sampler (so gear, AI and radar all see it) but never a
+        // runway: any contact with it, gear or not, is a crash.
+        if (damage.structurePct > 0 && onGroundNow && this.deps.sampler.isWaterAt?.(state.pos.x, state.pos.z)) {
+          damage.structurePct = 0;
+        }
         const isStructureAliveNow = damage.structurePct > 0;
         if (rec.wasStructureAlive && !isStructureAliveNow) {
           this.eventQueue.push({ type: 'crash', entityId: state.id, pos: { x: state.pos.x, y: state.pos.y, z: state.pos.z } });

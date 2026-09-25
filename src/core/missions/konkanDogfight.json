@@ -1,0 +1,50 @@
+{
+  "id": "konkan-dogfight",
+  "name": "1v1 Dogfight — Arabian Sea",
+  "seed": 1357924,
+  "terrain": {
+    "seed": 1357924,
+    "theatre": "konkan"
+  },
+  "airportIds": [
+    "ins-hansa"
+  ],
+  "playerStart": {
+    "airportId": "ins-hansa",
+    "runwayId": "08",
+    "speedMps": 0
+  },
+  "aiFlights": [
+    {
+      "id": "bandit-1",
+      "aircraftId": "tejas-mk1",
+      "team": 1,
+      "difficulty": "veteran",
+      "startPos": {
+        "x": 42000,
+        "y": 4500,
+        "z": -7000
+      },
+      "startHeadingRad": 1.5707963,
+      "startSpeedMps": 230,
+      "count": 1
+    }
+  ],
+  "weather": {
+    "windWorldMps": {
+      "x": 5,
+      "y": 0,
+      "z": 0
+    },
+    "gustMps": 2,
+    "turbulence": 0.1
+  },
+  "objectives": [
+    {
+      "id": "obj-kill",
+      "kind": "destroy_all_hostiles",
+      "description": "Destroy the hostile Tejas.",
+      "params": {}
+    }
+  ]
+}

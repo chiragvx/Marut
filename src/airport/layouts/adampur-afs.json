@@ -1,0 +1,138 @@
+{
+  "id": "adampur-afs",
+  "name": "Adampur Air Force Station",
+  "referenceWorldX": 0,
+  "referenceWorldZ": 0,
+  "elevationM": 234,
+  "flattenZones": [
+    {
+      "centerWorldX": 0,
+      "centerWorldZ": 0,
+      "elevationM": 234,
+      "flatRadiusM": 1625.0,
+      "blendRadiusM": 600
+    }
+  ],
+  "runways": [
+    {
+      "id": "05",
+      "thresholdWorldX": -1053.31,
+      "thresholdWorldZ": 883.83,
+      "elevationM": 234,
+      "headingRad": 0.8726646,
+      "lengthM": 2750,
+      "widthM": 45,
+      "surface": "concrete",
+      "reciprocalId": "23",
+      "ils": {
+        "frequencyMhz": 109.7
+      },
+      "lights": {
+        "edgeLights": true,
+        "thresholdLights": true,
+        "approachLights": true,
+        "papi": true
+      }
+    },
+    {
+      "id": "23",
+      "thresholdWorldX": 1053.31,
+      "thresholdWorldZ": -883.83,
+      "elevationM": 234,
+      "headingRad": 4.0142573,
+      "lengthM": 2750,
+      "widthM": 45,
+      "surface": "concrete",
+      "reciprocalId": "05",
+      "lights": {
+        "edgeLights": true,
+        "thresholdLights": true,
+        "approachLights": false,
+        "papi": true
+      }
+    }
+  ],
+  "taxiways": [
+    {
+      "id": "TWY-A",
+      "widthM": 20,
+      "points": [
+        {
+          "worldX": -421.32,
+          "worldZ": 353.53
+        },
+        {
+          "worldX": -286.34,
+          "worldZ": 514.4
+        }
+      ]
+    }
+  ],
+  "aprons": [
+    {
+      "id": "APRON-1",
+      "points": [
+        {
+          "worldX": -348.86,
+          "worldZ": 579.91
+        },
+        {
+          "worldX": -210.97,
+          "worldZ": 464.21
+        },
+        {
+          "worldX": -159.54,
+          "worldZ": 525.5
+        },
+        {
+          "worldX": -297.43,
+          "worldZ": 641.2
+        }
+      ]
+    }
+  ],
+  "parkingSpots": [
+    {
+      "id": "PARK-1",
+      "worldX": -305.23,
+      "worldZ": 608.57,
+      "headingRad": 5.5850536,
+      "type": "fighter"
+    },
+    {
+      "id": "PARK-2",
+      "worldX": -282.24,
+      "worldZ": 589.29,
+      "headingRad": 5.5850536,
+      "type": "fighter"
+    },
+    {
+      "id": "PARK-3",
+      "worldX": -259.26,
+      "worldZ": 570.01,
+      "headingRad": 5.5850536,
+      "type": "fighter"
+    },
+    {
+      "id": "PARK-4",
+      "worldX": -236.28,
+      "worldZ": 550.72,
+      "headingRad": 5.5850536,
+      "type": "fighter"
+    },
+    {
+      "id": "PARK-5",
+      "worldX": -213.3,
+      "worldZ": 531.44,
+      "headingRad": 5.5850536,
+      "type": "fighter"
+    },
+    {
+      "id": "PARK-6",
+      "worldX": -190.32,
+      "worldZ": 512.16,
+      "headingRad": 5.5850536,
+      "type": "fighter"
+    }
+  ]
+}
