@@ -410,6 +410,38 @@ export function setFcsTrimState(entityIndex: number, trimIntegralRadValue: numbe
 }
 
 /**
+ * Every piece of module-private per-slot FCS state, for `getFcsSlotState`/`setFcsSlotState`
+ * (setFcsTrimState's doc comment covers why a multi-World process needs to save/restore these).
+ * The onset-shaped stick/rate-command state was added after setFcsTrimState and never included in
+ * that save/restore, which is what broke sim-check's determinism mode (DIVERGED at tick 600) from
+ * the stick-shaping commit onward: two interleaved Worlds overwrote each other's shaped stick.
+ */
+export interface FcsSlotState {
+  trimIntegralRad: number;
+  lastGLoadRad: number;
+  shapedPitchStick: number;
+  shapedRollStick: number;
+  shapedPitchRateCmd: number;
+}
+
+export function getFcsSlotState(entityIndex: number, out: FcsSlotState): FcsSlotState {
+  out.trimIntegralRad = readF64(trimIntegralRad, entityIndex);
+  out.lastGLoadRad = readF64(lastGLoadRad, entityIndex);
+  out.shapedPitchStick = readF64(shapedPitchStick, entityIndex);
+  out.shapedRollStick = readF64(shapedRollStick, entityIndex);
+  out.shapedPitchRateCmd = readF64(shapedPitchRateCmd, entityIndex);
+  return out;
+}
+
+export function setFcsSlotState(entityIndex: number, s: Readonly<FcsSlotState>): void {
+  trimIntegralRad[entityIndex] = s.trimIntegralRad;
+  lastGLoadRad[entityIndex] = s.lastGLoadRad;
+  shapedPitchStick[entityIndex] = s.shapedPitchStick;
+  shapedRollStick[entityIndex] = s.shapedRollStick;
+  shapedPitchRateCmd[entityIndex] = s.shapedPitchRateCmd;
+}
+
+/**
  * Pure helper (exposed for test 16/17): the pitch g-command law's `gCmd`, before alpha-limiting.
  * `neutralG` is the load factor commanded with the stick centred (see `neutralGReference`); full
  * aft/forward stick still commands maxGLoadPos/maxGLoadNeg exactly.

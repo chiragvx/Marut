@@ -49,7 +49,7 @@ import { EVENT_QUEUE_CAPACITY } from '../../src/contracts/sim';
 import type { SimWorldHandle } from '../../src/contracts/verify';
 import { readSnapshotEntity, readSnapshotHeader } from '../../src/core/snapshotReader';
 import { unpackEntityId } from '../../src/core/entityPool';
-import { resetFcsTrimState, getTrimIntegralRad, getLastGLoad, setFcsTrimState } from '../../src/physics/fcs';
+import { resetFcsTrimState, getFcsSlotState, setFcsSlotState, type FcsSlotState } from '../../src/physics/fcs';
 
 interface ManualPilotBinding {
   entityId: EntityId;
@@ -149,7 +149,7 @@ export function adaptWorldToHandle(world: World): SimWorldHandle {
   // save to restore from, so it instead resets to a clean zero, exactly
   // matching what a freshly spawned aircraft's slot already ought to be.
   let hasSteppedOnce = false;
-  const localFcsTrimState = new Map<number, { trimIntegralRad: number; lastGLoadRad: number }>();
+  const localFcsTrimState = new Map<number, FcsSlotState>();
   const forEachOwnAircraftIndex = (fn: (entityIndex: number) => void): void => {
     world.writeSnapshot(snapshotScratch);
     const header = readSnapshotHeader(snapshotScratch);
@@ -164,12 +164,14 @@ export function adaptWorldToHandle(world: World): SimWorldHandle {
   };
   const restoreLocalFcsTrimState = (): void => {
     for (const [entityIndex, saved] of localFcsTrimState) {
-      setFcsTrimState(entityIndex, saved.trimIntegralRad, saved.lastGLoadRad);
+      setFcsSlotState(entityIndex, saved);
     }
   };
   const saveLocalFcsTrimState = (): void => {
     forEachOwnAircraftIndex((entityIndex) => {
-      localFcsTrimState.set(entityIndex, { trimIntegralRad: getTrimIntegralRad(entityIndex), lastGLoadRad: getLastGLoad(entityIndex) });
+      // Full slot state (FcsSlotState), not just trim/gLoad: see that interface's doc comment.
+      const saved = localFcsTrimState.get(entityIndex) ?? { trimIntegralRad: 0, lastGLoadRad: 0, shapedPitchStick: 0, shapedRollStick: 0, shapedPitchRateCmd: 0 };
+      localFcsTrimState.set(entityIndex, getFcsSlotState(entityIndex, saved));
     });
   };
 
