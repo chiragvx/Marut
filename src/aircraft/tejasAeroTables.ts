@@ -152,9 +152,12 @@ export const aero: AeroTables = {
   CD_elevon: 0.15,
   // Configuration drag, referenced to wingAreaM2 (38.4 m^2). Gear: ~0.02 is typical for a
   // fighter's tricycle gear with doors open (~0.8 m^2 of drag area). Airbrake: the Tejas's
-  // upper-fuselage airbrake panels, ~0.05 (~1.9 m^2), enough to roughly double clean-cruise drag.
+  // upper-fuselage airbrake panels, 0.10 (~3.8 m^2). The first value, 0.05 (~1.9 m^2, a small
+  // fighter speedbrake), gave only ~0.14 g extra deceleration at 150 m/s and play-testing found
+  // it had "almost no effect"; 0.10 gives ~0.3 g at 150 m/s and ~0.7 g at 250 m/s. There is no
+  // published Tejas figure, so this is tuned for a clearly felt, still plausible speedbrake.
   CD_gear: 0.02,
-  CD_airbrake: 0.05,
+  CD_airbrake: 0.1,
   /** MUST be negative — 00-architecture.md section 6.2's elevon sign rule. */
   Cm_elevon: -0.85,
   Cl_elevon: 0.12,
