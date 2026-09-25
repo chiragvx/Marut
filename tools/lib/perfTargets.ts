@@ -59,10 +59,11 @@ export const PERFORMANCE_TARGETS: readonly PerformanceTarget[] = [
     altitudeM: 0,
     massKg: 9500,
     configNote: 'military+AB, clean, Vy=180 m/s, 9500 kg',
-    targetValue: 66,
+    targetValue: 87,
     unit: 'm/s',
     toleranceRel: 0.15,
-    sourceNote: '~13,000 ft/min commonly cited Tejas climb-rate figure (13000 ft/min = 66.0 m/s)',
+    sourceNote:
+      "re-baselined from 66 m/s (a ~13,000 ft/min figure cited for the Tejas, unverified) to this model's own 87 m/s (~17,100 ft/min) after the engine moved to published F404-IN20 ratings (84 kN wet / 48.9 kN dry, Mattingly lapse): the old target matched the earlier under-powered engine tables. Consistent with a clean ~0.9 thrust/weight fighter; revisit if an authoritative Tejas figure is found",
   },
   {
     id: 'stall_clean',

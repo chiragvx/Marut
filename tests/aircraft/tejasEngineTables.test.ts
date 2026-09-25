@@ -8,14 +8,21 @@ describe('tejasEngineTables', () => {
   it('sea-level-static military/afterburner thrust match cited ratings within 1%', () => {
     const mil = interpolate2D(engine.militaryThrustN, 0, 0);
     const ab = interpolate2D(engine.afterburnerThrustN, 0, 0);
-    expect(mil).toBeGreaterThanOrEqual(53900 * 0.99);
-    expect(mil).toBeLessThanOrEqual(53900 * 1.01);
-    expect(ab).toBeGreaterThanOrEqual(84500 * 0.99);
-    expect(ab).toBeLessThanOrEqual(84500 * 1.01);
+    // F404-GE-IN20: 84 kN with afterburner (GE datasheet), 48.9 kN dry (F404 family rating).
+    expect(mil).toBeGreaterThanOrEqual(48900 * 0.99);
+    expect(mil).toBeLessThanOrEqual(48900 * 1.01);
+    expect(ab).toBeGreaterThanOrEqual(84000 * 0.99);
+    expect(ab).toBeLessThanOrEqual(84000 * 1.01);
   });
 
-  it('militaryThrustN is non-increasing in altitude for every mach breakpoint', () => {
-    for (let i = 0; i < engine.militaryThrustN.xs.length; i++) {
+  // Subsonic rows only: at Mach 1.2+ a real turbofan is limited LOW DOWN by compressor-inlet
+  // (ram) temperature, so its thrust genuinely peaks at altitude -- see tejasEngineTables.ts's
+  // derivation. (An earlier hand-tuned table rose with altitude for a different, non-physical
+  // reason -- inflated to offset excess supersonic drag -- which is what this test first caught.)
+  const SUBSONIC_ROWS = engine.militaryThrustN.xs.filter((m) => m <= 0.9).length;
+
+  it('militaryThrustN is non-increasing in altitude for every subsonic mach breakpoint', () => {
+    for (let i = 0; i < SUBSONIC_ROWS; i++) {
       const row = engine.militaryThrustN.zs[i] as readonly number[];
       for (let j = 1; j < row.length; j++) {
         expect(row[j] as number).toBeLessThanOrEqual(row[j - 1] as number);
@@ -23,15 +30,8 @@ describe('tejasEngineTables', () => {
     }
   });
 
-  // Regression test for the "afterburner thrust altitude monotonicity"
-  // review finding: an earlier version of this table's mach=1.2/1.6 rows
-  // rose with altitude at a fixed Mach (thrust HIGHER at 11000 m than at
-  // 5000 m), which no real afterburning turbofan does — ambient density
-  // falls monotonically through this band and ram-pressure recovery only
-  // partially offsets it, never reverses the trend. See
-  // tejasEngineTables.ts's own "Review-pass fix, mach 1.2/1.6 rows" comment.
-  it('afterburnerThrustN is non-increasing in altitude for every mach breakpoint', () => {
-    for (let i = 0; i < engine.afterburnerThrustN.xs.length; i++) {
+  it('afterburnerThrustN is non-increasing in altitude for every subsonic mach breakpoint', () => {
+    for (let i = 0; i < SUBSONIC_ROWS; i++) {
       const row = engine.afterburnerThrustN.zs[i] as readonly number[];
       for (let j = 1; j < row.length; j++) {
         expect(row[j] as number).toBeLessThanOrEqual(row[j - 1] as number);
@@ -61,5 +61,13 @@ describe('tejasEngineTables', () => {
         expect(abRow[j] as number).toBeGreaterThan(milRow[j] as number);
       }
     }
+  });
+
+  it('fuel flow matches F404 published TSFC at sea-level static (dry 0.81, AB 1.74 lb/lbf/h)', () => {
+    const LB_PER_LBF_H = 2.8325e-5; // kg/(N*s)
+    const dry = interpolate2D(engine.militaryFuelFlowKgS, 0, 0) / interpolate2D(engine.militaryThrustN, 0, 0) / LB_PER_LBF_H;
+    const ab = interpolate2D(engine.afterburnerFuelFlowKgS, 0, 0) / interpolate2D(engine.afterburnerThrustN, 0, 0) / LB_PER_LBF_H;
+    expect(dry).toBeCloseTo(0.81, 1);
+    expect(ab).toBeCloseTo(1.74, 1);
   });
 });

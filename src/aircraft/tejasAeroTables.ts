@@ -111,18 +111,24 @@ export const aero: AeroTables = {
   // push that baseline drag just over the military-only ceiling, breaking
   // `turn_5000_m06`'s trim search entirely (measured 0 deg/s) rather than
   // merely narrowing its margin.
+  // Supersonic columns (Mach 1.2 / 1.6): zero-lift drag lowered by 0.037 / 0.031 (to 0.048 /
+  // 0.039 at alpha=0), keeping each column's lift-dependent rise. The old 0.085 / 0.070 were ~2x
+  // typical fighter wave-drag levels (CD0 peaks ~0.045-0.05 around Mach 1.1-1.2 and settles near
+  // ~0.04 by Mach 1.6), which the engine table used to paper over with afterburner thrust rising to
+  // 112 kN at Mach 1.6 / 11 km. With the F404-IN20 now on realistic lapse (tejasEngineTables.ts,
+  // ~63 kN there), these values give the Tejas's published ~Mach 1.6 at altitude.
   CD: {
     xs: ALPHA_RAD,
     ys: MACH,
     zs: [
-      [0.1, 0.11, 0.13, 0.21, 0.165],
-      [0.05, 0.055, 0.06, 0.11, 0.09],
-      [0.037, 0.04, 0.04, 0.085, 0.07],
-      [0.06, 0.065, 0.075, 0.14, 0.115],
-      [0.105, 0.113, 0.13, 0.22, 0.18],
-      [0.175, 0.185, 0.21, 0.32, 0.26],
-      [0.275, 0.285, 0.32, 0.44, 0.37],
-      [0.325, 0.335, 0.37, 0.49, 0.42],
+      [0.1, 0.11, 0.13, 0.173, 0.134],
+      [0.05, 0.055, 0.06, 0.073, 0.059],
+      [0.037, 0.04, 0.04, 0.048, 0.039],
+      [0.06, 0.065, 0.075, 0.103, 0.084],
+      [0.105, 0.113, 0.13, 0.183, 0.149],
+      [0.175, 0.185, 0.21, 0.283, 0.229],
+      [0.275, 0.285, 0.32, 0.403, 0.339],
+      [0.325, 0.335, 0.37, 0.453, 0.389],
     ],
   },
   Cm: {
