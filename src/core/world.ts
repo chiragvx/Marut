@@ -855,8 +855,23 @@ class WorldImpl implements World {
       hud.gearPos = state.gearPos;
       hud.weaponIdx = WeaponKindCode[rec.combat.selectedWeapon];
       hud.targetId = rec.combat.lockedTargetId ?? NO_ENTITY_ID;
-      hud.targetRangeM = 0;
-      hud.closureMps = 0;
+      // Range/closure to the designated target, straight from the two entity states (previously
+      // hardcoded to 0, so the HUD target box always read "0M +0").
+      const target = hud.targetId !== NO_ENTITY_ID ? this.getEntityState(hud.targetId) : undefined;
+      if (target && target.alive) {
+        const dx = target.pos.x - state.pos.x;
+        const dy = target.pos.y - state.pos.y;
+        const dz = target.pos.z - state.pos.z;
+        const range = Math.sqrt(dx * dx + dy * dy + dz * dz);
+        hud.targetRangeM = range;
+        hud.closureMps =
+          range > 1e-6
+            ? -((target.vel.x - state.vel.x) * dx + (target.vel.y - state.vel.y) * dy + (target.vel.z - state.vel.z) * dz) / range
+            : 0;
+      } else {
+        hud.targetRangeM = 0;
+        hud.closureMps = 0;
+      }
       hud.lockState = LockStateCode[rec.combat.lockState];
       hud.warningBits = rec.activeWarningBits;
       const ils = this.findNearestIls(state.pos);

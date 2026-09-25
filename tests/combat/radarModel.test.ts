@@ -32,6 +32,32 @@ describe('computeGeometry (scan/track cone worked example)', () => {
   });
 });
 
+describe('computeGeometry notch (target ground-relative radial velocity, look-down only)', () => {
+  const ac = (id: number, pos: { x: number; y: number; z: number }, vel: { x: number; y: number; z: number }): DetectableEntity => ({
+    id, team: id === 1 ? 0 : 1, kind: 'aircraft', pos, vel, rot: IDENTITY, alive: true,
+  });
+
+  it('does not notch a co-speed tail chase (relative closure ~0)', () => {
+    const observer = ac(1, { x: 0, y: 3000, z: 0 }, { x: 250, y: 0, z: 0 });
+    const target = ac(2, { x: 5000, y: 3000, z: 0 }, { x: 250, y: 0, z: 0 });
+    const geom = computeGeometry(observer, target, NO_TERRAIN_SAMPLER);
+    expect(Math.abs(geom.closureMps)).toBeLessThan(1);
+    expect(geom.isNotched).toBe(false);
+  });
+
+  it('notches a target beaming across the line of sight below the observer', () => {
+    const observer = ac(1, { x: 0, y: 5000, z: 0 }, { x: 250, y: 0, z: 0 });
+    const target = ac(2, { x: 8000, y: 2000, z: 0 }, { x: 0, y: 0, z: 250 });
+    expect(computeGeometry(observer, target, NO_TERRAIN_SAMPLER).isNotched).toBe(true);
+  });
+
+  it('does not notch the same beaming target when looking up (no ground clutter behind it)', () => {
+    const observer = ac(1, { x: 0, y: 2000, z: 0 }, { x: 250, y: 0, z: 0 });
+    const target = ac(2, { x: 8000, y: 5000, z: 0 }, { x: 0, y: 0, z: 250 });
+    expect(computeGeometry(observer, target, NO_TERRAIN_SAMPLER).isNotched).toBe(false);
+  });
+});
+
 function makeWeaponsState() {
   const loadout: WeaponsLoadout = {
     stations: [

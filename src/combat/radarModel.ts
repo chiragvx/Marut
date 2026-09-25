@@ -119,7 +119,14 @@ export function computeGeometry(observer: DetectableEntity, target: DetectableEn
   _relVel.y = target.vel.y - observer.vel.y;
   _relVel.z = target.vel.z - observer.vel.z;
   const closureMps = -Vec3.dot(_relVel, _bearing);
-  const isNotched = Math.abs(closureMps) < RADAR_NOTCH_CLOSURE_MPS && rangeM <= RADAR_NOTCH_MAX_RANGE_M;
+  // Ground-clutter notch: a pulse-Doppler radar loses a target whose OWN ground-relative radial
+  // velocity is near zero (it moves at the same Doppler as the ground clutter), and only when the
+  // radar is looking down into that clutter. The earlier test on relative closure had it
+  // backwards: a same-speed tail chase (closure ~0) was notched and could never be locked, while a
+  // target beaming across the nose (closure = the observer's own speed) was not.
+  const targetRadialMps = Vec3.dot(target.vel, _bearing);
+  const lookingDown = _bearing.y < 0;
+  const isNotched = lookingDown && Math.abs(targetRadialMps) < RADAR_NOTCH_CLOSURE_MPS && rangeM <= RADAR_NOTCH_MAX_RANGE_M;
 
   let terrainMasked = false;
   for (let i = 0; i < LOS_SAMPLE_FRACTIONS.length; i++) {

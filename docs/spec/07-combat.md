@@ -180,7 +180,7 @@ inTrackCone = |azRad| <= RADAR_TRACK_HALF_ANGLE_RAD    && |elRad| <= RADAR_TRACK
 
 **Worked example**: observer heading = π/2 (due east ⇒ `rot` = identity, per architecture §3.3 worked example A) so `forwardW=(1,0,0)`, `rightW=(0,0,1)`, `upW=(0,1,0)`. Target at `observerPos + (500,0,100)`: `bearing = (0.9806, 0, 0.1961)`, `azRad = atan2(0.1961, 0.9806) = 0.1974 rad` (≈11.3°), `elRad = atan2(0, 1) = 0`. `0.1974 ≤ RADAR_SCAN_AZ_HALF_ANGLE_RAD(1.047)` ⇒ **in scan cone**; `0.1974 > RADAR_TRACK_HALF_ANGLE_RAD(0.175)` ⇒ **not in track cone** (detected, not lockable at this bearing).
 
-**Ground-clutter notch**: `isNotched = |contact.closureMps| < RADAR_NOTCH_CLOSURE_MPS(15) && contact.rangeM <= RADAR_NOTCH_MAX_RANGE_M(20000)`. A notched contact is still returned as a `Contact` (radar "sees a return") but can never satisfy the track-cone lock criteria in §4.6.1 while notched — flying a beam aspect defeats an STT lock attempt, matching real pulse-Doppler notching, without modeling actual Doppler processing.
+**Ground-clutter notch**: `isNotched = bearing.y < 0 && |dot(target.vel, bearing)| < RADAR_NOTCH_CLOSURE_MPS(15) && contact.rangeM <= RADAR_NOTCH_MAX_RANGE_M(20000)` — the target's own ground-relative radial velocity (not the observer-relative closure, which wrongly notched every co-speed tail chase), and only while looking down into ground clutter. A notched contact is still returned as a `Contact` (radar "sees a return") but can never satisfy the track-cone lock criteria in §4.6.1 while notched — flying a beam aspect defeats an STT lock attempt, matching real pulse-Doppler notching, without modeling actual Doppler processing.
 
 **Terrain LOS masking** (`RADAR_LOS_SAMPLE_COUNT = 3` samples at `f ∈ {0.25, 0.5, 0.75}`):
 
