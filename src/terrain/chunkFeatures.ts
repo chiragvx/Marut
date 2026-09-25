@@ -22,6 +22,22 @@ export interface FeatureOptions {
   treeDensity: number;
   /** Build trees and buildings (roads and ground are always built). */
   objects: boolean;
+  /** Tree-free discs (airports: their flattened area plus a margin). See airportClearZones. */
+  clearZones?: readonly ClearZone[];
+}
+
+export interface ClearZone {
+  x: number;
+  z: number;
+  radiusM: number;
+}
+
+/** Extra clearance around an airport's flattened area, m (approach/departure ends, perimeter). */
+export const AIRPORT_TREE_MARGIN_M = 250;
+
+/** No-tree discs for every airport: each flatten zone (flat + blend radius) plus a margin. */
+export function airportClearZones(flattenZones: readonly { centerWorldX: number; centerWorldZ: number; flatRadiusM: number; blendRadiusM: number }[]): ClearZone[] {
+  return flattenZones.map((z) => ({ x: z.centerWorldX, z: z.centerWorldZ, radiusM: z.flatRadiusM + z.blendRadiusM + AIRPORT_TREE_MARGIN_M }));
 }
 
 /** Smooth 2D value noise in [0, 1] (for clumping tree density). */
@@ -73,6 +89,8 @@ const BUILDING_COLORS: readonly (readonly [number, number, number])[] = [
 ];
 
 class Out {
+  /** Tree-free discs (airports); pushTree drops any tree inside one. */
+  clear: readonly ClearZone[] = [];
   decalPos: number[] = [];
   decalAttr: number[] = [];
   decalIdx: number[] = [];
@@ -96,6 +114,7 @@ function inRect(b: ChunkBounds, x: number, z: number): boolean {
 
 export function buildChunkFeatures(net: RoadNetwork, b: ChunkBounds, surface: SurfaceFn, opts: FeatureOptions): ChunkFeatures {
   const o = new Out();
+  o.clear = opts.clearZones ?? [];
   const wl = net.waterLevelM;
   const roadSet = new Set<number>();
   const setSet = new Set<number>();
@@ -296,6 +315,11 @@ export function buildChunkFeatures(net: RoadNetwork, b: ChunkBounds, surface: Su
 
 /** One tree: size and colour vary per kind; h1/h2 are per-tree random numbers. */
 function pushTree(o: Out, kind: number, x: number, y: number, z: number, h1: number, h2: number): void {
+  for (const c of o.clear) {
+    const dx = x - c.x;
+    const dz = z - c.z;
+    if (dx * dx + dz * dz < c.radiusM * c.radiusM) return;
+  }
   // Unit models are 1 m tall/wide; scale to real sizes.
   let sy: number;
   let sxz: number;

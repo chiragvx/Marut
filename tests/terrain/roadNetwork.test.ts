@@ -7,7 +7,8 @@ import { DecalClass, THEATRE_TERRAIN_PARAMS } from '../../src/contracts/terrain'
 import { createHeightSampler } from '../../src/terrain';
 import { buildRoadNetwork } from '../../src/terrain/roadNetwork';
 import { buildChunkGeometryAndSurface } from '../../src/terrain/chunkGeometryBuilder';
-import { buildChunkFeatures } from '../../src/terrain/chunkFeatures';
+import { airportClearZones, buildChunkFeatures } from '../../src/terrain/chunkFeatures';
+import adampur from '../../src/airport/layouts/adampur-afs.json';
 
 const params = { ...THEATRE_TERRAIN_PARAMS.punjab, seed: 3141592 };
 const sampler = createHeightSampler(params, []);
@@ -69,6 +70,24 @@ describe('Punjab chunk scenery', () => {
     const n = f.buildingMatrices.length / 16;
     expect(n).toBeGreaterThan(200);
     expect(n).toBeLessThan(8000);
+  });
+
+  test('no trees on or around the airport (Adampur)', () => {
+    const zones = airportClearZones(adampur.flattenZones);
+    const size2 = 200000 / 32;
+    let checked = 0;
+    for (const [dx, dz] of [[0, 0], [-1, 0], [0, -1], [-1, -1]]) {
+      const key = { depth: 5, cx: Math.floor((dx * size2 + 1 + 100000) / size2), cz: Math.floor((dz * size2 + 1 + 100000) / size2) };
+      const g = buildChunkGeometryAndSurface(sampler, key, 24);
+      const f = buildChunkFeatures(net, g.bounds, g.surface, { objects: true, treeDensity: 1, clearZones: zones });
+      for (const m of f.treeMatrices) {
+        for (let i = 0; i < m.length; i += 16) {
+          checked++;
+          for (const zc of zones) expect(Math.hypot(m[i + 12]! - zc.x, m[i + 14]! - zc.z)).toBeGreaterThanOrEqual(zc.radiusM);
+        }
+      }
+    }
+    expect(checked).toBeGreaterThan(100);
   });
 
   test('scenery sits on the rendered terrain surface', () => {

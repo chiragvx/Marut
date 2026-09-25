@@ -230,6 +230,22 @@ const FRAGMENT_SHADER = /* glsl */ `
   // Goa in the dry season (Jan-Mar): straw and green paddy lowlands, a coconut-palm belt behind
   // the beaches, red-brown laterite plateaus and headlands, mangroves on estuary banks, red-tile
   // villages among palms, and dense forest on the Ghats escarpment.
+  // 1 on and around any runway (the airfield: runway plus ~450 m along and ~400 m either side), so
+  // no painted trees stand on an airport (the 3D trees are cleared the same way in chunkFeatures.ts).
+  float airfieldClear(vec2 p) {
+    float m = 0.0;
+    for (int i = 0; i < ${MAX_TERRAIN_RUNWAYS}; i++) {
+      if (i >= uRunwayCount) break;
+      vec4 r = uRunways[i];
+      float hd = uRunwayHeadings[i];
+      vec2 d = p - r.xy;
+      float along = abs(dot(d, vec2(sin(hd), -cos(hd))));
+      float across = abs(dot(d, vec2(cos(hd), sin(hd))));
+      m = max(m, (1.0 - smoothstep(r.z + 400.0, r.z + 500.0, along)) * (1.0 - smoothstep(r.w + 350.0, r.w + 450.0, across)));
+    }
+    return m;
+  }
+
   vec3 coastColor(vec3 w, vec3 n, float px, float near, vec3 L, inout float shadow) {
     float slope = 1.0 - n.y;
     float coastD = vMacro.z;
@@ -295,7 +311,7 @@ const FRAGMENT_SHADER = /* glsl */ `
 
     // Tree crowns and their shadows near the camera: palms along the coast and rivers, forest on
     // the Ghats, scattered cashew/mango trees elsewhere.
-    float density = max(max(palms * 0.75, ghats * 0.9), 0.2 * (1.0 - plateau) * (1.0 - beach)) * (1.0 - rock) * (1.0 - beach) * (1.0 - mangrove * 0.5) * (1.0 - village * 0.6);
+    float density = max(max(palms * 0.75, ghats * 0.9), 0.2 * (1.0 - plateau) * (1.0 - beach)) * (1.0 - rock) * (1.0 - beach) * (1.0 - mangrove * 0.5) * (1.0 - village * 0.6) * (1.0 - airfieldClear(w.xz));
     vec3 crownCol = mix(vec3(0.20, 0.33, 0.13), vec3(0.10, 0.21, 0.08), ghats);
     // Crowns are 8-12 m: unresolvable once a pixel covers ~5 m, so they get their own, tighter fade.
     float treeNear = 1.0 - smoothstep(1.5, 5.0, px);

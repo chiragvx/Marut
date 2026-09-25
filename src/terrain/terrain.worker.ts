@@ -11,7 +11,7 @@ import type { MainToTerrainMessageExt, TerrainReadyMessage } from '../contracts/
 import { TERRAIN_QUALITY_PROFILES } from '../contracts/terrain';
 import { createHeightSampler } from './heightSampler';
 import { buildChunkGeometryAndSurface } from './chunkGeometryBuilder';
-import { buildChunkFeatures } from './chunkFeatures';
+import { airportClearZones, buildChunkFeatures, type ClearZone } from './chunkFeatures';
 import { buildRoadNetwork, type RoadNetwork } from './roadNetwork';
 
 let sampler: HeightSampler | undefined;
@@ -31,12 +31,15 @@ let sampler: HeightSampler | undefined;
 let activeGridQuads: number = TERRAIN_QUALITY_PROFILES.low.chunkGridQuads;
 let maxLodDepth: number = TERRAIN_QUALITY_PROFILES.low.maxLodDepth;
 let network: RoadNetwork | undefined;
+/** No trees on or around any airport. */
+let clearZones: ClearZone[] = [];
 
 self.onmessage = (ev: MessageEvent<MainToTerrainMessage | MainToTerrainMessageExt>): void => {
   const msg = ev.data;
 
   if (msg.type === 'terrainInit') {
     sampler = createHeightSampler(msg.params, msg.flattenZones);
+    clearZones = airportClearZones(msg.flattenZones);
     activeGridQuads = msg.chunkGridQuads;
     maxLodDepth = msg.maxLodDepth ?? maxLodDepth;
     network = buildRoadNetwork(msg.params, sampler);
@@ -57,7 +60,7 @@ self.onmessage = (ev: MessageEvent<MainToTerrainMessage | MainToTerrainMessageEx
     const objectDepth = Math.max(4, maxLodDepth);
     const features =
       network && msg.lod >= roadDepth
-        ? buildChunkFeatures(network, built.bounds, built.surface, { objects: msg.lod >= objectDepth, treeDensity: msg.lod >= 5 ? 1 : 0.5 })
+        ? buildChunkFeatures(network, built.bounds, built.surface, { objects: msg.lod >= objectDepth, treeDensity: msg.lod >= 5 ? 1 : 0.5, clearZones })
         : undefined;
     const out: TerrainChunkReadyMessage = {
       type: 'chunkReady',
