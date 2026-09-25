@@ -95,7 +95,18 @@ describe('theatre landforms', () => {
     expect(agree / n).toBeGreaterThan(0.8);
   });
 
-  test('Punjab is flat farmland with river water', () => {
+  test('Punjab rivers sit in a floodplain terrace a few metres below the plain', () => {
+    const { sampler } = theatreSampler('punjab');
+    // Cross the Sutlej north-south at x = -40 km (its line passes z ~= 40 km there).
+    let khadar = 0;
+    for (let z = 30000; z <= 50000; z += 50) {
+      const h = sampler.heightAt(-40000, z);
+      if (!sampler.isWaterAt!(-40000, z) && h > 227 && h < 231.5) khadar++;
+    }
+    expect(khadar * 50).toBeGreaterThan(1500); // at least 1.5 km of terrace across the valley
+  });
+
+  test('Punjab is a flat plain with river water', () => {
     const { sampler } = theatreSampler('punjab');
     let water = 0;
     for (let x = -100000; x <= 100000; x += 250) {

@@ -343,7 +343,7 @@ function showMainMenu(): void {
 const MISSION_SUMMARIES: readonly MissionSummary[] = [
   { id: 'konkan-free', name: 'Free Flight — Goa Coast', description: 'INS Hansa, on a laterite plateau above the Zuari estuary. Beaches and headlands, three estuaries, the Western Ghats inland. Dry season. Water is not a runway.', aircraftLabel: 'HAL Tejas Mk1' },
   { id: 'konkan-dogfight', name: '1v1 Dogfight — Arabian Sea', description: 'One hostile Tejas off the Goa coast.', aircraftLabel: 'HAL Tejas Mk1' },
-  { id: 'punjab-free', name: 'Free Flight — Punjab Plains', description: 'Adampur, over flat farmland crossed by the Sutlej and Beas.', aircraftLabel: 'HAL Tejas Mk1' },
+  { id: 'punjab-free', name: 'Free Flight — Punjab Plains', description: 'Adampur, late winter. A hazy, flat plain of wheat green with tree-lined roads and canals, villages, and the braided Sutlej and Beas in wide sandy floodplains.', aircraftLabel: 'HAL Tejas Mk1' },
   { id: 'punjab-dogfight', name: '1v1 Dogfight — Punjab Plains', description: 'One hostile Tejas low over the plains.', aircraftLabel: 'HAL Tejas Mk1' },
   { id: 'free-flight', name: 'Free Flight — Konarak Coastal', description: 'Unopposed circuit and landing practice (original test terrain).', aircraftLabel: 'HAL Tejas Mk1' },
   { id: 'dogfight-1v1', name: '1v1 Dogfight — Rangpur Highlands', description: 'One hostile Tejas over mountainous terrain (original test terrain).', aircraftLabel: 'HAL Tejas Mk1' },

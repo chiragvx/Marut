@@ -24,8 +24,8 @@ const SKY_BY_STYLE: Readonly<Record<SceneEnvironment['surfaceStyle'], readonly [
   default: [SKY_ZENITH_COLOR_HEX, SKY_HORIZON_COLOR_HEX, SKY_GROUND_COLOR_HEX],
   // Humid coastal haze; the sea fills the view below the horizon.
   coastal: [0x3f73a8, 0xc4d4df, 0x5f7f92],
-  // Hazy, dusty plains.
-  farmland: [0x4a78aa, 0xcdd2cc, 0x8a8468],
+  // North Indian plains in winter: heavy dusty haze, a pale washed-out sky.
+  farmland: [0x6f8fb3, 0xc9c8bc, 0x9a9580],
 };
 
 export interface SkyFogSystem {

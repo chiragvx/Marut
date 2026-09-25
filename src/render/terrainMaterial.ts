@@ -5,7 +5,8 @@
  * theatre:
  *   0 default  — flat single colour, unlit (the flight-model testing surface; see the note below)
  *   1 coastal  — Konkan: beaches, lush green plain with laterite patches and tree canopy, forested Ghats
- *   2 farmland — Punjab: field patchwork with crop rows, canals with tree lines, villages, sandy river banks
+ *   2 farmland — Punjab: soft late-winter plain (no fields), tree-lined roads and canals, villages with
+ *                ponds and gurdwaras, sandy braided floodplains
  * plus water shading (fresnel sky reflection, sun glint, shallow-water colour and shore foam)
  * wherever the mesh sits at the terrain's water level, and runway asphalt with a grass strip
  * around it (the airport renderer only draws runway outlines).
@@ -18,7 +19,7 @@
  * Cost is spent where it is visible. `px`, the ground footprint of one pixel in metres (from
  * screen-space derivatives), gates every detail layer: near-camera pixels get a per-pixel detail
  * normal (rock, soil and canopy relief the mesh is far too coarse for), tree canopy with sun-cast
- * shadows and crop rows; far pixels skip all of that and the small-scale colour
+ * shadows and tree rows; far pixels skip all of that and the small-scale colour
  * noise, and fall back to the average colour those patterns would blend to at that distance.
  * Distant terrain is most of the screen, so this keeps the per-frame cost near the previous
  * shader's (see the commit for measurements).
@@ -93,6 +94,12 @@ const VERTEX_SHADER = /* glsl */ `
     vec2 p = position.xz;
     vMacro = vec4(vnoise(p / 7000.0), 0.0, 0.0, 0.0);
     vLow = 0.0;
+    if (uStyle == 2) {
+      vLow = 0.5 * vnoise(p / 900.0) + 0.3 * vnoise(p / 900.0 * 2.03 + 17.0); // wheat tone
+      vMacro.y = 0.6 * vnoise(p / 1600.0 + 3.0) + 0.4 * vnoise(p / 790.0 + 11.0); // fallow / ploughed patches
+      vMacro.z = vnoise(p / 800.0 + 31.0); // mustard patches
+      vMacro.w = vnoise(p / 220.0 + 7.0); // soft ~200 m tone variation
+    }
     if (uStyle == 1) {
       // The two coarse octaves of the 600 m vegetation pattern (fbm3's first two terms); the fragment
       // shader adds the fine octave near the camera.
@@ -283,58 +290,116 @@ const FRAGMENT_SHADER = /* glsl */ `
     return col;
   }
 
-  vec3 farmColor(vec3 w, float px) {
+  float hash11(float x) {
+    return fract(sin(x * 12.9898) * 43758.5453);
+  }
+  // Distance (m) across x to the nearest line of a network family: lines near x = k * spacing
+  // (jittered within their cell), each present only on some segLen-long stretches, so the network
+  // reads as roads and canals rather than an endless grid. Only this cell's line and the neighbour
+  // on the near side can be nearest; the presence hash is only evaluated within maxD of a line.
+  float netDist(float x, float y, float spacing, float seed, float segLen, float maxD) {
+    float g = x / spacing;
+    float k = floor(g);
+    float k2 = k + (fract(g) < 0.5 ? -1.0 : 1.0);
+    float d1 = abs(x - (k + 0.15 + 0.7 * hash11(k + seed * 101.0)) * spacing);
+    float d2 = abs(x - (k2 + 0.15 + 0.7 * hash11(k2 + seed * 101.0)) * spacing);
+    float best = 1e9;
+    float yseg = floor(y / segLen);
+    if (d1 < maxD && hash11(k * 1.7 + seed + yseg * 57.3) > 0.35) best = d1;
+    if (d2 < maxD && hash11(k2 * 1.7 + seed + yseg * 57.3) > 0.35) best = min(best, d2);
+    return best;
+  }
+
+  // Punjab in late winter, as it looks from a fighter: no individual fields, but a soft wheat-green
+  // plain with gentle fallow and mustard patches; roads and canals lined with poplar/eucalyptus;
+  // compact villages with a pond, a ring of trees and often a white gurdwara; the braided rivers'
+  // sandy floodplain (khadar) a few metres below the plain.
+  vec3 plainsColor(vec3 w, float px, vec3 L, inout float shadow) {
     vec2 p = w.xz;
-    vec3 col = vec3(0.50, 0.52, 0.27);
-    float fade = smoothstep(40.0, 150.0, px);
-    // Field and canal grid, rotated off the world axes.
-    vec2 q = vec2(0.978 * p.x - 0.208 * p.y, 0.208 * p.x + 0.978 * p.y);
-    // Fields, staggered row by row (skipped once fully faded).
-    if (fade < 1.0) {
-      vec2 cell = vec2(210.0, 150.0);
-      vec2 g = q / cell;
-      g.x += hash12(vec2(floor(g.y), 7.0)) * 3.0;
-      vec2 id = floor(g);
-      vec2 f = fract(g);
-      float h = hash12(id);
-      vec3 crop = h < 0.33 ? vec3(0.66, 0.58, 0.36)
-                : h < 0.43 ? vec3(0.74, 0.68, 0.30)
-                : h < 0.75 ? vec3(0.33, 0.47, 0.19)
-                : h < 0.88 ? vec3(0.24, 0.36, 0.15)
-                : vec3(0.52, 0.42, 0.30);
-      crop *= 0.9 + 0.2 * hash12(id + 13.1);
-      // Crop rows (or plough furrows) ~3 m apart, each field along or across its long side.
-      if (px < 1.2) {
-        float rows = 0.5 + 0.5 * sin((hash12(id + 29.0) < 0.5 ? q.x : q.y) * 2.094);
-        crop *= 1.0 - 0.14 * rows * (1.0 - smoothstep(0.4, 1.2, px));
+    float hw = w.y - uWaterLevel;
+    float m = vLow + 0.2 * (px < 25.0 ? vnoise(p / 900.0 * 4.01 + 41.0) : 0.5);
+    vec3 col = mix(vec3(0.26, 0.37, 0.16), vec3(0.36, 0.47, 0.21), smoothstep(0.3, 0.7, m));
+    col = mix(col, vec3(0.55, 0.49, 0.36), smoothstep(0.58, 0.74, vMacro.y) * 0.65);
+    col = mix(col, vec3(0.62, 0.60, 0.30), smoothstep(0.78, 0.9, vMacro.z) * 0.35);
+    // Soft tonal variation at ~200 m and mottling close up (no edges anywhere).
+    col *= 0.93 + 0.14 * vMacro.w;
+    if (px < 20.0) col *= 0.94 + 0.12 * vnoise(p / 45.0) * (1.0 - smoothstep(10.0, 20.0, px));
+
+    // Floodplain (khadar): pale sand near the water, sparse pale grass above it.
+    float khadar = (1.0 - smoothstep(4.0, 5.5, hw)) * uHasWater;
+    if (khadar > 0.0) {
+      float g = smoothstep(1.2, 3.0, hw + 0.8 * (px < 30.0 ? vnoise(p / 120.0) - 0.5 : 0.0));
+      col = mix(col, mix(vec3(0.74, 0.70, 0.60), vec3(0.56, 0.56, 0.40), g), khadar);
+    }
+
+    // Roads (two families) and canals, each lined with a row of trees. Beyond ~25 m per pixel
+    // they are sub-pixel and skipped.
+    if (px < 25.0 && khadar < 0.5) {
+      float fadeNet = 1.0 - smoothstep(12.0, 25.0, px);
+      vec2 q = vec2(0.993 * p.x - 0.12 * p.y, 0.12 * p.x + 0.993 * p.y);
+      float maxD = 30.0 + px;
+      float dR = min(netDist(q.x, q.y, 1300.0, 11.0, 2600.0, maxD), netDist(q.y, q.x, 1700.0, 23.0, 3000.0, maxD));
+      vec2 q2 = vec2(0.878 * p.x + 0.479 * p.y, -0.479 * p.x + 0.878 * p.y);
+      float dC = netDist(q2.x, q2.y, 4700.0, 37.0, 1e9, maxD);
+      float road = 1.0 - smoothstep(3.0, 3.0 + px, dR);
+      float canal = 1.0 - smoothstep(7.0, 7.0 + px, dC);
+      float rows = max(1.0 - smoothstep(5.0, 5.0 + px, abs(dR - 11.0)), 1.0 - smoothstep(6.0, 6.0 + px, abs(dC - 19.0)));
+      // Poplar/eucalyptus rows along field boundaries: short, scattered stretches (rows only; the
+      // fields themselves are not drawn).
+      if (px < 12.0) {
+        float dT = min(netDist(q.x, q.y, 450.0, 41.0, 600.0, maxD), netDist(q.y, q.x, 380.0, 43.0, 500.0, maxD));
+        rows = max(rows, (1.0 - smoothstep(4.0, 4.0 + px, dT)) * (1.0 - smoothstep(6.0, 12.0, px)));
       }
-      vec2 edge = min(f, 1.0 - f) * cell;
-      float bund = 1.0 - smoothstep(2.5, 2.5 + px, min(edge.x, edge.y));
-      col = mix(mix(crop, vec3(0.45, 0.40, 0.30), bund * 0.6), col, fade);
+      // Individual crowns and gaps in the rows close up.
+      if (px < 3.0) rows *= smoothstep(0.3, 0.45, vnoise(p / 8.0));
+      col = mix(col, vec3(0.55, 0.52, 0.46), road * fadeNet);
+      col = mix(col, uWaterColor, canal * fadeNet);
+      col = mix(col, vec3(0.16, 0.26, 0.11), rows * fadeNet * 0.9);
     }
-    // Irrigation canals lined with trees.
-    vec2 cs = vec2(4100.0, 3300.0);
-    vec2 cq = abs(fract(q / cs + 0.5) - 0.5) * cs;
-    float cd = min(cq.x, cq.y);
-    float trees = 1.0 - smoothstep(23.0, 23.0 + px, cd);
-    col = mix(col, vec3(0.18, 0.28, 0.12), trees * 0.8 * (1.0 - 0.5 * fade));
-    float canal = 1.0 - smoothstep(9.0, 9.0 + px, cd);
-    col = mix(col, uWaterColor, canal * (1.0 - smoothstep(20.0, 60.0, px)));
-    // Villages: roughly one in five 1.9 km cells.
-    vec2 vid = floor(p / 1900.0);
-    if (hash12(vid + 91.0) < 0.22) {
-      vec2 c = (vid + 0.2 + 0.6 * vec2(hash12(vid + 3.0), hash12(vid + 5.0))) * 1900.0;
-      float r = 140.0 + 260.0 * hash12(vid + 8.0);
-      // Ragged edge (80 m) and rooftop/courtyard pattern (18 m), each skipped once too small to see.
-      float edge = px < 25.0 ? 60.0 * vnoise(p / 80.0) : 30.0;
-      float v = 1.0 - smoothstep(r * 0.7, r, length(p - c) + edge);
-      vec3 vcol = vec3(0.58, 0.52, 0.42);
-      if (px < 6.0) vcol = mix(mix(vec3(0.62, 0.55, 0.45), vec3(0.45, 0.38, 0.32), step(0.5, vnoise(p / 18.0))), vcol, smoothstep(2.0, 6.0, px));
-      col = mix(col, vcol, v);
+
+    // Villages: about one in three 2 km cells.
+    vec2 vid = floor(p / 2000.0);
+    if (khadar < 0.5 && hash12(vid + 91.0) < 0.35) {
+      vec2 c = (vid + 0.25 + 0.5 * vec2(hash12(vid + 3.0), hash12(vid + 5.0))) * 2000.0;
+      float r = 150.0 + 170.0 * hash12(vid + 8.0);
+      // Irregular outline: stretched along a random direction plus a ragged edge.
+      vec2 dv = p - c;
+      float ang = hash12(vid + 37.0) * 3.14159;
+      vec2 ax = vec2(cos(ang), sin(ang));
+      float d = length(vec2(dot(dv, ax) * 0.75, dot(dv, vec2(-ax.y, ax.x)) * 1.25)) + (px < 30.0 ? 80.0 * vnoise(p / 90.0) - 40.0 : 0.0);
+      if (d < r + 70.0) {
+        float core = 1.0 - smoothstep(r * 0.8, r, d);
+        float ring = (1.0 - smoothstep(r, r + 60.0, d)) * (1.0 - core);
+        // From altitude a Punjab village is a dark, brownish, tree-filled blob, not a clearing.
+        vec3 vcol = mix(vec3(0.42, 0.38, 0.30), vec3(0.20, 0.29, 0.13), 0.45 * (1.0 - smoothstep(0.5, 1.0, d / r)) + 0.25);
+        if (px < 6.0) {
+          // Dense lots of brick, concrete and cream roofs, with narrow lanes between blocks.
+          vec2 lot = floor(p / 9.0);
+          float hsh = hash12(lot + 7.0);
+          vec3 roof = hsh < 0.4 ? vec3(0.52, 0.39, 0.31) : hsh < 0.7 ? vec3(0.55, 0.53, 0.49) : hsh < 0.85 ? vec3(0.62, 0.58, 0.49) : vec3(0.20, 0.30, 0.13);
+          vec2 blk = fract(p / 36.0);
+          float lane = step(0.9, max(blk.x, blk.y));
+          vcol = mix(mix(roof, vec3(0.40, 0.36, 0.30), lane), vcol, smoothstep(2.0, 6.0, px));
+        }
+        col = mix(col, vec3(0.17, 0.27, 0.12), ring * 0.85);
+        col = mix(col, vcol, core);
+        // The village pond.
+        vec2 pc = c + (vec2(hash12(vid + 13.0), hash12(vid + 17.0)) - 0.5) * r * 0.9;
+        float pr = 25.0 + 25.0 * hash12(vid + 19.0);
+        col = mix(col, vec3(0.20, 0.28, 0.21), 1.0 - smoothstep(pr, pr + max(px, 2.0), length(p - pc)));
+        // A white gurdwara in about half of them.
+        if (hash12(vid + 23.0) < 0.5) {
+          vec2 gc = c + (vec2(hash12(vid + 29.0), hash12(vid + 31.0)) - 0.5) * r * 0.6;
+          vec2 gd = abs(p - gc);
+          col = mix(col, vec3(0.92, 0.91, 0.86), 1.0 - smoothstep(12.0, 12.0 + max(px, 1.0), max(gd.x, gd.y)));
+        }
+      }
     }
-    // Sandy river banks and sandbars.
-    float sand = 1.0 - smoothstep(1.5, 3.0, w.y - uWaterLevel);
-    return mix(col, vec3(0.78, 0.72, 0.57), sand * uHasWater);
+
+    // Scattered field trees (kikar, shisham) close up.
+    float treeNear = 1.0 - smoothstep(1.5, 5.0, px);
+    shadow *= treeCanopy(p, 0.06 * (1.0 - khadar), 7.0, 10.0, L, treeNear, col, vec3(0.18, 0.28, 0.12));
+    return col;
   }
 
   void main() {
@@ -357,14 +422,14 @@ const FRAGMENT_SHADER = /* glsl */ `
       gRaised = clamp(-relief / 0.12, 0.0, 1.0);
       // Near-camera detail weight: full below 3 m per pixel, gone by 12 m.
       float near = 1.0 - smoothstep(3.0, 12.0, px);
-      // (Not on farmland: flat fields show no visible relief at this scale; crop rows carry the detail.)
+      // (Not on the Punjab plain: it is flat enough that per-pixel relief would not show.)
       if (near > 0.0 && uStyle != 2) {
         vec2 g = detailGrad(vWorld.xz, 22.0, 1.4, px);
         n = normalize(n - vec3(g.x, 0.0, g.y) * near);
       }
       float shadow = 1.0;
       if (uStyle == 1) col = coastColor(vWorld, n, px, near, L, shadow);
-      else col = farmColor(vWorld, px);
+      else col = plainsColor(vWorld, px, L, shadow);
 
       for (int i = 0; i < ${MAX_TERRAIN_RUNWAYS}; i++) {
         if (i >= uRunwayCount) break;

@@ -114,7 +114,7 @@ function buildPlains(s: PlainsShape, waterLevelM: number, n: ShapeNoiseFields, s
     const dz = r.z1 - r.z0;
     const len = Math.sqrt(dx * dx + dz * dz) || 1;
     const lane = 17.3 + i * 41.7;
-    return { r, ux: dx / len, uz: dz / len, lane, phase0: n.meander(0, lane) };
+    return { r, len, ux: dx / len, uz: dz / len, lane, phase0: n.meander(0, lane) };
   });
   return (x, z) => {
     n.warp(x, z, scratch);
@@ -124,17 +124,30 @@ function buildPlains(s: PlainsShape, waterLevelM: number, n: ShapeNoiseFields, s
       const px = x - r.x0;
       const pz = z - r.z0;
       const u = px * rv.ux + pz * rv.uz;
+      if (r.endsAtEnd && u > rv.len) continue;
       const v = px * -rv.uz + pz * rv.ux;
       const f = r.meanderFreq;
       const c = r.meanderAmpM * (n.meander(u * f, rv.lane) - rv.phase0) + 0.35 * r.meanderAmpM * n.meander(u * f * 2.7, rv.lane + 5);
       const dist = Math.abs(v - c);
       const halfW = 0.5 * r.widthM * (1 + 0.25 * n.meander(u * f * 1.7, rv.lane + 9));
-      if (dist > halfW + r.bankWidthM) continue;
-      // Braided channel: sandbars poke just above the water in places.
+      const flood = r.floodplainWidthM ?? 0;
+      const outer = halfW + r.bankWidthM + flood;
+      if (dist > outer) continue;
+      // Floodplain terrace (khadar): 2-4 m above the water, with a low bluff up to the plain.
+      let top = h;
+      if (flood > 0) {
+        const floodH = waterLevelM + 2.5 + 1.2 * n.meander(x / 900, z / 900 + rv.lane);
+        top = floodH + (h - floodH) * smoothstep(outer - 250, outer, dist);
+        if (top > h) top = h;
+        // Braided side channels: zero crossings of a noise field stretched along the flow, so they
+        // run long and roughly parallel to the river; only in the inner part of the floodplain.
+        if (dist > halfW && dist < halfW + r.bankWidthM + flood * 0.6 && Math.abs(n.meander(u / 7000, (v - c) / 450 + rv.lane + 3)) < 0.035) top = waterLevelM - 1.5;
+      }
+      // Main channel: sandbars poke just above the water in places.
       const bar = 7 * Math.max(0, n.meander(x / 350, z / 350 + rv.lane) - 0.4);
       const bed = waterLevelM - 3 + bar;
       const t = smoothstep(halfW, halfW + r.bankWidthM, dist);
-      const hr = bed + (h - bed) * t;
+      const hr = bed + (top - bed) * t;
       if (hr < h) h = hr;
     }
     return h;

@@ -276,6 +276,13 @@ export interface RiverSpec {
   meanderAmpM: number;
   /** Spatial frequency of the meander along the river line. */
   meanderFreq: number;
+  /**
+   * Width, each side beyond the bank, of the river's floodplain (the khadar): a terrace a few
+   * metres above the water and below the plain, crossed by braided side channels. 0/absent = none.
+   */
+  floodplainWidthM?: number;
+  /** True: the river is the segment (x0,z0)-(x1,z1) and ends at (x1,z1) (a tributary joining another river there); otherwise the line is infinite. */
+  endsAtEnd?: boolean;
 }
 
 /** Very flat alluvial plain with rivers carved to `TerrainParams.waterLevelM`. */
@@ -377,7 +384,8 @@ export const THEATRE_TERRAIN_PARAMS: Readonly<Record<TheatreId, TerrainParams>> 
     heightBoundsM: { minM: -80, maxM: 1800 },
     surfaceStyle: 'coastal',
   },
-  // Punjab: flat alluvial farmland at ~234 m, cut by two braided rivers (Sutlej- and Beas-like).
+  // Punjab: flat alluvial plain at ~234 m, cut by two braided rivers (Sutlej- and Beas-like) in
+  // wide sandy floodplains a few metres below it.
   punjab: {
     ...DEFAULT_TERRAIN_PARAMS,
     fbm: { octaves: 4, baseFrequency: 1 / 9000, baseAmplitudeM: 1, lacunarity: 2.0, persistence: 0.5 },
@@ -387,8 +395,8 @@ export const THEATRE_TERRAIN_PARAMS: Readonly<Record<TheatreId, TerrainParams>> 
       baseElevationM: 234,
       reliefM: 2.5,
       rivers: [
-        { x0: 80000, z0: 10000, x1: -80000, z1: 50000, widthM: 700, bankWidthM: 350, meanderAmpM: 2000, meanderFreq: 1 / 15000 },
-        { x0: 70000, z0: -100000, x1: 10000, z1: 30000, widthM: 450, bankWidthM: 250, meanderAmpM: 1500, meanderFreq: 1 / 12000 },
+        { x0: 80000, z0: 10000, x1: -80000, z1: 50000, widthM: 700, bankWidthM: 250, meanderAmpM: 2000, meanderFreq: 1 / 15000, floodplainWidthM: 2500 },
+        { x0: 70000, z0: -100000, x1: 11615, z1: 26500, widthM: 450, bankWidthM: 200, meanderAmpM: 1500, meanderFreq: 1 / 12000, floodplainWidthM: 1400, endsAtEnd: true }, // the Beas joins the Sutlej
       ],
     },
     waterLevelM: 226,
