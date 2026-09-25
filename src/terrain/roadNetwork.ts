@@ -8,7 +8,7 @@
  * - Villages on a jittered grid, kept off rivers, floodplains, towns and airbases.
  * - Village link roads between grid neighbours, bending a little, never crossing a river; villages
  *   near a town get a district road into it.
- * - A street grid inside every town, and a couple of lanes through every village.
+ * - A few narrow lanes through every settlement (towns are just larger village clusters).
  * A uniform-grid spatial index lets src/terrain/chunkFeatures.ts fetch what touches one chunk.
  *
  * Everything is a pure function of (params, sampler): the same network in every thread.
@@ -74,9 +74,10 @@ export function cellKey(ix: number, iz: number): number {
   return (ix + 4096) * 8192 + (iz + 4096);
 }
 
-const WIDTH: Readonly<Record<RouteSpecCls, number>> = { highway: 22, state: 9, district: 7, canal: 26 };
+// Narrow roads, as in the reference imagery: even the national highways read as 2-lane roads from the air.
+const WIDTH: Readonly<Record<RouteSpecCls, number>> = { highway: 11, state: 10, district: 8, canal: 26 };
 type RouteSpecCls = NetworkSpec['routes'][number]['cls'];
-const CLS: Readonly<Record<RouteSpecCls, DecalClass>> = { highway: DecalClass.Highway, state: DecalClass.State, district: DecalClass.District, canal: DecalClass.Canal };
+const CLS: Readonly<Record<RouteSpecCls, DecalClass>> = { highway: DecalClass.State, state: DecalClass.District, district: DecalClass.District, canal: DecalClass.Canal };
 
 function makePolyline(cls: DecalClass, widthM: number, xz: number[], treeKind: number, treeProb: number, bridges: boolean): RoadPolyline {
   const n = xz.length / 2;
@@ -165,8 +166,9 @@ export function buildRoadNetwork(params: TerrainParams, sampler: HeightSampler):
     });
     if (pts.length < 4) return;
     const cls = CLS[r.cls];
-    const treeKind = r.cls === 'district' ? TreeKind.Poplar : TreeKind.Eucalyptus;
-    const treeProb = r.cls === 'canal' ? 0.85 : r.cls === 'highway' ? 0.7 : 0.6;
+    // Sparse roadside trees (shisham, kikar, some eucalyptus); canals keep fuller rows.
+    const treeKind = r.cls === 'canal' ? TreeKind.Eucalyptus : TreeKind.Broadleaf;
+    const treeProb = r.cls === 'canal' ? 0.6 : 0.3;
     roads.push(makePolyline(cls, WIDTH[r.cls], pts, treeKind, treeProb, r.cls !== 'district'));
   });
 
@@ -205,7 +207,7 @@ export function buildRoadNetwork(params: TerrainParams, sampler: HeightSampler):
     bentPath(a.x, a.z, b.x, b.z, Math.max(400, len / 3), 0.09 * len, lseed, true, xz);
     if (crossesWater(xz)) return false;
     if (spec.exclusions.some((e) => segmentsNear(xz, e.x, e.z, e.radiusM))) return false;
-    roads.push(makePolyline(cls, width, xz, TreeKind.Poplar, 0.5, false));
+    roads.push(makePolyline(cls, width, xz, TreeKind.Broadleaf, 0.2, false));
     degree.set(a, (degree.get(a) ?? 0) + 1);
     degree.set(b, (degree.get(b) ?? 0) + 1);
     return true;
@@ -217,9 +219,10 @@ export function buildRoadNetwork(params: TerrainParams, sampler: HeightSampler):
     const east = villageAt.get((i + 1) * 100000 + j);
     const south = villageAt.get(i * 100000 + j + 1);
     const diag = villageAt.get((i + 1) * 100000 + j + 1);
-    if (east !== undefined && hash3(i, j, 11, seed) < 0.8) link(a, settlements[east]!, (seed + k * 3) | 0, DecalClass.Link, 4 + 1.5 * hash3(i, j, 14, seed));
-    if (south !== undefined && hash3(i, j, 12, seed) < 0.75) link(a, settlements[south]!, (seed + k * 3 + 1) | 0, DecalClass.Link, 4 + 1.5 * hash3(i, j, 15, seed));
-    if (diag !== undefined && hash3(i, j, 13, seed) < 0.2) link(a, settlements[diag]!, (seed + k * 3 + 2) | 0, DecalClass.Link, 4);
+    // Decal widths include ~2 m of dusty verge each side of a 3.5-4.5 m road.
+    if (east !== undefined && hash3(i, j, 11, seed) < 0.8) link(a, settlements[east]!, (seed + k * 3) | 0, DecalClass.Link, 7.5 + 1 * hash3(i, j, 14, seed));
+    if (south !== undefined && hash3(i, j, 12, seed) < 0.75) link(a, settlements[south]!, (seed + k * 3 + 1) | 0, DecalClass.Link, 7.5 + 1 * hash3(i, j, 15, seed));
+    if (diag !== undefined && hash3(i, j, 13, seed) < 0.2) link(a, settlements[diag]!, (seed + k * 3 + 2) | 0, DecalClass.Link, 7.5);
   }
   // Villages near a town get a district road into it (the nearest few).
   towns.forEach((t, ti) => {
@@ -228,7 +231,7 @@ export function buildRoadNetwork(params: TerrainParams, sampler: HeightSampler):
       .sort((p, q) => Math.hypot(p.x - t.x, p.z - t.z) - Math.hypot(q.x - t.x, q.z - t.z))
       .slice(0, t.kind === 'city' ? 10 : 5);
     near.forEach((v, n) => {
-      if (hash3(ti, n, 21, seed) < 0.75) link(v, t, (seed + ti * 1009 + n) | 0, DecalClass.District, 6.5);
+      if (hash3(ti, n, 21, seed) < 0.75) link(v, t, (seed + ti * 1009 + n) | 0, DecalClass.District, 8);
     });
   });
 
@@ -245,40 +248,17 @@ export function buildRoadNetwork(params: TerrainParams, sampler: HeightSampler):
       if (o !== undefined && o !== vi) cands.push(settlements[o]!);
     }
     cands.sort((p, q) => Math.hypot(p.x - a.x, p.z - a.z) - Math.hypot(q.x - a.x, q.z - a.z));
-    for (const b of cands) if (link(a, b, (seed + k * 7 + 5) | 0, DecalClass.Link, 4)) break;
+    for (const b of cands) if (link(a, b, (seed + k * 7 + 5) | 0, DecalClass.Link, 7.5)) break;
   }
 
-  // --- streets: a grid inside every town, a couple of lanes through every village ---------------
+  // --- lanes: every settlement is a village-style cluster (towns just larger), with a few narrow lanes
   for (const s of settlements) {
-    const c = Math.cos(s.rotRad);
-    const sn = Math.sin(s.rotRad);
-    if (s.kind === 'village') {
-      for (let a = 0; a < 2; a++) {
-        const ang = s.rotRad + a * Math.PI * 0.5;
-        const dx = Math.cos(ang) * s.radiusM * 0.85;
-        const dz = Math.sin(ang) * s.radiusM * 0.85;
-        roads.push(makePolyline(DecalClass.Street, 4, [s.x - dx, s.z - dz, s.x + dx, s.z + dz], -1, 0, false));
-      }
-      continue;
-    }
-    const spacing = s.kind === 'city' ? 130 : 115;
-    const R = s.radiusM;
-    for (let axis = 0; axis < 2; axis++) {
-      for (let d = -R + spacing * 0.5, li = 0; d < R; d += spacing, li++) {
-        const reach = Math.sqrt(Math.max(0, R * R - d * d)) * (0.8 + 0.25 * hash3(li, axis, 31, s.seed));
-        if (reach < 60) continue;
-        // Local line: d across, -reach..reach along; rotate into the world.
-        const ux = axis === 0 ? c : -sn;
-        const uz = axis === 0 ? sn : c;
-        const vx = -uz;
-        const vz = ux;
-        const x0 = s.x + vx * d - ux * reach;
-        const z0 = s.z + vz * d - uz * reach;
-        const x1 = s.x + vx * d + ux * reach;
-        const z1 = s.z + vz * d + uz * reach;
-        const arterial = li % 4 === 0;
-        roads.push(makePolyline(arterial ? DecalClass.District : DecalClass.Street, arterial ? 10 : 6, [x0, z0, x1, z1], -1, 0, false));
-      }
+    const lanes = s.kind === 'village' ? 2 : 4;
+    for (let a = 0; a < lanes; a++) {
+      const ang = s.rotRad + (a * Math.PI) / lanes + (a > 1 ? 0.3 * (hash3(a, 0, 41, s.seed) - 0.5) : 0);
+      const dx = Math.cos(ang) * s.radiusM * 0.9;
+      const dz = Math.sin(ang) * s.radiusM * 0.9;
+      roads.push(makePolyline(DecalClass.Street, 6, [s.x - dx, s.z - dz, s.x + dx, s.z + dz], -1, 0, false));
     }
   }
 

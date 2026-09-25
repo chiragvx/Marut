@@ -24,7 +24,8 @@ describe('Punjab road network', () => {
   test('has the named towns, highways, canals and thousands of villages', () => {
     expect(net.settlements.filter((s) => s.kind === 'city').length).toBe(3);
     expect(net.settlements.filter((s) => s.kind === 'village').length).toBeGreaterThan(3000);
-    expect(net.roads.some((r) => r.cls === DecalClass.Highway)).toBe(true);
+    // National highways are drawn as narrow 2-lane roads (State class), as they look from the air.
+    expect(net.roads.some((r) => r.cls === DecalClass.State)).toBe(true);
     expect(net.roads.some((r) => r.cls === DecalClass.Canal)).toBe(true);
   });
 
@@ -63,9 +64,11 @@ describe('Punjab chunk scenery', () => {
     expect(f.buildingMatrices.length / 16).toBeGreaterThan(100);
   });
 
-  test('a city chunk (Jalandhar) is dense with buildings', () => {
+  test('towns are small house clusters, not cities (Jalandhar chunk)', () => {
     const { f } = chunk(-17390, 11830);
-    expect(f.buildingMatrices.length / 16).toBeGreaterThan(10000);
+    const n = f.buildingMatrices.length / 16;
+    expect(n).toBeGreaterThan(200);
+    expect(n).toBeLessThan(8000);
   });
 
   test('scenery sits on the rendered terrain surface', () => {

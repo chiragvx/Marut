@@ -5,7 +5,7 @@
  * theatre:
  *   0 default  — flat single colour, unlit (the flight-model testing surface; see the note below)
  *   1 coastal  — Konkan: beaches, lush green plain with laterite patches and tree canopy, forested Ghats
- *   2 farmland — Punjab: soft late-winter plain (no fields) and sandy braided floodplains; roads,
+ *   2 farmland — Punjab: a muted field patchwork (after an oblique satellite view) and sandy braided floodplains; roads,
  *                canals, settlements and trees are real geometry (chunkFeatureRenderer.ts)
  * plus water shading (fresnel sky reflection, sun glint, shallow-water colour and shore foam)
  * wherever the mesh sits at the terrain's water level, and runway asphalt with a grass strip
@@ -96,11 +96,6 @@ const VERTEX_SHADER = /* glsl */ `
     vec2 p = position.xz;
     vMacro = vec4(vnoise(p / 7000.0), 0.0, 0.0, 0.0);
     vLow = 0.0;
-    if (uStyle == 2) {
-      // Only patterns far larger than the coarsest chunk's vertex spacing (~520 m) are per vertex;
-      // smaller ones interpolated from coarse chunks would show the chunk squares.
-      vMacro.y = vnoise(p / 1600.0 + 3.0); // fallow / ploughed patches
-    }
     if (uStyle == 1) {
       // The two coarse octaves of the 600 m vegetation pattern (fbm3's first two terms); the fragment
       // shader adds the fine octave near the camera.
@@ -293,24 +288,70 @@ const FRAGMENT_SHADER = /* glsl */ `
     return col;
   }
 
-  // Punjab in late winter, as it looks from a fighter: no individual fields, but a soft wheat-green
-  // plain with gentle fallow and mustard patches, and the braided rivers' sandy floodplain
-  // (khadar) a few metres below the plain.
+  // Punjab from the air (reference: an oblique satellite view near Jalandhar): a patchwork of
+  // rectangular fields, mostly on one grid, in muted colours - about half beige/tan/brown (harvested
+  // or bare), soft and mid greens, some dark green (sugarcane, orchards), the odd purple-brown - with
+  // thin dirt field edges, faint rows or orchard dots in some fields, and the braided rivers' sandy
+  // floodplain (khadar) a few metres below the plain.
   vec3 plainsColor(vec3 w, float px, vec3 L, inout float shadow) {
     vec2 p = w.xz;
     float hw = w.y - uWaterLevel;
-    float m = 0.5 * vnoise(p / 900.0) + 0.3 * vnoise(p / 443.0 + 17.0) + 0.1;
-    vec3 col = mix(vec3(0.26, 0.37, 0.16), vec3(0.36, 0.47, 0.21), smoothstep(0.3, 0.7, m));
-    float fallow = smoothstep(0.62, 0.78, vMacro.y) * 0.65;
-    col = mix(col, vec3(0.55, 0.49, 0.36), fallow);
-    col = mix(col, vec3(0.62, 0.60, 0.30), smoothstep(0.78, 0.9, vnoise(p / 800.0 + 31.0)) * 0.35);
-    // Soft tonal variation at ~200 m and mottling close up (no edges anywhere).
-    if (px < 30.0) col *= 0.93 + 0.14 * vnoise(p / 220.0 + 7.0) * (1.0 - smoothstep(20.0, 30.0, px)) + 0.035 * smoothstep(20.0, 30.0, px);
-    // Dense ground detail from the texture array (mipmapped, so it averages out cleanly far away):
-    // crop canopy, soil where fallow.
+    // Field grid: ~760 m blocks on a slightly rotated grid, each split into 2-5 x 2-6 fields.
+    vec2 q = vec2(0.993 * p.x - 0.12 * p.y, 0.12 * p.x + 0.993 * p.y);
+    const float B = 760.0;
+    vec2 bid = floor(q / B);
+    vec2 n = vec2(2.0 + floor(hash12(bid + 1.3) * 4.0), 2.0 + floor(hash12(bid + 2.7) * 5.0));
+    vec2 fl = fract(q / B) * n;
+    vec2 fid = floor(fl);
+    vec2 ff = fract(fl);
+    vec2 fsize = B / n;
+    vec2 id = bid * 8.0 + fid;
+    // About a third of the fields are split again into 2-4 long narrow strips (typical of Punjab).
+    float sp = hash12(id + 7.7);
+    if (sp < 0.35) {
+      float k = 2.0 + floor(sp / 0.35 * 3.0);
+      if (fsize.x > fsize.y) { float s = floor(ff.x * k); ff.x = fract(ff.x * k); fsize.x /= k; id += vec2(s * 0.37, 0.0); }
+      else { float s = floor(ff.y * k); ff.y = fract(ff.y * k); fsize.y /= k; id += vec2(0.0, s * 0.37); }
+    }
+    float h = hash12(id + 5.1);
+    vec3 fieldCol;
+    float soil; // 1 for bare/harvested fields (soil detail), 0 for crops (canopy detail)
+    if (h < 0.20)      { fieldCol = vec3(0.66, 0.60, 0.49); soil = 1.0; }
+    else if (h < 0.38) { fieldCol = vec3(0.58, 0.51, 0.40); soil = 1.0; }
+    else if (h < 0.46) { fieldCol = vec3(0.48, 0.41, 0.33); soil = 1.0; }
+    else if (h < 0.62) { fieldCol = vec3(0.40, 0.43, 0.31); soil = 0.3; }
+    else if (h < 0.78) { fieldCol = vec3(0.29, 0.36, 0.23); soil = 0.0; }
+    else if (h < 0.88) { fieldCol = vec3(0.18, 0.26, 0.16); soil = 0.0; }
+    else if (h < 0.955) { fieldCol = vec3(0.50, 0.49, 0.37); soil = 0.5; }
+    else if (h < 0.97) { fieldCol = vec3(0.47, 0.42, 0.39); soil = 1.0; }
+    else               { fieldCol = vec3(0.52, 0.55, 0.45); soil = 0.4; }
+    fieldCol *= 0.92 + 0.16 * hash12(id + 9.7);
+    // Close up: faint rows along the field (or orchard dots on dark-green fields), fading by distance.
+    float rowsW = 1.0 - smoothstep(0.6, 2.0, px);
+    if (rowsW > 0.0 && hash12(id + 3.3) < 0.3) {
+      vec2 fm = ff * fsize;
+      float along = hash12(id + 4.4) < 0.5 ? fm.x : fm.y;
+      if (h >= 0.78 && h < 0.88) {
+        vec2 g = fract(fm / 6.0) - 0.5;
+        fieldCol *= 1.0 - 0.3 * rowsW * (1.0 - smoothstep(0.15, 0.3, length(g)));
+      } else {
+        fieldCol *= 1.0 - 0.07 * rowsW * (0.5 + 0.5 * sin(along * 0.8));
+      }
+    }
+    // The fields dissolve into their average only once they are a few pixels wide (no shimmer).
+    vec3 avgCol = vec3(0.47, 0.47, 0.35) * (0.95 + 0.1 * vnoise(p / 3000.0));
+    float farW = smoothstep(min(fsize.x, fsize.y) * 0.25, min(fsize.x, fsize.y) * 0.8, px);
+    vec3 col = mix(fieldCol, avgCol, farW);
+    // Thin dirt field edges (bunds).
+    vec2 edge = min(ff, 1.0 - ff) * fsize;
+    // Close up a crisp 2.4 m bund; further out a faint pale line (it still reads between fields from altitude).
+    float bw = max(1.2, px * 0.6);
+    float bund = (1.0 - smoothstep(bw, bw + px, min(edge.x, edge.y))) * mix(0.8, 0.35, smoothstep(4.0, 15.0, px)) * (1.0 - smoothstep(30.0, 60.0, px));
+    col = mix(col, vec3(0.64, 0.60, 0.51), bund);
+    // Dense surface detail: soil on bare fields, crop canopy on the rest.
     vec3 det = detailAt(p, 0.0, 16.0, px);
-    if (fallow > 0.01) det = mix(det, detailAt(p, 1.0, 12.0, px), fallow / 0.65);
-    col *= mix(vec3(1.0), det, 0.7);
+    if (soil > 0.01) det = mix(det, detailAt(p, 1.0, 12.0, px), soil * (1.0 - farW));
+    col *= mix(vec3(1.0), det, 0.7 - 0.35 * soil);
 
     // Floodplain (khadar): pale sand near the water, sparse pale grass above it.
     float khadar = (1.0 - smoothstep(4.0, 5.5, hw)) * uHasWater;

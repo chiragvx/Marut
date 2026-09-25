@@ -4,10 +4,10 @@
  * For one terrain chunk it produces (contracts/terrain.ts ChunkFeatures):
  * - ground decals: road ribbons, canals, village/town ground and village ponds, draped on the
  *   chunk's own terrain triangles (`surface`) so they sit exactly on the rendered mesh;
- * - tree instances: rows along roads and canals (in stretches, with gaps), poplar rows along field
- *   boundaries, trees in and around villages, scattered field trees;
- * - building instances: village houses on a lot grid with lanes (plus a gurdwara in about half the
- *   villages), and town blocks filled along the street grid, taller towards the centre.
+ * - tree instances: sparse trees along roads, fuller rows along canals, a few poplar rows on field
+ *   boundaries, groves, trees in and around villages, scattered field trees;
+ * - building instances: houses clustered on a lot grid with lanes (plus a gurdwara in about half of
+ *   the settlements); towns are simply larger clusters.
  * Every item is generated from global, deterministic hashes and kept only if it falls in this
  * chunk, so neighbouring chunks (and the same area at another LOD) agree with each other.
  */
@@ -28,15 +28,16 @@ const DECAL_LIFT_M = 0.08;
 /** Bridge deck clearance above the water for roads that bridge rivers. */
 const BRIDGE_CLEARANCE_M = 6;
 
+// Mostly pale grey and white from the air (flat concrete roofs, whitewash), some brick and cream.
 const BUILDING_COLORS: readonly (readonly [number, number, number])[] = [
-  [0.55, 0.36, 0.28], // brick
-  [0.8, 0.74, 0.62], // cream plaster
-  [0.62, 0.62, 0.6], // grey concrete
-  [0.8, 0.64, 0.6], // pastel pink
-  [0.64, 0.71, 0.78], // pastel blue
-  [0.66, 0.74, 0.6], // pastel green
-  [0.84, 0.83, 0.79], // white
-  [0.78, 0.68, 0.48], // ochre
+  [0.72, 0.71, 0.68], // pale concrete
+  [0.8, 0.79, 0.76], // whitewash
+  [0.64, 0.63, 0.6], // grey concrete
+  [0.84, 0.83, 0.8], // white
+  [0.76, 0.72, 0.64], // cream plaster
+  [0.58, 0.42, 0.34], // brick
+  [0.7, 0.69, 0.66], // pale concrete
+  [0.78, 0.7, 0.62], // pinkish plaster
 ];
 
 class Out {
@@ -163,14 +164,33 @@ export function buildChunkFeatures(net: RoadNetwork, b: ChunkBounds, surface: Su
   for (const s of nearSettlements) {
     const centreHere = inRect(b, s.x, s.z);
     if (centreHere) {
-      pushFan(o, s.x, s.z, s.kind === 'village' ? s.radiusM * 1.05 : s.radiusM * 1.05, s.seed, s.kind === 'village' ? DecalClass.VillageGround : DecalClass.TownGround, surface, 1);
+      pushFan(o, s.x, s.z, s.radiusM * 1.05, s.seed, DecalClass.VillageGround, surface, 1);
     }
-    if (s.kind === 'village') {
-      const pond = villagePond(s);
-      if (centreHere) pushFan(o, pond.x, pond.z, pond.r, s.seed + 1, DecalClass.Canal, surface, 0.44);
-      if (opts.objects) buildVillage(o, s, pond, b, surface, opts);
-    } else if (opts.objects) {
-      buildTown(o, s, b, surface);
+    // Every settlement is a village-style cluster (towns are just larger and a little denser).
+    const pond = villagePond(s);
+    if (centreHere) pushFan(o, pond.x, pond.z, pond.r, s.seed + 1, DecalClass.Canal, surface, 0.44);
+    if (opts.objects) buildVillage(o, s, pond, b, surface, opts);
+  }
+
+  // --- groves: small dense clumps of trees (the dark patches in aerial views) ------------------
+  const CG = 1000;
+  for (let iz = Math.floor((b.minZ - 150) / CG); iz <= Math.floor((b.maxZ + 150) / CG); iz++) {
+    for (let ix = Math.floor((b.minX - 150) / CG); ix <= Math.floor((b.maxX + 150) / CG); ix++) {
+      if (hash3(ix, iz, 1, 95) > 0.1) continue;
+      const gx = (ix + hash3(ix, iz, 2, 95)) * CG;
+      const gz = (iz + hash3(ix, iz, 3, 95)) * CG;
+      const gr = 40 + 80 * hash3(ix, iz, 4, 95);
+      if (inRect(b, gx, gz) && !inSettlement(gx, gz, 1.2) && !wet(gx, gz)) pushFan(o, gx, gz, gr * 1.15, ix * 7919 + iz, DecalClass.Grove, surface, 1);
+      if (!opts.objects) continue;
+      const count = Math.round(gr * gr / 90);
+      for (let t = 0; t < count; t++) {
+        const a = hash3(ix * 97 + t, iz, 5, 95) * Math.PI * 2;
+        const d = gr * Math.sqrt(hash3(ix * 97 + t, iz, 6, 95));
+        const tx = gx + Math.cos(a) * d;
+        const tz = gz + Math.sin(a) * d;
+        if (!inRect(b, tx, tz) || inSettlement(tx, tz, 1.05) || wet(tx, tz)) continue;
+        pushTree(o, hash3(ix * 97 + t, iz, 7, 95) < 0.8 ? TreeKind.Broadleaf : TreeKind.Eucalyptus, tx, surface(tx, tz), tz, hash3(ix * 97 + t, iz, 8, 95), hash3(ix * 97 + t, iz, 9, 95));
+      }
     }
   }
 
@@ -179,7 +199,7 @@ export function buildChunkFeatures(net: RoadNetwork, b: ChunkBounds, surface: Su
     const C = 500;
     for (let iz = Math.floor((b.minZ - margin) / C); iz <= Math.floor((b.maxZ + margin) / C); iz++) {
       for (let ix = Math.floor((b.minX - margin) / C); ix <= Math.floor((b.maxX + margin) / C); ix++) {
-        if (hash3(ix, iz, 1, 91) > 0.22 * opts.treeDensity) continue;
+        if (hash3(ix, iz, 1, 91) > 0.05 * opts.treeDensity) continue;
         const sx = (ix + hash3(ix, iz, 2, 91)) * C;
         const sz = (iz + hash3(ix, iz, 3, 91)) * C;
         const ang = 0.12 + (hash3(ix, iz, 4, 91) < 0.5 ? 0 : Math.PI / 2);
@@ -315,50 +335,5 @@ function buildVillage(o: Out, s: Settlement, pond: { x: number; z: number; r: nu
     const tz = s.z + Math.sin(a) * d;
     if (!inRect(b, tx, tz) || Math.hypot(tx - pond.x, tz - pond.z) < pond.r) continue;
     pushTree(o, hash3(i, 3, 0, s.seed + 17) < 0.8 ? TreeKind.Broadleaf : TreeKind.Eucalyptus, tx, surface(tx, tz), tz, hash3(i, 4, 0, s.seed + 17), hash3(i, 5, 0, s.seed + 17));
-  }
-}
-
-function buildTown(o: Out, s: Settlement, b: ChunkBounds, surface: SurfaceFn): void {
-  const c = Math.cos(s.rotRad);
-  const sn = Math.sin(s.rotRad);
-  const city = s.kind === 'city';
-  const S = city ? 130 : 115;
-  const R = s.radiusM;
-  // Blocks lie between the street lines at d = -R + S/2 + k*S (roadNetwork.ts), i.e. centred on -R + k*S.
-  const cellX = city ? 22 : 18;
-  const cellZ = city ? 16 : 14;
-  const inner = S - 10;
-  const nx = Math.floor(inner / cellX);
-  const nz = Math.floor(inner / cellZ);
-  const kMax = Math.ceil((2 * R) / S);
-  // Only blocks near this chunk.
-  for (let kz = 0; kz <= kMax; kz++) {
-    for (let kx = 0; kx <= kMax; kx++) {
-      const bx = -R + kx * S;
-      const bz = -R + kz * S;
-      const d = Math.hypot(bx, bz);
-      if (d > R * 0.95) continue;
-      const wxC = s.x + c * bx - sn * bz;
-      const wzC = s.z + sn * bx + c * bz;
-      if (wxC < b.minX - S || wxC > b.maxX + S || wzC < b.minZ - S || wzC > b.maxZ + S) continue;
-      if (hash3(kx, kz, 1, s.seed) < 0.06) continue; // parks and open ground
-      const centrality = 1 - d / R;
-      for (let jz = 0; jz < nz; jz++) {
-        for (let jx = 0; jx < nx; jx++) {
-          const h = hash3(kx * 64 + jx, kz * 64 + jz, 2, s.seed);
-          if (h > 0.55 + 0.35 * centrality) continue;
-          const lx = bx - inner / 2 + (jx + 0.5) * cellX;
-          const lz = bz - inner / 2 + (jz + 0.5) * cellZ;
-          const x = s.x + c * lx - sn * lz;
-          const z = s.z + sn * lx + c * lz;
-          if (!inRect(b, x, z)) continue;
-          const f = hash3(kx * 64 + jx, kz * 64 + jz, 3, s.seed);
-          const floors = 1 + Math.floor(f * (city ? 2 + 3 * centrality : 1.5 + 1.5 * centrality));
-          pushMatrix(o.bldM, x, surface(x, z), z, s.rotRad, cellX - 2 - 3 * f, floors * 3.3, cellZ - 2 - 2 * h);
-          const col = BUILDING_COLORS[Math.floor(hash3(kx * 64 + jx, kz * 64 + jz, 4, s.seed) * BUILDING_COLORS.length)]!;
-          o.bldC.push(col[0], col[1], col[2]);
-        }
-      }
-    }
   }
 }

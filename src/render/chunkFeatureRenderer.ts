@@ -110,23 +110,34 @@ const DECAL_FS = /* glsl */ `
       col = mix(col, vec3(0.84), clamp(lines, 0.0, 1.0) * detail);
       alpha = 1.0 - smoothstep(hw - 0.8, hw, am);
     } else if (cls == 2 || cls == 3 || cls == 4) {
-      // District, link and town roads: plain asphalt, worn and dusty at the edges.
-      float core = hw - (cls == 3 ? 0.7 : 1.0);
-      vec3 worn = cls == 3 ? mix(asphalt, dust, 0.25) : asphalt;
-      col = mix(dust, worn, 1.0 - smoothstep(core - 0.4 * vnoise(vWorld.xz / 2.0), core + pw, am));
-      alpha = 1.0 - smoothstep(hw - 0.4, hw + 0.2, am);
+      // District, link and village roads: narrow, pale (concrete or dusty tar) with dusty verges
+      // either side (the verge is what makes them read as pale lines from altitude).
+      float core = hw - 2.0;
+      vec3 surf = cls == 2 ? mix(asphalt, dust, 0.15) : mix(vec3(0.60, 0.58, 0.54) * mix(vec3(1.0), detailAt(vWorld.xz, 3.0, 6.0, pw), 0.6), dust, 0.2);
+      vec3 verge = vec3(0.74, 0.70, 0.60) * mix(vec3(1.0), detailAt(vWorld.xz, 1.0, 10.0, pw), 0.6);
+      col = mix(verge, surf, 1.0 - smoothstep(core - 0.3 * vnoise(vWorld.xz / 2.0), core + pw, am));
+      alpha = 1.0 - smoothstep(hw - 0.8, hw + 0.2, am);
     } else if (cls == 5) {
       // Canal (and village pond): lined water in the middle, earthen banks with a path.
       float water = 1.0 - smoothstep(0.46 * hw, 0.46 * hw + pw, am);
-      vec3 w = vec3(0.20, 0.30, 0.27) + 0.03 * vnoise(vWorld.xz / 5.0);
+      vec3 w = vec3(0.26, 0.32, 0.27) + 0.03 * vnoise(vWorld.xz / 5.0);
       col = mix(mix(dust, vec3(0.62, 0.60, 0.55), band(am, 0.49 * hw, 0.5, pw)), w, water);
       alpha = 1.0 - smoothstep(hw - 1.0, hw, am);
-    } else {
-      // Village / town ground: packed earth and dust, fading out at the rim.
+    } else if (cls == 8) {
+      // Grove: tree canopy seen from above (the 3D trees stand on it up close; it carries the grove
+      // at any distance).
       float rim = vDecal.x;
-      col = cls == 6 ? vec3(0.47, 0.45, 0.35) : vec3(0.52, 0.50, 0.46);
-      col *= (0.88 + 0.24 * vnoise(vWorld.xz / 23.0)) * mix(vec3(1.0), detailAt(vWorld.xz, 1.0, 10.0, pw), 0.9);
-      alpha = (1.0 - smoothstep(0.55, 1.0, rim + 0.15 * vnoise(vWorld.xz / 60.0))) * (cls == 6 ? 0.7 : 1.0);
+      float clumps = vnoise(vWorld.xz / 9.0) * 0.6 + vnoise(vWorld.xz / 31.0) * 0.4;
+      col = mix(vec3(0.12, 0.18, 0.10), vec3(0.20, 0.27, 0.14), clumps);
+      alpha = (1.0 - smoothstep(0.6, 1.0, rim + 0.3 * (vnoise(vWorld.xz / 40.0) - 0.5))) * smoothstep(0.25, 0.45, clumps + 0.15);
+    } else {
+      // Village ground: pale grey built-up ground and roofs, mottled with dark tree canopy.
+      float rim = vDecal.x;
+      col = vec3(0.60, 0.59, 0.55) * (0.88 + 0.24 * vnoise(vWorld.xz / 14.0)) * mix(vec3(1.0), detailAt(vWorld.xz, 1.0, 10.0, pw), 0.7);
+      // A few dark tree clumps, more towards the edge of the cluster.
+      float trees = smoothstep(0.62, 0.75, vnoise(vWorld.xz / 45.0) * 0.75 + vnoise(vWorld.xz / 15.0) * 0.25 + 0.25 * rim);
+      col = mix(col, vec3(0.17, 0.23, 0.13), trees * 0.8);
+      alpha = 1.0 - smoothstep(0.7, 1.0, rim + 0.2 * (vnoise(vWorld.xz / 60.0) - 0.5));
     }
     col = lightGround(col, vec3(0.0, 1.0, 0.0), vWorld);
     gl_FragColor = vec4(mix(col, uFogColor, fogAmount(vDist)), alpha);

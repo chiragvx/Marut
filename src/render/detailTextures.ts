@@ -76,7 +76,7 @@ const LAYERS: readonly Texel[] = [
     const crackN = pnoise(u, v, 16, 22) * 0.6 + pnoise(u, v, 32, 23) * 0.4;
     const crack = Math.max(0, 1 - Math.abs(crackN - 0.5) / 0.03);
     const pebble = hash(ix >> 2, iy >> 2, 24) > 0.985 ? 0.12 : 0;
-    const l = 0.5 + 0.45 * (tone - 0.5) + 0.08 * (hash(ix, iy, 25) - 0.5) - 0.18 * crack + pebble;
+    const l = 0.5 + 0.3 * (tone - 0.5) + 0.08 * (hash(ix, iy, 25) - 0.5) - 0.06 * crack + pebble;
     return [l * 1.03, l, l * 0.96];
   },
   // Sand: fine grain and wind ripples.
