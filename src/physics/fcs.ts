@@ -17,8 +17,13 @@ import type { FcsLimits } from '../contracts/aircraft';
 import { GROUND_LAW_MAX_ROTATION_RATE_RAD_S } from '../contracts/flight';
 import { Quat, clamp, lerp, rateLimitStep, bodyRateP, bodyRateQ, bodyRateR } from '../math';
 
-/** Ki — pitch trim-integral gain, rad/(g*s). */
-const FCS_TRIM_INTEGRAL_GAIN = 0.02;
+/**
+ * Ki — pitch trim-integral gain, rad/(g*s). Raised from 0.02: at that rate a low-speed g error
+ * (e.g. 1.15g hands-off at 110 m/s after a disturbance) took ~10-15s to trim out, which the pilot
+ * sees as the nose slowly rising on its own. 0.1 settles the same case in ~5s with no pull-up
+ * oscillation (checked across 65-160 m/s, 20-100% stick, 500/3000 m).
+ */
+const FCS_TRIM_INTEGRAL_GAIN = 0.1;
 /** Anti-windup clamp on trimIntegralRad, rad (~12deg). */
 const FCS_TRIM_INTEGRAL_MAX_RAD = 0.2094;
 
@@ -355,9 +360,43 @@ export function setFcsTrimState(entityIndex: number, trimIntegralRadValue: numbe
   lastGLoadRad[entityIndex] = lastGLoadRadValue;
 }
 
-/** Pure helper (exposed for test 16/17): the pitch g-command law's `gCmd`, before alpha-limiting. */
-export function computeGCommand(pitchStick: number, fcsLimits: Pick<FcsLimits, 'maxGLoadPos' | 'maxGLoadNeg'>): number {
-  return pitchStick >= 0 ? lerp(1.0, fcsLimits.maxGLoadPos, pitchStick) : lerp(1.0, fcsLimits.maxGLoadNeg, -pitchStick);
+/**
+ * Pure helper (exposed for test 16/17): the pitch g-command law's `gCmd`, before alpha-limiting.
+ * `neutralG` is the load factor commanded with the stick centred (see `neutralGReference`); full
+ * aft/forward stick still commands maxGLoadPos/maxGLoadNeg exactly.
+ */
+export function computeGCommand(pitchStick: number, fcsLimits: Pick<FcsLimits, 'maxGLoadPos' | 'maxGLoadNeg'>, neutralG = 1.0): number {
+  return pitchStick >= 0 ? lerp(neutralG, fcsLimits.maxGLoadPos, pitchStick) : lerp(neutralG, fcsLimits.maxGLoadNeg, -pitchStick);
+}
+
+/** Bank angle, rad (33deg), beyond which the neutral-stick reference stops compensating for bank. */
+const FCS_BANK_COMPENSATION_MAX_RAD = 0.5760;
+const COS_BANK_COMPENSATION_MAX = Math.cos(FCS_BANK_COMPENSATION_MAX_RAD);
+
+const scratchBodyAxis: Vec3Like = { x: 0, y: 0, z: 0 };
+const BODY_FORWARD: Vec3Like = { x: 1, y: 0, z: 0 };
+const BODY_UP: Vec3Like = { x: 0, y: 1, z: 0 };
+
+/**
+ * Neutral-stick load-factor reference, `cos(theta)/cos(phi)` (pitch attitude theta, bank phi), with
+ * the bank term only applied up to FCS_BANK_COMPENSATION_MAX_RAD -- the flight-path-stable
+ * neutral point modern g-command FBW laws use. A centred stick then holds the current flight path
+ * (and altitude in a gentle banked turn) instead of commanding a flat 1g.
+ *
+ * A flat 1g reference made the aircraft pitch up on its own: in a climb of angle gamma, holding a
+ * straight path only needs cos(gamma) g, so the extra `1 - cos(gamma)` g kept curving the path
+ * upward -- live report "natural pitch up in level flight", reproduced headless as a hands-off
+ * 110 m/s cruise whose flight-path angle drifted 3.7deg -> 10.5deg over 60s and still rising.
+ */
+export function neutralGReference(rot: Readonly<QuatLike>): number {
+  Quat.rotate(rot, BODY_FORWARD, scratchBodyAxis);
+  const sinTheta = clamp(scratchBodyAxis.y, -1, 1);
+  const cosTheta = Math.sqrt(1 - sinTheta * sinTheta);
+  if (cosTheta < 1e-3) return 0; // vertical: no gravity component along the body normal
+  Quat.rotate(rot, BODY_UP, scratchBodyAxis);
+  const cosPhi = scratchBodyAxis.y / cosTheta;
+  if (cosPhi >= COS_BANK_COMPENSATION_MAX) return cosTheta / cosPhi;
+  return cosTheta;
 }
 
 const scratchNonGravWorld: Vec3Like = { x: 0, y: 0, z: 0 };
@@ -448,7 +487,7 @@ export function stepFcs(
   // ground law now needs it too — see that branch's own comment for why.
   const alphaAnticipated = alpha + q * ALPHA_LIMIT_ANTICIPATION_SEC;
   if (!currentOnGround) {
-    let gCmd = computeGCommand(pitchStickShaped, fcsLimits);
+    let gCmd = computeGCommand(pitchStickShaped, fcsLimits, neutralGReference(rot));
     // Per PilotInputs.alphaLimiterDisabled's own doc comment: a player-facing Settings escape
     // hatch that bypasses this whole block, leaving gCmd as the raw pilot demand unconditionally
     // (alphaLimitActive stays false so the trim-integral freeze below never engages either — with

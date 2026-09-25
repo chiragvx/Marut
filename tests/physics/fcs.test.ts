@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { stepFcs, computeGCommand, getTrimIntegralRad, resetFcsTrimState, entityPoolIndex, type FcsSurfaces } from '../../src/physics/fcs';
-import { rateLimitStep } from '../../src/math';
+import { stepFcs, computeGCommand, neutralGReference, getTrimIntegralRad, resetFcsTrimState, entityPoolIndex, type FcsSurfaces } from '../../src/physics/fcs';
+import { Quat, rateLimitStep } from '../../src/math';
 import { GROUND_LAW_MAX_ROTATION_RATE_RAD_S } from '../../src/contracts/flight';
 import type { PilotInputs, DamageState, Vec3Like } from '../../src/contracts/core';
 import type { FcsLimits } from '../../src/contracts/aircraft';
@@ -243,7 +243,7 @@ describe('stepFcs', () => {
 
     let elevonSym = 0;
     let gLoad = k * elevonSym;
-    let gLoadAt2s = NaN;
+    let gLoadEarly = NaN;
 
     const totalSteps = 20 * 120;
     for (let step = 1; step <= totalSteps; step++) {
@@ -251,13 +251,13 @@ describe('stepFcs', () => {
       stepFcs(index, surfaces, false, false, 0, ZERO3, totalForceWorld, IDENTITY, massKg, g, inputs, damage, limits, dt);
       elevonSym = (surfaces.elevonL + surfaces.elevonR) / 2;
       gLoad = k * elevonSym;
-      if (step === 2 * 120) gLoadAt2s = gLoad;
+      if (step === 12) gLoadEarly = gLoad; // t=0.1s
     }
 
     // With no proportional/rate contribution at all (see this test's own setup comment), gLoad
-    // starts at exactly 0 and only the slow trim integral moves it -- still far short of gCmd=1
-    // (a >5% error) at t=2s, before the integral has had much time to act.
-    expect(Math.abs(gLoadAt2s - 1.0) / 1.0).toBeGreaterThan(0.05);
+    // starts at exactly 0 and only the trim integral moves it -- still far short of gCmd=1 (a >5%
+    // error) at t=0.1s, before the integral has had much time to act.
+    expect(Math.abs(gLoadEarly - 1.0) / 1.0).toBeGreaterThan(0.05);
     // The integral term closes it to within 1% by t=20s.
     expect(Math.abs(gLoad - 1.0) / 1.0).toBeLessThan(0.01);
   });
@@ -362,5 +362,29 @@ describe('pitch/roll stick command shaping (quadruplex FBW onset limiting)', () 
     let v = 0;
     for (let i = 0; i < 60; i++) v = rateLimitStep(v, 1, 2.0, 1 / 120); // 60 steps @ 1/120s = 0.5s
     expect(v).toBeCloseTo(1, 5);
+  });
+});
+
+describe('neutralGReference (flight-path-stable neutral stick)', () => {
+  const rotFor = (pitchRad: number, rollRad: number) => {
+    const q = { x: 0, y: 0, z: 0, w: 1 };
+    Quat.fromYawPitchRoll(0.7, pitchRad, rollRad, q);
+    return q;
+  };
+  it('is 1g wings-level in level flight', () => {
+    expect(neutralGReference(rotFor(0, 0))).toBeCloseTo(1, 6);
+  });
+  it('is cos(pitch) in a straight climb, so a centred stick holds the climb line', () => {
+    expect(neutralGReference(rotFor(0.5236, 0))).toBeCloseTo(Math.cos(0.5236), 6);
+  });
+  it('compensates bank up to 33deg (level-turn g), and stops compensating beyond it', () => {
+    expect(neutralGReference(rotFor(0, 0.3491))).toBeCloseTo(1 / Math.cos(0.3491), 6);
+    expect(neutralGReference(rotFor(0, 1.0472))).toBeCloseTo(1, 6);
+  });
+  it('full stick still reaches the configured g limits', () => {
+    const limits = makeFcsLimits({ maxGLoadPos: 8, maxGLoadNeg: -3 });
+    expect(computeGCommand(1, limits, 0.8)).toBe(8);
+    expect(computeGCommand(-1, limits, 0.8)).toBe(-3);
+    expect(computeGCommand(0, limits, 0.8)).toBe(0.8);
   });
 });
