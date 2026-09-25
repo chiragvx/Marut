@@ -78,6 +78,6 @@ export const createHeightSampler: CreateHeightSampler = (
     seed: params.seed,
     heightAt,
     normalAt,
-    ...(waterLevelM !== undefined ? { isWaterAt } : {}),
+    ...(waterLevelM !== undefined ? { isWaterAt, waterLevelM, groundHeightAt } : {}),
   };
 };

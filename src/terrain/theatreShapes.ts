@@ -45,8 +45,11 @@ function buildCoast(s: CoastShape, n: ShapeNoiseFields, scratch: Vec2Like): RawT
       let h = Math.max(d * 0.01, -60);
       if (s.islandHeightM > 0) {
         const isl = Math.max(0, n.fbmN(x * 0.45 + 5000, z * 0.45) - 0.42) / 0.58;
-        const islandH = s.islandHeightM * isl * Math.sqrt(isl) * smoothstep(-30000, -3000, d) - 4;
-        if (islandH > h) h = islandH;
+        if (isl > 0) {
+          // The -4 m offset sinks each island's fringe below the water; applied only where there is an island.
+          const islandH = s.islandHeightM * isl * Math.sqrt(isl) * smoothstep(-30000, -3000, d) - 4;
+          if (islandH > h) h = islandH;
+        }
       }
       return h;
     }

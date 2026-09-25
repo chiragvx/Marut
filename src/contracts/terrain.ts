@@ -106,6 +106,14 @@ export interface RidgeParams {
   gain: number;
   /** >= 1. Exponent applied to `(1 - |noise|)` per octave; higher = sharper peaks/valleys. */
   sharpness: number;
+  /**
+   * Optional, >= 0. Rounds the knife-edge crest `|noise|` makes at every ridge line by using
+   * sqrt(noise^2 + k^2) - k instead (rescaled so the range is unchanged), with k multiplied by
+   * `lacunarity` each octave so every crest is equally wide in metres. A mesh coarser than the crest
+   * can only zig-zag across a knife edge, which shows as saw-tooth ridgelines. Absent or 0 = the
+   * original exact |noise|.
+   */
+  crestSoftness?: number;
 }
 
 /** Ridged-multifractal noise built from a base Noise2D. Output range [0, ridgeConservativeMaxAmplitude] where the upper bound = sum of `params.baseAmplitudeM * params.persistence^i` (same formula as fbm's bound; conservative because it ignores the `gain` damping, which can only reduce the true value). Mountains "poke up" — output is always >= 0. */
@@ -324,7 +332,9 @@ export const THEATRE_TERRAIN_PARAMS: Readonly<Record<TheatreId, TerrainParams>> 
     ...DEFAULT_TERRAIN_PARAMS,
     fbm: { octaves: 6, baseFrequency: 1 / 5000, baseAmplitudeM: 1, lacunarity: 2.0, persistence: 0.5 },
     ridge: { octaves: 5, baseFrequency: 1 / 6000, baseAmplitudeM: 1, lacunarity: 2.0, persistence: 0.5, gain: 0.55, sharpness: 2 },
-    domainWarp: { enabled: true, warpFrequency: 1 / 8000, warpAmplitudeM: 1500, octaves: 3 },
+    // Warp kept below the point where it folds space (warp gradient ~1): past that it creases the
+    // terrain into ~75 m spikes, which read as saw-tooth ridgelines at mesh resolution.
+    domainWarp: { enabled: true, warpFrequency: 1 / 8000, warpAmplitudeM: 1500, octaves: 2 },
     shape: {
       kind: 'coast',
       shorelineXM: 45000,
@@ -365,8 +375,12 @@ export const THEATRE_TERRAIN_PARAMS: Readonly<Record<TheatreId, TerrainParams>> 
   ladakh: {
     ...DEFAULT_TERRAIN_PARAMS,
     fbm: { octaves: 6, baseFrequency: 1 / 7000, baseAmplitudeM: 1, lacunarity: 2.0, persistence: 0.5 },
-    ridge: { octaves: 7, baseFrequency: 1 / 7000, baseAmplitudeM: 1, lacunarity: 2.0, persistence: 0.5, gain: 0.6, sharpness: 2 },
-    domainWarp: { enabled: true, warpFrequency: 1 / 9000, warpAmplitudeM: 2500, octaves: 3 },
+    // 5 octaves (finest ~440 m) with softened crests: anything finer or sharper than the in-game
+    // mesh spacing (98-260 m) only aliased into saw-tooth ridgelines; the shader adds rock detail instead.
+    ridge: { octaves: 5, baseFrequency: 1 / 7000, baseAmplitudeM: 1, lacunarity: 2.0, persistence: 0.5, gain: 0.6, sharpness: 2, crestSoftness: 0.1 },
+    // Warp kept below the point where it folds space (warp gradient ~1): past that it creases the
+    // terrain into ~75 m spikes, which read as saw-tooth ridgelines at mesh resolution.
+    domainWarp: { enabled: true, warpFrequency: 1 / 9000, warpAmplitudeM: 1500, octaves: 2 },
     shape: {
       kind: 'alpine',
       valleys: [

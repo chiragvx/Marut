@@ -499,6 +499,10 @@ export interface HeightSampler {
   normalAt(x: number, z: number, out: Vec3Like): Vec3Like;
   /** Present only for terrains with a water surface: true where `heightAt` is the water surface rather than ground. Touching water is a crash. */
   isWaterAt?(x: number, z: number): boolean;
+  /** Present only for terrains with a water surface: that surface's elevation, m MSL. */
+  readonly waterLevelM?: number;
+  /** Present only for terrains with a water surface: the ground (seabed/riverbed) height, ignoring the water. */
+  groundHeightAt?(x: number, z: number): number;
 }
 
 // -----------------------------------------------------------------------------
