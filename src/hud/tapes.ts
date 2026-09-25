@@ -211,6 +211,23 @@ export type GearIndicator = (typeof GearIndicator)[keyof typeof GearIndicator];
 /** gearPos (0 = retracted, 1 = extended) within this of either end counts as locked there. */
 const GEAR_LOCKED_EPSILON = 0.01;
 
+/** Airbrake panel travel time the HUD assumes for its "moving" cue (matches the physics' ~1-1.2 s). */
+export const AIRBRAKE_HUD_TRANSIT_MS = 1200;
+
+/**
+ * Airbrake status cue: amber "SPD BRK" while the panels are moving (for AIRBRAKE_HUD_TRANSIT_MS after
+ * a toggle), green "SPD BRK" when fully out, nothing when stowed.
+ */
+export function drawAirbrakeIndicator(ctx: CanvasRenderingContext2D, out: boolean, msSinceToggle: number, xPx: number, yPx: number): void {
+  const moving = msSinceToggle < AIRBRAKE_HUD_TRANSIT_MS;
+  if (!out && !moving) return;
+  ctx.save();
+  ctx.font = '12px monospace';
+  ctx.fillStyle = moving ? '#ffc040' : '#40ff60';
+  ctx.fillText('SPD BRK', xPx, yPx);
+  ctx.restore();
+}
+
 /** Classifies the player's gearPos (HUD block SnapshotHud.GEAR_POS) for drawGearIndicator. */
 export function gearIndicatorState(gearPos: number): GearIndicator {
   if (gearPos >= 1 - GEAR_LOCKED_EPSILON) return GearIndicator.Down;

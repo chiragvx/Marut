@@ -16,7 +16,7 @@
  * unaffected (none of them depended on camera mode per that same section).
  */
 
-import { NO_ENTITY_ID, SnapshotEntity, SnapshotHud, SpeedUnit, WarningBit, entityFieldOffset, type QualityTier } from '../contracts/core';
+import { EntityFlag, NO_ENTITY_ID, SnapshotEntity, SnapshotHud, SpeedUnit, WarningBit, entityFieldOffset, type QualityTier } from '../contracts/core';
 import { RENDER_QUALITY_TABLE, type CameraState, type CreateHudRenderer, type HudRenderer } from '../contracts/render';
 
 import { drawLadder } from './ladder';
@@ -31,7 +31,7 @@ import {
   ingestSnapshotIntoHudBuffer,
   interpolateHudEntity,
 } from './snapshotView';
-import { drawAltitudeTape, drawAoaGReadout, drawFuelIndicator, drawGearIndicator, drawHeadingTape, drawPowerIndicator, drawSpeedTape } from './tapes';
+import { drawAirbrakeIndicator, drawAltitudeTape, drawAoaGReadout, drawFuelIndicator, drawGearIndicator, drawHeadingTape, drawPowerIndicator, drawSpeedTape } from './tapes';
 import { createScreenProjection, drawLeadSight, drawTargetBox, hasTarget } from './targetBox';
 import { createWeaponStatusState, drawWeaponStatus, ingestWeaponEvents, setWeaponLoadout as applyWeaponLoadout } from './weaponStatus';
 import { drawWarnings } from './warnings';
@@ -55,6 +55,9 @@ export const createHudRenderer: CreateHudRenderer = (canvas, initialTier) => {
   // field — see drawPowerIndicator's doc comment in tapes.ts for why this exists.
   let playerThrottleFrac = 0;
   let playerAfterburnerOn = false;
+  // Airbrake: commanded state from the entity FLAGS (EntityFlag.AirbrakeOut) and when it last changed.
+  let playerAirbrakeOut = false;
+  let airbrakeToggledAtMs = -1e9;
   // Same pattern for the debug control-surface overlay (controlSurfaceDebug.ts): elevonL/elevonR/
   // rudder are 3D-wireframe-only fields per the HUD block's own design (see snapshotView.ts's
   // InterpolatedHudEntity comment), so this reads them directly off the player's raw entity block
@@ -91,6 +94,11 @@ export const createHudRenderer: CreateHudRenderer = (canvas, initialTier) => {
       if (pSlot >= 0) {
         playerThrottleFrac = view[entityFieldOffset(pSlot, SnapshotEntity.THROTTLE)] ?? 0;
         playerAfterburnerOn = (view[entityFieldOffset(pSlot, SnapshotEntity.AFTERBURNER_ON)] ?? 0) !== 0;
+        const ab = ((view[entityFieldOffset(pSlot, SnapshotEntity.FLAGS)] ?? 0) & EntityFlag.AirbrakeOut) !== 0;
+        if (ab !== playerAirbrakeOut) {
+          playerAirbrakeOut = ab;
+          airbrakeToggledAtMs = performance.now();
+        }
         playerElevonLRad = view[entityFieldOffset(pSlot, SnapshotEntity.ELEVON_L)] ?? 0;
         playerElevonRRad = view[entityFieldOffset(pSlot, SnapshotEntity.ELEVON_R)] ?? 0;
         playerRudderRad = view[entityFieldOffset(pSlot, SnapshotEntity.RUDDER)] ?? 0;
@@ -126,6 +134,7 @@ export const createHudRenderer: CreateHudRenderer = (canvas, initialTier) => {
       drawAoaGReadout(ctx, hud, 16, heightPx - 44);
       drawPowerIndicator(ctx, playerThrottleFrac, playerAfterburnerOn, 100, heightPx - 44);
       drawGearIndicator(ctx, hud[SnapshotHud.GEAR_POS]!, 184, heightPx - 44);
+      drawAirbrakeIndicator(ctx, playerAirbrakeOut, nowMs - airbrakeToggledAtMs, 184, heightPx - 60);
       drawFuelIndicator(ctx, hud[SnapshotHud.FUEL_KG]!, (hud[SnapshotHud.WARNING_BITS]! & WarningBit.LowFuel) !== 0, hud[SnapshotHud.TANK_FUEL_KG]!, 184, heightPx - 28);
       drawIlsNeedles(ctx, hud, widthPx, heightPx);
 

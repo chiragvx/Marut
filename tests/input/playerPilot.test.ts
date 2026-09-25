@@ -202,3 +202,39 @@ describe('PlayerInputSystem — ctx is never read', () => {
     expect(() => system.update(ctx, 0.1, out)).not.toThrow();
   });
 });
+
+describe('PlayerInputSystem — B: airbrake and wheel brakes on one button', () => {
+  it('B toggles the airbrake out and back in, and the wheel brakes follow it', () => {
+    const system = makeSystem();
+    const ctx = makeThrowingCtx();
+    const out = makeOut();
+    system.update(ctx, 0.02, out);
+    expect(out.airbrake).toBe(false);
+    expect(out.brakes).toBe(0);
+
+    dispatchKey('keydown', 'KeyB');
+    system.update(ctx, 0.02, out);
+    dispatchKey('keyup', 'KeyB');
+    system.update(ctx, 0.02, out);
+    expect(out.airbrake).toBe(true);
+    expect(out.brakes).toBe(1);
+
+    dispatchKey('keydown', 'KeyB');
+    system.update(ctx, 0.02, out);
+    dispatchKey('keyup', 'KeyB');
+    system.update(ctx, 0.02, out);
+    expect(out.airbrake).toBe(false);
+    expect(out.brakes).toBe(0);
+  });
+
+  it('X only reduces throttle; it no longer brakes', () => {
+    const system = makeSystem();
+    const ctx = makeThrowingCtx();
+    const out = makeOut();
+    dispatchKey('keydown', 'KeyX');
+    system.update(ctx, 0.1, out);
+    expect(out.brakes).toBe(0);
+    expect(out.airbrake).toBe(false);
+    dispatchKey('keyup', 'KeyX');
+  });
+});

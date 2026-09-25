@@ -426,7 +426,8 @@ export function createPlayerInputSystem(config: PlayerInputConfig): PlayerInputS
       out.yaw = yaw;
       out.throttle = throttleAxis;
       out.afterburner = rawAfterburner;
-      out.brakes = rawBrakes ? 1 : 0;
+      // Wheel brakes follow the airbrake toggle (one button, B, for both), plus any held brake button.
+      out.brakes = rawBrakes || airbrakeState ? 1 : 0;
       out.gearDown = gearDownState;
       out.airbrake = airbrakeState;
       out.jettisonTanks = rawJettison;

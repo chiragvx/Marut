@@ -228,6 +228,11 @@ export interface EntityState {
    * `AircraftDefinition.emptyMassKg + fuelKg + storesMassKg`. Optional: absent means 0 (clean).
    */
   storesMassKg?: number;
+  /**
+   * Airbrake panel extension, 0 (stowed) .. 1 (fully out), moving towards PilotInputs.airbrake at
+   * the panels' actuation rate (src/physics/integrator.ts). Drag scales with it. Optional: absent means 0.
+   */
+  airbrakePos?: number;
   /** Drag area (CD*S, m^2) of carried stores, added to the airframe's drag. Same ownership as storesMassKg. Optional: absent means 0. */
   storesDragAreaM2?: number;
   /**

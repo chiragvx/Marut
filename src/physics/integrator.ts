@@ -102,6 +102,7 @@ function copyEntityState(src: EntityState, dst: EntityState): void {
   dst.throttle = src.throttle;
   dst.afterburnerOn = src.afterburnerOn;
   dst.storesMassKg = src.storesMassKg;
+  dst.airbrakePos = src.airbrakePos;
   dst.storesDragAreaM2 = src.storesDragAreaM2;
   dst.dropTankCount = src.dropTankCount;
   dst.dropTankFuelKg = src.dropTankFuelKg;
@@ -138,7 +139,7 @@ function runSubstep(
   if (!structuralFailure) {
     const configDragCoeff =
       out.gearPos * (def.aero.CD_gear ?? 0) +
-      (inputs.airbrake ? (def.aero.CD_airbrake ?? 0) : 0) +
+      (out.airbrakePos ?? 0) * (def.aero.CD_airbrake ?? 0) +
       (def.wingAreaM2 > 0 ? externalDragAreaM2(out, def) / def.wingAreaM2 : 0);
     computeAeroForceMoment(scratchFrame, out.elevonL, out.elevonR, out.rudder, out.omega, altAglM, def, scratchAero, configDragCoeff);
   } else {
@@ -213,7 +214,17 @@ function runSubstep(
   else out.flags &= ~EntityFlag.GearDownCommanded;
   if (inputs.airbrake) out.flags |= EntityFlag.AirbrakeOut;
   else out.flags &= ~EntityFlag.AirbrakeOut;
+  // Airbrake panels move at a finite rate (hydraulic actuators: ~1.2 s out, ~1.0 s in) rather than
+  // snapping; drag follows the panel position.
+  const ab = out.airbrakePos ?? 0;
+  const abTarget = inputs.airbrake && !structuralFailure ? 1 : 0;
+  const abRate = abTarget > ab ? 1 / AIRBRAKE_EXTEND_SEC : 1 / AIRBRAKE_RETRACT_SEC;
+  out.airbrakePos = abTarget > ab ? Math.min(abTarget, ab + abRate * dtSub) : Math.max(abTarget, ab - abRate * dtSub);
 }
+
+/** Airbrake panel actuation times, full travel, seconds. */
+export const AIRBRAKE_EXTEND_SEC = 1.2;
+export const AIRBRAKE_RETRACT_SEC = 1.0;
 
 export const stepAircraft: StepAircraft = (
   state: EntityState,

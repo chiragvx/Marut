@@ -24,7 +24,7 @@ export const INPUT_MAP_STORAGE_KEY = 'tejas.inputMap.v1';
 // browser that already has an old InputMapData saved in localStorage, without needing the player
 // to manually hit "Reset Defaults".
 // Bumped 2 -> 3 when the jettisonTanks button (J) was added, for the same reason.
-export const INPUT_MAP_VERSION = 3;
+export const INPUT_MAP_VERSION = 4;
 
 /**
  * The literal default binding/tuning data, matching 09-input.md section 5.1 (throttle keys
@@ -40,9 +40,7 @@ export const DEFAULT_INPUT_MAP_DATA: InputMapData = {
       pitch: { negative: 'KeyW', positive: 'KeyS' },
       roll: { negative: 'KeyA', positive: 'KeyD' },
       yaw: { negative: 'KeyQ', positive: 'KeyE' },
-      // Z = more thrust, X = less thrust. Note KeyX is also bound to `brakes` below (unchanged,
-      // per the request as given) — pressing X now both reduces throttle and brakes, which is
-      // actually a natural pairing on landing rollout, but worth knowing if it ever feels wrong.
+      // Z = more thrust, X = less thrust (X no longer also brakes: see `brakes` below).
       throttle: { negative: 'KeyX', positive: 'KeyZ' },
     },
     buttons: {
@@ -53,7 +51,10 @@ export const DEFAULT_INPUT_MAP_DATA: InputMapData = {
       gearToggle: 'KeyG',
       airbrakeToggle: 'KeyB',
       afterburner: 'ShiftLeft',
-      brakes: 'KeyX',
+      // B is one button for airbrake + wheel brakes (user request): pressing B toggles the airbrake,
+      // and the wheel brakes follow the airbrake state (playerPilot.ts), so B on landing rollout
+      // extends the airbrake and brakes; B again releases both. Holding B also brakes directly.
+      brakes: 'KeyB',
       nwsToggle: 'KeyN',
       jettisonTanks: 'KeyJ',
     },
