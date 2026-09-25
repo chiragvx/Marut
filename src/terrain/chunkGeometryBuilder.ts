@@ -44,11 +44,19 @@ export const WATER_DEPTH_ENCODE_MAX_M = 30;
  * rendered surface at every LOD. Previously it was the analytic normal from 1 m samples, which
  * picked up noise far finer than the grid and shimmered between vertices.
  */
-export const buildChunkGeometry: BuildChunkGeometry = (
+export const buildChunkGeometry: BuildChunkGeometry = (sampler: HeightSampler, key: ChunkKey, gridQuads: number): ChunkGeometry =>
+  buildChunkGeometryAndSurface(sampler, key, gridQuads).geometry;
+
+/**
+ * As buildChunkGeometry, and also returns `surface(x, z)`: the height of the chunk's own rendered
+ * triangles at (x, z) (the same A-C-B / B-C-D split as the index buffer), so scenery can sit exactly
+ * on the mesh the player sees. Outside the chunk it falls back to the sampler.
+ */
+export function buildChunkGeometryAndSurface(
   sampler: HeightSampler,
   key: ChunkKey,
   gridQuads: number
-): ChunkGeometry => {
+): { geometry: ChunkGeometry; surface: (x: number, z: number) => number; bounds: ChunkBounds } {
   const res = gridQuads;
   const bounds: ChunkBounds = { minX: 0, maxX: 0, minZ: 0, maxZ: 0, minY: 0, maxY: 0 };
   chunkKeyToBounds(key, bounds);
@@ -171,5 +179,20 @@ export const buildChunkGeometry: BuildChunkGeometry = (
     }
   }
 
-  return { positions, normals, indices, vertexCount, indexCount };
-};
+  const surface = (x: number, z: number): number => {
+    const gx = (x - bounds.minX) / step;
+    const gz = (z - bounds.minZ) / step;
+    if (gx < 0 || gz < 0 || gx > res || gz > res) return sampler.heightAt(x, z);
+    const i = Math.min(Math.floor(gx), res - 1);
+    const j = Math.min(Math.floor(gz), res - 1);
+    const fx = gx - i;
+    const fz = gz - j;
+    const a = heights[(j + 1) * bw + (i + 1)]!;
+    const bb = heights[(j + 1) * bw + (i + 2)]!;
+    const cc = heights[(j + 2) * bw + (i + 1)]!;
+    if (fx + fz <= 1) return a + (bb - a) * fx + (cc - a) * fz;
+    const d = heights[(j + 2) * bw + (i + 2)]!;
+    return d + (cc - d) * (1 - fx) + (bb - d) * (1 - fz);
+  };
+  return { geometry: { positions, normals, indices, vertexCount, indexCount }, surface, bounds };
+}

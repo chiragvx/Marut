@@ -640,7 +640,23 @@ function buildSceneEnvironment(terrainParams: TerrainParams, airportLayouts: rea
   };
 }
 
-function launchMission(mission: Mission): void {
+/**
+ * Dev aid: `?start=x,y,z,headingDeg,speedMps` spawns the player airborne there instead of on the
+ * runway (for checking scenery anywhere on a map). Only acts when the parameter is present.
+ */
+function applyDevStart(mission: Mission): Mission {
+  const raw = new URLSearchParams(location.search).get('start');
+  if (!raw) return mission;
+  const v = raw.split(',').map(Number);
+  if (v.length < 3 || v.some((n) => !Number.isFinite(n))) return mission;
+  return {
+    ...mission,
+    playerStart: { pos: { x: v[0]!, y: v[1]!, z: v[2]! }, headingRad: ((v[3] ?? 0) * Math.PI) / 180, speedMps: v[4] ?? 200 },
+  };
+}
+
+function launchMission(missionIn: Mission): void {
+  const mission = applyDevStart(missionIn);
   destroyCurrentScreen();
   appState = 'loading';
   const loading = createLoadingScreen(uiRoot);
@@ -680,6 +696,20 @@ function launchMission(mission: Mission): void {
       positions: chunk.geometry.positions.buffer as ArrayBuffer,
       normals: chunk.geometry.normals.buffer as ArrayBuffer,
       indices: chunk.geometry.indices.buffer as ArrayBuffer,
+      ...(chunk.geometry.features
+        ? {
+            features: {
+              decalPositions: chunk.geometry.features.decalPositions.buffer as ArrayBuffer,
+              decalAttribs: chunk.geometry.features.decalAttribs.buffer as ArrayBuffer,
+              decalIndices: chunk.geometry.features.decalIndices.buffer as ArrayBuffer,
+              treeMatrices: chunk.geometry.features.treeMatrices.map((a) => a.buffer as ArrayBuffer),
+              treeColors: chunk.geometry.features.treeColors.map((a) => a.buffer as ArrayBuffer),
+              buildingMatrices: chunk.geometry.features.buildingMatrices.buffer as ArrayBuffer,
+              buildingColors: chunk.geometry.features.buildingColors.buffer as ArrayBuffer,
+              domeMatrices: chunk.geometry.features.domeMatrices.buffer as ArrayBuffer,
+            },
+          }
+        : {}),
     })
   );
   chunkManager.onChunkEvicted((key) => renderer.evictTerrainChunk(key.cx, key.cz, key.depth));

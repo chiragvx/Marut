@@ -85,6 +85,7 @@ class ChunkManagerImpl implements ChunkManager {
       params: config.terrainParams,
       flattenZones: config.flattenZones,
       chunkGridQuads: TERRAIN_QUALITY_PROFILES[config.qualityTier].chunkGridQuads,
+      maxLodDepth: TERRAIN_QUALITY_PROFILES[config.qualityTier].maxLodDepth,
     };
     this.sendToTerrainWorker(init);
   }
@@ -156,6 +157,19 @@ class ChunkManagerImpl implements ChunkManager {
       const normals = new Float32Array(msg.normals);
       const indices = new Uint32Array(msg.indices);
       const geometry: ChunkGeometry = { positions, normals, indices, vertexCount: positions.length / 3, indexCount: indices.length };
+      const f = msg.features;
+      if (f) {
+        geometry.features = {
+          decalPositions: new Float32Array(f.decalPositions),
+          decalAttribs: new Float32Array(f.decalAttribs),
+          decalIndices: new Uint32Array(f.decalIndices),
+          treeMatrices: f.treeMatrices.map((bf) => new Float32Array(bf)),
+          treeColors: f.treeColors.map((bf) => new Float32Array(bf)),
+          buildingMatrices: new Float32Array(f.buildingMatrices),
+          buildingColors: new Float32Array(f.buildingColors),
+          domeMatrices: new Float32Array(f.domeMatrices),
+        };
+      }
       entry.geometry = geometry;
       entry.resident = true;
       this.onChunkReadyCallback?.({ key: entry.key, geometry });

@@ -41,6 +41,8 @@ import {
 } from './snapshotInterpolation';
 import { createSkyFogSystem } from './skyFog';
 import { createTerrainChunkConsumer } from './terrainChunkConsumer';
+import { createChunkFeatureRenderer } from './chunkFeatureRenderer';
+import { TERRAIN_WORLD_EXTENT_M } from '../contracts/terrain';
 import { createWireframeAircraftRenderer } from './wireframeAircraftRenderer';
 
 const FOV_BY_MODE: Readonly<Record<CameraMode, number>> = {
@@ -93,6 +95,11 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
   scene.add(terrainRoot);
   const terrainConsumer = createTerrainChunkConsumer(terrainRoot);
 
+  const featureRoot = new THREE.Group();
+  scene.add(featureRoot);
+  const features = createChunkFeatureRenderer(featureRoot);
+  const featureKey = (cx: number, cz: number, lod: number): string => `${cx}:${cz}:${lod}`;
+
   const effectsRoot = new THREE.Group();
   scene.add(effectsRoot);
   const effects = createEffectsSystem(effectsRoot);
@@ -127,6 +134,8 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
     // The terrain material fogs itself (it is a ShaderMaterial with fog: false), so it needs the
     // same distances; before this it stayed at its built-in 1.5-5 km on every tier.
     terrainConsumer.setFog(settings.fogStartM, settings.fogEndM);
+    features.uniforms.uFogStart.value = settings.fogStartM;
+    features.uniforms.uFogEnd.value = settings.fogEndM;
     skyFog.setShadowsEnabled(settings.shadowsEnabled, settings.shadowCascades);
     terrainConsumer.setShadowsEnabled(settings.shadowsEnabled);
     effects.setBudget(settings.effectBudget);
@@ -179,11 +188,13 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
     setSunDirection(dirWorld) {
       skyFog.setSunDirection(dirWorld);
       terrainConsumer.setSunDirection(dirWorld);
+      features.uniforms.uSunDir.value.set(dirWorld.x, dirWorld.y, dirWorld.z);
     },
 
     setEnvironment(env) {
       skyFog.setStyle(env.surfaceStyle);
       terrainConsumer.setFogColor(skyFog.horizonColor);
+      features.uniforms.uFogColor.value.copy(skyFog.horizonColor);
       terrainConsumer.setEnvironment(env);
     },
 
@@ -197,10 +208,31 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
 
     ingestTerrainChunk(msg) {
       terrainConsumer.ingestChunk(msg);
+      const f = msg.features;
+      if (f) {
+        const size = TERRAIN_WORLD_EXTENT_M / Math.pow(2, msg.lod);
+        features.ingest(
+          featureKey(msg.chunkX, msg.chunkZ, msg.lod),
+          {
+            decalPositions: new Float32Array(f.decalPositions),
+            decalAttribs: new Float32Array(f.decalAttribs),
+            decalIndices: new Uint32Array(f.decalIndices),
+            treeMatrices: f.treeMatrices.map((b) => new Float32Array(b)),
+            treeColors: f.treeColors.map((b) => new Float32Array(b)),
+            buildingMatrices: new Float32Array(f.buildingMatrices),
+            buildingColors: new Float32Array(f.buildingColors),
+            domeMatrices: new Float32Array(f.domeMatrices),
+          },
+          -TERRAIN_WORLD_EXTENT_M / 2 + (msg.chunkX + 0.5) * size,
+          -TERRAIN_WORLD_EXTENT_M / 2 + (msg.chunkZ + 0.5) * size,
+          size / 2
+        );
+      }
     },
 
     evictTerrainChunk(chunkX, chunkZ, lod) {
       terrainConsumer.evictChunk(chunkX, chunkZ, lod);
+      features.evict(featureKey(chunkX, chunkZ, lod));
     },
 
     renderFrame(nowMs) {
@@ -245,6 +277,7 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
         effects.tick(frameDtSec, origin);
 
         terrainConsumer.updateOrigin(origin);
+        features.update(origin, cameraPose.pos);
         airportLines.updateOrigin(origin);
       }
 
@@ -268,6 +301,7 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
     dispose() {
       wireframeRenderer.dispose();
       terrainConsumer.dispose();
+      features.dispose();
       effects.dispose();
       airportLines.dispose();
       skyFog.dispose();

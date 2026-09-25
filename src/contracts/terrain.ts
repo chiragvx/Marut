@@ -180,6 +180,38 @@ export interface TerrainParams {
   heightBoundsM?: { readonly minM: number; readonly maxM: number };
   /** How src/render colours the ground. Absent = 'default' (the flat single-colour testing surface). */
   surfaceStyle?: TerrainSurfaceStyle;
+  /** Settlements and the road/canal network (src/terrain/roadNetwork.ts). Absent = none. */
+  network?: NetworkSpec;
+}
+
+// -----------------------------------------------------------------------------
+// 3c. Settlements and road networks (procedural, anchored to named towns).
+// -----------------------------------------------------------------------------
+
+export interface TownSpec {
+  name: string;
+  x: number;
+  z: number;
+  radiusM: number;
+  kind: 'city' | 'town';
+}
+
+/** A named road or canal: a route through towns (by name) and/or explicit [x, z] points, in order. */
+export interface RouteSpec {
+  name: string;
+  cls: 'highway' | 'state' | 'district' | 'canal';
+  via: readonly (string | readonly [number, number])[];
+}
+
+export interface NetworkSpec {
+  towns: readonly TownSpec[];
+  routes: readonly RouteSpec[];
+  /** Villages sit on a jittered grid of this spacing. */
+  villageSpacingM: number;
+  /** Fraction of grid cells that hold a village. */
+  villageKeep: number;
+  /** Discs with no villages (airbases). */
+  exclusions: readonly { x: number; z: number; radiusM: number }[];
 }
 
 // -----------------------------------------------------------------------------
@@ -394,15 +426,67 @@ export const THEATRE_TERRAIN_PARAMS: Readonly<Record<TheatreId, TerrainParams>> 
       kind: 'plains',
       baseElevationM: 234,
       reliefM: 2.5,
+      // Real courses relative to Adampur (x east, z south, metres): the Sutlej past Phillaur to
+      // Harike, and the Beas from the Mukerian side south-west to join it at Harike.
       rivers: [
-        { x0: 80000, z0: 10000, x1: -80000, z1: 50000, widthM: 700, bankWidthM: 250, meanderAmpM: 2000, meanderFreq: 1 / 15000, floodplainWidthM: 2500 },
-        { x0: 70000, z0: -100000, x1: 11615, z1: 26500, widthM: 450, bankWidthM: 200, meanderAmpM: 1500, meanderFreq: 1 / 12000, floodplainWidthM: 1400, endsAtEnd: true }, // the Beas joins the Sutlej
+        { x0: 100000, z0: 68800, x1: -100000, z1: 23800, widthM: 700, bankWidthM: 250, meanderAmpM: 2000, meanderFreq: 1 / 15000, floodplainWidthM: 2500 },
+        { x0: 7500, z0: -100000, x1: -77000, z1: 29000, widthM: 450, bankWidthM: 200, meanderAmpM: 1500, meanderFreq: 1 / 12000, floodplainWidthM: 1400, endsAtEnd: true }, // the Beas joins the Sutlej
       ],
     },
     waterLevelM: 226,
     seaLevelM: 0,
     heightBoundsM: { minM: 218, maxM: 250 },
     surfaceStyle: 'farmland',
+    // Towns at their real positions relative to Adampur Air Force Station (x east, z south, m),
+    // and the real highway and canal routes between them. Villages and link roads are procedural.
+    network: {
+      towns: [
+        { name: 'Jalandhar', x: -17390, z: 11830, radiusM: 4500, kind: 'city' },
+        { name: 'Ludhiana', x: 9310, z: 58800, radiusM: 6000, kind: 'city' },
+        { name: 'Amritsar', x: -84300, z: -22200, radiusM: 5500, kind: 'city' },
+        { name: 'Hoshiarpur', x: 14540, z: -10950, radiusM: 2800, kind: 'town' },
+        { name: 'Phagwara', x: 1140, z: 23110, radiusM: 2200, kind: 'town' },
+        { name: 'Kapurthala', x: -36000, z: 5860, radiusM: 2000, kind: 'town' },
+        { name: 'Kartarpur', x: -24800, z: -880, radiusM: 1200, kind: 'town' },
+        { name: 'Adampur', x: -4200, z: 300, radiusM: 900, kind: 'town' },
+        { name: 'Nakodar', x: -26990, z: 34060, radiusM: 1500, kind: 'town' },
+        { name: 'Bhogpur', x: -10830, z: -13270, radiusM: 900, kind: 'town' },
+        { name: 'Dasuya', x: -9980, z: -42460, radiusM: 1300, kind: 'town' },
+        { name: 'Mukerian', x: -13490, z: -57400, radiusM: 1400, kind: 'town' },
+        { name: 'Tanda', x: -11970, z: -25870, radiusM: 1200, kind: 'town' },
+        { name: 'Garhshankar', x: 17860, z: 24100, radiusM: 1100, kind: 'town' },
+        { name: 'Banga', x: 22400, z: 27100, radiusM: 1000, kind: 'town' },
+        { name: 'Nawanshahr', x: 33900, z: 34060, radiusM: 1700, kind: 'town' },
+        { name: 'Phillaur', x: 2950, z: 43000, radiusM: 1000, kind: 'town' },
+        { name: 'Goraya', x: 1200, z: 34100, radiusM: 900, kind: 'town' },
+        { name: 'Sultanpur Lodhi', x: -53600, z: 24100, radiusM: 1100, kind: 'town' },
+        { name: 'Beas', x: -44600, z: -9500, radiusM: 900, kind: 'town' },
+        { name: 'Tarn Taran', x: -79100, z: -2000, radiusM: 1500, kind: 'town' },
+        { name: 'Rupnagar', x: 73500, z: 51600, radiusM: 1500, kind: 'town' },
+        { name: 'Mahilpur', x: 26400, z: 7500, radiusM: 800, kind: 'town' },
+      ],
+      routes: [
+        { name: 'NH44', cls: 'highway', via: [[15000, 100000], 'Ludhiana', 'Phillaur', 'Goraya', 'Phagwara', 'Jalandhar', 'Bhogpur', 'Dasuya', 'Mukerian', [-16000, -100000]] },
+        { name: 'NH3', cls: 'highway', via: ['Jalandhar', 'Kartarpur', 'Beas', 'Amritsar', [-100000, -26000]] },
+        { name: 'Jalandhar-Hoshiarpur', cls: 'state', via: ['Jalandhar', 'Adampur', 'Hoshiarpur'] },
+        { name: 'Jalandhar-Kapurthala', cls: 'state', via: ['Jalandhar', 'Kapurthala', 'Sultanpur Lodhi', [-100000, 30000]] },
+        { name: 'Jalandhar-Nakodar', cls: 'state', via: ['Jalandhar', 'Nakodar', [-40000, 100000]] },
+        { name: 'Phagwara-Rupnagar', cls: 'state', via: ['Phagwara', 'Banga', 'Nawanshahr', 'Rupnagar', [100000, 60000]] },
+        { name: 'Hoshiarpur-Garhshankar', cls: 'state', via: ['Hoshiarpur', 'Mahilpur', 'Garhshankar', 'Nawanshahr'] },
+        { name: 'Hoshiarpur-Tanda', cls: 'state', via: ['Hoshiarpur', 'Tanda', [-40000, -40000]] },
+        { name: 'Hoshiarpur-Phagwara', cls: 'state', via: ['Hoshiarpur', [8000, 6000], 'Phagwara'] },
+        { name: 'Hoshiarpur-Dasuya', cls: 'district', via: ['Hoshiarpur', 'Dasuya'] },
+        { name: 'Hoshiarpur-Una', cls: 'state', via: ['Hoshiarpur', [45000, -45000], [70000, -100000]] },
+        { name: 'Kapurthala-Kartarpur', cls: 'district', via: ['Kapurthala', 'Kartarpur'] },
+        { name: 'Amritsar-Tarn Taran', cls: 'state', via: ['Amritsar', 'Tarn Taran', [-100000, 15000]] },
+        { name: 'Banga-Garhshankar', cls: 'district', via: ['Banga', 'Garhshankar'] },
+        { name: 'Bist Doab Canal', cls: 'canal', via: [[73000, 48000], [45000, 30000], [30000, 27000], [10000, 17000], [-8000, 8000], [-30000, 3000], [-45000, 15000]] },
+        { name: 'Bist Doab Canal (Hoshiarpur branch)', cls: 'canal', via: [[10000, 17000], [20000, 0], [28000, -20000]] },
+      ],
+      villageSpacingM: 2300,
+      villageKeep: 0.82,
+      exclusions: [{ x: 0, z: 0, radiusM: 2600 }],
+    },
   },
 };
 
@@ -561,7 +645,49 @@ export interface ChunkGeometry {
   indices: Uint32Array;
   vertexCount: number;
   indexCount: number;
+  /** Roads, settlement ground, trees and buildings in this chunk (terrains with a network, fine LODs only). */
+  features?: ChunkFeatures;
 }
+
+/**
+ * Per-chunk scenery, built in the terrain worker from the road network (src/terrain/chunkFeatures.ts).
+ * All positions are absolute world coordinates, like the terrain mesh.
+ */
+export interface ChunkFeatures {
+  /** Ground decals (roads, canals, village and town ground): x,y,z per vertex. */
+  decalPositions: Float32Array;
+  /** Per vertex: across (-1..1 over the decal's width), along (m), class (DecalClass), half width (m). */
+  decalAttribs: Float32Array;
+  decalIndices: Uint32Array;
+  /** Per tree kind (TreeKind order): 16-float column-major instance matrices, then 3-float colours. */
+  treeMatrices: readonly Float32Array[];
+  treeColors: readonly Float32Array[];
+  /** Buildings (unit box, base at y = 0): instance matrices and colours; domes likewise. */
+  buildingMatrices: Float32Array;
+  buildingColors: Float32Array;
+  domeMatrices: Float32Array;
+}
+
+export const DecalClass = {
+  Highway: 0,
+  State: 1,
+  District: 2,
+  Link: 3,
+  Street: 4,
+  Canal: 5,
+  VillageGround: 6,
+  TownGround: 7,
+} as const;
+export type DecalClass = (typeof DecalClass)[keyof typeof DecalClass];
+
+/** Tree kinds, in ChunkFeatures.treeMatrices order. */
+export const TreeKind = {
+  Poplar: 0,
+  Eucalyptus: 1,
+  Broadleaf: 2,
+} as const;
+export type TreeKind = (typeof TreeKind)[keyof typeof TreeKind];
+export const TREE_KIND_COUNT = 3;
 
 /**
  * Builds one chunk's geometry: samples `sampler.heightAt`/`normalAt` over a
@@ -604,6 +730,8 @@ export interface TerrainInitMessage {
    * fixes the INITIAL resolution matching the detected/selected tier at boot.
    */
   chunkGridQuads: number;
+  /** The active tier's max LOD depth; scenery (roads, trees, buildings) is built for chunks at or near it. */
+  maxLodDepth?: number;
 }
 export interface TerrainReadyMessage {
   type: 'terrainReady';

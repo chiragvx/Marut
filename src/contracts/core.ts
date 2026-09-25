@@ -994,5 +994,19 @@ export interface TerrainChunkReadyMessage {
   normals: ArrayBuffer;
   /** Transferable. Uint32Array triangle indices. */
   indices: ArrayBuffer;
+  /**
+   * Optional scenery for this chunk (roads, settlement ground, trees, buildings), all transferable
+   * Float32/Uint32 buffers. Layout: contracts/terrain.ts ChunkFeatures (same field names, as ArrayBuffers).
+   */
+  features?: {
+    decalPositions: ArrayBuffer;
+    decalAttribs: ArrayBuffer;
+    decalIndices: ArrayBuffer;
+    treeMatrices: ArrayBuffer[];
+    treeColors: ArrayBuffer[];
+    buildingMatrices: ArrayBuffer;
+    buildingColors: ArrayBuffer;
+    domeMatrices: ArrayBuffer;
+  };
 }
 export type TerrainToMainMessage = TerrainChunkReadyMessage;

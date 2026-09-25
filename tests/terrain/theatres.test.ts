@@ -115,7 +115,7 @@ describe('theatre landforms', () => {
     expect(water).toBeGreaterThan(0); // the Sutlej crosses z = 30 km
     // Away from the rivers the plain varies by only a few metres.
     for (let z = -60000; z <= -20000; z += 5000) {
-      expect(Math.abs(sampler.heightAt(-40000, z) - 234)).toBeLessThan(6);
+      expect(Math.abs(sampler.heightAt(40000, z) - 234)).toBeLessThan(6);
     }
   });
 

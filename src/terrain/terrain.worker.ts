@@ -10,7 +10,9 @@ import type { MainToTerrainMessage, TerrainChunkReadyMessage, HeightSampler } fr
 import type { MainToTerrainMessageExt, TerrainReadyMessage } from '../contracts/terrain';
 import { TERRAIN_QUALITY_PROFILES } from '../contracts/terrain';
 import { createHeightSampler } from './heightSampler';
-import { buildChunkGeometry } from './chunkGeometryBuilder';
+import { buildChunkGeometryAndSurface } from './chunkGeometryBuilder';
+import { buildChunkFeatures } from './chunkFeatures';
+import { buildRoadNetwork, type RoadNetwork } from './roadNetwork';
 
 let sampler: HeightSampler | undefined;
 
@@ -27,6 +29,8 @@ let sampler: HeightSampler | undefined;
 // sitting meters away from the physics-exact HeightSampler height it should
 // track) regardless of the selected tier.
 let activeGridQuads: number = TERRAIN_QUALITY_PROFILES.low.chunkGridQuads;
+let maxLodDepth: number = TERRAIN_QUALITY_PROFILES.low.maxLodDepth;
+let network: RoadNetwork | undefined;
 
 self.onmessage = (ev: MessageEvent<MainToTerrainMessage | MainToTerrainMessageExt>): void => {
   const msg = ev.data;
@@ -34,6 +38,8 @@ self.onmessage = (ev: MessageEvent<MainToTerrainMessage | MainToTerrainMessageEx
   if (msg.type === 'terrainInit') {
     sampler = createHeightSampler(msg.params, msg.flattenZones);
     activeGridQuads = msg.chunkGridQuads;
+    maxLodDepth = msg.maxLodDepth ?? maxLodDepth;
+    network = buildRoadNetwork(msg.params, sampler);
     const ready: TerrainReadyMessage = { type: 'terrainReady' };
     self.postMessage(ready);
     return;
@@ -41,7 +47,16 @@ self.onmessage = (ev: MessageEvent<MainToTerrainMessage | MainToTerrainMessageEx
 
   if (msg.type === 'requestChunk') {
     if (!sampler) return; // protocol violation by the caller (requestChunk before terrainInit): ignore defensively, no crash, no chunk
-    const geo = buildChunkGeometry(sampler, { depth: msg.lod, cx: msg.chunkX, cz: msg.chunkZ }, activeGridQuads);
+    const built = buildChunkGeometryAndSurface(sampler, { depth: msg.lod, cx: msg.chunkX, cz: msg.chunkZ }, activeGridQuads);
+    const geo = built.geometry;
+    // Scenery on the finest chunks this tier reaches: roads from depth 4 (or the tier's finest),
+    // trees and buildings from depth 5 (or the tier's finest, thinned).
+    const roadDepth = Math.min(4, maxLodDepth);
+    const objectDepth = Math.min(5, maxLodDepth);
+    const features =
+      network && msg.lod >= roadDepth
+        ? buildChunkFeatures(network, built.bounds, built.surface, { objects: msg.lod >= objectDepth, treeDensity: msg.lod >= 5 ? 1 : 0.5 })
+        : undefined;
     const out: TerrainChunkReadyMessage = {
       type: 'chunkReady',
       requestId: msg.requestId,
@@ -55,7 +70,23 @@ self.onmessage = (ev: MessageEvent<MainToTerrainMessage | MainToTerrainMessageEx
       normals: geo.normals.buffer as ArrayBuffer,
       indices: geo.indices.buffer as ArrayBuffer,
     };
-    self.postMessage(out, [out.positions, out.normals, out.indices]);
+    const transfer: ArrayBuffer[] = [out.positions, out.normals, out.indices];
+    if (features) {
+      const buf = (a: Float32Array | Uint32Array): ArrayBuffer => a.buffer as ArrayBuffer;
+      out.features = {
+        decalPositions: buf(features.decalPositions),
+        decalAttribs: buf(features.decalAttribs),
+        decalIndices: buf(features.decalIndices),
+        treeMatrices: features.treeMatrices.map(buf),
+        treeColors: features.treeColors.map(buf),
+        buildingMatrices: buf(features.buildingMatrices),
+        buildingColors: buf(features.buildingColors),
+        domeMatrices: buf(features.domeMatrices),
+      };
+      const f = out.features;
+      transfer.push(f.decalPositions, f.decalAttribs, f.decalIndices, ...f.treeMatrices, ...f.treeColors, f.buildingMatrices, f.buildingColors, f.domeMatrices);
+    }
+    self.postMessage(out, transfer);
     return;
   }
 

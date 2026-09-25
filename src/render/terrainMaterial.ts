@@ -5,8 +5,8 @@
  * theatre:
  *   0 default  — flat single colour, unlit (the flight-model testing surface; see the note below)
  *   1 coastal  — Konkan: beaches, lush green plain with laterite patches and tree canopy, forested Ghats
- *   2 farmland — Punjab: soft late-winter plain (no fields), tree-lined roads and canals, villages with
- *                ponds and gurdwaras, sandy braided floodplains
+ *   2 farmland — Punjab: soft late-winter plain (no fields) and sandy braided floodplains; roads,
+ *                canals, settlements and trees are real geometry (chunkFeatureRenderer.ts)
  * plus water shading (fresnel sky reflection, sun glint, shallow-water colour and shore foam)
  * wherever the mesh sits at the terrain's water level, and runway asphalt with a grass strip
  * around it (the airport renderer only draws runway outlines).
@@ -95,10 +95,9 @@ const VERTEX_SHADER = /* glsl */ `
     vMacro = vec4(vnoise(p / 7000.0), 0.0, 0.0, 0.0);
     vLow = 0.0;
     if (uStyle == 2) {
-      vLow = 0.5 * vnoise(p / 900.0) + 0.3 * vnoise(p / 900.0 * 2.03 + 17.0); // wheat tone
-      vMacro.y = 0.6 * vnoise(p / 1600.0 + 3.0) + 0.4 * vnoise(p / 790.0 + 11.0); // fallow / ploughed patches
-      vMacro.z = vnoise(p / 800.0 + 31.0); // mustard patches
-      vMacro.w = vnoise(p / 220.0 + 7.0); // soft ~200 m tone variation
+      // Only patterns far larger than the coarsest chunk's vertex spacing (~520 m) are per vertex;
+      // smaller ones interpolated from coarse chunks would show the chunk squares.
+      vMacro.y = vnoise(p / 1600.0 + 3.0); // fallow / ploughed patches
     }
     if (uStyle == 1) {
       // The two coarse octaves of the 600 m vegetation pattern (fbm3's first two terms); the fragment
@@ -290,39 +289,18 @@ const FRAGMENT_SHADER = /* glsl */ `
     return col;
   }
 
-  float hash11(float x) {
-    return fract(sin(x * 12.9898) * 43758.5453);
-  }
-  // Distance (m) across x to the nearest line of a network family: lines near x = k * spacing
-  // (jittered within their cell), each present only on some segLen-long stretches, so the network
-  // reads as roads and canals rather than an endless grid. Only this cell's line and the neighbour
-  // on the near side can be nearest; the presence hash is only evaluated within maxD of a line.
-  float netDist(float x, float y, float spacing, float seed, float segLen, float maxD) {
-    float g = x / spacing;
-    float k = floor(g);
-    float k2 = k + (fract(g) < 0.5 ? -1.0 : 1.0);
-    float d1 = abs(x - (k + 0.15 + 0.7 * hash11(k + seed * 101.0)) * spacing);
-    float d2 = abs(x - (k2 + 0.15 + 0.7 * hash11(k2 + seed * 101.0)) * spacing);
-    float best = 1e9;
-    float yseg = floor(y / segLen);
-    if (d1 < maxD && hash11(k * 1.7 + seed + yseg * 57.3) > 0.35) best = d1;
-    if (d2 < maxD && hash11(k2 * 1.7 + seed + yseg * 57.3) > 0.35) best = min(best, d2);
-    return best;
-  }
-
   // Punjab in late winter, as it looks from a fighter: no individual fields, but a soft wheat-green
-  // plain with gentle fallow and mustard patches; roads and canals lined with poplar/eucalyptus;
-  // compact villages with a pond, a ring of trees and often a white gurdwara; the braided rivers'
-  // sandy floodplain (khadar) a few metres below the plain.
+  // plain with gentle fallow and mustard patches, and the braided rivers' sandy floodplain
+  // (khadar) a few metres below the plain.
   vec3 plainsColor(vec3 w, float px, vec3 L, inout float shadow) {
     vec2 p = w.xz;
     float hw = w.y - uWaterLevel;
-    float m = vLow + 0.2 * (px < 25.0 ? vnoise(p / 900.0 * 4.01 + 41.0) : 0.5);
+    float m = 0.5 * vnoise(p / 900.0) + 0.3 * vnoise(p / 443.0 + 17.0) + 0.1;
     vec3 col = mix(vec3(0.26, 0.37, 0.16), vec3(0.36, 0.47, 0.21), smoothstep(0.3, 0.7, m));
-    col = mix(col, vec3(0.55, 0.49, 0.36), smoothstep(0.58, 0.74, vMacro.y) * 0.65);
-    col = mix(col, vec3(0.62, 0.60, 0.30), smoothstep(0.78, 0.9, vMacro.z) * 0.35);
+    col = mix(col, vec3(0.55, 0.49, 0.36), smoothstep(0.62, 0.78, vMacro.y) * 0.65);
+    col = mix(col, vec3(0.62, 0.60, 0.30), smoothstep(0.78, 0.9, vnoise(p / 800.0 + 31.0)) * 0.35);
     // Soft tonal variation at ~200 m and mottling close up (no edges anywhere).
-    col *= 0.93 + 0.14 * vMacro.w;
+    if (px < 30.0) col *= 0.93 + 0.14 * vnoise(p / 220.0 + 7.0) * (1.0 - smoothstep(20.0, 30.0, px)) + 0.035 * smoothstep(20.0, 30.0, px);
     if (px < 20.0) col *= 0.94 + 0.12 * vnoise(p / 45.0) * (1.0 - smoothstep(10.0, 20.0, px));
 
     // Floodplain (khadar): pale sand near the water, sparse pale grass above it.
@@ -332,73 +310,7 @@ const FRAGMENT_SHADER = /* glsl */ `
       col = mix(col, mix(vec3(0.74, 0.70, 0.60), vec3(0.56, 0.56, 0.40), g), khadar);
     }
 
-    // Roads (two families) and canals, each lined with a row of trees. Beyond ~25 m per pixel
-    // they are sub-pixel and skipped.
-    if (px < 25.0 && khadar < 0.5) {
-      float fadeNet = 1.0 - smoothstep(12.0, 25.0, px);
-      vec2 q = vec2(0.993 * p.x - 0.12 * p.y, 0.12 * p.x + 0.993 * p.y);
-      float maxD = 30.0 + px;
-      float dR = min(netDist(q.x, q.y, 1300.0, 11.0, 2600.0, maxD), netDist(q.y, q.x, 1700.0, 23.0, 3000.0, maxD));
-      vec2 q2 = vec2(0.878 * p.x + 0.479 * p.y, -0.479 * p.x + 0.878 * p.y);
-      float dC = netDist(q2.x, q2.y, 4700.0, 37.0, 1e9, maxD);
-      float road = 1.0 - smoothstep(3.0, 3.0 + px, dR);
-      float canal = 1.0 - smoothstep(7.0, 7.0 + px, dC);
-      float rows = max(1.0 - smoothstep(5.0, 5.0 + px, abs(dR - 11.0)), 1.0 - smoothstep(6.0, 6.0 + px, abs(dC - 19.0)));
-      // Poplar/eucalyptus rows along field boundaries: short, scattered stretches (rows only; the
-      // fields themselves are not drawn).
-      if (px < 12.0) {
-        float dT = min(netDist(q.x, q.y, 450.0, 41.0, 600.0, maxD), netDist(q.y, q.x, 380.0, 43.0, 500.0, maxD));
-        rows = max(rows, (1.0 - smoothstep(4.0, 4.0 + px, dT)) * (1.0 - smoothstep(6.0, 12.0, px)));
-      }
-      // Individual crowns and gaps in the rows close up.
-      if (px < 3.0) rows *= smoothstep(0.3, 0.45, vnoise(p / 8.0));
-      col = mix(col, vec3(0.55, 0.52, 0.46), road * fadeNet);
-      col = mix(col, uWaterColor, canal * fadeNet);
-      col = mix(col, vec3(0.16, 0.26, 0.11), rows * fadeNet * 0.9);
-    }
-
-    // Villages: about one in three 2 km cells.
-    vec2 vid = floor(p / 2000.0);
-    if (khadar < 0.5 && hash12(vid + 91.0) < 0.35) {
-      vec2 c = (vid + 0.25 + 0.5 * vec2(hash12(vid + 3.0), hash12(vid + 5.0))) * 2000.0;
-      float r = 150.0 + 170.0 * hash12(vid + 8.0);
-      // Irregular outline: stretched along a random direction plus a ragged edge.
-      vec2 dv = p - c;
-      float ang = hash12(vid + 37.0) * 3.14159;
-      vec2 ax = vec2(cos(ang), sin(ang));
-      float d = length(vec2(dot(dv, ax) * 0.75, dot(dv, vec2(-ax.y, ax.x)) * 1.25)) + (px < 30.0 ? 80.0 * vnoise(p / 90.0) - 40.0 : 0.0);
-      if (d < r + 70.0) {
-        float core = 1.0 - smoothstep(r * 0.8, r, d);
-        float ring = (1.0 - smoothstep(r, r + 60.0, d)) * (1.0 - core);
-        // From altitude a Punjab village is a dark, brownish, tree-filled blob, not a clearing.
-        vec3 vcol = mix(vec3(0.42, 0.38, 0.30), vec3(0.20, 0.29, 0.13), 0.45 * (1.0 - smoothstep(0.5, 1.0, d / r)) + 0.25);
-        if (px < 6.0) {
-          // Dense lots of brick, concrete and cream roofs, with narrow lanes between blocks.
-          vec2 lot = floor(p / 9.0);
-          float hsh = hash12(lot + 7.0);
-          vec3 roof = hsh < 0.4 ? vec3(0.52, 0.39, 0.31) : hsh < 0.7 ? vec3(0.55, 0.53, 0.49) : hsh < 0.85 ? vec3(0.62, 0.58, 0.49) : vec3(0.20, 0.30, 0.13);
-          vec2 blk = fract(p / 36.0);
-          float lane = step(0.9, max(blk.x, blk.y));
-          vcol = mix(mix(roof, vec3(0.40, 0.36, 0.30), lane), vcol, smoothstep(2.0, 6.0, px));
-        }
-        col = mix(col, vec3(0.17, 0.27, 0.12), ring * 0.85);
-        col = mix(col, vcol, core);
-        // The village pond.
-        vec2 pc = c + (vec2(hash12(vid + 13.0), hash12(vid + 17.0)) - 0.5) * r * 0.9;
-        float pr = 25.0 + 25.0 * hash12(vid + 19.0);
-        col = mix(col, vec3(0.20, 0.28, 0.21), 1.0 - smoothstep(pr, pr + max(px, 2.0), length(p - pc)));
-        // A white gurdwara in about half of them.
-        if (hash12(vid + 23.0) < 0.5) {
-          vec2 gc = c + (vec2(hash12(vid + 29.0), hash12(vid + 31.0)) - 0.5) * r * 0.6;
-          vec2 gd = abs(p - gc);
-          col = mix(col, vec3(0.92, 0.91, 0.86), 1.0 - smoothstep(12.0, 12.0 + max(px, 1.0), max(gd.x, gd.y)));
-        }
-      }
-    }
-
-    // Scattered field trees (kikar, shisham) close up.
-    float treeNear = 1.0 - smoothstep(1.5, 5.0, px);
-    shadow *= treeCanopy(p, 0.06 * (1.0 - khadar), 7.0, 10.0, L, treeNear, col, vec3(0.18, 0.28, 0.12));
+    // Roads, canals, villages, towns and trees are real geometry now (chunkFeatureRenderer.ts).
     return col;
   }
 
