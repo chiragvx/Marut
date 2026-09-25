@@ -8,7 +8,6 @@
  */
 import type {
   CoastShape,
-  EstuarySpec,
   Noise2D,
   PlainsShape,
   RawTerrainHeightFn,
@@ -17,6 +16,7 @@ import type {
   WarpFn,
 } from '../contracts/terrain';
 import { RIVER_FLOATS, packRiver, riverField, type RiverField } from './riverMath';
+import { ESTUARY_FLOATS, estuaryField, packEstuary, shoreAt } from './coastMath';
 
 export interface ShapeNoiseFields {
   /** Domain-warped fbm, normalised to roughly [-1,1]. */
@@ -43,30 +43,31 @@ export function coastLineAt(s: CoastShape, meander: Noise2D, z: number, out: Vec
   return out;
 }
 
-interface EstuaryPre {
-  e: EstuarySpec;
-  ux: number;
-  uz: number;
-  lane: number;
-  phase0: number;
-}
-
-function buildCoast(s: CoastShape, n: ShapeNoiseFields, scratch: Vec2Like): RawTerrainHeightFn {
+function buildCoast(s: CoastShape, seed: number, n: ShapeNoiseFields, scratch: Vec2Like): RawTerrainHeightFn {
+  // Shoreline: the same 1 km sample table the ground shader interpolates (buildCoastProfile), so the
+  // sea edge matches it exactly. Estuaries: coastMath.ts, also mirrored in the shader.
   const line: Vec2Like = { x: 0, z: 0 };
-  const estuaries: EstuaryPre[] = s.estuaries.map((e, i) => {
-    const lane = 91.3 + i * 13.7;
-    return { e, ux: Math.sin(e.headingRad), uz: -Math.cos(e.headingRad), lane, phase0: n.meander(0, lane) };
-  });
+  const shoreX: number[] = [];
+  const headland: number[] = [];
+  for (let i = 0; i <= COAST_TABLE_N; i++) {
+    coastLineAt(s, n.meander, COAST_TABLE_Z0 + i * COAST_TABLE_DZ, line);
+    shoreX.push(line.x);
+    headland.push(line.z);
+  }
+  const table = { z0: COAST_TABLE_Z0, dz: COAST_TABLE_DZ, shoreX, headland };
+  const est = new Float32Array(s.estuaries.length * ESTUARY_FLOATS);
+  s.estuaries.forEach((e, i) => packEstuary(e, i, seed, est, i * ESTUARY_FLOATS));
+  const sh = { x: 0, headland: 0 };
   return (x, z) => {
-    coastLineAt(s, n.meander, z, line);
-    const headland = line.z;
-    const d = x - line.x;
+    shoreAt(table, z, sh);
+    const hl = sh.headland;
+    const d = x - sh.x;
     n.warp(x, z, scratch);
     const fb = n.fbmN(scratch.x, scratch.z);
     let h: number;
     if (d < 0) {
       // Continental shelf, deepening offshore (shallow rock shelf off the headlands), plus islands.
-      h = Math.max(d * (0.01 - 0.006 * headland), -60);
+      h = Math.max(d * (0.01 - 0.006 * hl), -60);
       if (s.islandHeightM > 0) {
         const isl = Math.max(0, n.fbmN(x * 0.45 + 5000, z * 0.45) - 0.42) / 0.58;
         if (isl > 0) {
@@ -87,26 +88,24 @@ function buildCoast(s: CoastShape, n: ShapeNoiseFields, scratch: Vec2Like): RawT
       // Beach (rises over ~250 m) or headland cliff (rises over ~90 m).
       const beach = smoothstep(0, 250, d) * (1.5 + plain + relief);
       const cliff = s.headlandHeightM * (0.75 + 0.25 * fb) * smoothstep(0, 90, d) + smoothstep(0, 250, d) * (plain + relief);
-      h = beach + (cliff - beach) * headland + mesa + hills;
+      h = beach + (cliff - beach) * hl + mesa + hills;
     }
-    for (const es of estuaries) {
-      const e = es.e;
-      const px = x - e.mouthX;
-      const pz = z - e.mouthZ;
-      const u = px * es.ux + pz * es.uz;
-      if (u < 0 || u > e.lengthM) continue;
-      const v = px * -es.uz + pz * es.ux;
-      const c = e.meanderAmpM * (n.meander(u * e.meanderFreq, es.lane) - es.phase0) * smoothstep(0, 8000, u);
-      const halfW = 0.5 * (e.inlandWidthM + (e.mouthWidthM - e.inlandWidthM) * Math.exp(-u / e.taperM)) * (1 - smoothstep(e.lengthM * 0.8, e.lengthM, u));
-      const dist = Math.abs(v - c);
-      if (dist > halfW + e.bankWidthM) continue;
+    for (let i = 0; i < s.estuaries.length; i++) {
+      const f = estuaryField(est, i * ESTUARY_FLOATS, x, z);
+      const bank = est[i * ESTUARY_FLOATS + 8]!;
+      if (f < -bank) continue;
       const bed = -4;
-      const hr = bed + (h - bed) * smoothstep(halfW, halfW + e.bankWidthM, dist);
+      const hr = bed + (h - bed) * smoothstep(0, bank, -f);
       if (hr < h) h = hr;
     }
     return h;
   };
 }
+
+/** Shoreline table layout shared with buildCoastProfile (terrainHeight.ts) and the shader. */
+export const COAST_TABLE_Z0 = -100000;
+export const COAST_TABLE_DZ = 1000;
+export const COAST_TABLE_N = 200;
 
 function buildPlains(s: PlainsShape, waterLevelM: number, seed: number, n: ShapeNoiseFields, scratch: Vec2Like): RawTerrainHeightFn {
   // Rivers are pure maths (riverMath.ts), shared with the ground shader so water edges match.
@@ -138,7 +137,7 @@ export function buildShapedHeight(shape: TerrainShape, waterLevelM: number | und
   const scratch: Vec2Like = { x: 0, z: 0 };
   switch (shape.kind) {
     case 'coast':
-      return buildCoast(shape, fields, scratch);
+      return buildCoast(shape, seed, fields, scratch);
     case 'plains':
       return buildPlains(shape, waterLevelM ?? shape.baseElevationM - 8, seed, fields, scratch);
   }

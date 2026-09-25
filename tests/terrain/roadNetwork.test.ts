@@ -76,7 +76,7 @@ describe('Punjab chunk scenery', () => {
     const zones = airportClearZones(adampur.flattenZones);
     const size2 = 200000 / 32;
     let checked = 0;
-    for (const [dx, dz] of [[0, 0], [-1, 0], [0, -1], [-1, -1]]) {
+    for (const [dx, dz] of [[0, 0], [-1, 0], [0, -1], [-1, -1]] as const) {
       const key = { depth: 5, cx: Math.floor((dx * size2 + 1 + 100000) / size2), cz: Math.floor((dz * size2 + 1 + 100000) / size2) };
       const g = buildChunkGeometryAndSurface(sampler, key, 24);
       const f = buildChunkFeatures(net, g.bounds, g.surface, { objects: true, treeDensity: 1, clearZones: zones });

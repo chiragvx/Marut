@@ -64,6 +64,7 @@ import {
 import { createChunkManager } from './terrain';
 import { buildCoastProfile, createHeightSampler } from './terrain';
 import { RIVER_FLOATS, packRiver } from './terrain/riverMath';
+import { ESTUARY_FLOATS, packEstuary } from './terrain/coastMath';
 import { createAirportNavDb, validateAirportLayout } from './airport';
 import { tejasDefinition } from './aircraft';
 import { isBuiltinMissionId, resolveBuiltinMission } from './core/missions/index';
@@ -648,6 +649,12 @@ function buildSceneEnvironment(terrainParams: TerrainParams, airportLayouts: rea
     }
   }
   const coast = buildCoastProfile(terrainParams);
+  let estuaries: SceneEnvironment['estuaries'];
+  if (terrainParams.shape?.kind === 'coast' && terrainParams.shape.estuaries.length > 0) {
+    const packed = new Float32Array(terrainParams.shape.estuaries.length * ESTUARY_FLOATS);
+    terrainParams.shape.estuaries.forEach((e, i) => packEstuary(e, i, terrainParams.seed, packed, i * ESTUARY_FLOATS));
+    estuaries = { packed: Array.from(packed), count: terrainParams.shape.estuaries.length };
+  }
   let rivers: SceneEnvironment['rivers'];
   if (terrainParams.shape?.kind === 'plains' && terrainParams.shape.rivers.length > 0) {
     const packed = new Float32Array(terrainParams.shape.rivers.length * RIVER_FLOATS);
@@ -661,6 +668,7 @@ function buildSceneEnvironment(terrainParams: TerrainParams, airportLayouts: rea
     groundLevelM: terrainParams.shape?.kind === 'plains' ? terrainParams.shape.baseElevationM : (terrainParams.waterLevelM ?? 0) + 20,
     ...(clouds ? { clouds } : {}),
     ...(rivers ? { rivers } : {}),
+    ...(estuaries ? { estuaries } : {}),
     ...(coast ? { coast } : {}),
     ...(terrainParams.waterLevelM !== undefined ? { waterLevelM: terrainParams.waterLevelM } : {}),
     runways,

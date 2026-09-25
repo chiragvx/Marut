@@ -39,6 +39,7 @@ import { CLOUD_SHADOW_GLSL, getCloudShadowUniforms } from './clouds';
 import { ATMOSPHERE_GLSL, getAtmosphereUniforms } from './atmosphere';
 import { SUN_SHADOW_GLSL, getSunShadowUniforms } from './sunShadows';
 import { MAX_RIVERS, RIVER_FLOATS, RIVER_GLSL } from '../terrain/riverMath';
+import { ESTUARY_FLOATS, ESTUARY_GLSL, MAX_ESTUARIES } from '../terrain/coastMath';
 
 export const MAX_TERRAIN_RUNWAYS = 4;
 /** Shoreline samples the vertex shader can hold (packed four per vec4). 201 = the 200 km world at 1 km. */
@@ -151,7 +152,34 @@ const FRAGMENT_SHADER = /* glsl */ `
   ${ATMOSPHERE_GLSL}
   ${SUN_SHADOW_GLSL}
   ${RIVER_GLSL}
+  ${ESTUARY_GLSL}
   uniform float uTime;
+  uniform int uCoastCount;
+  uniform vec2 uCoastZ;
+  uniform vec4 uShore[${COAST_VEC4S}];
+  uniform vec4 uHead[${COAST_VEC4S}];
+  float coastSample(int which, int i) {
+    i = clamp(i, 0, uCoastCount - 1);
+    return which == 0 ? uShore[i >> 2][i & 3] : uHead[i >> 2][i & 3];
+  }
+  // Per-pixel shoreline (same Catmull-Rom as coastMath.ts shoreAt): x = distance inland from the
+  // shore (m, negative at sea), y = headland weight. Per pixel, so it is identical in every chunk.
+  vec2 coastAt(vec2 p) {
+    float fi = clamp((p.y - uCoastZ.x) / uCoastZ.y, 0.0, float(uCoastCount - 1) - 0.001);
+    int i = int(fi);
+    float f = fi - float(i);
+    float f2 = f * f;
+    float f3 = f2 * f;
+    vec2 r;
+    for (int k = 0; k < 2; k++) {
+      float a = coastSample(k, i - 1);
+      float b = coastSample(k, i);
+      float c = coastSample(k, i + 1);
+      float d = coastSample(k, i + 2);
+      r[k] = 0.5 * (2.0 * b + (c - a) * f + (2.0 * a - 5.0 * b + 4.0 * c - d) * f2 + (3.0 * b - a - 3.0 * c + d) * f3);
+    }
+    return vec2(p.x - r.x, clamp(r.y, 0.0, 1.0));
+  }
   // 0..1: how far this ground stands above its surroundings (set in main before the colour functions).
   float gRaised = 0.0;
 
@@ -182,11 +210,14 @@ const FRAGMENT_SHADER = /* glsl */ `
   // Shared water shading (Goa sea and estuaries, Punjab rivers): animated ripples at two scales
   // drifting against each other, a long swell far out, fresnel sky reflection, sun glint, and
   // colour by depth. Each ripple layer fades once it is smaller than a pixel.
-  vec3 waterShade(vec3 w, vec3 rel, float px, float depth) {
+  // shoreDist: distance to the shore on the water side, m (sea only; large elsewhere). kind: 0 river,
+  // 1 open sea, 2 estuary.
+  vec3 waterShade(vec3 w, vec3 rel, float px, float depth, float shoreDist, float kind) {
     vec3 V = normalize(rel);
     float t = uTime;
     vec2 g = vec2(0.0);
-    float ampSwell = 1.0 - smoothstep(20.0, 80.0, px);
+    // Long swell (sea only, visible far out), then two ripple layers drifting against each other.
+    float ampSwell = (kind > 0.5 && kind < 1.5 ? 1.0 : 0.4) * (1.0 - smoothstep(20.0, 80.0, px));
     if (ampSwell > 0.0) g += vnoised(w.xz / 160.0 + t * vec2(0.012, 0.007)).yz * 0.10 * ampSwell;
     float amp = 1.0 - smoothstep(1.5, 10.0, px);
     if (amp > 0.0) {
@@ -194,26 +225,40 @@ const FRAGMENT_SHADER = /* glsl */ `
       g += vnoised(w.xz / 7.0 + 3.0 - t * vec2(0.11, 0.06)).yz * 0.05 * amp;
     }
     vec3 n = normalize(vec3(g.x, 1.0, g.y));
-    // Shallows show the bottom (turquoise over coastal sand, brighter silt in rivers).
-    vec3 shallow = uStyle == 1 ? vec3(0.10, 0.42, 0.44) : uWaterColor * 1.35 + vec3(0.05, 0.05, 0.03);
-    vec3 body = mix(shallow, uWaterColor, smoothstep(0.5, 18.0, depth));
-    // Goa's estuaries (inland of the shoreline) carry silt: olive green-brown, not sea blue.
-    if (uStyle == 1) body = mix(body, vec3(0.20, 0.30, 0.24), smoothstep(300.0, 2500.0, vMacro.z));
+    vec3 body;
+    if (kind > 0.5 && kind < 1.5) {
+      // Arabian Sea: sandy turquoise shallows -> green-blue -> deep blue with depth, and sand stirred
+      // up in the surf zone.
+      body = mix(vec3(0.22, 0.47, 0.44), vec3(0.10, 0.32, 0.36), smoothstep(0.3, 5.0, depth));
+      body = mix(body, uWaterColor, smoothstep(5.0, 22.0, depth));
+      body = mix(body, vec3(0.36, 0.42, 0.36), (1.0 - smoothstep(8.0, 45.0, shoreDist)) * 0.55);
+    } else if (kind > 1.5) {
+      // Estuaries: silt-laden olive green-brown, a little clearer in the middle.
+      body = mix(vec3(0.27, 0.33, 0.24), vec3(0.19, 0.28, 0.24), smoothstep(0.5, 4.0, depth));
+    } else {
+      body = mix(uWaterColor * 1.35 + vec3(0.05, 0.05, 0.03), uWaterColor, smoothstep(0.5, 18.0, depth));
+    }
     float cosi = max(dot(-V, n), 0.0);
     float fres = 0.02 + 0.98 * pow(1.0 - cosi, 5.0);
     vec3 col = mix(body, atmSky(reflect(V, n)), fres * 0.85);
-    // Surf: a broken foam band along the shore, widest on the open coast.
+    // Surf on the open coast: breaker lines rolling in to the beach (~6 m/s), broken up along the
+    // shore, and the swash line at the water's edge. Breaker lines fade out once they are sub-pixel;
+    // the swash line stays as a thin white edge from afar.
     float foam = 0.0;
-    if (uStyle == 1 && depth < 2.5) {
-      float surfWidth = uStyle == 1 ? 1.6 : 0.6;
-      foam = 1.0 - smoothstep(0.15, surfWidth, depth + 0.9 * (vnoise(w.xz / 12.0) - 0.5));
-      foam *= 0.55 + 0.45 * vnoise(w.xz / 3.0 + 5.0) * (1.0 - smoothstep(1.0, 6.0, px));
-      col = mix(col, vec3(0.92, 0.94, 0.95), foam * 0.85);
+    if (kind > 0.5 && kind < 1.5 && shoreDist < 150.0) {
+      float nA = vnoise(w.xz / 55.0 + vec2(t * 0.02, 0.0));
+      float crest = smoothstep(0.8, 0.97, sin(shoreDist * 0.22 + t * 1.3 + nA * 5.0));
+      crest *= (1.0 - smoothstep(25.0, 130.0, shoreDist)) * smoothstep(0.25, 0.55, nA + 0.25) * (1.0 - smoothstep(3.0, 10.0, px));
+      float swash = 1.0 - smoothstep(0.0, 5.0 + 7.0 * nA + max(px, 0.0), shoreDist);
+      foam = max(crest * 0.8, swash * 0.9);
+      foam *= 0.6 + 0.4 * (px < 3.0 ? vnoise(w.xz / 2.5 + t * 0.2) : 0.5);
+      col = mix(col, vec3(0.92, 0.94, 0.95), foam);
     }
     vec3 R = reflect(V, n);
     float spec = pow(max(dot(R, normalize(uSunDir)), 0.0), 160.0);
     return col + vec3(1.0, 0.95, 0.85) * spec * 1.1 * (1.0 - foam);
   }
+
 
   // Tree crowns (~crownM wide) covering density of the ground, with the shadows they cast away
   // from the sun; near the camera only. Darkens col under crowns and returns the shadow factor.
@@ -246,11 +291,13 @@ const FRAGMENT_SHADER = /* glsl */ `
     return m;
   }
 
-  vec3 coastColor(vec3 w, vec3 n, float px, float near, vec3 L, inout float shadow) {
+  // est = signed distance into the nearest estuary (coastMath), > 0 in its water.
+  vec3 coastColor(vec3 w, vec3 n, float px, float near, vec3 L, inout float shadow, float est, vec2 coastPx) {
     float slope = 1.0 - n.y;
-    float coastD = vMacro.z;
-    float headland = vMacro.w;
+    float coastD = coastPx.x;
+    float headland = coastPx.y;
     float hw = w.y - uWaterLevel;
+    float toRiver = -est;
     float f1 = vLow + 0.2 * (px < 20.0 ? vnoise(w.xz / 600.0 * 4.01 + 41.0) : 0.5);
 
     // Lowland: mostly green (cashew, mango, scrub forest) with dry-season paddy (straw) in patches.
@@ -273,18 +320,19 @@ const FRAGMENT_SHADER = /* glsl */ `
     col = mix(col, mix(forest, vec3(0.58, 0.52, 0.34), deccanTop * 0.7), ghats);
 
     // Laterite rock: cliffs, plateau edges, headlands.
-    float rock = max(smoothstep(0.22, 0.42, slope), headland * (1.0 - smoothstep(150.0, 400.0, coastD)) * smoothstep(1.5, 4.0, hw));
+    float rock = max(smoothstep(0.22, 0.42, slope), headland * (1.0 - smoothstep(40.0, 140.0, coastD)));
     if (rock > 0.0) col = mix(col, vec3(0.44, 0.28, 0.20) * (0.85 + 0.3 * (px < 8.0 ? vnoise(w.xz / 25.0) : 0.5)), rock * (1.0 - ghats * 0.6));
 
     // Coconut-palm belt behind the beaches and along the estuaries.
     float palmBelt = (1.0 - smoothstep(1500.0, 3500.0, coastD)) * smoothstep(20.0, 120.0, coastD);
-    float riverBank = smoothstep(1500.0, 2500.0, coastD) * (1.0 - smoothstep(4.0, 12.0, hw));
+    float riverBank = smoothstep(1500.0, 2500.0, coastD) * (1.0 - smoothstep(60.0, 260.0, toRiver));
     float palms = max(palmBelt, riverBank) * (1.0 - rock) * (1.0 - plateau) * (1.0 - smoothstep(60.0, 120.0, w.y));
     col = mix(col, vec3(0.24, 0.35, 0.15), palms * 0.55);
 
-    // Mangroves: the tidal banks of the estuaries (inland water edges only).
-    float mangrove = smoothstep(1200.0, 2200.0, coastD) * (1.0 - smoothstep(0.8, 2.5, hw));
+    // Mangroves on the tidal banks of the estuaries (inland only), with a dark mud margin.
+    float mangrove = smoothstep(800.0, 2000.0, coastD) * (1.0 - smoothstep(0.0, 55.0 + 35.0 * (px < 40.0 ? vnoise(w.xz / 90.0) : 0.5), toRiver));
     col = mix(col, vec3(0.09, 0.19, 0.10), mangrove);
+    col = mix(col, vec3(0.28, 0.26, 0.20), (1.0 - smoothstep(0.0, 12.0, toRiver)) * smoothstep(300.0, 1200.0, coastD));
 
     // Villages: red-tile roofs among palms, on the low coastal land.
     vec2 vid = floor(w.xz / 1500.0);
@@ -304,10 +352,13 @@ const FRAGMENT_SHADER = /* glsl */ `
       col = mix(col, vcol, village);
     }
 
-    // Beaches and wet sand: open coast only, not at headlands.
-    float beach = (1.0 - smoothstep(2.5, 5.0, hw)) * (1.0 - smoothstep(400.0, 900.0, coastD)) * (1.0 - smoothstep(0.35, 0.65, headland));
-    vec3 sand = mix(vec3(0.72, 0.64, 0.48), vec3(0.88, 0.82, 0.64), smoothstep(0.3, 1.2, hw));
-    col = mix(col, sand, beach);
+    // Beaches (open coast only, not at headlands): dry sand 50-90 m wide, and wet sand at the water's
+    // edge that the swash runs up over and back.
+    float beachW = 70.0 + 30.0 * (px < 60.0 ? vnoise(w.xz / 180.0) - 0.5 : 0.0);
+    float beach = (1.0 - smoothstep(beachW - 15.0, beachW + 15.0, coastD)) * (1.0 - smoothstep(0.35, 0.65, headland));
+    float wet = 1.0 - smoothstep(3.0, 9.0 + 5.0 * sin(uTime * 0.8 + w.z * 0.01), coastD);
+    vec3 sand = mix(vec3(0.87, 0.81, 0.64), vec3(0.62, 0.55, 0.42), wet);
+    col = mix(col, sand * mix(vec3(1.0), detailAt(w.xz, 2.0, 12.0, px), 0.7), beach);
 
     // Tree crowns and their shadows near the camera: palms along the coast and rivers, forest on
     // the Ghats, scattered cashew/mango trees elsewhere.
@@ -422,8 +473,23 @@ const FRAGMENT_SHADER = /* glsl */ `
     vec3 rv = vec3(-1e9, -1e9, 0.0);
     if (uStyle == 2 && uRiverCount > 0) rv = riversAt(vWorld.xz);
     float riverWater = uStyle == 2 ? smoothstep(-0.5 * px - 0.5, 0.5 * px + 0.5, rv.x) : 0.0;
-    if (uStyle != 2 && uHasWater > 0.5 && vWorld.y <= uWaterLevel + 0.05) {
-      col = waterShade(vWorld, vRel, px, max(nl - 1.0, 0.0) * 30.0);
+    // Goa: the sea and estuaries are analytic too (coastMath): sea where the pixel is west of the
+    // shoreline table (except island land, which only the mesh knows), estuaries by their field.
+    float est = -1e9;
+    float seaW = -1e9;
+    float coastWater = 0.0;
+    vec2 coastPx = vec2(1e5, 0.0);
+    if (uStyle == 1) {
+      if (uEstuaryCount > 0) est = estuariesAt(vWorld.xz);
+      if (uCoastCount > 1) coastPx = coastAt(vWorld.xz);
+      seaW = -coastPx.x;
+      // Island land (only the mesh knows it). Islands sit well offshore, so this is never applied
+      // near the shore, where mesh triangles straddling the waterline would otherwise read as land.
+      float island = seaW > 1500.0 ? smoothstep(0.15, 0.6, vWorld.y - uWaterLevel) : 0.0;
+      coastWater = smoothstep(-0.5 * px - 0.5, 0.5 * px + 0.5, max(seaW, est)) * (1.0 - island);
+    }
+    if (uStyle == 0 && uHasWater > 0.5 && vWorld.y <= uWaterLevel + 0.05) {
+      col = waterShade(vWorld, vRel, px, max(nl - 1.0, 0.0) * 30.0, 1e9, 0.0);
     } else {
       // Ring relief (chunkGeometryBuilder.ts LAND_LEN_*): > 0 in hollows, < 0 on raised ground.
       float relief = (0.62 - nl) / 0.6;
@@ -437,7 +503,7 @@ const FRAGMENT_SHADER = /* glsl */ `
         n = normalize(n - vec3(g.x, 0.0, g.y) * near);
       }
       float shadow = 1.0;
-      if (uStyle == 1) col = coastColor(vWorld, n, px, near, L, shadow);
+      if (uStyle == 1) col = coastColor(vWorld, n, px, near, L, shadow, est, coastPx);
       else col = plainsColor(vWorld, px, L, shadow, rv);
 
       for (int i = 0; i < ${MAX_TERRAIN_RUNWAYS}; i++) {
@@ -473,7 +539,12 @@ const FRAGMENT_SHADER = /* glsl */ `
       float diff = max(dot(n, L), 0.0) * shadow * cloudShadow(vWorld) * sunShadow(vWorld, ndlGeom);
       vec3 ambient = mix(vec3(0.30, 0.27, 0.22), vec3(0.44, 0.47, 0.52), 0.5 + 0.5 * n.y);
       col *= ambient * occ + vec3(1.0, 0.97, 0.9) * 0.62 * diff * mix(1.0, occ, 0.35);
-      if (riverWater > 0.0) col = mix(col, waterShade(vWorld, vRel, px, clamp(rv.x * 0.03, 0.0, 6.0)), riverWater);
+      if (riverWater > 0.0) col = mix(col, waterShade(vWorld, vRel, px, clamp(rv.x * 0.03, 0.0, 6.0), 1e9, 0.0), riverWater);
+      if (coastWater > 0.0) {
+        bool estuary = est > 0.0 && est > seaW;
+        float depth = estuary ? min(est * 0.02, 6.0) : min(seaW * (0.01 - 0.006 * coastPx.y), 60.0);
+        col = mix(col, waterShade(vWorld, vRel, px, depth, estuary ? 1e9 : seaW, estuary ? 2.0 : 1.0), coastWater);
+      }
     }
     gl_FragColor = vec4(atmApply(col, vWorld), 1.0);
   }
@@ -501,6 +572,8 @@ export function createTerrainMaterial(): THREE.ShaderMaterial {
       uTime: { value: 0 },
       uRivers: { value: Array.from({ length: 4 * MAX_RIVERS }, () => new THREE.Vector4()) },
       uRiverCount: { value: 0 },
+      uEstuaries: { value: Array.from({ length: 4 * MAX_ESTUARIES }, () => new THREE.Vector4()) },
+      uEstuaryCount: { value: 0 },
       ...getCloudShadowUniforms(),
       ...getAtmosphereUniforms(),
       ...getSunShadowUniforms(),
@@ -538,6 +611,15 @@ export function applyTerrainEnvironment(material: THREE.ShaderMaterial, env: Rea
     rivers[i]!.set(pk[o]!, pk[o + 1]!, pk[o + 2]!, pk[o + 3]!);
   }
   u['uRiverCount']!.value = nRiv;
+
+  const ests = u['uEstuaries']!.value as THREE.Vector4[];
+  const nEst = env.estuaries ? Math.min(env.estuaries.count, MAX_ESTUARIES) : 0;
+  for (let i = 0; i < nEst * 4; i++) {
+    const o = Math.floor(i / 4) * ESTUARY_FLOATS + (i % 4) * 4;
+    const pk = env.estuaries!.packed;
+    ests[i]!.set(pk[o]!, pk[o + 1]!, pk[o + 2]!, pk[o + 3]!);
+  }
+  u['uEstuaryCount']!.value = nEst;
 
   const coast = env.coast;
   const nCoast = coast ? Math.min(coast.shoreX.length, MAX_COAST_SAMPLES) : 0;

@@ -339,6 +339,8 @@ export interface SceneEnvironment {
   clouds?: { coverage: number; baseM: number; topM: number; seed: number };
   /** Plains theatres: rivers packed by src/terrain/riverMath.ts packRiver (16 floats each). */
   rivers?: { packed: readonly number[]; count: number };
+  /** Coast theatres: estuaries packed by src/terrain/coastMath.ts packEstuary (16 floats each). */
+  estuaries?: { packed: readonly number[]; count: number };
   /** One entry per physical runway (not per direction). */
   runways: readonly { centerX: number; centerZ: number; headingRad: number; lengthM: number; widthM: number }[];
 }
