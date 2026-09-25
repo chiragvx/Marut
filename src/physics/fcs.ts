@@ -26,6 +26,14 @@ import { Quat, clamp, lerp, rateLimitStep, bodyRateP, bodyRateQ, bodyRateR } fro
 const FCS_TRIM_INTEGRAL_GAIN = 0.1;
 /** Anti-windup clamp on trimIntegralRad, rad (~12deg). */
 const FCS_TRIM_INTEGRAL_MAX_RAD = 0.2094;
+/**
+ * Trim-integral anti-windup (stepFcs): the error the integral accumulates is clamped to this band,
+ * g, bounding how fast it can move (0.1*0.5 = 0.05 rad/s of elevon), and it is frozen outright
+ * while the g path is pinned at its pitch-rate cap. It still has to close LARGE steady errors (a
+ * steep sustained turn's leftover offset under the proportional loops can exceed 1g), so it cannot
+ * simply ignore big errors -- that failed every sustained turn past ~60deg of bank.
+ */
+const FCS_TRIM_INTEGRATE_MAX_ERROR_G = 0.5;
 
 /**
  * Max onset rate of the FCS-shaped pitch/roll stick, in stick-fraction (-1..1) units per second —
@@ -56,6 +64,9 @@ const FCS_PITCH_STICK_SHAPE_RATE_PER_SEC = 1.0;
 const FCS_ROLL_STICK_SHAPE_RATE_PER_SEC = 2.0;
 
 /**
+ * GROUND LAW ONLY now (the airborne limiter is the rate-path design documented at
+ * FCS_ALPHA_LOOP_GAIN_PER_S). Kept for the ground law's rotation taper; history follows.
+ *
  * Look-ahead time, s, used to anticipate alpha for the alpha limiter (stepFcs, below): rather
  * than comparing raw `alpha` against fcsLimits.maxAlphaRad/minAlphaRad, the limiter compares
  * `alpha + q*ALPHA_LIMIT_ANTICIPATION_SEC` (q = body-frame pitch rate, positive = nose up, the
@@ -78,6 +89,10 @@ const FCS_ROLL_STICK_SHAPE_RATE_PER_SEC = 2.0;
 const ALPHA_LIMIT_ANTICIPATION_SEC = 0.3;
 
 /**
+ * GROUND LAW ONLY now, like ALPHA_LIMIT_ANTICIPATION_SEC above; the airborne g-command blend this
+ * describes was replaced by the rate-path limiter (FCS_ALPHA_LOOP_GAIN_PER_S), which removed the
+ * relay behaviour this band only softened. History follows.
+ *
  * Width, rad (~2deg), of the blend band the alpha limiter (stepFcs, below) ramps the raw
  * g-command DOWN to its "1.0 - alphaLimitGain*overshoot" target over, instead of assigning that
  * target outright the instant anticipated alpha first crosses the limit.
@@ -96,6 +111,40 @@ const ALPHA_LIMIT_ANTICIPATION_SEC = 0.3;
  * boundary to hold it, letting alpha drift enough to crash on landing much later in the flight.
  */
 const ALPHA_LIMIT_BLEND_RAD = 0.035;
+
+/**
+ * Airborne alpha limiter as a pitch-RATE path (stepFcs's air branch): the limiter asks for
+ * `qCmdAlpha = pathRate + FCS_ALPHA_LOOP_GAIN_PER_S * (maxAlphaRad - alpha)`, and the outer loop
+ * flies whichever of that and the pilot's g path asks for LESS pitch rate (mirrored for
+ * minAlphaRad). `pathRate` (the flight path's own pitch-plane turn rate, `(gLoad - upY)*g/V`) is
+ * the feedforward that makes alpha itself obey `alphaDot = q - pathRate -> K*(max - alpha)`: a
+ * smooth first-order approach to the limit with time constant 1/K, with the aircraft settling AT
+ * the limit in a sustained pull rather than below it.
+ *
+ * Replaces an earlier limiter that cut the g-COMMAND from the pilot's demand (up to 8g) to ~1g
+ * across a 2deg band of rate-anticipated alpha (`alpha + 0.3*q`). That was effectively a
+ * ~200 g/rad switch whose input swung +-10deg with q alone; behind the elevon rate limit it formed
+ * a limit cycle -- live report "bobbing under 200 kt pulling hard", reproduced in the real World
+ * (free-flight weather on) as alpha cycling 17.5-21deg every ~0.45s with the elevons slamming
+ * -12..+23deg at their rate limit. It only showed with gusts/turbulence on: undisturbed, the loop
+ * sat on a marginal equilibrium, which is why stepAircraft-only probes never saw it.
+ */
+const FCS_ALPHA_LOOP_GAIN_PER_S = 2.5;
+/**
+ * Lead (alpha-rate damping) on the alpha path, s: the limiter acts on `alpha + T*alphaDot`, so a
+ * fast pull at higher speed starts easing off before alpha reaches the limit rather than after.
+ * Without it a hard pull at ~130 m/s overshot the 22deg limit to ~31deg: the unstable airframe and
+ * rate-limited elevons cannot reverse a 40deg/s pitch rate instantly.
+ */
+const FCS_ALPHA_LOOP_LEAD_SEC = 0.5;
+/** Floor on true airspeed, m/s, for the pathRate feedforward's 1/V (never reached in real flight). */
+const FCS_PATH_RATE_MIN_TAS_MPS = 20;
+/**
+ * Converts an alpha error into the trim integral's g-error units while the alpha limiter is
+ * flying (stepFcs), g per rad -- roughly this airframe's low-speed CL_alpha*qBar*S/W, so the
+ * integral trims alpha onto the limit at a similar rate to how it trims g elsewhere.
+ */
+const FCS_ALPHA_TRIM_G_PER_RAD = 10;
 
 /**
  * Pitch-axis qBar gain scheduling (cross-module fix; see
@@ -433,7 +482,8 @@ export function stepFcs(
   damage: DamageState,
   fcsLimits: FcsLimits,
   dtSub: number,
-  qBarPa: number = FCS_QBAR_REF_PA
+  qBarPa: number = FCS_QBAR_REF_PA,
+  tasMps: number = 100
 ): void {
   const gainSchedule = pitchGainSchedule(qBarPa);
   // gLoad = dot(rotateInverse(rot, totalForceWorld - gravityWorld), (0,1,0)) / (massKg*g)
@@ -478,49 +528,79 @@ export function stepFcs(
   const rollStickShaped = readF64(shapedRollStick, entityIndex);
 
   let elevonSymCmd: number;
-  // Anticipated (rate-predicted) alpha, per ALPHA_LIMIT_ANTICIPATION_SEC's doc comment: the
-  // limiter is reactive on raw `alpha` alone, which was measured (live testing) to let a
-  // sustained pull overshoot the limit by roughly 20deg before gCmd got reduced enough to
-  // matter. Using q (pitch rate) to extrapolate alpha ANTICIPATION_SEC ahead triggers the same
-  // limiter formula earlier, while alpha is still rising fast, instead of only after it has
-  // already blown past the line. Computed here, before the ground/air branch, because the
-  // ground law now needs it too — see that branch's own comment for why.
+  // Anticipated (rate-predicted) alpha for the GROUND law's rotation taper, per
+  // ALPHA_LIMIT_ANTICIPATION_SEC's doc comment (the airborne limiter uses its own rate path).
   const alphaAnticipated = alpha + q * ALPHA_LIMIT_ANTICIPATION_SEC;
   if (!currentOnGround) {
-    let gCmd = computeGCommand(pitchStickShaped, fcsLimits, neutralGReference(rot));
-    // Per PilotInputs.alphaLimiterDisabled's own doc comment: a player-facing Settings escape
-    // hatch that bypasses this whole block, leaving gCmd as the raw pilot demand unconditionally
-    // (alphaLimitActive stays false so the trim-integral freeze below never engages either — with
-    // no limiter there is no boundary for it to freeze around). AI pilots never set this flag.
-    let alphaLimitActive = false;
-    if (!inputs.alphaLimiterDisabled) {
-      // Deliberately RAW alpha here, not alphaAnticipated: this only gates the trim-integral
-      // freeze below (see that comment), which should stay narrow — an ordinary sustained climb
-      // that legitimately operates close to (without exceeding) the limit still needs its trim
-      // integral to converge normally. Widening this to the anticipated value regressed exactly
-      // that case (tests/integration/spawnFlyLand.test.ts's 25s scripted climb never actually
-      // exceeds the limit but grazes close enough that the anticipated value did, freezing trim
-      // for most of the climb and leaving the aircraft poorly trimmed heading into cruise/descent
-      // — eventually crashing during the landing rollout). The gCmd reduction below still uses the
-      // anticipated value, which is what actually targets the overshoot this was added to fix.
-      alphaLimitActive = alpha > fcsLimits.maxAlphaRad || alpha < fcsLimits.minAlphaRad;
-      // See ALPHA_LIMIT_BLEND_RAD's doc comment: blended over that band rather than assigned
-      // outright, so gCmd is continuous with the raw pilot demand at overshoot=0.
-      if (alphaAnticipated > fcsLimits.maxAlphaRad) {
-        const overshootRad = alphaAnticipated - fcsLimits.maxAlphaRad;
-        const blend = clamp(overshootRad / ALPHA_LIMIT_BLEND_RAD, 0, 1);
-        gCmd = lerp(gCmd, 1.0 - fcsLimits.alphaLimitGain * overshootRad, blend);
-      }
-      if (alphaAnticipated < fcsLimits.minAlphaRad) {
-        const overshootRad = fcsLimits.minAlphaRad - alphaAnticipated;
-        const blend = clamp(overshootRad / ALPHA_LIMIT_BLEND_RAD, 0, 1);
-        gCmd = lerp(gCmd, 1.0 - fcsLimits.alphaLimitGain * (alphaAnticipated - fcsLimits.minAlphaRad), blend);
-      }
+    const gCmd = computeGCommand(pitchStickShaped, fcsLimits, neutralGReference(rot));
+    // Alpha limiter as a pitch-rate path (see FCS_ALPHA_LOOP_GAIN_PER_S's doc comment). Skipped
+    // entirely when the player disabled the limiter in Settings (PilotInputs.alphaLimiterDisabled);
+    // AI pilots never set that flag.
+    const limiterOn = !inputs.alphaLimiterDisabled;
+    Quat.rotate(rot, BODY_UP, scratchBodyAxis);
+    const bodyUpWorldY = scratchBodyAxis.y;
+    const gOverV = gravityMps2 / Math.max(tasMps, FCS_PATH_RATE_MIN_TAS_MPS);
+    // Pitch-plane turn rate of the flight path at the CURRENT load factor.
+    const pathRateRadS = (gLoad - bodyUpWorldY) * gOverV;
+    let qCmdAlphaMax = Infinity;
+    let qCmdAlphaMin = -Infinity;
+    if (limiterOn) {
+      // alphaDot ~= q - pathRate; leading alpha by FCS_ALPHA_LOOP_LEAD_SEC of it damps the approach.
+      const alphaLead = alpha + FCS_ALPHA_LOOP_LEAD_SEC * (q - pathRateRadS);
+      qCmdAlphaMax = pathRateRadS + FCS_ALPHA_LOOP_GAIN_PER_S * (fcsLimits.maxAlphaRad - alphaLead);
+      qCmdAlphaMin = pathRateRadS + FCS_ALPHA_LOOP_GAIN_PER_S * (fcsLimits.minAlphaRad - alphaLead);
     }
+
+    // OUTER LOOP (g path): g-error -> a target pitch rate, capped and onset-shaped so the INNER
+    // loop below is never asked to reach further than maxElevonRad can hold in steady state — see
+    // FCS_PITCH_OUTER_LOOP_GAIN's doc comment for the full saturation analysis this sizes itself
+    // against. Uses the INNER loop's own gain/schedule (pitchInnerLoopSchedule,
+    // FCS_PITCH_INNER_LOOP_GAIN_MULT — see that constant's doc comment) in this cap's
+    // denominator, so the steady-state algebra (elevonSymCmd = innerGain*qCmdAir at q=0) actually
+    // lands at `margin*maxElevonRad` against the gain the inner loop below actually applies.
+    const innerSchedule = pitchInnerLoopSchedule(qBarPa);
+    const qCmdCapRadS = Math.min(
+      (FCS_PITCH_RATE_CMD_SATURATION_MARGIN * fcsLimits.maxElevonRad) /
+        (FCS_PITCH_INNER_LOOP_GAIN_MULT * innerSchedule * Math.abs(fcsLimits.pitchRateGain)),
+      FCS_MAX_PITCH_RATE_CMD_RAD_S
+    );
+    // Feedforward: the pitch rate the COMMANDED load factor needs to hold a steady turn,
+    // (gCmd - bodyUpWorldY)*g/V, so the proportional term only has to correct transients. Without
+    // it the steady-state pitch rate of every sustained turn had to come from a multi-g
+    // (gCmd - gLoad) error, which the trim integral then closed by winding up -- the source of the
+    // hard-pull windup documented at trimErrorG below.
+    const qCmdGRaw = clamp((gCmd - bodyUpWorldY) * gOverV + FCS_PITCH_OUTER_LOOP_GAIN * (gCmd - gLoad), -qCmdCapRadS, qCmdCapRadS);
+    shapedPitchRateCmd[entityIndex] = rateLimitStep(
+      readF64(shapedPitchRateCmd, entityIndex),
+      qCmdGRaw,
+      FCS_PITCH_RATE_CMD_ONSET_RAD_S2,
+      dtSub
+    );
+    const qCmdG = readF64(shapedPitchRateCmd, entityIndex);
+    // Fly whichever path asks for less pitch rate. The alpha path is deliberately NOT onset-shaped
+    // (that lag is exactly what a limiter can't afford); it is still bounded by the same cap.
+    const qCmdAir = clamp(clamp(qCmdG, qCmdAlphaMin, qCmdAlphaMax), -qCmdCapRadS, qCmdCapRadS);
+    // While the alpha path is being flown, the trim integral tracks the ALPHA error instead of the
+    // g error (the pilot is asking for more g than the limit allows, so integrating the g error
+    // would wind it straight into its clamp). Without this it froze, and the inner rate loop's
+    // own proportional error left alpha settling ~3deg PAST maxAlphaRad in a sustained pull.
+    //
+    // And integrate at a bounded rate, frozen while the g path is saturated (anti-windup, see
+    // FCS_TRIM_INTEGRATE_MAX_ERROR_G). A hard pull asks for up to 8g from ~1-2g; integrating that transient
+    // error wound the integral to ~9-12deg of nose-up elevon within ~1s of every hard pull -- a
+    // bias the inner loop then fought, overshooting the commanded pitch rate by 2-3x and driving
+    // alpha through the limit. This was the root of the low-speed hard-pull "bobbing" (reproduced
+    // in the real World: pitch rate reversing 30-40 times in a 10s pull).
+    const alphaLimitActive = qCmdG > qCmdAlphaMax || qCmdG < qCmdAlphaMin;
+    const rawTrimErrorG = alphaLimitActive
+      ? FCS_ALPHA_TRIM_G_PER_RAD * ((qCmdG > qCmdAlphaMax ? fcsLimits.maxAlphaRad : fcsLimits.minAlphaRad) - alpha)
+      : gCmd - gLoad;
+    const gPathSaturated = !alphaLimitActive && Math.abs(qCmdGRaw) >= qCmdCapRadS;
+    const trimErrorG = gPathSaturated ? 0 : clamp(rawTrimErrorG, -FCS_TRIM_INTEGRATE_MAX_ERROR_G, FCS_TRIM_INTEGRATE_MAX_ERROR_G);
 
     if (transitioned) {
       trimIntegralRad[entityIndex] = 0;
-    } else if (!alphaLimitActive) {
+    } else {
       // Sign (cross-module review; see src/aircraft/tejasGeometry.ts's FcsLimits.gLoadGain
       // comment for the full derivation this codifies): the integral term is added directly into
       // elevonSymCmd below, alongside the inner rate loop's own
@@ -536,45 +616,11 @@ export function stepFcs(
       // source it here, via Math.sign, exactly as before.
       const trimIntegralSign = Math.sign(fcsLimits.gLoadGain) || 1;
       trimIntegralRad[entityIndex] = clamp(
-        readF64(trimIntegralRad, entityIndex) + trimIntegralSign * FCS_TRIM_INTEGRAL_GAIN * (gCmd - gLoad) * dtSub,
+        readF64(trimIntegralRad, entityIndex) + trimIntegralSign * FCS_TRIM_INTEGRAL_GAIN * trimErrorG * dtSub,
         -FCS_TRIM_INTEGRAL_MAX_RAD,
         FCS_TRIM_INTEGRAL_MAX_RAD
       );
     }
-    // else (alpha limiter actively engaged, no ground transition): FREEZE — leave
-    // trimIntegralRad exactly as it is. Standard anti-windup practice: a sustained high-alpha
-    // excursion (gCmd still saturated while gLoad lags behind, or vice versa) would otherwise
-    // keep winding the integral toward its +-FCS_TRIM_INTEGRAL_MAX_RAD clamp for as long as the
-    // excursion lasts; that stored bias then persists and fights the proportional/alpha-limit
-    // terms once alpha recovers, discharging as a large, ill-timed kick in the opposite
-    // direction — live-testing (holding a sustained pull) showed this pattern: alpha overshot to
-    // ~46deg (gLoad ~6.8) then reversed into negative gLoad (~-1.2) within a fraction of a
-    // second, a classic windup-driven oscillation, not a simple "response too fast" issue.
-
-    // OUTER LOOP: g-error (or, blended in above, the alpha limiter's already-tuned
-    // reduced/reversed g target near the boundary) -> a target pitch rate, capped and
-    // onset-shaped so the INNER loop below is never asked to reach further than maxElevonRad can
-    // hold in steady state — see FCS_PITCH_OUTER_LOOP_GAIN's doc comment for the full saturation
-    // analysis this sizes itself against. Uses the INNER loop's own gain/schedule
-    // (pitchInnerLoopSchedule, FCS_PITCH_INNER_LOOP_GAIN_MULT — see that constant's doc comment)
-    // in this cap's denominator, not the outer `gainSchedule` above, so the steady-state algebra
-    // (elevonSymCmd = innerGain*qCmdAir at q=0) actually lands at `margin*maxElevonRad` against
-    // the gain the inner loop below actually applies.
-    const innerSchedule = pitchInnerLoopSchedule(qBarPa);
-    const qCmdCapRadS = Math.min(
-      (FCS_PITCH_RATE_CMD_SATURATION_MARGIN * fcsLimits.maxElevonRad) /
-        (FCS_PITCH_INNER_LOOP_GAIN_MULT * innerSchedule * Math.abs(fcsLimits.pitchRateGain)),
-      FCS_MAX_PITCH_RATE_CMD_RAD_S
-    );
-    const qCmdAirRaw = clamp(FCS_PITCH_OUTER_LOOP_GAIN * (gCmd - gLoad), -qCmdCapRadS, qCmdCapRadS);
-    shapedPitchRateCmd[entityIndex] = rateLimitStep(
-      readF64(shapedPitchRateCmd, entityIndex),
-      qCmdAirRaw,
-      FCS_PITCH_RATE_CMD_ONSET_RAD_S2,
-      dtSub
-    );
-    const qCmdAir = readF64(shapedPitchRateCmd, entityIndex);
-
     // INNER LOOP: rate error -> elevon, the same self-limiting structural pattern the roll law
     // and the ground pitch law (below) already use — a single gain on (target-actual) instead of
     // a raw position-scale proportional term. FCS_PITCH_INNER_LOOP_GAIN_MULT/

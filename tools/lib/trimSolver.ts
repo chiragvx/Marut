@@ -40,7 +40,7 @@ import {
 import { Quat, clamp, inverseLerp, interpolate2D, type Table2D } from '../../src/math';
 import { SIM_DT_SEC } from '../../src/contracts/core';
 import { resetFcsTrimState } from '../../src/physics';
-import { entityPoolIndex, getLastGLoad } from '../../src/physics/fcs';
+import { entityPoolIndex, getLastGLoad, neutralGReference } from '../../src/physics/fcs';
 
 // -----------------------------------------------------------------------------
 // ISA atmosphere (module 12's own inlined copy — see 12-verification.md
@@ -523,10 +523,21 @@ export interface GCommandAircraftDefLike {
  * stays byte-for-byte consistent with the real FCS law rather than
  * re-deriving an approximate inverse).
  */
-export function pitchStickForGCommand(gCmdTarget: number, maxGLoadPos: number, maxGLoadNeg: number): number {
-  return gCmdTarget >= 1
-    ? clamp(inverseLerp(1, maxGLoadPos, gCmdTarget), 0, 1)
-    : -clamp(inverseLerp(1, maxGLoadNeg, gCmdTarget), 0, 1);
+export function pitchStickForGCommand(gCmdTarget: number, maxGLoadPos: number, maxGLoadNeg: number, neutralG = 1): number {
+  return gCmdTarget >= neutralG
+    ? clamp(inverseLerp(neutralG, maxGLoadPos, gCmdTarget), 0, 1)
+    : -clamp(inverseLerp(neutralG, maxGLoadNeg, gCmdTarget), 0, 1);
+}
+
+/**
+ * The FCS's neutral-stick load factor (fcs.ts `neutralGReference`) for a wings-level-pitch seed
+ * at `bankRad`: it compensates bank up to 33deg, so within that range a level turn's 1/cos(bank)
+ * needs little or no stick at all. Passing this to `pitchStickForGCommand` keeps the inverse exact.
+ */
+function neutralGForBank(bankRad: number): number {
+  const rot: QuatLike = { x: 0, y: 0, z: 0, w: 1 };
+  Quat.fromYawPitchRoll(0, 0, bankRad, rot);
+  return neutralGReference(rot);
 }
 
 /**
@@ -831,7 +842,7 @@ export function findGCommandTrim<TDef extends GCommandAircraftDefLike>(
   resetFcsTrimState(entityPoolIndex(seedState.id));
 
   const gCmdTarget = 1 / Math.cos(condition.bankRad);
-  const pitchStick = pitchStickForGCommand(gCmdTarget, def.fcsLimits.maxGLoadPos, def.fcsLimits.maxGLoadNeg);
+  const pitchStick = pitchStickForGCommand(gCmdTarget, def.fcsLimits.maxGLoadPos, def.fcsLimits.maxGLoadNeg, neutralGForBank(condition.bankRad));
 
   const damage = makeFullHealthDamageState();
   const env = buildTrimEnvironment(condition.altitudeM);
@@ -1155,7 +1166,7 @@ export function trimConverges<TDef extends GCommandAircraftDefLike>(
     return {
       status: TrimStatus.Converged,
       condition,
-      pitchStick: pitchStickForGCommand(1 / Math.cos(bankRad), def.fcsLimits.maxGLoadPos, def.fcsLimits.maxGLoadNeg),
+      pitchStick: pitchStickForGCommand(1 / Math.cos(bankRad), def.fcsLimits.maxGLoadPos, def.fcsLimits.maxGLoadNeg, neutralGForBank(bankRad)),
       throttle: 1,
       afterburnerUsed: true,
       alphaRad: fullPower.alphaRad,
@@ -1219,7 +1230,7 @@ function fullPowerResidual<TDef extends GCommandAircraftDefLike>(
   const seed = makeTrimSeedState(condition);
   resetFcsTrimState(entityPoolIndex(seed.id));
   const gCmdTarget = 1 / Math.cos(bankRad);
-  const pitchStick = pitchStickForGCommand(gCmdTarget, def.fcsLimits.maxGLoadPos, def.fcsLimits.maxGLoadNeg);
+  const pitchStick = pitchStickForGCommand(gCmdTarget, def.fcsLimits.maxGLoadPos, def.fcsLimits.maxGLoadNeg, neutralGForBank(bankRad));
   const damage = makeFullHealthDamageState();
   const env = buildTrimEnvironment(altitudeM);
   const settleInputs = makeProbeInputs(pitchStick, 1); // throttle=1 => afterburner=true, see makeProbeInputs

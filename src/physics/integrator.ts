@@ -162,7 +162,8 @@ function runSubstep(
       damage,
       def.fcsLimits,
       dtSub,
-      scratchFrame.qBar
+      scratchFrame.qBar,
+      scratchFrame.Vt
     );
     out.elevonL = scratchSurfaces.elevonL;
     out.elevonR = scratchSurfaces.elevonR;

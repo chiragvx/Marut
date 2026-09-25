@@ -26,7 +26,20 @@ const CLIMB_PHASE_SEC = 25;
 const CRUISE_PHASE_SEC = 45;
 // After CLIMB+CRUISE, the remaining time is the descend/flare phase.
 
-function scriptedCircuitInputs(elapsedSec: number, out: PilotInputs): void {
+/** Proportional stick gain on vertical-speed error, stick per m/s. */
+const VSPEED_STICK_GAIN = 0.03;
+const VSPEED_STICK_LIMIT = 0.5;
+
+/**
+ * Flies each phase to a target VERTICAL SPEED (climb +25 m/s, cruise 0, descent -8 m/s) the way a
+ * pilot would, rather than holding a fixed stick position. The earlier open-loop version held
+ * pitch=0.35 for 25s (a sustained ~3.5g pull, i.e. a loop) and then "cruised" on pitch=0.05; it
+ * only ever recovered from the resulting dive because the FCS trim integral used to wind up to
+ * ~10deg of hidden nose-up elevon during hard pulls. With that windup fixed and a flight-path-
+ * stable neutral stick (src/physics/fcs.ts), a fixed small stick input holds whatever path the
+ * aircraft is on -- including a dive -- which is the intended FBW behaviour, not a regression.
+ */
+function scriptedCircuitInputs(elapsedSec: number, vspeedMps: number, out: PilotInputs): void {
   out.roll = 0;
   out.yaw = 0;
   out.brakes = 0;
@@ -35,23 +48,23 @@ function scriptedCircuitInputs(elapsedSec: number, out: PilotInputs): void {
   out.launch = false;
   out.cycleWeapon = false;
   out.cycleTarget = false;
+  out.afterburner = false;
 
+  let targetVspeedMps: number;
   if (elapsedSec < CLIMB_PHASE_SEC) {
-    out.pitch = 0.35; // nose up, climb out
+    targetVspeedMps = 25; // climb out
     out.throttle = 1;
-    out.afterburner = false;
     out.gearDown = false;
   } else if (elapsedSec < CLIMB_PHASE_SEC + CRUISE_PHASE_SEC) {
-    out.pitch = 0.05; // shallow climb / level cruise
+    targetVspeedMps = 0; // level cruise
     out.throttle = 0.7;
-    out.afterburner = false;
     out.gearDown = false;
   } else {
-    out.pitch = -0.08; // gentle descent
+    targetVspeedMps = -8; // gentle descent
     out.throttle = 0.3;
-    out.afterburner = false;
     out.gearDown = true; // configure for landing
   }
+  out.pitch = Math.max(-VSPEED_STICK_LIMIT, Math.min(VSPEED_STICK_LIMIT, VSPEED_STICK_GAIN * (targetVspeedMps - vspeedMps)));
 }
 
 function mustOk(world: SimWorldHandle | undefined, error: string | undefined): SimWorldHandle {
@@ -87,8 +100,8 @@ describe('spawn -> fly -> land', () => {
         0,
         160,
         {
-          update(_ctx, _dtSec, out) {
-            scriptedCircuitInputs(elapsed, out);
+          update(ctx, _dtSec, out) {
+            scriptedCircuitInputs(elapsed, ctx.telemetry.vspeedMps, out);
           },
         }
       );
