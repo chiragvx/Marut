@@ -199,6 +199,32 @@ describe('createSettingsScreen AoA limiter', () => {
   });
 });
 
+describe('createSettingsScreen weather', () => {
+  it('defaults to on when not given, and reports the toggle through onChange', () => {
+    const container = makeContainer();
+    const onChange = vi.fn();
+    const initial: SettingsState = {
+      qualityOverride: 'auto',
+      detectedTier: 'medium',
+      keyBindings: [],
+      mouseSensitivityMultiplier: 1,
+      invertPitch: false,
+      speedUnit: 'ms',
+      alphaLimiterEnabled: true,
+    };
+    createSettingsScreen(container, initial, { onChange, onRebindStart: noop, onResetDefaults: noop, onBack: noop });
+
+    const checkbox = container.querySelector('[data-role="weather"]') as HTMLInputElement;
+    expect(checkbox.checked).toBe(true);
+
+    checkbox.checked = false;
+    checkbox.dispatchEvent(new Event('change', { bubbles: true }));
+
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect((onChange.mock.calls[0]![0] as SettingsState).weatherEnabled).toBe(false);
+  });
+});
+
 describe('createLoadingScreen.setProgress', () => {
   it('clamps fraction to [0,1]', () => {
     const container = makeContainer();

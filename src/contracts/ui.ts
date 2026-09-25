@@ -186,6 +186,11 @@ export interface SettingsState {
   speedUnit: SpeedUnit;
   /** false = fly with PilotInputs.alphaLimiterDisabled=true (no FBW alpha protection); see that field's own doc comment. Defaults to true (limiter active, the safe/real-Tejas default). */
   alphaLimiterEnabled: boolean;
+  /**
+   * Weather on/off: clouds and their shadows (immediately) and wind, gusts and turbulence (from the
+   * next mission start). Optional so older callers still type-check; missing means on.
+   */
+  weatherEnabled?: boolean;
 }
 
 export interface SettingsCallbacks {

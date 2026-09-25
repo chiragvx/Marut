@@ -41,6 +41,7 @@ export const createSettingsScreen: CreateSettingsScreen = (container, initial, c
     invertPitch: initial.invertPitch,
     speedUnit: initial.speedUnit,
     alphaLimiterEnabled: initial.alphaLimiterEnabled,
+    weatherEnabled: initial.weatherEnabled ?? true,
   };
 
   let capturingAction: BindableAction | null = null;
@@ -95,6 +96,14 @@ export const createSettingsScreen: CreateSettingsScreen = (container, initial, c
   alphaLimiterLabel.appendChild(alphaLimiterInput);
   alphaLimiterSection.appendChild(alphaLimiterLabel);
 
+  // --- Weather ---
+  const weatherSection = el('div', { className: 'tj-settings-section' });
+  const weatherLabel = el('label', { text: 'Weather (clouds, wind, turbulence)' });
+  const weatherInput = el('input', { attrs: { 'data-role': 'weather', type: 'checkbox' } }) as HTMLInputElement;
+  weatherInput.checked = current.weatherEnabled ?? true;
+  weatherLabel.appendChild(weatherInput);
+  weatherSection.appendChild(weatherLabel);
+
   // --- Key bindings ---
   const bindingsSection = el('div', { className: 'tj-settings-bindings' });
   const bindingRows = new Map<BindableAction, { row: HTMLDivElement; codeLabel: HTMLSpanElement; button: HTMLButtonElement }>();
@@ -119,7 +128,7 @@ export const createSettingsScreen: CreateSettingsScreen = (container, initial, c
   const backBtn = actionButton('back', 'Back');
   nav.append(resetBtn, backBtn);
 
-  root.append(title, qualitySection, speedUnitSection, sensitivitySection, invertSection, alphaLimiterSection, bindingsSection, nav);
+  root.append(title, qualitySection, speedUnitSection, sensitivitySection, invertSection, alphaLimiterSection, weatherSection, bindingsSection, nav);
 
   function fireChange(): void {
     // Hand out a fresh snapshot; keyBindings is always a new array too.
@@ -131,6 +140,7 @@ export const createSettingsScreen: CreateSettingsScreen = (container, initial, c
       invertPitch: current.invertPitch,
       speedUnit: current.speedUnit,
       alphaLimiterEnabled: current.alphaLimiterEnabled,
+      weatherEnabled: current.weatherEnabled ?? true,
     };
     callbacks.onChange(current);
   }
@@ -188,6 +198,10 @@ export const createSettingsScreen: CreateSettingsScreen = (container, initial, c
     current.alphaLimiterEnabled = alphaLimiterInput.checked;
     fireChange();
   });
+  weatherInput.addEventListener('change', () => {
+    current.weatherEnabled = weatherInput.checked;
+    fireChange();
+  });
   resetBtn.addEventListener('click', () => callbacks.onResetDefaults());
   backBtn.addEventListener('click', () => callbacks.onBack());
 
@@ -209,6 +223,7 @@ export const createSettingsScreen: CreateSettingsScreen = (container, initial, c
         invertPitch: current.invertPitch,
         speedUnit: current.speedUnit,
         alphaLimiterEnabled: current.alphaLimiterEnabled,
+        weatherEnabled: current.weatherEnabled ?? true,
       };
       const entry = bindingRows.get(action);
       if (entry !== undefined) {

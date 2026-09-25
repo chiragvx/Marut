@@ -90,6 +90,8 @@ interface PersistedSettings {
   speedUnit?: SpeedUnit;
   /** src/ui/settings.ts's "AoA limiter" control; see PilotInputs.alphaLimiterDisabled's doc comment. Optional so old saved data still parses fine; missing means the limiter stays enabled (the safe default). */
   alphaLimiterEnabled?: boolean;
+  /** src/ui/settings.ts's "Weather" control. Optional so old saved data still parses; missing means on. */
+  weatherEnabled?: boolean;
 }
 
 function loadPersistedSettings(): PersistedSettings | undefined {
@@ -101,6 +103,7 @@ function loadPersistedSettings(): PersistedSettings | undefined {
     if (parsed.cachedAutoTier !== undefined && typeof parsed.cachedAutoTier !== 'string') return undefined;
     if (parsed.speedUnit !== undefined && typeof parsed.speedUnit !== 'string') return undefined;
     if (parsed.alphaLimiterEnabled !== undefined && typeof parsed.alphaLimiterEnabled !== 'boolean') return undefined;
+    if (parsed.weatherEnabled !== undefined && typeof parsed.weatherEnabled !== 'boolean') return undefined;
     return parsed as PersistedSettings;
   } catch {
     return undefined;
@@ -147,6 +150,8 @@ let chunkManager: ChunkManager;
 let currentQualityTier: QualityTier;
 let currentSpeedUnit: SpeedUnit = SpeedUnit.Mps;
 let currentMission: Mission | undefined;
+/** Settings "Weather" toggle (clouds, wind, turbulence). */
+let weatherEnabled = true;
 let currentDifficulty: AiDifficulty = 'veteran';
 let playerEntityId: EntityId = NO_ENTITY_ID;
 let sessionStartSimTimeSec = 0;
@@ -407,6 +412,7 @@ function showSettingsOverlay(): void {
     invertPitch: false,
     speedUnit: currentSpeedUnit,
     alphaLimiterEnabled: inputSystem ? !inputSystem.isAlphaLimiterDisabled() : true,
+    weatherEnabled,
   };
   const handle: SettingsScreenHandle = createSettingsScreen(uiRoot, initial, {
     onChange: (next) => {
@@ -415,6 +421,7 @@ function showSettingsOverlay(): void {
         version: 1,
         speedUnit: next.speedUnit,
         alphaLimiterEnabled: next.alphaLimiterEnabled,
+        weatherEnabled: next.weatherEnabled ?? true,
       });
       if (next.qualityOverride !== 'auto') {
         currentQualityTier = next.qualityOverride;
@@ -424,6 +431,14 @@ function showSettingsOverlay(): void {
       currentSpeedUnit = next.speedUnit;
       hud?.setSpeedUnit(currentSpeedUnit);
       inputSystem?.setAlphaLimiterDisabled(!next.alphaLimiterEnabled);
+      const w = next.weatherEnabled ?? true;
+      if (w !== weatherEnabled) {
+        weatherEnabled = w;
+        // Clouds switch right away; wind and turbulence follow at the next mission start.
+        if (currentMission && renderer) {
+          renderer.setEnvironment(buildSceneEnvironment(currentMission.world.terrain as TerrainParams, currentMission.world.airports as readonly AirportLayout[]));
+        }
+      }
     },
     onRebindStart: (action) => {
       if (!inputSystem) return;
@@ -640,7 +655,7 @@ function buildSceneEnvironment(terrainParams: TerrainParams, airportLayouts: rea
     rivers = { packed: Array.from(packed), count: terrainParams.shape.rivers.length };
   }
   // Winter fair-weather cumulus over Punjab (a weather system will own this later).
-  const clouds = terrainParams.surfaceStyle === 'farmland' ? { coverage: 0.22, baseM: 1700, topM: 2300, seed: terrainParams.seed } : undefined;
+  const clouds = weatherEnabled && terrainParams.surfaceStyle === 'farmland' ? { coverage: 0.22, baseM: 1700, topM: 2300, seed: terrainParams.seed } : undefined;
   return {
     surfaceStyle: terrainParams.surfaceStyle ?? 'default',
     groundLevelM: terrainParams.shape?.kind === 'plains' ? terrainParams.shape.baseElevationM : (terrainParams.waterLevelM ?? 0) + 20,
@@ -667,8 +682,14 @@ function applyDevStart(mission: Mission): Mission {
   };
 }
 
+/** Weather off: calm air (no wind, gusts or turbulence) for the simulation. */
+function applyWeatherSetting(mission: Mission): Mission {
+  if (weatherEnabled) return mission;
+  return { ...mission, weather: { windWorldMps: { x: 0, y: 0, z: 0 }, gustMps: 0, turbulence: 0 } };
+}
+
 function launchMission(missionIn: Mission): void {
-  const mission = applyDevStart(missionIn);
+  const mission = applyWeatherSetting(applyDevStart(missionIn));
   destroyCurrentScreen();
   appState = 'loading';
   const loading = createLoadingScreen(uiRoot);
@@ -773,6 +794,7 @@ async function boot(): Promise<void> {
   await initWorkersAndRenderer(currentQualityTier);
   hud.setSpeedUnit(currentSpeedUnit);
   inputSystem.setAlphaLimiterDisabled((persisted?.alphaLimiterEnabled ?? true) === false);
+  weatherEnabled = persisted?.weatherEnabled ?? true;
   // Size renderer/HUD from the current window/DPR once, synchronously, right
   // now — before the first requestAnimationFrame(frame) callback draws
   // anything. onResize() is otherwise wired only as a 'resize' listener
