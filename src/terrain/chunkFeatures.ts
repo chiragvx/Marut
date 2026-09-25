@@ -4,8 +4,9 @@
  * For one terrain chunk it produces (contracts/terrain.ts ChunkFeatures):
  * - ground decals: road ribbons, canals, village/town ground and village ponds, draped on the
  *   chunk's own terrain triangles (`surface`) so they sit exactly on the rendered mesh;
- * - tree instances: sparse trees along roads, fuller rows along canals, a few poplar rows on field
- *   boundaries, groves, trees in and around villages, scattered field trees;
+ * - tree instances, placed with clumping noise so they gather in natural groups: irregular roadside
+ *   groups, broken rows along canals, trees along the field-block edges the ground shader draws,
+ *   groves, trees in and around villages, and clumped single trees across the fields;
  * - building instances: houses clustered on a lot grid with lanes (plus a gurdwara in about half of
  *   the settlements); towns are simply larger clusters.
  * Every item is generated from global, deterministic hashes and kept only if it falls in this
@@ -22,6 +23,37 @@ export interface FeatureOptions {
   /** Build trees and buildings (roads and ground are always built). */
   objects: boolean;
 }
+
+/** Smooth 2D value noise in [0, 1] (for clumping tree density). */
+function vnoise2(x: number, z: number, seed: number): number {
+  const ix = Math.floor(x);
+  const iz = Math.floor(z);
+  const fx = x - ix;
+  const fz = z - iz;
+  const u = fx * fx * (3 - 2 * fx);
+  const v = fz * fz * (3 - 2 * fz);
+  const a = hash3(ix, iz, 0, seed);
+  const b = hash3(ix + 1, iz, 0, seed);
+  const c = hash3(ix, iz + 1, 0, seed);
+  const d = hash3(ix + 1, iz + 1, 0, seed);
+  return a + (b - a) * u + (c - a) * v + (a - b - c + d) * u * v;
+}
+
+/**
+ * Tree clumping: 0..1, high in patches a few hundred metres across and near zero between them, so
+ * trees gather in natural groups instead of spreading evenly.
+ */
+function clump(x: number, z: number, seed: number): number {
+  const n = 0.65 * vnoise2(x / 420, z / 420, seed) + 0.35 * vnoise2(x / 130, z / 130, seed + 7);
+  const t = Math.max(0, Math.min(1, (n - 0.38) / 0.4));
+  return t * t;
+}
+
+/** Field-block grid of the Punjab ground shader (terrainMaterial.ts plainsColor): q = R p, 760 m blocks. */
+const FIELD_BLOCK_M = 760;
+const FR_A = 0.993;
+const FR_B = 0.12;
+const FR_DET = FR_A * FR_A + FR_B * FR_B;
 
 /** Height of the decals above the terrain surface (plus a polygon offset in the renderer). */
 const DECAL_LIFT_M = 0.08;
@@ -135,25 +167,31 @@ export function buildChunkFeatures(net: RoadNetwork, b: ChunkBounds, surface: Su
         o.decalIdx.push(v, v + 2, v + 1, v + 1, v + 2, v + 3);
       }
 
-      // Tree rows along both sides, in 300 m stretches with gaps; none in towns or on bridges.
+      // Roadside trees: irregular groups with gaps, set back 2-14 m, mostly one side at a time;
+      // none in settlements or on bridges. Canals keep fuller (but still broken) rows.
       if (!opts.objects || r.treeKind < 0) continue;
       const kind = r.treeKind;
-      const spacing = kind === TreeKind.Poplar ? 6 : 11;
+      const spacing = kind === TreeKind.Poplar ? 5 : 8;
       const A0 = a0 + len * t0;
       const A1 = a0 + len * t1;
+      const canal = r.cls === DecalClass.Canal;
       for (let m = Math.ceil(A0 / spacing); m * spacing < A1; m++) {
-        const sAlong = m * spacing;
+        const jitterA = (hash3(ri, m, 3, 83) - 0.5) * spacing * 0.8;
+        const sAlong = m * spacing + jitterA;
         const t = (sAlong - a0) / len;
+        if (t < 0 || t > 1) continue;
         const cx = x0 + dx * t;
         const cz = z0 + dz * t;
         for (let side = -1; side <= 1; side += 2) {
-          if (hash3(ri, Math.floor(sAlong / 300), side, 77) > r.treeProb * opts.treeDensity) continue;
-          if (hash3(ri, m, side, 78) > 0.88) continue;
-          const off = hw + 3 + 2 * hash3(ri, m, side, 79);
+          // Groups: a 1D noise along the road (per side) decides where trees stand.
+          const g = vnoise2(sAlong / (canal ? 90 : 60), side * 17.3 + ri * 0.37, 84);
+          const keep = (canal ? 0.25 + 0.75 * g : g * g * 1.6) * r.treeProb * opts.treeDensity;
+          if (hash3(ri, m, side, 78) > keep) continue;
+          const off = hw + 2 + (canal ? 3 : 12) * Math.pow(hash3(ri, m, side, 79), 1.5);
           const tx = cx + nx * off * side;
           const tz = cz + nz * off * side;
           if (inSettlement(tx, tz, 0.9) || wet(tx, tz)) continue;
-          const mixKind = hash3(ri, m, side, 80) < 0.15 ? TreeKind.Broadleaf : kind;
+          const mixKind = hash3(ri, m, side, 80) < (canal ? 0.2 : 0.35) ? TreeKind.Broadleaf : kind;
           pushTree(o, mixKind, tx, surface(tx, tz), tz, hash3(ri, m, side, 81), hash3(ri, m, side, 82));
         }
       }
@@ -195,35 +233,51 @@ export function buildChunkFeatures(net: RoadNetwork, b: ChunkBounds, surface: Su
   }
 
   if (opts.objects) {
-    // --- poplar rows along field boundaries (rows only; the fields are not drawn) -------------
-    const C = 500;
-    for (let iz = Math.floor((b.minZ - margin) / C); iz <= Math.floor((b.maxZ + margin) / C); iz++) {
-      for (let ix = Math.floor((b.minX - margin) / C); ix <= Math.floor((b.maxX + margin) / C); ix++) {
-        if (hash3(ix, iz, 1, 91) > 0.05 * opts.treeDensity) continue;
-        const sx = (ix + hash3(ix, iz, 2, 91)) * C;
-        const sz = (iz + hash3(ix, iz, 3, 91)) * C;
-        const ang = 0.12 + (hash3(ix, iz, 4, 91) < 0.5 ? 0 : Math.PI / 2);
-        const len = 120 + 230 * hash3(ix, iz, 5, 91);
-        const ux = Math.cos(ang);
-        const uz = Math.sin(ang);
-        for (let d = 0, n = 0; d < len; d += 3.5, n++) {
-          const tx = sx + ux * d;
-          const tz = sz + uz * d;
-          if (!inRect(b, tx, tz) || hash3(ix * 131 + n, iz, 6, 91) > 0.9) continue;
-          if (inSettlement(tx, tz, 1.1) || wet(tx, tz)) continue;
-          pushTree(o, TreeKind.Poplar, tx, surface(tx, tz), tz, hash3(ix, iz * 97 + n, 7, 91), hash3(ix, iz * 97 + n, 8, 91));
+    // --- trees along field-block boundaries ----------------------------------------------------
+    // The ground shader draws fields on a rotated 760 m block grid; every block edge is a field
+    // edge (a bund or cart track), which is where most farm trees stand. Walk the block edges that
+    // cross this chunk and scatter clumped trees along them, jittered off the line.
+    const cornersQx = [b.minX, b.maxX].flatMap((x) => [b.minZ, b.maxZ].map((z) => FR_A * x - FR_B * z));
+    const cornersQz = [b.minX, b.maxX].flatMap((x) => [b.minZ, b.maxZ].map((z) => FR_B * x + FR_A * z));
+    const qx0 = Math.min(...cornersQx);
+    const qx1 = Math.max(...cornersQx);
+    const qz0 = Math.min(...cornersQz);
+    const qz1 = Math.max(...cornersQz);
+    const toWorld = (qx: number, qz: number): [number, number] => [(FR_A * qx + FR_B * qz) / FR_DET, (-FR_B * qx + FR_A * qz) / FR_DET];
+    const EDGE_STEP = 7;
+    for (let axis = 0; axis < 2; axis++) {
+      const lo = axis === 0 ? qx0 : qz0;
+      const hi = axis === 0 ? qx1 : qz1;
+      const alo = axis === 0 ? qz0 : qx0;
+      const ahi = axis === 0 ? qz1 : qx1;
+      for (let k = Math.ceil(lo / FIELD_BLOCK_M); k * FIELD_BLOCK_M <= hi; k++) {
+        const line = k * FIELD_BLOCK_M;
+        for (let m = Math.ceil(alo / EDGE_STEP); m * EDGE_STEP <= ahi; m++) {
+          const along = m * EDGE_STEP + (hash3(k, m, axis, 95) - 0.5) * EDGE_STEP;
+          // Stretches with trees and long gaps without, per edge.
+          const g = vnoise2(along / 110, k * 3.7 + axis * 101.3, 96);
+          const keep = Math.max(0, g - 0.45) * 2.2 * 0.55 * opts.treeDensity;
+          if (hash3(k, m, axis, 97) > keep) continue;
+          const across = line + (hash3(k, m, axis, 98) - 0.5) * 9;
+          const [tx, tz] = axis === 0 ? toWorld(across, along) : toWorld(along, across);
+          if (!inRect(b, tx, tz) || inSettlement(tx, tz, 1.05) || wet(tx, tz)) continue;
+          const h = hash3(k, m, axis, 99);
+          const kind = h < 0.6 ? TreeKind.Broadleaf : h < 0.85 ? TreeKind.Eucalyptus : TreeKind.Poplar;
+          pushTree(o, kind, tx, surface(tx, tz), tz, hash3(k, m, axis, 100), hash3(k, m, axis, 101));
         }
       }
     }
-    // --- scattered field trees (kikar, shisham) ----------------------------------------------
-    const C2 = 250;
+    // --- scattered field trees (kikar, shisham): clumped, never evenly spread -----------------
+    const C2 = 90;
     for (let iz = Math.floor(b.minZ / C2); iz * C2 < b.maxZ; iz++) {
       for (let ix = Math.floor(b.minX / C2); ix * C2 < b.maxX; ix++) {
-        if (hash3(ix, iz, 1, 93) > 0.1 * opts.treeDensity) continue;
         const tx = (ix + hash3(ix, iz, 2, 93)) * C2;
         const tz = (iz + hash3(ix, iz, 3, 93)) * C2;
+        const keep = (0.012 + 0.22 * clump(tx, tz, 94)) * opts.treeDensity;
+        if (hash3(ix, iz, 1, 93) > keep) continue;
         if (!inRect(b, tx, tz) || inSettlement(tx, tz, 1.1) || wet(tx, tz)) continue;
-        pushTree(o, TreeKind.Broadleaf, tx, surface(tx, tz), tz, hash3(ix, iz, 4, 93), hash3(ix, iz, 5, 93));
+        const kind = hash3(ix, iz, 6, 93) < 0.85 ? TreeKind.Broadleaf : TreeKind.Eucalyptus;
+        pushTree(o, kind, tx, surface(tx, tz), tz, hash3(ix, iz, 4, 93), hash3(ix, iz, 5, 93));
       }
     }
   }
