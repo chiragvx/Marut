@@ -14,6 +14,7 @@
 import * as THREE from 'three';
 import type { Vec3Like } from '../contracts/core';
 import { TREE_KIND_COUNT, type ChunkFeatures } from '../contracts/terrain';
+import { DETAIL_GLSL, getDetailTexture } from './detailTextures';
 
 export const TREE_FADE_START_M = 3200;
 export const TREE_FADE_END_M = 4500;
@@ -74,6 +75,7 @@ const DECAL_VS = /* glsl */ `
 const DECAL_FS = /* glsl */ `
   precision highp float;
   ${COMMON_GLSL}
+  ${DETAIL_GLSL}
   varying vec4 vDecal;
   varying vec3 vWorld;
   varying float vDist;
@@ -89,8 +91,8 @@ const DECAL_FS = /* glsl */ `
     float along = vDecal.y;
     float pw = max(fwidth(m), 0.02);
     float detail = 1.0 - smoothstep(0.3, 1.2, pw);
-    vec3 asphalt = vec3(0.30, 0.30, 0.31) * (0.9 + 0.2 * vnoise(vWorld.xz / 3.0));
-    vec3 dust = vec3(0.56, 0.51, 0.42) * (0.9 + 0.2 * vnoise(vWorld.xz / 6.0));
+    vec3 asphalt = vec3(0.30, 0.30, 0.31) * mix(vec3(1.0), detailAt(vWorld.xz, 3.0, 6.0, pw), 0.9);
+    vec3 dust = vec3(0.56, 0.51, 0.42) * mix(vec3(1.0), detailAt(vWorld.xz, 1.0, 10.0, pw), 0.9);
     vec3 col;
     float alpha = 1.0;
     if (cls == 0) {
@@ -121,7 +123,7 @@ const DECAL_FS = /* glsl */ `
       // Village / town ground: packed earth and dust, fading out at the rim.
       float rim = vDecal.x;
       col = cls == 6 ? vec3(0.54, 0.49, 0.40) : vec3(0.52, 0.50, 0.46);
-      col *= 0.88 + 0.24 * vnoise(vWorld.xz / 23.0);
+      col *= (0.88 + 0.24 * vnoise(vWorld.xz / 23.0)) * mix(vec3(1.0), detailAt(vWorld.xz, 1.0, 10.0, pw), 0.9);
       alpha = 1.0 - smoothstep(0.7, 1.0, rim + 0.15 * vnoise(vWorld.xz / 60.0));
     }
     col = lightGround(col, vec3(0.0, 1.0, 0.0));
@@ -441,7 +443,7 @@ export function createChunkFeatureRenderer(root: THREE.Object3D): ChunkFeatureRe
     uSunDir: { value: new THREE.Vector3(0.4, 0.7, -0.3) },
   };
   const decalMat = new THREE.ShaderMaterial({
-    uniforms: { ...uniforms },
+    uniforms: { ...uniforms, uDetail: { value: getDetailTexture() } },
     vertexShader: DECAL_VS,
     fragmentShader: DECAL_FS,
     // Ribbons and fans are built without regard to winding; they are only ever seen from above.

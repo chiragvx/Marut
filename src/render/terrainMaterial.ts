@@ -34,6 +34,7 @@
 
 import * as THREE from 'three';
 import type { SceneEnvironment } from '../contracts/render';
+import { DETAIL_GLSL, getDetailTexture } from './detailTextures';
 
 export const MAX_TERRAIN_RUNWAYS = 4;
 /** Shoreline samples the vertex shader can hold (packed four per vec4). 201 = the 200 km world at 1 km. */
@@ -145,6 +146,7 @@ const FRAGMENT_SHADER = /* glsl */ `
   varying vec3 vNormal;
   varying vec4 vMacro;
   varying float vLow;
+  ${DETAIL_GLSL}
   // 0..1: how far this ground stands above its surroundings (set in main before the colour functions).
   float gRaised = 0.0;
 
@@ -297,17 +299,22 @@ const FRAGMENT_SHADER = /* glsl */ `
     float hw = w.y - uWaterLevel;
     float m = 0.5 * vnoise(p / 900.0) + 0.3 * vnoise(p / 443.0 + 17.0) + 0.1;
     vec3 col = mix(vec3(0.26, 0.37, 0.16), vec3(0.36, 0.47, 0.21), smoothstep(0.3, 0.7, m));
-    col = mix(col, vec3(0.55, 0.49, 0.36), smoothstep(0.62, 0.78, vMacro.y) * 0.65);
+    float fallow = smoothstep(0.62, 0.78, vMacro.y) * 0.65;
+    col = mix(col, vec3(0.55, 0.49, 0.36), fallow);
     col = mix(col, vec3(0.62, 0.60, 0.30), smoothstep(0.78, 0.9, vnoise(p / 800.0 + 31.0)) * 0.35);
     // Soft tonal variation at ~200 m and mottling close up (no edges anywhere).
     if (px < 30.0) col *= 0.93 + 0.14 * vnoise(p / 220.0 + 7.0) * (1.0 - smoothstep(20.0, 30.0, px)) + 0.035 * smoothstep(20.0, 30.0, px);
-    if (px < 20.0) col *= 0.94 + 0.12 * vnoise(p / 45.0) * (1.0 - smoothstep(10.0, 20.0, px));
+    // Dense ground detail from the texture array (mipmapped, so it averages out cleanly far away):
+    // crop canopy, soil where fallow.
+    vec3 det = detailAt(p, 0.0, 16.0, px);
+    if (fallow > 0.01) det = mix(det, detailAt(p, 1.0, 12.0, px), fallow / 0.65);
+    col *= mix(vec3(1.0), det, 0.7);
 
     // Floodplain (khadar): pale sand near the water, sparse pale grass above it.
     float khadar = (1.0 - smoothstep(4.0, 5.5, hw)) * uHasWater;
     if (khadar > 0.0) {
       float g = smoothstep(1.2, 3.0, hw + 0.8 * (px < 30.0 ? vnoise(p / 120.0) - 0.5 : 0.0));
-      col = mix(col, mix(vec3(0.74, 0.70, 0.60), vec3(0.56, 0.56, 0.40), g), khadar);
+      col = mix(col, mix(vec3(0.74, 0.70, 0.60), vec3(0.56, 0.56, 0.40), g) * mix(vec3(1.0), detailAt(p, 2.0, 12.0, px), 0.8), khadar);
     }
 
     // Roads, canals, villages, towns and trees are real geometry now (chunkFeatureRenderer.ts).
@@ -398,6 +405,7 @@ export function createTerrainMaterial(): THREE.ShaderMaterial {
       uCoastCount: { value: 0 },
       uCoastZ: { value: new THREE.Vector2(0, 1) },
       uCoastShape: { value: new THREE.Vector3(0, 1e9, 1) },
+      uDetail: { value: getDetailTexture() },
       uShore: { value: Array.from({ length: COAST_VEC4S }, () => new THREE.Vector4()) },
       uHead: { value: Array.from({ length: COAST_VEC4S }, () => new THREE.Vector4()) },
     },
