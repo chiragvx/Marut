@@ -70,9 +70,18 @@ const scratchSurfaces: FcsSurfaces = { elevonL: 0, elevonR: 0, rudder: 0 };
  */
 const INERTIA_MASS_SENSITIVITY = 0.5;
 
-/** Current all-up mass: empty airframe + remaining fuel + carried stores. */
-export function aircraftMassKg(state: Pick<EntityState, 'fuelKg' | 'storesMassKg'>, def: Pick<AircraftDefinition, 'emptyMassKg'>): number {
-  return def.emptyMassKg + state.fuelKg + (state.storesMassKg ?? 0);
+/** Current all-up mass: empty airframe + internal fuel + carried stores + drop tanks (shells + fuel). */
+export function aircraftMassKg(
+  state: Pick<EntityState, 'fuelKg' | 'storesMassKg' | 'dropTankCount' | 'dropTankFuelKg'>,
+  def: Pick<AircraftDefinition, 'emptyMassKg' | 'dropTank'>
+): number {
+  const tankShellsKg = (state.dropTankCount ?? 0) * (def.dropTank?.emptyMassKg ?? 0);
+  return def.emptyMassKg + state.fuelKg + (state.storesMassKg ?? 0) + tankShellsKg + (state.dropTankFuelKg ?? 0);
+}
+
+/** Drag area (CD*S, m^2) of carried stores plus attached drop tanks. */
+function externalDragAreaM2(state: EntityState, def: AircraftDefinition): number {
+  return (state.storesDragAreaM2 ?? 0) + (state.dropTankCount ?? 0) * (def.dropTank?.dragAreaM2 ?? 0);
 }
 
 function copyEntityState(src: EntityState, dst: EntityState): void {
@@ -94,6 +103,8 @@ function copyEntityState(src: EntityState, dst: EntityState): void {
   dst.afterburnerOn = src.afterburnerOn;
   dst.storesMassKg = src.storesMassKg;
   dst.storesDragAreaM2 = src.storesDragAreaM2;
+  dst.dropTankCount = src.dropTankCount;
+  dst.dropTankFuelKg = src.dropTankFuelKg;
   dst.flags = src.flags;
 }
 
@@ -128,7 +139,7 @@ function runSubstep(
     const configDragCoeff =
       out.gearPos * (def.aero.CD_gear ?? 0) +
       (inputs.airbrake ? (def.aero.CD_airbrake ?? 0) : 0) +
-      (out.storesDragAreaM2 !== undefined && out.storesDragAreaM2 > 0 && def.wingAreaM2 > 0 ? out.storesDragAreaM2 / def.wingAreaM2 : 0);
+      (def.wingAreaM2 > 0 ? externalDragAreaM2(out, def) / def.wingAreaM2 : 0);
     computeAeroForceMoment(scratchFrame, out.elevonL, out.elevonR, out.rudder, out.omega, altAglM, def, scratchAero, configDragCoeff);
   } else {
     Vec3.set(scratchAero.forceBody, 0, 0, 0);
@@ -222,6 +233,12 @@ export const stepAircraft: StepAircraft = (
   const dtSub = dtSec / FLIGHT_MODEL_SUBSTEPS;
 
   out.flags &= ~EntityFlag.OnGround;
+
+  // Jettison drops the tanks and whatever fuel is left in them (idempotent while held).
+  if (inputs.jettisonTanks && (out.dropTankCount ?? 0) > 0) {
+    out.dropTankCount = 0;
+    out.dropTankFuelKg = 0;
+  }
 
   for (let s = 0; s < FLIGHT_MODEL_SUBSTEPS; s++) {
     runSubstep(out, damage, inputs, env, def, dtSub, wasOnGroundAtEntry, structuralFailure, entityIndex, inertia);

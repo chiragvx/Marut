@@ -14,6 +14,13 @@ export const maxFuelKg = 2458;
 /** Fixed reference combat weight the integrator treats as constant (02-flight-model.md section 9). */
 export const massKg = 8500;
 
+/**
+ * Drop tank on each inboard wet pylon (hardpoints 'pylon-inner-l/r', type 'fuel_tank'): the Tejas's
+ * 1200 L tank. 1200 L of Jet A-1/JP-5 at ~0.80 kg/L = 960 kg; ~140 kg empty; drag area ~0.12 m^2,
+ * typical of a large fighter centreline/wing tank with pylon. Two full tanks add ~2200 kg.
+ */
+export const dropTank = { capacityKg: 960, emptyMassKg: 140, dragAreaM2: 0.12 } as const;
+
 // --- Inertia tensor, body-frame about CG, kg*m^2 (section 5.1) ---
 export const inertiaBodyKgM2 = {
   xx: 5700,

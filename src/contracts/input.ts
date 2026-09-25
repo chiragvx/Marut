@@ -154,6 +154,8 @@ export const LogicalButton = {
   Afterburner: 'afterburner',
   Brakes: 'brakes',
   NwsToggle: 'nwsToggle',
+  /** Jettison drop tanks (PilotInputs.jettisonTanks), passed through as raw held state. */
+  JettisonTanks: 'jettisonTanks',
 } as const;
 export type LogicalButton = (typeof LogicalButton)[keyof typeof LogicalButton];
 

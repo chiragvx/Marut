@@ -120,6 +120,7 @@ function defaultPilotInputs(): PilotInputs {
     cycleTarget: false,
     nwsEnabled: false,
     alphaLimiterDisabled: false,
+    jettisonTanks: false,
   };
 }
 
@@ -210,7 +211,7 @@ class WorldImpl implements World {
     iasMps: 0, tasMps: 0, mach: 0, altMslM: 0, altAglM: 0, aoaRad: 0, betaRad: 0, gLoad: 0,
     headingRad: 0, pitchRad: 0, rollRad: 0, vspeedMps: 0, fuelKg: 0, thrustFrac: 0, gearPos: 0,
     weaponIdx: 0, targetId: NO_ENTITY_ID, targetRangeM: 0, closureMps: 0, lockState: 0,
-    warningBits: 0, ilsLoc: 0, ilsGs: 0, pipperX: 0, pipperY: 0, pipperZ: 0, pipperValid: 0,
+    warningBits: 0, ilsLoc: 0, ilsGs: 0, pipperX: 0, pipperY: 0, pipperZ: 0, pipperValid: 0, tankFuelKg: -1,
   };
   private readonly ilsScratch = { loc: 0, gs: 0 };
   private readonly fwdScratch: Vec3Like = { x: 0, y: 0, z: 0 };
@@ -315,7 +316,7 @@ class WorldImpl implements World {
     // playerStartOnGround through — see spawnAircraftOnly's doc comment for why a runway spawn
     // must start with gear down. Player-specific bookkeeping (IsPlayer flag, playerEntityIdInternal)
     // below mirrors exactly what spawnEntity's aircraft branch would otherwise have done.
-    const playerId = this.spawnAircraftOnly(0, playerPos, playerHeadingRad, playerSpeedMps, 'tejas-mk1', playerStartOnGround);
+    const playerId = this.spawnAircraftOnly(0, playerPos, playerHeadingRad, playerSpeedMps, 'tejas-mk1', playerStartOnGround, true);
     if (playerId !== NO_ENTITY_ID) {
       const state = this.pool.get(playerId);
       if (state) state.flags |= EntityFlag.IsPlayer;
@@ -419,7 +420,7 @@ class WorldImpl implements World {
    * spawns (AI flights via startPos/startSpeedMps, or the player's non-runway pos fallback)
    * correctly want gear retracted at spawn, so they must NOT set this.
    */
-  private spawnAircraftOnly(team: 0 | 1, pos: Vec3Like, headingRad: number, speedMps: number, aircraftDefId: string, startOnGround: boolean): EntityId {
+  private spawnAircraftOnly(team: 0 | 1, pos: Vec3Like, headingRad: number, speedMps: number, aircraftDefId: string, startOnGround: boolean, withDropTanks = false): EntityId {
     if (!this.deps.flightModel.hasDefinition(aircraftDefId)) return NO_ENTITY_ID;
     const id = this.pool.allocate(EntityKind.Aircraft, team);
     if (id === NO_ENTITY_ID) return NO_ENTITY_ID;
@@ -446,6 +447,11 @@ class WorldImpl implements World {
     state.vel.y = fwd.y * speedMps;
     state.vel.z = fwd.z * speedMps;
     state.fuelKg = this.deps.flightModel.maxFuelKg(aircraftDefId);
+    // Full drop tanks for the player only (the AI has no jettison logic, so it flies clean);
+    // J / the jettisonTanks input drops them (src/physics).
+    const tanks = withDropTanks && this.deps.flightModel.dropTankLoad ? this.deps.flightModel.dropTankLoad(aircraftDefId) : undefined;
+    state.dropTankCount = tanks ? tanks.count : 0;
+    state.dropTankFuelKg = tanks ? tanks.fuelKg : 0;
     // gearPos starts at the pool's zeroed default (fully retracted) EXCEPT
     // for a ground start (see this method's doc comment), where it must be
     // set to fully-down immediately so the very first physics tick already
@@ -566,6 +572,10 @@ class WorldImpl implements World {
     target.cycleWeapon = inputs.cycleWeapon;
     target.cycleTarget = inputs.cycleTarget;
     target.nwsEnabled = inputs.nwsEnabled ?? false;
+    // Optional fields must be copied too: this field-by-field copy silently dropped both, so the
+    // Settings "AoA limiter" toggle never reached the sim and drop tanks could not be jettisoned.
+    target.alphaLimiterDisabled = inputs.alphaLimiterDisabled ?? false;
+    target.jettisonTanks = inputs.jettisonTanks ?? false;
   }
 
   setDifficulty(entityId: EntityId, difficulty: AiDifficulty): void {
@@ -887,6 +897,7 @@ class WorldImpl implements World {
       hud.pipperY = rec.combat.aimPointWorld.y;
       hud.pipperZ = rec.combat.aimPointWorld.z;
       hud.pipperValid = rec.combat.aimPointValid ? 1 : 0;
+      hud.tankFuelKg = (state.dropTankCount ?? 0) > 0 ? (state.dropTankFuelKg ?? 0) : -1;
     }
     writeSnapshotBuffer(this.pool, playerId, this.tickInternal, this.simTimeSecInternal, hud, out);
   }

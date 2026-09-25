@@ -22,7 +22,7 @@ function makeZeroHud(): SnapshotHudView {
     iasMps: 0, tasMps: 0, mach: 0, altMslM: 0, altAglM: 0, aoaRad: 0, betaRad: 0, gLoad: 0,
     headingRad: 0, pitchRad: 0, rollRad: 0, vspeedMps: 0, fuelKg: 0, thrustFrac: 0, gearPos: 0,
     weaponIdx: 0, targetId: NO_ENTITY_ID, targetRangeM: 0, closureMps: 0, lockState: 0, warningBits: 0,
-    ilsLoc: 0, ilsGs: 0, pipperX: 0, pipperY: 0, pipperZ: 0, pipperValid: 0,
+    ilsLoc: 0, ilsGs: 0, pipperX: 0, pipperY: 0, pipperZ: 0, pipperValid: 0, tankFuelKg: -1,
   };
 }
 
@@ -93,6 +93,6 @@ describe('writeSnapshot', () => {
   });
 
   test('SNAPSHOT_FLOATS matches HEADER_FLOATS + MAX_ENTITIES*ENTITY_STRIDE + HUD_BLOCK_FLOATS', () => {
-    expect(SNAPSHOT_FLOATS).toBe(HEADER_FLOATS + 400 * ENTITY_STRIDE + 27);
+    expect(SNAPSHOT_FLOATS).toBe(HEADER_FLOATS + 400 * ENTITY_STRIDE + 28); // 28: SnapshotHud.TANK_FUEL_KG added for drop tanks
   });
 });

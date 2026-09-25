@@ -59,7 +59,8 @@ export function stepEngine(
   out.throttle = throttleCmd + (out.throttle - throttleCmd) * Math.exp(-dtSub / def.engine.spoolTimeConstantSec);
   out.afterburnerOn = abCmd && out.throttle >= 0.999;
 
-  const fuelAvailable = out.fuelKg > 0;
+  const tankFuelKg = out.dropTankFuelKg ?? 0;
+  const fuelAvailable = out.fuelKg > 0 || tankFuelKg > 0;
   const engineOk = damage.engineHealthPct > 0 && fuelAvailable;
 
   let thrustN = 0;
@@ -82,7 +83,15 @@ export function stepEngine(
     }
   }
   const leakKgS = damage.fuelLeak ? FUEL_LEAK_RATE_KG_S : 0;
-  out.fuelKg = Math.max(0, out.fuelKg - (fuelFlowKgS + leakKgS) * dtSub);
+  // Drop tanks feed first; once they run dry the engine draws on internal fuel. A leak is in the
+  // internal tanks, so it always drains internal fuel.
+  let burnKg = fuelFlowKgS * dtSub;
+  if (tankFuelKg > 0) {
+    const fromTanks = Math.min(tankFuelKg, burnKg);
+    out.dropTankFuelKg = tankFuelKg - fromTanks;
+    burnKg -= fromTanks;
+  }
+  out.fuelKg = Math.max(0, out.fuelKg - burnKg - leakKgS * dtSub);
 
   outThrustForceBody.x = thrustN;
   outThrustForceBody.y = 0;

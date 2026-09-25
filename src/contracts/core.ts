@@ -230,6 +230,14 @@ export interface EntityState {
   storesMassKg?: number;
   /** Drag area (CD*S, m^2) of carried stores, added to the airframe's drag. Same ownership as storesMassKg. Optional: absent means 0. */
   storesDragAreaM2?: number;
+  /**
+   * Drop tanks still attached (0 after jettison), and the fuel remaining across all of them, kg.
+   * Aircraft only. src/core sets them at spawn from AircraftDefinition.dropTank; src/physics burns
+   * tank fuel before internal `fuelKg` and zeroes both on PilotInputs.jettisonTanks. Optional:
+   * absent means no tanks.
+   */
+  dropTankCount?: number;
+  dropTankFuelKg?: number;
 
   /** Bitmask of EntityFlag. */
   flags: EntityFlags;
@@ -290,6 +298,8 @@ export interface PilotInputs {
   gearDown: boolean;
   /** Speedbrake/airbrake commanded extended. */
   airbrake: boolean;
+  /** Jettison all external drop tanks (level; jettisoning is idempotent). Optional: absent = false. */
+  jettisonTanks?: boolean;
   /** Gun trigger held. */
   trigger: boolean;
   /** Missile launch commanded. Edge-triggered by the consumer (src/combat fires once per false→true transition, not once per tick held). */
@@ -767,9 +777,11 @@ export const SnapshotHud = {
   PIPPER_Z: 25,
   /** 0 or 1; mirrors `CombatStatus.aimPointValid`. */
   PIPPER_VALID: 26,
+  /** Fuel remaining in attached drop tanks, kg, or -1 when none are attached. */
+  TANK_FUEL_KG: 27,
 } as const;
 /** Floats in the HUD block. Keep in sync with the field count above (27). */
-export const HUD_BLOCK_FLOATS = 27;
+export const HUD_BLOCK_FLOATS = 28;
 
 /** Total length, in floats, of one snapshot ArrayBuffer's Float64Array view. */
 export const SNAPSHOT_FLOATS = HEADER_FLOATS + MAX_ENTITIES * ENTITY_STRIDE + HUD_BLOCK_FLOATS;

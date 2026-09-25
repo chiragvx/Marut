@@ -89,6 +89,7 @@ export const readSnapshotHud: ReadSnapshotHud = (buf: Float64Array, out: Snapsho
   out.pipperY = buf[base + SnapshotHud.PIPPER_Y] as number;
   out.pipperZ = buf[base + SnapshotHud.PIPPER_Z] as number;
   out.pipperValid = buf[base + SnapshotHud.PIPPER_VALID] as number;
+  out.tankFuelKg = buf[base + SnapshotHud.TANK_FUEL_KG] as number;
   return out;
 };
 

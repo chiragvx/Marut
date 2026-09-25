@@ -187,11 +187,16 @@ export function fuelDisplayKg(fuelKg: number): number {
  * active (world.ts, below WARNING_LOW_FUEL_FRAC of internal capacity). Added alongside the
  * fuel-burn mass model: fuel now sets both weight and range, and the HUD never showed it.
  */
-export function drawFuelIndicator(ctx: CanvasRenderingContext2D, fuelKg: number, lowFuel: boolean, xPx: number, yPx: number): void {
+export function drawFuelIndicator(ctx: CanvasRenderingContext2D, fuelKg: number, lowFuel: boolean, tankFuelKg: number, xPx: number, yPx: number): void {
   ctx.save();
   ctx.font = '12px monospace';
   ctx.fillStyle = lowFuel ? '#ff4040' : '#40ff60';
   ctx.fillText(`FUEL ${fuelDisplayKg(fuelKg)}`, xPx, yPx);
+  // Drop tanks (SnapshotHud.TANK_FUEL_KG, -1 = none attached): burned first, jettison with J.
+  if (tankFuelKg >= 0) {
+    ctx.fillStyle = '#40ff60';
+    ctx.fillText(`TNK ${fuelDisplayKg(tankFuelKg)}`, xPx, yPx + 16);
+  }
   ctx.restore();
 }
 

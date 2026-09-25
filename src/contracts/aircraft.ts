@@ -199,11 +199,25 @@ export interface FcsLimits {
 //    section 10's dependency graph: only src/physics and src/core do).
 // -----------------------------------------------------------------------------
 
+export interface DropTankSpec {
+  /** Usable fuel per tank when full, kg. */
+  capacityKg: number;
+  /** Mass of one empty tank, kg. */
+  emptyMassKg: number;
+  /** Drag area of one tank (CD*S), m^2. */
+  dragAreaM2: number;
+}
+
 export interface AircraftDefinition {
   id: string;
   massKg: number;
   emptyMassKg: number;
   maxFuelKg: number;
+  /**
+   * External drop tank carried on each `type: 'fuel_tank'` hardpoint (all identical). Optional:
+   * absent means the aircraft carries none. Fuel is burned from the tanks before internal fuel.
+   */
+  dropTank?: DropTankSpec;
   /** Body-frame inertia tensor about the CG, kg*m^2. */
   inertiaBodyKgM2: { xx: number; yy: number; zz: number; xy: number; xz: number; yz: number };
   cgOffsetBodyM: Vec3Like;

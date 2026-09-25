@@ -104,6 +104,7 @@ export const writeSnapshot: WriteSnapshot = (
     out[hudBase + SnapshotHud.PIPPER_Y] = hud.pipperY;
     out[hudBase + SnapshotHud.PIPPER_Z] = hud.pipperZ;
     out[hudBase + SnapshotHud.PIPPER_VALID] = hud.pipperValid;
+    out[hudBase + SnapshotHud.TANK_FUEL_KG] = hud.tankFuelKg;
   }
 };
 

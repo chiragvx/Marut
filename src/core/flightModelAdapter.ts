@@ -52,4 +52,12 @@ export const flightModelAdapter: FlightModelPort = {
     const def = DEFINITIONS[aircraftDefId];
     return def ? def.maxFuelKg : 0;
   },
+
+  dropTankLoad(aircraftDefId: string): { count: number; fuelKg: number } {
+    const def = DEFINITIONS[aircraftDefId];
+    if (!def || !def.dropTank) return { count: 0, fuelKg: 0 };
+    let count = 0;
+    for (const h of def.hardpoints) if (h.type === 'fuel_tank') count++;
+    return { count, fuelKg: count * def.dropTank.capacityKg };
+  },
 };

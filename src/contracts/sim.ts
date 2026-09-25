@@ -192,6 +192,8 @@ export interface FlightModelPort {
   computeTelemetry(aircraftDefId: string, state: EntityState, damage: DamageState, env: SimEnvironment, out: AircraftTelemetry): void;
   /** Fuel capacity, kg, for `aircraftDefId`; used by World to compute `AircraftTelemetry.fuelFrac` independently if the adapter's `computeTelemetry` does not, and to seed a freshly spawned aircraft's `fuelKg`-equivalent bookkeeping. */
   maxFuelKg(aircraftDefId: string): number;
+  /** Full drop-tank load for `aircraftDefId`: tanks carried and total fuel in them, kg (0/0 if it carries none). Optional so minimal test ports need not implement it; absent means no tanks. */
+  dropTankLoad?(aircraftDefId: string): { count: number; fuelKg: number };
 }
 
 /**
@@ -358,6 +360,8 @@ export interface SnapshotHudView {
   pipperY: number;
   pipperZ: number;
   pipperValid: number;
+  /** Fuel in attached drop tanks, kg; -1 when none are attached (SnapshotHud.TANK_FUEL_KG). */
+  tankFuelKg: number;
 }
 
 export interface SnapshotHeaderView {

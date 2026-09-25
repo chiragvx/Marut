@@ -51,7 +51,7 @@ export const computeTelemetry: ComputeTelemetry = (
   out.fuelKg = state.fuelKg;
   out.fuelFrac = state.fuelKg / def.maxFuelKg;
 
-  const fuelAvailable = state.fuelKg > 0;
+  const fuelAvailable = state.fuelKg > 0 || (state.dropTankFuelKg ?? 0) > 0;
   const appliedThrustN = computeAppliedThrustN(
     def.engine,
     scratchFrame.mach,

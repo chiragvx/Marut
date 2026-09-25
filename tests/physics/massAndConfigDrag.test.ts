@@ -65,3 +65,40 @@ describe('computeStoresLoad', () => {
     expect(out.dragAreaM2).toBeLessThan(full.dragAreaM2);
   });
 });
+
+describe('drop tanks', () => {
+  const tank = tejasDefinition.dropTank!;
+  const withTanks = (s: EntityState): void => {
+    s.dropTankCount = 2;
+    s.dropTankFuelKg = 2 * tank.capacityKg;
+  };
+
+  it('add shell + fuel mass', () => {
+    const clean = aircraftMassKg({ fuelKg: 1000 }, tejasDefinition);
+    const loaded = aircraftMassKg({ fuelKg: 1000, dropTankCount: 2, dropTankFuelKg: 2 * tank.capacityKg }, tejasDefinition);
+    expect(loaded - clean).toBeCloseTo(2 * (tank.capacityKg + tank.emptyMassKg), 6);
+  });
+
+  it('add drag', () => {
+    expect(speedLossMps(withTanks, inputs())).toBeGreaterThan(speedLossMps(() => {}, inputs()));
+  });
+
+  it('are burned before internal fuel', () => {
+    const s = makeTrimSeedState({ altitudeM: 3000, speedMps: 150, bankRad: 0, massKg: 9000 });
+    withTanks(s);
+    const internal0 = s.fuelKg;
+    const dmg = makeFullHealthDamageState();
+    const env = buildTrimEnvironment(3000);
+    for (let i = 0; i < 10 / SIM_DT_SEC; i++) stepAircraft(s, dmg, inputs({ throttle: 1, afterburner: true }), env as never, tejasDefinition, SIM_DT_SEC, s);
+    expect(s.dropTankFuelKg!).toBeLessThan(2 * tank.capacityKg);
+    expect(s.fuelKg).toBe(internal0);
+  });
+
+  it('jettison drops the tanks and their fuel', () => {
+    const s = makeTrimSeedState({ altitudeM: 3000, speedMps: 150, bankRad: 0, massKg: 9000 });
+    withTanks(s);
+    stepAircraft(s, makeFullHealthDamageState(), inputs({ jettisonTanks: true }), buildTrimEnvironment(3000) as never, tejasDefinition, SIM_DT_SEC, s);
+    expect(s.dropTankCount).toBe(0);
+    expect(s.dropTankFuelKg).toBe(0);
+  });
+});

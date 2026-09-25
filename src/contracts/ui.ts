@@ -161,6 +161,7 @@ export const BindableAction = {
   Launch: 'launch',
   CycleWeapon: 'cycleWeapon',
   CycleTarget: 'cycleTarget',
+  JettisonTanks: 'jettisonTanks',
   NoseWheelSteer: 'noseWheelSteer',
   PauseToggle: 'pauseToggle',
   CameraCycle: 'cameraCycle',

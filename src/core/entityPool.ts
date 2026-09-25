@@ -66,6 +66,8 @@ function freshEntityState(): EntityState {
     afterburnerOn: false,
     storesMassKg: 0,
     storesDragAreaM2: 0,
+    dropTankCount: 0,
+    dropTankFuelKg: 0,
     flags: 0,
   };
 }
@@ -172,6 +174,8 @@ class KindStore {
     state.afterburnerOn = false;
     state.storesMassKg = 0;
     state.storesDragAreaM2 = 0;
+    state.dropTankCount = 0;
+    state.dropTankFuelKg = 0;
     state.flags = 0;
     const dmg = this.damage[index];
     if (dmg) {
