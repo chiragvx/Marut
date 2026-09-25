@@ -16,6 +16,7 @@ import type {
   Vec2Like,
   WarpFn,
 } from '../contracts/terrain';
+import { RIVER_FLOATS, packRiver, riverField, type RiverField } from './riverMath';
 
 export interface ShapeNoiseFields {
   /** Domain-warped fbm, normalised to roughly [-1,1]. */
@@ -107,59 +108,38 @@ function buildCoast(s: CoastShape, n: ShapeNoiseFields, scratch: Vec2Like): RawT
   };
 }
 
-function buildPlains(s: PlainsShape, waterLevelM: number, n: ShapeNoiseFields, scratch: Vec2Like): RawTerrainHeightFn {
-  // Precompute each river's unit direction and meander phase at its origin (so the meander is zero there).
-  const rivers = s.rivers.map((r, i) => {
-    const dx = r.x1 - r.x0;
-    const dz = r.z1 - r.z0;
-    const len = Math.sqrt(dx * dx + dz * dz) || 1;
-    const lane = 17.3 + i * 41.7;
-    return { r, len, ux: dx / len, uz: dz / len, lane, phase0: n.meander(0, lane) };
-  });
+function buildPlains(s: PlainsShape, waterLevelM: number, seed: number, n: ShapeNoiseFields, scratch: Vec2Like): RawTerrainHeightFn {
+  // Rivers are pure maths (riverMath.ts), shared with the ground shader so water edges match.
+  const packed = new Float32Array(s.rivers.length * RIVER_FLOATS);
+  s.rivers.forEach((r, i) => packRiver(r, i, seed, packed, i * RIVER_FLOATS));
+  const f: RiverField = { water: 0, belt: 0, bar: 0 };
+  // Heights relative to the water: channels below it, sandbars just above, the belt terrace
+  // (khadar) ~2.2 m above, then a ~200 m bluff up to the plain.
+  const TERRACE = 2.2;
+  const BAR = 0.8;
   return (x, z) => {
     n.warp(x, z, scratch);
     let h = s.baseElevationM + s.reliefM * n.fbmN(scratch.x, scratch.z);
-    for (const rv of rivers) {
-      const r = rv.r;
-      const px = x - r.x0;
-      const pz = z - r.z0;
-      const u = px * rv.ux + pz * rv.uz;
-      if (r.endsAtEnd && u > rv.len) continue;
-      const v = px * -rv.uz + pz * rv.ux;
-      const f = r.meanderFreq;
-      const c = r.meanderAmpM * (n.meander(u * f, rv.lane) - rv.phase0) + 0.35 * r.meanderAmpM * n.meander(u * f * 2.7, rv.lane + 5);
-      const dist = Math.abs(v - c);
-      const halfW = 0.5 * r.widthM * (1 + 0.25 * n.meander(u * f * 1.7, rv.lane + 9));
-      const flood = r.floodplainWidthM ?? 0;
-      const outer = halfW + r.bankWidthM + flood;
-      if (dist > outer) continue;
-      // Floodplain terrace (khadar): 2-4 m above the water, with a low bluff up to the plain.
-      let top = h;
-      if (flood > 0) {
-        const floodH = waterLevelM + 2.5 + 1.2 * n.meander(x / 900, z / 900 + rv.lane);
-        top = floodH + (h - floodH) * smoothstep(outer - 250, outer, dist);
-        if (top > h) top = h;
-        // Braided side channels: zero crossings of a noise field stretched along the flow, so they
-        // run long and roughly parallel to the river; only in the inner part of the floodplain.
-        if (dist > halfW && dist < halfW + r.bankWidthM + flood * 0.6 && Math.abs(n.meander(u / 7000, (v - c) / 450 + rv.lane + 3)) < 0.035) top = waterLevelM - 1.5;
-      }
-      // Main channel: sandbars poke just above the water in places.
-      const bar = 7 * Math.max(0, n.meander(x / 350, z / 350 + rv.lane) - 0.4);
-      const bed = waterLevelM - 3 + bar;
-      const t = smoothstep(halfW, halfW + r.bankWidthM, dist);
-      const hr = bed + (top - bed) * t;
+    for (let i = 0; i < s.rivers.length; i++) {
+      riverField(packed, i * RIVER_FLOATS, x, z, f);
+      if (f.belt < -200) continue;
+      const terrace = waterLevelM + TERRACE + 0.5 * n.meander(x / 700, z / 700 + i * 13.1);
+      const t = f.belt >= 0 ? 1 : 1 - (-f.belt / 200) * (-f.belt / 200) * (3 - 2 * (-f.belt / 200));
+      let hr = h + (terrace - h) * t;
+      if (f.bar > 0 && f.water <= 0) hr = Math.min(hr, waterLevelM + BAR);
+      if (f.water > 0) hr = waterLevelM - Math.min(3, 0.5 + f.water * 0.02);
       if (hr < h) h = hr;
     }
     return h;
   };
 }
 
-export function buildShapedHeight(shape: TerrainShape, waterLevelM: number | undefined, fields: ShapeNoiseFields): RawTerrainHeightFn {
+export function buildShapedHeight(shape: TerrainShape, waterLevelM: number | undefined, fields: ShapeNoiseFields, seed = 0): RawTerrainHeightFn {
   const scratch: Vec2Like = { x: 0, z: 0 };
   switch (shape.kind) {
     case 'coast':
       return buildCoast(shape, fields, scratch);
     case 'plains':
-      return buildPlains(shape, waterLevelM ?? shape.baseElevationM - 8, fields, scratch);
+      return buildPlains(shape, waterLevelM ?? shape.baseElevationM - 8, seed, fields, scratch);
   }
 }

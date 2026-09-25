@@ -316,6 +316,8 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
 
       camera.updateMatrixWorld(true);
       grade.update(nowMs, camera, getAtmosphereUniforms().uAtmSunDir.value);
+      // Wrapped so float precision in the water animation never degrades over a long session.
+      terrainConsumer.setTime((nowMs / 1000) % 3600);
       scratchProjMatrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
       cameraState.viewProjectionMatrix = scratchProjMatrix.elements;
       cameraState.originWorld.x = floatingOrigin.originWorld.x;

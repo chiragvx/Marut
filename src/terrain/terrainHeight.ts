@@ -83,7 +83,7 @@ export const createRawTerrainHeight: CreateRawTerrainHeight = (params: TerrainPa
       ridgeN: (x, z) => ridge(x, z) / ridgeMax,
       meander: contNoise,
       warp,
-    });
+    }, params.seed);
   }
 
   const scratch: Vec2Like = { x: 0, z: 0 };

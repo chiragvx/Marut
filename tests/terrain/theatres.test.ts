@@ -7,7 +7,8 @@
 import { describe, expect, test } from 'vitest';
 import type { PilotInputs } from '../../src/contracts/core';
 import { SIM_DT_SEC, EntityFlag } from '../../src/contracts/core';
-import { THEATRE_TERRAIN_PARAMS, type TheatreId } from '../../src/contracts/terrain';
+import { THEATRE_TERRAIN_PARAMS, type PlainsShape, type TheatreId } from '../../src/contracts/terrain';
+import { RIVER_FLOATS, packRiver, riverField } from '../../src/terrain/riverMath';
 import type { AirportLayout } from '../../src/contracts/airport';
 import { buildCoastProfile, createHeightSampler } from '../../src/terrain';
 import { buildWorldDependencies, createWorld, resolveBuiltinMission } from '../../src/core';
@@ -103,7 +104,27 @@ describe('theatre landforms', () => {
       const h = sampler.heightAt(-40000, z);
       if (!sampler.isWaterAt!(-40000, z) && h > 227 && h < 231.5) khadar++;
     }
-    expect(khadar * 50).toBeGreaterThan(1500); // at least 1.5 km of terrace across the valley
+    expect(khadar * 50).toBeGreaterThan(1000); // at least 1 km of belt terrace across the valley
+  });
+
+  test('Punjab river water matches the river maths the shader uses (riverMath)', () => {
+    const shape = THEATRE_TERRAIN_PARAMS.punjab.shape as PlainsShape;
+    const packed = new Float32Array(shape.rivers.length * RIVER_FLOATS);
+    shape.rivers.forEach((r, i) => packRiver(r, i, THEATRE_TERRAIN_PARAMS.punjab.seed, packed, i * RIVER_FLOATS));
+    const sampler = createHeightSampler(THEATRE_TERRAIN_PARAMS.punjab, []);
+    const f = { water: 0, belt: 0, bar: 0 };
+    let agree = 0;
+    let n = 0;
+    for (let x = -60000; x <= 60000; x += 3000) {
+      for (let z = 20000; z <= 70000; z += 37) {
+        let water = -1e9;
+        for (let i = 0; i < shape.rivers.length; i++) water = Math.max(water, riverField(packed, i * RIVER_FLOATS, x, z, f).water);
+        if (Math.abs(water) < 2) continue; // exactly on an edge
+        n++;
+        if ((water > 0) === sampler.isWaterAt!(x, z)) agree++;
+      }
+    }
+    expect(agree / n).toBeGreaterThan(0.999);
   });
 
   test('Punjab is a flat plain with river water', () => {

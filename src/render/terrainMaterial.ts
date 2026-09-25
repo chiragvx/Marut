@@ -38,6 +38,7 @@ import { DETAIL_GLSL, getDetailTexture } from './detailTextures';
 import { CLOUD_SHADOW_GLSL, getCloudShadowUniforms } from './clouds';
 import { ATMOSPHERE_GLSL, getAtmosphereUniforms } from './atmosphere';
 import { SUN_SHADOW_GLSL, getSunShadowUniforms } from './sunShadows';
+import { MAX_RIVERS, RIVER_FLOATS, RIVER_GLSL } from '../terrain/riverMath';
 
 export const MAX_TERRAIN_RUNWAYS = 4;
 /** Shoreline samples the vertex shader can hold (packed four per vec4). 201 = the 200 km world at 1 km. */
@@ -54,7 +55,7 @@ const STYLE_CODE: Readonly<Record<SceneEnvironment['surfaceStyle'], number>> = {
 const WATER_COLOR: Readonly<Record<SceneEnvironment['surfaceStyle'], [number, number, number]>> = {
   default: [0.1, 0.25, 0.35],
   coastal: [0.06, 0.2, 0.3], // Arabian Sea
-  farmland: [0.22, 0.3, 0.26], // silty river water
+  farmland: [0.45, 0.3, 0.29], // Sutlej/Beas: silt-laden, reddish brown
 };
 
 /** hash12 / vnoise / fbm3, shared by the vertex and fragment shaders. */
@@ -149,6 +150,8 @@ const FRAGMENT_SHADER = /* glsl */ `
   ${CLOUD_SHADOW_GLSL}
   ${ATMOSPHERE_GLSL}
   ${SUN_SHADOW_GLSL}
+  ${RIVER_GLSL}
+  uniform float uTime;
   // 0..1: how far this ground stands above its surroundings (set in main before the colour functions).
   float gRaised = 0.0;
 
@@ -176,14 +179,21 @@ const FRAGMENT_SHADER = /* glsl */ `
     return g;
   }
 
+  // Shared water shading (Goa sea and estuaries, Punjab rivers): animated ripples at two scales
+  // drifting against each other, a long swell far out, fresnel sky reflection, sun glint, and
+  // colour by depth. Each ripple layer fades once it is smaller than a pixel.
   vec3 waterShade(vec3 w, vec3 rel, float px, float depth) {
     vec3 V = normalize(rel);
+    float t = uTime;
+    vec2 g = vec2(0.0);
+    float ampSwell = 1.0 - smoothstep(20.0, 80.0, px);
+    if (ampSwell > 0.0) g += vnoised(w.xz / 160.0 + t * vec2(0.012, 0.007)).yz * 0.10 * ampSwell;
     float amp = 1.0 - smoothstep(1.5, 10.0, px);
-    vec3 n = vec3(0.0, 1.0, 0.0);
     if (amp > 0.0) {
-      vec2 g = (vnoised(w.xz / 31.0).yz * 0.16 + vnoised(w.xz / 7.0 + 3.0).yz * 0.05) * amp;
-      n = normalize(vec3(g.x, 1.0, g.y));
+      g += vnoised(w.xz / 31.0 + t * vec2(0.045, 0.028)).yz * 0.16 * amp;
+      g += vnoised(w.xz / 7.0 + 3.0 - t * vec2(0.11, 0.06)).yz * 0.05 * amp;
     }
+    vec3 n = normalize(vec3(g.x, 1.0, g.y));
     // Shallows show the bottom (turquoise over coastal sand, brighter silt in rivers).
     vec3 shallow = uStyle == 1 ? vec3(0.10, 0.42, 0.44) : uWaterColor * 1.35 + vec3(0.05, 0.05, 0.03);
     vec3 body = mix(shallow, uWaterColor, smoothstep(0.5, 18.0, depth));
@@ -194,7 +204,7 @@ const FRAGMENT_SHADER = /* glsl */ `
     vec3 col = mix(body, atmSky(reflect(V, n)), fres * 0.85);
     // Surf: a broken foam band along the shore, widest on the open coast.
     float foam = 0.0;
-    if (depth < 2.5) {
+    if (uStyle == 1 && depth < 2.5) {
       float surfWidth = uStyle == 1 ? 1.6 : 0.6;
       foam = 1.0 - smoothstep(0.15, surfWidth, depth + 0.9 * (vnoise(w.xz / 12.0) - 0.5));
       foam *= 0.55 + 0.45 * vnoise(w.xz / 3.0 + 5.0) * (1.0 - smoothstep(1.0, 6.0, px));
@@ -298,9 +308,8 @@ const FRAGMENT_SHADER = /* glsl */ `
   // or bare), soft and mid greens, some dark green (sugarcane, orchards), the odd purple-brown - with
   // thin dirt field edges, faint rows or orchard dots in some fields, and the braided rivers' sandy
   // floodplain (khadar) a few metres below the plain.
-  vec3 plainsColor(vec3 w, float px, vec3 L, inout float shadow) {
+  vec3 plainsColor(vec3 w, float px, vec3 L, inout float shadow, vec3 rv) {
     vec2 p = w.xz;
-    float hw = w.y - uWaterLevel;
     // Field grid: ~760 m blocks on a slightly rotated grid, each split into 2-5 x 2-6 fields.
     vec2 q = vec2(0.993 * p.x - 0.12 * p.y, 0.12 * p.x + 0.993 * p.y);
     const float B = 760.0;
@@ -358,11 +367,25 @@ const FRAGMENT_SHADER = /* glsl */ `
     if (soil > 0.01) det = mix(det, detailAt(p, 1.0, 12.0, px), soil * (1.0 - farW));
     col *= mix(vec3(1.0), det, 0.7 - 0.35 * soil);
 
-    // Floodplain (khadar): pale sand near the water, sparse pale grass above it.
-    float khadar = (1.0 - smoothstep(4.0, 5.5, hw)) * uHasWater;
-    if (khadar > 0.0) {
-      float g = smoothstep(1.2, 3.0, hw + 0.8 * (px < 30.0 ? vnoise(p / 120.0) - 0.5 : 0.0));
-      col = mix(col, mix(vec3(0.74, 0.70, 0.60), vec3(0.56, 0.56, 0.40), g) * mix(vec3(1.0), detailAt(p, 2.0, 12.0, px), 0.8), khadar);
+    // The rivers' active belt (khadar), from riverMath: pale sand along and between the channels,
+    // mottled grey-green scrub on the older ground, darker wet sand at the water's edge, bright
+    // sandbars. (The water itself is drawn in main().)
+    float belt = smoothstep(-90.0, 30.0, rv.y);
+    if (belt > 0.0) {
+      // Fresh sand only near the channels; further out the older khadar is dry grass and scrub
+      // (fine-grained, so it never reads as cloud shadow), with sand showing through in streaks.
+      float nearW = 1.0 - smoothstep(60.0, 320.0, -rv.x);
+      float streak = vnoise(vec2(dot(p, vec2(0.8, 0.6)) / 900.0, dot(p, vec2(-0.6, 0.8)) / 120.0));
+      float fine = px < 25.0 ? vnoise(p / 23.0) : 0.5;
+      float scrubN = 0.45 * vnoise(p / 150.0) + 0.3 * fine + 0.25 * streak;
+      vec3 grass = mix(vec3(0.62, 0.60, 0.46), vec3(0.45, 0.47, 0.34), smoothstep(0.4, 0.7, scrubN));
+      vec3 sand = vec3(0.78, 0.73, 0.64);
+      float sandy = max(nearW, smoothstep(0.62, 0.8, streak) * 0.7);
+      vec3 bc = mix(grass, sand, sandy);
+      bc = mix(bc, vec3(0.86, 0.81, 0.71), rv.z);
+      bc = mix(bc, vec3(0.56, 0.48, 0.42), (1.0 - smoothstep(0.0, 22.0, -rv.x)) * 0.75);
+      bc *= mix(vec3(1.0), detailAt(p, sandy > 0.5 ? 2.0 : 0.0, 12.0, px), 0.6);
+      col = mix(col, bc, belt);
     }
 
     // Roads, canals, villages, towns and trees are real geometry now (chunkFeatureRenderer.ts).
@@ -379,7 +402,11 @@ const FRAGMENT_SHADER = /* glsl */ `
     float px = max(length(dFdx(vWorld.xz)), length(dFdy(vWorld.xz)));
     vec3 L = normalize(uSunDir);
     vec3 col;
-    if (uHasWater > 0.5 && vWorld.y <= uWaterLevel + 0.05) {
+    // Punjab rivers are analytic (riverMath), so their water is decided per pixel, not by the mesh.
+    vec3 rv = vec3(-1e9, -1e9, 0.0);
+    if (uStyle == 2 && uRiverCount > 0) rv = riversAt(vWorld.xz);
+    float riverWater = uStyle == 2 ? smoothstep(-0.5 * px - 0.5, 0.5 * px + 0.5, rv.x) : 0.0;
+    if (uStyle != 2 && uHasWater > 0.5 && vWorld.y <= uWaterLevel + 0.05) {
       col = waterShade(vWorld, vRel, px, max(nl - 1.0, 0.0) * 30.0);
     } else {
       // Ring relief (chunkGeometryBuilder.ts LAND_LEN_*): > 0 in hollows, < 0 on raised ground.
@@ -395,7 +422,7 @@ const FRAGMENT_SHADER = /* glsl */ `
       }
       float shadow = 1.0;
       if (uStyle == 1) col = coastColor(vWorld, n, px, near, L, shadow);
-      else col = plainsColor(vWorld, px, L, shadow);
+      else col = plainsColor(vWorld, px, L, shadow, rv);
 
       for (int i = 0; i < ${MAX_TERRAIN_RUNWAYS}; i++) {
         if (i >= uRunwayCount) break;
@@ -430,6 +457,7 @@ const FRAGMENT_SHADER = /* glsl */ `
       float diff = max(dot(n, L), 0.0) * shadow * cloudShadow(vWorld) * sunShadow(vWorld, ndlGeom);
       vec3 ambient = mix(vec3(0.30, 0.27, 0.22), vec3(0.44, 0.47, 0.52), 0.5 + 0.5 * n.y);
       col *= ambient * occ + vec3(1.0, 0.97, 0.9) * 0.62 * diff * mix(1.0, occ, 0.35);
+      if (riverWater > 0.0) col = mix(col, waterShade(vWorld, vRel, px, clamp(rv.x * 0.03, 0.0, 6.0)), riverWater);
     }
     gl_FragColor = vec4(atmApply(col, vWorld), 1.0);
   }
@@ -454,6 +482,9 @@ export function createTerrainMaterial(): THREE.ShaderMaterial {
       uCoastZ: { value: new THREE.Vector2(0, 1) },
       uCoastShape: { value: new THREE.Vector3(0, 1e9, 1) },
       uDetail: { value: getDetailTexture() },
+      uTime: { value: 0 },
+      uRivers: { value: Array.from({ length: 4 * MAX_RIVERS }, () => new THREE.Vector4()) },
+      uRiverCount: { value: 0 },
       ...getCloudShadowUniforms(),
       ...getAtmosphereUniforms(),
       ...getSunShadowUniforms(),
@@ -482,6 +513,15 @@ export function applyTerrainEnvironment(material: THREE.ShaderMaterial, env: Rea
     headings[i] = r.headingRad;
   }
   u['uRunwayCount']!.value = nRwy;
+
+  const rivers = u['uRivers']!.value as THREE.Vector4[];
+  const nRiv = env.rivers ? Math.min(env.rivers.count, MAX_RIVERS) : 0;
+  for (let i = 0; i < nRiv * 4; i++) {
+    const o = Math.floor(i / 4) * RIVER_FLOATS + (i % 4) * 4;
+    const pk = env.rivers!.packed;
+    rivers[i]!.set(pk[o]!, pk[o + 1]!, pk[o + 2]!, pk[o + 3]!);
+  }
+  u['uRiverCount']!.value = nRiv;
 
   const coast = env.coast;
   const nCoast = coast ? Math.min(coast.shoreX.length, MAX_COAST_SAMPLES) : 0;

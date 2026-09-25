@@ -83,7 +83,7 @@ const LAYERS: readonly Texel[] = [
   (u, v, ix, iy) => {
     const grain = hash(ix, iy, 31) - 0.5;
     const warp = fbm(u, v, 4, 3, 32);
-    const ripple = Math.sin((v * DETAIL_SIZE + 40 * warp) / 7) * 0.05;
+    const ripple = Math.sin((v * DETAIL_SIZE + 40 * warp) / 7) * 0.012;
     const l = 0.5 + 0.25 * (fbm(u, v, 8, 4, 33) - 0.5) + 0.1 * grain + ripple;
     return [l, l, l * 0.98];
   },

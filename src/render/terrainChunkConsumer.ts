@@ -29,6 +29,8 @@ export interface TerrainChunkConsumer {
   setFogColor(color: THREE.Color): void;
   setSunDirection(dirWorld: Readonly<Vec3Like>): void;
   setEnvironment(env: Readonly<SceneEnvironment>): void;
+  /** Seconds, for animated water. */
+  setTime(sec: number): void;
   /** Whether terrain chunks cast into the sun shadow map (sunShadows.ts; High/Ultra). */
   setShadowsEnabled(enabled: boolean): void;
   /** Repositions every resident chunk's root group from its absolute origin, section 4.3. */
@@ -95,6 +97,10 @@ export function createTerrainChunkConsumer(root: THREE.Object3D): TerrainChunkCo
 
     setEnvironment(env) {
       applyTerrainEnvironment(material, env);
+    },
+
+    setTime(sec) {
+      material.uniforms['uTime']!.value = sec;
     },
 
     setShadowsEnabled(enabled) {

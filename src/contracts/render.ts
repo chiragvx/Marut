@@ -337,6 +337,8 @@ export interface SceneEnvironment {
   groundLevelM?: number;
   /** Fair-weather cumulus (absent = clear sky): fraction of 3.5 km cells with a cloud, base/top m MSL, seed. */
   clouds?: { coverage: number; baseM: number; topM: number; seed: number };
+  /** Plains theatres: rivers packed by src/terrain/riverMath.ts packRiver (16 floats each). */
+  rivers?: { packed: readonly number[]; count: number };
   /** One entry per physical runway (not per direction). */
   runways: readonly { centerX: number; centerZ: number; headingRad: number; lengthM: number; widthM: number }[];
 }

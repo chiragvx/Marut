@@ -63,6 +63,7 @@ import {
 } from './ui';
 import { createChunkManager } from './terrain';
 import { buildCoastProfile, createHeightSampler } from './terrain';
+import { RIVER_FLOATS, packRiver } from './terrain/riverMath';
 import { createAirportNavDb, validateAirportLayout } from './airport';
 import { tejasDefinition } from './aircraft';
 import { isBuiltinMissionId, resolveBuiltinMission } from './core/missions/index';
@@ -632,12 +633,19 @@ function buildSceneEnvironment(terrainParams: TerrainParams, airportLayouts: rea
     }
   }
   const coast = buildCoastProfile(terrainParams);
+  let rivers: SceneEnvironment['rivers'];
+  if (terrainParams.shape?.kind === 'plains' && terrainParams.shape.rivers.length > 0) {
+    const packed = new Float32Array(terrainParams.shape.rivers.length * RIVER_FLOATS);
+    terrainParams.shape.rivers.forEach((r, i) => packRiver(r, i, terrainParams.seed, packed, i * RIVER_FLOATS));
+    rivers = { packed: Array.from(packed), count: terrainParams.shape.rivers.length };
+  }
   // Winter fair-weather cumulus over Punjab (a weather system will own this later).
   const clouds = terrainParams.surfaceStyle === 'farmland' ? { coverage: 0.22, baseM: 1700, topM: 2300, seed: terrainParams.seed } : undefined;
   return {
     surfaceStyle: terrainParams.surfaceStyle ?? 'default',
     groundLevelM: terrainParams.shape?.kind === 'plains' ? terrainParams.shape.baseElevationM : (terrainParams.waterLevelM ?? 0) + 20,
     ...(clouds ? { clouds } : {}),
+    ...(rivers ? { rivers } : {}),
     ...(coast ? { coast } : {}),
     ...(terrainParams.waterLevelM !== undefined ? { waterLevelM: terrainParams.waterLevelM } : {}),
     runways,
