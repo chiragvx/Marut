@@ -9,8 +9,6 @@
 import * as THREE from 'three';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
-import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
-import { FXAAShader } from 'three/examples/jsm/shaders/FXAAShader.js';
 
 import { EntityKindCode, type QualityTier } from '../contracts/core';
 import {
@@ -44,7 +42,8 @@ import { createTerrainChunkConsumer } from './terrainChunkConsumer';
 import { createChunkFeatureRenderer } from './chunkFeatureRenderer';
 import { createCloudSystem } from './clouds';
 import { createFarGround } from './farGround';
-import { setAtmosphereCamera } from './atmosphere';
+import { getAtmosphereUniforms, setAtmosphereCamera } from './atmosphere';
+import { createGrade } from './postGrade';
 import { TERRAIN_WORLD_EXTENT_M } from '../contracts/terrain';
 import { createWireframeAircraftRenderer } from './wireframeAircraftRenderer';
 
@@ -62,14 +61,20 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
   let renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' });
   let composer = new EffectComposer(renderer);
   let renderPass = new RenderPass(scene, camera);
-  let fxaaPass = new ShaderPass(FXAAShader);
+  let grade = createGrade();
+  let sizeW = 1;
+  let sizeH = 1;
 
   function rebuildComposerAndPasses(): void {
     composer = new EffectComposer(renderer);
     renderPass = new RenderPass(scene, camera);
-    fxaaPass = new ShaderPass(FXAAShader);
+    // FXAA and colour grading/lens effects are one fused pass (postGrade.ts); a grade-only pass
+    // replaces it on tiers without anti-aliasing.
+    grade = createGrade();
+    grade.setSize(sizeW, sizeH);
     composer.addPass(renderPass);
-    composer.addPass(fxaaPass);
+    composer.addPass(grade.fxaaPass);
+    composer.addPass(grade.gradePass);
   }
   rebuildComposerAndPasses();
 
@@ -134,7 +139,8 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
 
   function applyQualityTier(t: QualityTier): void {
     const settings = RENDER_QUALITY_TABLE[t];
-    fxaaPass.enabled = settings.antialias !== AntiAliasMode.Off;
+    grade.setAntialias(settings.antialias !== AntiAliasMode.Off);
+    grade.setTier(t);
     skyFog.setFog(settings.fogStartM, settings.fogEndM);
     // The terrain material fogs itself (it is a ShaderMaterial with fog: false), so it needs the
     // same distances; before this it stayed at its built-in 1.5-5 km on every tier.
@@ -162,11 +168,9 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
       composer.setSize(widthPx, heightPx);
       camera.aspect = widthPx / Math.max(heightPx, 1);
       camera.updateProjectionMatrix();
-      const uniforms = (fxaaPass.material as THREE.ShaderMaterial).uniforms;
-      const resolution = uniforms['resolution'];
-      if (resolution) {
-        resolution.value.set(1 / Math.max(widthPx * ratio, 1), 1 / Math.max(heightPx * ratio, 1));
-      }
+      sizeW = Math.round(widthPx * ratio);
+      sizeH = Math.round(heightPx * ratio);
+      grade.setSize(sizeW, sizeH);
     },
 
     setQualityTier(t) {
@@ -296,6 +300,7 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
       }
 
       camera.updateMatrixWorld(true);
+      grade.update(nowMs, camera, getAtmosphereUniforms().uAtmSunDir.value);
       scratchProjMatrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
       cameraState.viewProjectionMatrix = scratchProjMatrix.elements;
       cameraState.originWorld.x = floatingOrigin.originWorld.x;
