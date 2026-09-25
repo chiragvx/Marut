@@ -99,4 +99,28 @@ describe('stepProjectile (bullet)', () => {
       expect(result.outcome).not.toBe('direct_hit');
     }
   });
+
+  // Regression: the world passes its FULL live-entity list as candidates, which includes the
+  // projectile itself and other projectiles. Before the fix every armed round "hit" itself on its
+  // first armed step and was silently despawned, so neither guns nor missiles could ever score.
+  it('ignores itself and other projectiles in the candidate list, and still hits an aircraft', () => {
+    const pool = createProjectilePool(1);
+    const projectile = pool[0]!;
+    initProjectile(projectile, bulletSpawn(1), 0);
+    const state = makeEntityState({ id: 100, pos: { x: 0, y: 0, z: 0 }, vel: { x: 715, y: 0, z: 0 } });
+
+    const self: DetectableEntity = { id: 100, team: 0, kind: 'bullet', pos: state.pos, vel: state.vel, rot: IDENTITY, alive: true };
+    const otherBullet: DetectableEntity = { id: 101, team: 0, kind: 'bullet', pos: { x: 60, y: 0, z: 0 }, vel: { x: 715, y: 0, z: 0 }, rot: IDENTITY, alive: true };
+    const target: DetectableEntity = { id: 7, team: 1, kind: 'aircraft', pos: { x: 300, y: -0.5, z: 0 }, vel: { x: 0, y: 0, z: 0 }, rot: IDENTITY, alive: true };
+
+    let outcome = 'flying';
+    let hitId: number | undefined;
+    for (let i = 0; i < 120 && outcome === 'flying'; i++) {
+      const result = stepProjectile(state, projectile, [self, otherBullet, target], NO_TERRAIN_SAMPLER, ENV, DT, state);
+      outcome = result.outcome;
+      hitId = result.hitTargetId;
+    }
+    expect(outcome).toBe('direct_hit');
+    expect(hitId).toBe(7);
+  });
 });

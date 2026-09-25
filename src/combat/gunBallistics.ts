@@ -6,7 +6,7 @@
  * factories. See docs/spec/07-combat.md sections 4.2, 4.6, 4.7, 4.9.
  */
 import type { EntityState, QuatLike, Vec3Like } from '../contracts/core';
-import { NO_ENTITY_ID } from '../contracts/core';
+import { EntityKind, NO_ENTITY_ID } from '../contracts/core';
 import {
   GUN_ROUND_DRAG_COEFF,
   GUN_ROUND_CROSS_SECTION_M2,
@@ -340,7 +340,10 @@ export const stepProjectile: StepProjectile = (state, projectile, candidates, sa
   out.vel.x = newVelX; out.vel.y = newVelY; out.vel.z = newVelZ;
   velocityAlignQuat(newVelX, newVelY, newVelZ, out.rot);
 
-  // 7. Hit / fuse resolution (armed projectiles only). Owner is always excluded.
+  // 7. Hit / fuse resolution (armed projectiles only). Only aircraft other than the owner can be
+  //    hit: `candidates` is the world's full live-entity list, which includes this projectile
+  //    itself (and every other bullet/missile) -- without excluding it, an armed projectile's own
+  //    position sits inside its own segment start and it "hits" itself on the first armed step.
   const armed = projectile.distanceTravelledM >= phys.armDistanceM;
   _segStart.x = posX; _segStart.y = posY; _segStart.z = posZ;
   _segEnd.x = newPosX; _segEnd.y = newPosY; _segEnd.z = newPosZ;
@@ -350,7 +353,7 @@ export const stepProjectile: StepProjectile = (state, projectile, candidates, sa
     let bestHitT = Infinity;
     for (let i = 0; i < candidates.length; i++) {
       const c = candidates[i]!;
-      if (c.id === projectile.ownerId || !c.alive) continue;
+      if (c.id === projectile.ownerId || c.id === state.id || !c.alive || c.kind !== EntityKind.Aircraft) continue;
       const semiAxes = c.hitEllipsoidBodyM ?? DEFAULT_AIRCRAFT_HIT_ELLIPSOID_M;
       segmentHitsEllipsoid(_segStart, _segEnd, c.pos, c.rot, semiAxes, _ellipsoidResult);
       if (_ellipsoidResult.hit && _ellipsoidResult.tEntry < bestHitT) {
@@ -379,7 +382,7 @@ export const stepProjectile: StepProjectile = (state, projectile, candidates, sa
       let bestProxDist = Infinity;
       for (let i = 0; i < candidates.length; i++) {
         const c = candidates[i]!;
-        if (c.id === projectile.ownerId || !c.alive) continue;
+        if (c.id === projectile.ownerId || c.id === state.id || !c.alive || c.kind !== EntityKind.Aircraft) continue;
         const dist = closestApproachOnSegment(_segStart, _segEnd, c.pos);
         if (dist <= fuseRadius && dist < bestProxDist) {
           bestProxDist = dist;

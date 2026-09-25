@@ -103,6 +103,8 @@ export function createCombatAdapter(): CombatPort & CombatPortWithContacts {
   const sensorEventsScratch: SimEvent[] = [];
   const fireEventsScratch: SimEvent[] = [];
   const hitEventsScratch: SimEvent[] = [];
+  /** Projectiles finished this tick, despawned only after the step loop (see that loop's comment). */
+  const despawnScratch: EntityId[] = [];
 
   function ensureDetectableCapacity(n: number): void {
     while (detectableScratch.length < n) {
@@ -197,7 +199,6 @@ export function createCombatAdapter(): CombatPort & CombatPortWithContacts {
         outRequestsScratch.length = 0;
         fireEventsScratch.length = 0;
         fireWeapons(observer.id, observer, damage, lockedTarget, inputs, state, ctx.simTimeSec, dtSec, outRequestsScratch, fireEventsScratch);
-        for (const ev of fireEventsScratch) eventsOut.push(ev);
 
         for (const req of outRequestsScratch) {
           if (freeProjectileIndices.length === 0) continue;
@@ -230,10 +231,20 @@ export function createCombatAdapter(): CombatPort & CombatPortWithContacts {
           const slot = projectilePool[poolIndex] as ProjectileState;
           initProjectile(slot, req, ctx.simTimeSec);
           projectileIndexByEntityId.set(spawnedId, poolIndex);
+          if (req.kind !== 'bullet') patchNextMissileLaunchId(fireEventsScratch, spawnedId);
         }
+        // Forwarded only now, after the spawns above: weaponStation.ts emits each missileLaunch
+        // with missileId=NO_ENTITY_ID and leaves it to core to patch in the spawned id (07-combat.md
+        // section 3.1). Forwarding before the spawn left it at -1, so the renderer's smoke trail
+        // (effects.ts, keyed on missileId) never found the missile.
+        for (const ev of fireEventsScratch) eventsOut.push(ev);
       }
 
-      // Step every live projectile.
+      // Step every live projectile. Finished projectiles are despawned only AFTER this loop:
+      // ctx.despawn swap-removes from the pool's dense list, so despawning mid-loop both skips the
+      // entity swapped into slot i and, once two projectiles finish in one tick, walks past the
+      // shrunken liveCount (EntityPool.liveAt throws "denseIndex out of range").
+      despawnScratch.length = 0;
       for (let i = 0; i < liveCount; i++) {
         const state = ctx.liveAt(i);
         if (state.kind !== EntityKind.Bullet && state.kind !== EntityKind.Missile) continue;
@@ -261,10 +272,21 @@ export function createCombatAdapter(): CombatPort & CombatPortWithContacts {
         resetProjectile(projectile);
         freeProjectileIndices.push(poolIndex);
         projectileIndexByEntityId.delete(state.id);
-        ctx.despawn(state.id);
+        despawnScratch.push(state.id);
       }
+      for (let k = 0; k < despawnScratch.length; k++) ctx.despawn(despawnScratch[k]!);
     },
   };
+}
+
+/** Fills in the first still-unpatched missileLaunch event's missileId (one event per missile spawn request, in order). */
+function patchNextMissileLaunchId(events: SimEvent[], missileId: EntityId): void {
+  for (const ev of events) {
+    if (ev.type === 'missileLaunch' && ev.missileId === NO_ENTITY_ID) {
+      ev.missileId = missileId;
+      return;
+    }
+  }
 }
 
 function findDetectable(entities: readonly DetectableEntity[], id: EntityId): DetectableEntity | undefined {
