@@ -1,11 +1,17 @@
 /**
- * src/render/clouds.ts — fair-weather cumulus: soft billboard puffs, and their shadows on the ground.
+ * src/render/clouds.ts — fair-weather cumulus built from lit puffs, and their shadows on the ground.
  *
  * The cloud field is deterministic: one potential cloud per CELL_M cell, present if its hash is
- * below `coverage`, with 8-18 puffs arranged in a flattened dome (flat base, bulging top). Puffs
- * near the camera (within VIEW_RADIUS_M) are drawn as camera-facing quads from one instanced mesh,
- * textured from a small generated puff atlas, lit brighter on top and on the sun side, sorted back
- * to front every few frames, and faded into the horizon haze with distance.
+ * below `coverage`. Each cloud is 25-70 puffs laid out as a real cumulus: a wide, flat base layer,
+ * and 2-4 turrets that climb higher towards the cores (the tallest reaching `topM`).
+ *
+ * Each puff is a camera-facing quad shaded as a soft SPHERE (an impostor): per-pixel normals from
+ * the sphere, blended with the whole cloud's dome normal, give sunlit tops, shaded undersides and
+ * self-shadowing away from the sun. Pixels below the cloud base are cut, so bases are flat and
+ * grey. Thin edges glow when looking towards the sun (silver lining). The same aerial perspective
+ * as the terrain applies. This is far cheaper than ray-marching (one textured quad per puff, no
+ * per-pixel loops) and still reads as 3D. Puffs within VIEW_RADIUS_M are drawn from one instanced
+ * mesh, sorted back to front every few frames.
  *
  * Shadows: every cloud on the map is rasterised once into a 512x512 coverage texture over the
  * whole world (~390 m per texel, soft edges). Ground shaders project each point up along the sun
@@ -16,6 +22,7 @@ import * as THREE from 'three';
 import type { Vec3Like } from '../contracts/core';
 import type { SceneEnvironment } from '../contracts/render';
 import { TERRAIN_WORLD_HALF_EXTENT_M } from '../contracts/terrain';
+import { ATMOSPHERE_GLSL, getAtmosphereUniforms } from './atmosphere';
 
 type CloudConfig = NonNullable<SceneEnvironment['clouds']>;
 
@@ -25,7 +32,7 @@ const RESEED_DISTANCE_M = 4000;
 const SHADOW_TEX = 512;
 const PUFF_TEX = 128;
 const PUFF_VARIANTS = 4;
-const MAX_PUFFS = 4000;
+const MAX_PUFFS = 9000;
 
 function hash(a: number, b: number, c: number, seed: number): number {
   let h = (Math.imul(a | 0, 0x27d4eb2d) ^ Math.imul(b | 0, 0x165667b1) ^ Math.imul(c | 0, 0x2545f491) ^ Math.imul(seed | 0, 0x9e3779b9)) >>> 0;
@@ -89,17 +96,29 @@ function makePuffTexture(): THREE.DataArrayTexture {
 
 const PUFF_VS = /* glsl */ `
   attribute vec4 iPuff;  // world x, y, z, radius
-  attribute vec4 iShade; // height in cloud 0..1, sunward -1..1, sprite variant, opacity
+  attribute vec4 iCloud; // cloud centre x, cloud base y, cloud centre z, cloud radius
+  attribute vec4 iMisc;  // cloud top y, sprite variant, opacity, brightness jitter
   uniform vec3 uOrigin;
-  varying vec2 vUv;
-  varying vec4 vShade;
-  varying float vDist;
+  varying vec2 vQ;
+  varying vec3 vCentre;
+  varying float vRadius;
+  varying vec4 vCloud;
+  varying vec4 vMisc;
+  varying vec3 vRight;
+  varying vec3 vUp;
+  varying vec3 vBack;
   void main() {
     vec4 mv = viewMatrix * vec4(iPuff.xyz - uOrigin, 1.0);
     mv.xy += position.xy * iPuff.w;
-    vUv = position.xy * 0.5 + 0.5;
-    vShade = iShade;
-    vDist = length(mv.xyz);
+    vQ = position.xy;
+    vCentre = iPuff.xyz;
+    vRadius = iPuff.w;
+    vCloud = iCloud;
+    vMisc = iMisc;
+    // Camera axes in world space (the rows of the view rotation).
+    vRight = vec3(viewMatrix[0][0], viewMatrix[1][0], viewMatrix[2][0]);
+    vUp = vec3(viewMatrix[0][1], viewMatrix[1][1], viewMatrix[2][1]);
+    vBack = vec3(viewMatrix[0][2], viewMatrix[1][2], viewMatrix[2][2]);
     gl_Position = projectionMatrix * mv;
   }
 `;
@@ -107,21 +126,52 @@ const PUFF_VS = /* glsl */ `
 const PUFF_FS = /* glsl */ `
   precision highp float;
   uniform highp sampler2DArray uPuff;
-  uniform vec3 uFogColor;
   uniform float uFadeEnd;
-  varying vec2 vUv;
-  varying vec4 vShade;
-  varying float vDist;
+  ${ATMOSPHERE_GLSL}
+  varying vec2 vQ;
+  varying vec3 vCentre;
+  varying float vRadius;
+  varying vec4 vCloud;
+  varying vec4 vMisc;
+  varying vec3 vRight;
+  varying vec3 vUp;
+  varying vec3 vBack;
   void main() {
-    vec4 t = texture(uPuff, vec3(vUv, vShade.z));
-    float a = t.a * vShade.w;
-    if (a < 0.01) discard;
-    // Flat grey-blue bases, white sunlit tops.
-    float lit = clamp(0.25 + 0.75 * vShade.x + 0.25 * vShade.y, 0.0, 1.0) * t.r;
-    vec3 col = mix(vec3(0.60, 0.64, 0.72), vec3(1.0, 0.99, 0.96), lit);
-    float fog = smoothstep(uFadeEnd * 0.35, uFadeEnd, vDist);
-    col = mix(col, uFogColor, fog * 0.85);
-    gl_FragColor = vec4(col, a * (1.0 - smoothstep(uFadeEnd * 0.85, uFadeEnd, vDist)));
+    vec4 t = texture(uPuff, vec3(vQ * 0.5 + 0.5, vMisc.y));
+    float r2 = dot(vQ, vQ);
+    if (t.a < 0.01 || r2 >= 1.0) discard;
+    // Sphere impostor: the point on this puff's sphere seen through this pixel.
+    float z = sqrt(1.0 - r2);
+    vec3 nPuff = normalize(vRight * vQ.x + vUp * vQ.y + vBack * z);
+    vec3 pw = vCentre + nPuff * vRadius;
+    // Flat base: cut everything below the cloud base (soft over ~20 m).
+    float baseCut = smoothstep(vCloud.y - 5.0, vCloud.y + 20.0, pw.y);
+    if (baseCut <= 0.0) discard;
+    // The whole cloud's dome normal (from a point low in the cloud), blended with the puff's own.
+    float cloudH = max(vMisc.x - vCloud.y, 50.0);
+    vec3 dc = pw - vec3(vCloud.x, vCloud.y + 0.2 * cloudH, vCloud.z);
+    dc.y *= vCloud.w / cloudH;
+    vec3 nCloud = normalize(dc);
+    vec3 n = normalize(mix(nPuff, nCloud, 0.55));
+    vec3 L = normalize(uAtmSunDir);
+    float h = clamp((pw.y - vCloud.y) / cloudH, 0.0, 1.0);
+    // Sun: wrapped diffuse, with self-shadow on the side of the cloud away from the sun.
+    float sun = clamp(dot(n, L) * 0.55 + 0.45, 0.0, 1.0) * mix(0.45, 1.0, clamp(0.5 + 0.6 * dot(nCloud, L), 0.0, 1.0));
+    // Darker, flatter grey towards the base.
+    float baseDark = mix(0.74, 1.0, smoothstep(0.0, 0.45, h));
+    vec3 V = normalize(pw - uAtmCamPos);
+    float mu = dot(V, L);
+    // Silver lining: thin edges glow when looking towards the sun.
+    float lining = pow(max(mu, 0.0), 6.0) * smoothstep(0.55, 1.0, r2) * 0.9;
+    vec3 sky = mix(vec3(0.52, 0.58, 0.68), vec3(0.72, 0.78, 0.88), h);
+    vec3 col = (sky * 0.58 + vec3(1.0, 0.97, 0.9) * sun * 0.95) * baseDark * vMisc.w + vec3(1.0, 0.95, 0.85) * lining;
+    col = min(col, vec3(1.0));
+    col = atmApply(col, pw);
+    // Soft, lumpy sprite edge; fade puffs right next to the camera and at the view limit.
+    float camD = length(vCentre - uAtmCamPos);
+    float a = t.a * vMisc.z * baseCut * smoothstep(0.0, 1.0, (camD - vRadius * 0.6) / (vRadius * 1.2)) * (1.0 - smoothstep(uFadeEnd * 0.85, uFadeEnd, camD));
+    if (a < 0.004) discard;
+    gl_FragColor = vec4(col, a);
   }
 `;
 
@@ -177,19 +227,20 @@ export function createCloudSystem(scene: THREE.Scene): CloudSystem {
   geom.index = quad.index;
   geom.setAttribute('position', quad.getAttribute('position'));
   const iPuff = new THREE.InstancedBufferAttribute(new Float32Array(MAX_PUFFS * 4), 4);
-  const iShade = new THREE.InstancedBufferAttribute(new Float32Array(MAX_PUFFS * 4), 4);
-  iPuff.setUsage(THREE.DynamicDrawUsage);
-  iShade.setUsage(THREE.DynamicDrawUsage);
+  const iCloud = new THREE.InstancedBufferAttribute(new Float32Array(MAX_PUFFS * 4), 4);
+  const iMisc = new THREE.InstancedBufferAttribute(new Float32Array(MAX_PUFFS * 4), 4);
+  for (const at of [iPuff, iCloud, iMisc]) at.setUsage(THREE.DynamicDrawUsage);
   geom.setAttribute('iPuff', iPuff);
-  geom.setAttribute('iShade', iShade);
+  geom.setAttribute('iCloud', iCloud);
+  geom.setAttribute('iMisc', iMisc);
   geom.instanceCount = 0;
   const sunDir = new THREE.Vector3(0.4, 0.7, -0.3).normalize();
   const mat = new THREE.ShaderMaterial({
     uniforms: {
       uPuff: { value: puffTex },
       uOrigin: { value: new THREE.Vector3() },
-      uFogColor: { value: new THREE.Color(0xbcd4e8) },
       uFadeEnd: { value: VIEW_RADIUS_M },
+      ...getAtmosphereUniforms(),
     },
     vertexShader: PUFF_VS,
     fragmentShader: PUFF_FS,
@@ -209,7 +260,8 @@ export function createCloudSystem(scene: THREE.Scene): CloudSystem {
   let cfg: CloudConfig | undefined;
   // Puffs near the camera: world positions (x, y, z, radius) and shading, unsorted.
   let puffs: Float32Array = new Float32Array(0);
-  let shades: Float32Array = new Float32Array(0);
+  let cloudsArr: Float32Array = new Float32Array(0);
+  let misc: Float32Array = new Float32Array(0);
   let puffCount = 0;
   let seededAt: { x: number; z: number } | undefined;
   let frame = 0;
@@ -246,34 +298,61 @@ export function createCloudSystem(scene: THREE.Scene): CloudSystem {
 
   function reseed(c: CloudConfig, cx: number, cz: number): void {
     const list: number[] = [];
-    const sh: number[] = [];
+    const cl4: number[] = [];
+    const mi: number[] = [];
     const n = Math.ceil(VIEW_RADIUS_M / CELL_M) + 1;
     const icx = Math.floor(cx / CELL_M);
     const icz = Math.floor(cz / CELL_M);
-    const L = sunDir;
     for (let iz = icz - n; iz <= icz + n; iz++) {
       for (let ix = icx - n; ix <= icx + n; ix++) {
         const cl = cloudAt(c, ix, iz);
-        if (!cl || Math.hypot(cl.x - cx, cl.z - cz) > VIEW_RADIUS_M + cl.radius) continue;
-        const np = 8 + Math.floor(10 * hash(ix, iz, 7, c.seed));
-        const thick = cl.top - cl.base;
+        if (!cl) continue;
+        const dist = Math.hypot(cl.x - cx, cl.z - cz);
+        if (dist > VIEW_RADIUS_M + cl.radius) continue;
+        const R = cl.radius;
+        const H = cl.top - cl.base;
+        // Far clouds get fewer, larger puffs (they cover few pixels anyway).
+        const far = dist > 18000;
+        const np = Math.round((25 + 45 * hash(ix, iz, 7, c.seed)) * (far ? 0.45 : 1));
+        const sizeMul = far ? 1.35 : 1;
+        // 2-4 turrets: the tall parts grow over these, the rest is the spreading base.
+        const nt = 2 + Math.floor(3 * hash(ix, iz, 13, c.seed));
         for (let p = 0; p < np && list.length / 4 < MAX_PUFFS; p++) {
-          // Dome: puffs spread wide near the base, fewer and higher towards the centre.
-          const a = hash(ix * 31 + p, iz, 8, c.seed) * Math.PI * 2;
-          const rr = Math.sqrt(hash(ix * 31 + p, iz, 9, c.seed));
-          const hgt = (1 - rr * rr) * (0.3 + 0.7 * hash(ix * 31 + p, iz, 10, c.seed));
-          const ox = Math.cos(a) * rr * cl.radius * 0.75;
-          const oz = Math.sin(a) * rr * cl.radius * 0.75;
-          const size = cl.radius * (0.35 + 0.25 * hash(ix * 31 + p, iz, 11, c.seed)) * (1 - 0.4 * hgt);
-          const y = cl.base + size * 0.55 + hgt * thick;
-          list.push(cl.x + ox, y, cl.z + oz, size);
-          const sunward = (ox * L.x + oz * L.z) / (cl.radius * 0.75 * Math.max(Math.hypot(L.x, L.z), 1e-3));
-          sh.push(hgt, Math.max(-1, Math.min(1, sunward)), Math.floor(hash(ix * 31 + p, iz, 12, c.seed) * PUFF_VARIANTS), 0.9);
+          const hp = (k: number): number => hash(ix * 97 + p, iz, k, c.seed);
+          let x: number;
+          let z: number;
+          let h: number;
+          if (hp(1) < 0.45) {
+            // Base layer: wide and low.
+            const a = hp(2) * Math.PI * 2;
+            const rr = Math.sqrt(hp(3)) * R * 0.85;
+            x = cl.x + Math.cos(a) * rr;
+            z = cl.z + Math.sin(a) * rr;
+            h = 0.12 * hp(4);
+          } else {
+            // Turrets: puffs stacked over a turret centre, narrowing with height.
+            const ti = Math.floor(hp(5) * nt);
+            const ta = hash(ix * 97 + ti, iz, 14, c.seed) * Math.PI * 2;
+            const td = R * 0.45 * hash(ix * 97 + ti, iz, 15, c.seed);
+            const tTop = 0.45 + 0.55 * hash(ix * 97 + ti, iz, 16, c.seed);
+            h = tTop * Math.pow(hp(6), 0.8);
+            const a = hp(7) * Math.PI * 2;
+            const rr = Math.sqrt(hp(8)) * R * 0.45 * (1 - 0.6 * h);
+            x = cl.x + Math.cos(ta) * td + Math.cos(a) * rr;
+            z = cl.z + Math.sin(ta) * td + Math.sin(a) * rr;
+          }
+          const size = Math.max(110, R * (0.22 + 0.16 * hp(9)) * (1 - 0.35 * h)) * sizeMul;
+          // Base-layer puff centres sit a little above the base so the flat cut shows.
+          const y = cl.base + size * 0.35 + h * H;
+          list.push(x, y, z, size);
+          cl4.push(cl.x, cl.base, cl.z, R);
+          mi.push(cl.top, Math.floor(hp(10) * PUFF_VARIANTS), 0.85, 0.92 + 0.16 * hp(11));
         }
       }
     }
     puffs = Float32Array.from(list);
-    shades = Float32Array.from(sh);
+    cloudsArr = Float32Array.from(cl4);
+    misc = Float32Array.from(mi);
     puffCount = puffs.length / 4;
     order.length = puffCount;
     for (let i = 0; i < puffCount; i++) order[i] = i;
@@ -308,20 +387,23 @@ export function createCloudSystem(scene: THREE.Scene): CloudSystem {
         }
         order.sort((a, b) => dist[b]! - dist[a]!);
         const pa = iPuff.array as Float32Array;
-        const sa = iShade.array as Float32Array;
+        const ca = iCloud.array as Float32Array;
+        const ma = iMisc.array as Float32Array;
         for (let k = 0; k < puffCount; k++) {
           const i = order[k]!;
           pa.set(puffs.subarray(i * 4, i * 4 + 4), k * 4);
-          sa.set(shades.subarray(i * 4, i * 4 + 4), k * 4);
+          ca.set(cloudsArr.subarray(i * 4, i * 4 + 4), k * 4);
+          ma.set(misc.subarray(i * 4, i * 4 + 4), k * 4);
         }
         iPuff.needsUpdate = true;
-        iShade.needsUpdate = true;
+        iCloud.needsUpdate = true;
+        iMisc.needsUpdate = true;
         geom.instanceCount = puffCount;
       }
     },
 
-    setFog(color) {
-      (mat.uniforms['uFogColor']!.value as THREE.Color).copy(color);
+    setFog() {
+      // Clouds use the shared atmosphere (src/render/atmosphere.ts) for haze.
     },
 
     setSunDirection(dir) {
