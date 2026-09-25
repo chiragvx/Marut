@@ -13,7 +13,7 @@
 
 import * as THREE from 'three';
 import type { Vec3Like } from '../contracts/core';
-import { TREE_KIND_COUNT, type ChunkFeatures } from '../contracts/terrain';
+import { TREE_KIND_COUNT, TreeKind, type ChunkFeatures } from '../contracts/terrain';
 import { DETAIL_GLSL, getDetailTexture } from './detailTextures';
 import { CLOUD_SHADOW_GLSL, getCloudShadowUniforms } from './clouds';
 import { ATMOSPHERE_GLSL, getAtmosphereUniforms } from './atmosphere';
@@ -305,6 +305,7 @@ const BUILDING_FS = /* glsl */ `
   ${COMMON_GLSL}
   uniform float uFadeStart;
   uniform float uFadeEnd;
+  uniform float uTiled; // 1 = Goan gabled houses: terracotta tile roofs
   varying vec3 vNormalW;
   varying vec3 vTint;
   varying vec3 vLocal;
@@ -316,7 +317,13 @@ const BUILDING_FS = /* glsl */ `
     if (hash12(floor(gl_FragCoord.xy)) < fade) discard;
     vec3 n = normalize(vNormalW);
     vec3 col = vTint;
-    if (vRoof > 0.5) {
+    if (vRoof > 0.5 && uTiled > 0.5) {
+      // Mangalore-tile roofs: terracotta, weathered darker on some houses, tile courses close up.
+      float seed = fract(sin(dot(floor(vWorld.xz / 9.0), vec2(12.9898, 78.233))) * 43758.5453);
+      col = mix(vec3(0.66, 0.31, 0.19), vec3(0.42, 0.24, 0.18), seed * 0.8);
+      float course = 1.0 - smoothstep(600.0, 1200.0, vDist);
+      col *= 1.0 - 0.12 * step(0.75, fract(vLocal.y / 0.35)) * course;
+    } else if (vRoof > 0.5) {
       // Flat roofs: weathered concrete, a little of the wall colour, the odd black water tank.
       col = mix(vec3(0.46, 0.44, 0.41), vTint, 0.25);
     } else {
@@ -361,7 +368,7 @@ function sphericalNormals(g: THREE.BufferGeometry, cx: number, cy: number, cz: n
 }
 
 function merge(parts: THREE.BufferGeometry[]): THREE.BufferGeometry {
-  // Minimal merge (position/normal/aFoliage, non-indexed) to avoid pulling in BufferGeometryUtils.
+  // Minimal merge (position/normal/aFoliage) to avoid pulling in BufferGeometryUtils.
   const geoms = parts.map((g) => (g.index ? g.toNonIndexed() : g));
   let n = 0;
   for (const g of geoms) n += g.getAttribute('position').count;
@@ -375,10 +382,31 @@ function merge(parts: THREE.BufferGeometry[]): THREE.BufferGeometry {
     fol.set(g.getAttribute('aFoliage').array as Float32Array, o);
     o += g.getAttribute('position').count;
   }
+  // Weld identical vertices and index the triangles: trees are drawn by the ten thousand and are
+  // vertex-bound, so letting the GPU's vertex cache reuse shared corners (a crown vertex is shared
+  // by ~6 triangles) cuts the vertex work several times over.
+  const key = new Map<string, number>();
+  const wPos: number[] = [];
+  const wNor: number[] = [];
+  const wFol: number[] = [];
+  const index = new Uint16Array(n);
+  for (let i = 0; i < n; i++) {
+    const k = [pos[i * 3]!, pos[i * 3 + 1]!, pos[i * 3 + 2]!, nor[i * 3]!, nor[i * 3 + 1]!, nor[i * 3 + 2]!, fol[i]!].map((v) => Math.round(v * 1e4)).join(',');
+    let j = key.get(k);
+    if (j === undefined) {
+      j = wFol.length;
+      key.set(k, j);
+      wPos.push(pos[i * 3]!, pos[i * 3 + 1]!, pos[i * 3 + 2]!);
+      wNor.push(nor[i * 3]!, nor[i * 3 + 1]!, nor[i * 3 + 2]!);
+      wFol.push(fol[i]!);
+    }
+    index[i] = j;
+  }
   const out = new THREE.BufferGeometry();
-  out.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-  out.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
-  out.setAttribute('aFoliage', new THREE.BufferAttribute(fol, 1));
+  out.setAttribute('position', new THREE.Float32BufferAttribute(wPos, 3));
+  out.setAttribute('normal', new THREE.Float32BufferAttribute(wNor, 3));
+  out.setAttribute('aFoliage', new THREE.Float32BufferAttribute(wFol, 1));
+  out.setIndex(new THREE.BufferAttribute(index, 1));
   return out;
 }
 
@@ -400,6 +428,48 @@ function trunk(height: number, radius: number): THREE.BufferGeometry {
   const g = new THREE.CylinderGeometry(radius * 0.7, radius, height, 5, 1, true);
   g.translate(0, height / 2, 0);
   return markFoliage(g, 0);
+}
+
+/**
+ * A gabled house, unit size: walls from y = 0 to 1 (x, z in -0.5..0.5), and a pitched roof with its
+ * ridge along z rising to y = 1.45, overhanging the walls a little. Scaled per instance to a real house.
+ */
+function makeHouseGeometry(): THREE.BufferGeometry {
+  const walls = new THREE.BoxGeometry(1, 1, 1);
+  walls.translate(0, 0.5, 0);
+  const o = 0.56; // eave overhang (half width + overhang)
+  const e = 0.54; // gable overhang along z
+  const ridge = 1.45;
+  const eave = 0.97;
+  const p: number[] = [
+    // left slope
+    -o, eave, -e, 0, ridge, -e, 0, ridge, e,
+    -o, eave, -e, 0, ridge, e, -o, eave, e,
+    // right slope
+    o, eave, e, 0, ridge, e, 0, ridge, -e,
+    o, eave, e, 0, ridge, -e, o, eave, -e,
+    // gable triangles (walls)
+    -0.5, 1, 0.5, 0.5, 1, 0.5, 0, ridge, 0.5,
+    0.5, 1, -0.5, -0.5, 1, -0.5, 0, ridge, -0.5,
+  ];
+  const roof = new THREE.BufferGeometry();
+  roof.setAttribute('position', new THREE.Float32BufferAttribute(p, 3));
+  roof.computeVertexNormals();
+  const w = walls.toNonIndexed();
+  const n = w.getAttribute('position').count + roof.getAttribute('position').count;
+  const pos = new Float32Array(n * 3);
+  const nor = new Float32Array(n * 3);
+  pos.set(w.getAttribute('position').array as Float32Array, 0);
+  nor.set(w.getAttribute('normal').array as Float32Array, 0);
+  pos.set(roof.getAttribute('position').array as Float32Array, w.getAttribute('position').count * 3);
+  nor.set(roof.getAttribute('normal').array as Float32Array, w.getAttribute('position').count * 3);
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  g.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
+  walls.dispose();
+  roof.dispose();
+  w.dispose();
+  return g;
 }
 
 /** Unit-height models (1 m tall, ~1 m wide); instance matrices scale them to real trees. */
@@ -432,11 +502,49 @@ function makeTreeGeometries(): THREE.BufferGeometry[] {
   b1.scale(1, 0.62, 1);
   b1.translate(0, 0.62, 0);
   const broad = merge([trunk(0.35, 0.05), sphericalNormals(markFoliage(lumpy(b1, 0.22, 4), 1), 0, 0.6, 0)]);
-  return [poplar, eu, broad];
+  // Coconut palm: a slender, slightly leaning trunk and a crown of arching, drooping fronds. Kept to
+  // 36 triangles: palms are the most numerous tree on the coast (~20k within the tree range).
+  const tr = new THREE.CylinderGeometry(0.02, 0.03, 0.86, 4, 1, true);
+  tr.translate(0, 0.43, 0);
+  const tp = tr.getAttribute('position');
+  for (let i = 0; i < tp.count; i++) {
+    const y = tp.getY(i);
+    tp.setX(i, tp.getX(i) + 0.07 * (y / 0.86) * (y / 0.86));
+  }
+  tr.computeVertexNormals();
+  markFoliage(tr, 0);
+  const fronds: number[] = [];
+  const cx = 0.07;
+  const cy = 0.86;
+  const NF = 7;
+  for (let f = 0; f < NF; f++) {
+    const a = (f / NF) * Math.PI * 2 + 0.4 * Math.sin(f * 2.3);
+    const dx = Math.cos(a);
+    const dz = Math.sin(a);
+    const sx = -dz;
+    const sz = dx;
+    const pts: [number, number, number][] = [];
+    const segs = 2;
+    for (let k = 0; k <= segs; k++) {
+      const t = k / segs;
+      const r = 0.5 * t;
+      const y = cy + 0.06 * t - 0.2 * t * t;
+      const w = 0.11 * Math.sin(Math.PI * Math.min(1, t * 1.1 + 0.05));
+      pts.push([cx + dx * r + sx * w, y, dx * 0 + dz * r + sz * w], [cx + dx * r - sx * w, y, dz * r - sz * w]);
+    }
+    for (let k = 0; k < segs; k++) {
+      const a0 = pts[k * 2]!, b0 = pts[k * 2 + 1]!, a1 = pts[k * 2 + 2]!, b1 = pts[k * 2 + 3]!;
+      fronds.push(...a0, ...b0, ...a1, ...b0, ...b1, ...a1);
+    }
+  }
+  const fg = new THREE.BufferGeometry();
+  fg.setAttribute('position', new THREE.Float32BufferAttribute(fronds, 3));
+  const palm = merge([tr, sphericalNormals(markFoliage(fg, 1), cx, cy - 0.1, 0, 0.6)]);
+  return [poplar, eu, broad, palm];
 }
 
-const TREE_FOLIAGE = ['vec3(0.24, 0.36, 0.14)', 'vec3(0.33, 0.39, 0.26)', 'vec3(0.20, 0.31, 0.12)'] as const;
-const TREE_TRUNK = ['vec3(0.40, 0.36, 0.30)', 'vec3(0.72, 0.68, 0.60)', 'vec3(0.30, 0.25, 0.20)'] as const;
+const TREE_FOLIAGE = ['vec3(0.24, 0.36, 0.14)', 'vec3(0.33, 0.39, 0.26)', 'vec3(0.20, 0.31, 0.12)', 'vec3(0.34, 0.44, 0.16)'] as const;
+const TREE_TRUNK = ['vec3(0.40, 0.36, 0.30)', 'vec3(0.72, 0.68, 0.60)', 'vec3(0.30, 0.25, 0.20)', 'vec3(0.52, 0.46, 0.38)'] as const;
 
 // ---------------------------------------------------------------------------------------------
 // Renderer
@@ -490,7 +598,7 @@ export function createChunkFeatureRenderer(root: THREE.Object3D): ChunkFeatureRe
   const treeGeoms = makeTreeGeometries();
   const fade = { uFadeStart: { value: TREE_FADE_START_M }, uFadeEnd: { value: TREE_FADE_END_M } };
   const treeMats = treeGeoms.map(
-    (_, k) => new THREE.ShaderMaterial({ uniforms: { ...uniforms, ...shadowU, ...fade }, vertexShader: TREE_VS, fragmentShader: treeFragment(TREE_FOLIAGE[k]!, TREE_TRUNK[k]!) })
+    (_, k) => new THREE.ShaderMaterial({ uniforms: { ...uniforms, ...shadowU, ...fade }, vertexShader: TREE_VS, fragmentShader: treeFragment(TREE_FOLIAGE[k]!, TREE_TRUNK[k]!), side: k === TreeKind.Palm ? THREE.DoubleSide : THREE.FrontSide })
   );
   const shadowQuad = new THREE.PlaneGeometry(2, 2);
   const shadowMat = new THREE.ShaderMaterial({
@@ -503,11 +611,13 @@ export function createChunkFeatureRenderer(root: THREE.Object3D): ChunkFeatureRe
     polygonOffsetFactor: -3,
     polygonOffsetUnits: -8,
   });
+  const houseGeom = makeHouseGeometry();
   const boxGeom = new THREE.BoxGeometry(1, 1, 1);
   boxGeom.translate(0, 0.5, 0);
   const domeGeom = new THREE.SphereGeometry(1, 12, 6, 0, Math.PI * 2, 0, Math.PI / 2);
   const bFade = { uFadeStart: { value: BUILDING_FADE_START_M }, uFadeEnd: { value: BUILDING_FADE_END_M } };
-  const buildingMat = new THREE.ShaderMaterial({ uniforms: { ...uniforms, ...shadowU, ...bFade }, vertexShader: BUILDING_VS, fragmentShader: BUILDING_FS });
+  const buildingMat = new THREE.ShaderMaterial({ uniforms: { ...uniforms, ...shadowU, ...bFade, uTiled: { value: 0 } }, vertexShader: BUILDING_VS, fragmentShader: BUILDING_FS });
+  const houseMat = new THREE.ShaderMaterial({ uniforms: { ...uniforms, ...shadowU, ...bFade, uTiled: { value: 1 } }, vertexShader: BUILDING_VS, fragmentShader: BUILDING_FS });
 
   const chunks = new Map<string, ChunkEntry>();
   let treesCast = false;
@@ -580,6 +690,12 @@ export function createChunkFeatureRenderer(root: THREE.Object3D): ChunkFeatureRe
         group.add(domes);
         entry.objects.push(domes);
       }
+      const houses = instanced(houseGeom, houseMat, f.houseMatrices, bound, f.houseColors);
+      if (houses) {
+        houses.layers.enable(CASTER_LAYER);
+        group.add(houses);
+        entry.objects.push(houses);
+      }
       root.add(group);
       chunks.set(key, entry);
     },
@@ -624,6 +740,8 @@ export function createChunkFeatureRenderer(root: THREE.Object3D): ChunkFeatureRe
       shadowQuad.dispose();
       shadowMat.dispose();
       boxGeom.dispose();
+      houseGeom.dispose();
+      houseMat.dispose();
       domeGeom.dispose();
       buildingMat.dispose();
     },

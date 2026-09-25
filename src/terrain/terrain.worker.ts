@@ -87,9 +87,11 @@ self.onmessage = (ev: MessageEvent<MainToTerrainMessage | MainToTerrainMessageEx
         buildingMatrices: buf(features.buildingMatrices),
         buildingColors: buf(features.buildingColors),
         domeMatrices: buf(features.domeMatrices),
+        houseMatrices: buf(features.houseMatrices),
+        houseColors: buf(features.houseColors),
       };
       const f = out.features;
-      transfer.push(f.decalPositions, f.decalAttribs, f.decalIndices, ...f.treeMatrices, ...f.treeColors, f.buildingMatrices, f.buildingColors, f.domeMatrices);
+      transfer.push(f.decalPositions, f.decalAttribs, f.decalIndices, ...f.treeMatrices, ...f.treeColors, f.buildingMatrices, f.buildingColors, f.domeMatrices, f.houseMatrices, f.houseColors);
     }
     self.postMessage(out, transfer);
     return;

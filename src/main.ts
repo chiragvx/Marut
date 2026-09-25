@@ -661,8 +661,14 @@ function buildSceneEnvironment(terrainParams: TerrainParams, airportLayouts: rea
     terrainParams.shape.rivers.forEach((r, i) => packRiver(r, i, terrainParams.seed, packed, i * RIVER_FLOATS));
     rivers = { packed: Array.from(packed), count: terrainParams.shape.rivers.length };
   }
-  // Winter fair-weather cumulus over Punjab (a weather system will own this later).
-  const clouds = weatherEnabled && terrainParams.surfaceStyle === 'farmland' ? { coverage: 0.22, baseM: 1700, topM: 2300, seed: terrainParams.seed } : undefined;
+  // Winter cumulus over Punjab; a few dry-season fair-weather clouds over Goa (a weather system will own this later).
+  const clouds = !weatherEnabled
+    ? undefined
+    : terrainParams.surfaceStyle === 'farmland'
+      ? { coverage: 0.22, baseM: 1700, topM: 2300, seed: terrainParams.seed }
+      : terrainParams.surfaceStyle === 'coastal'
+        ? { coverage: 0.09, baseM: 1200, topM: 1700, seed: terrainParams.seed }
+        : undefined;
   return {
     surfaceStyle: terrainParams.surfaceStyle ?? 'default',
     groundLevelM: terrainParams.shape?.kind === 'plains' ? terrainParams.shape.baseElevationM : (terrainParams.waterLevelM ?? 0) + 20,
@@ -748,6 +754,8 @@ function launchMission(missionIn: Mission): void {
               buildingMatrices: chunk.geometry.features.buildingMatrices.buffer as ArrayBuffer,
               buildingColors: chunk.geometry.features.buildingColors.buffer as ArrayBuffer,
               domeMatrices: chunk.geometry.features.domeMatrices.buffer as ArrayBuffer,
+              houseMatrices: chunk.geometry.features.houseMatrices.buffer as ArrayBuffer,
+              houseColors: chunk.geometry.features.houseColors.buffer as ArrayBuffer,
             },
           }
         : {}),

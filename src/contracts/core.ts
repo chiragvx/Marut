@@ -1012,6 +1012,8 @@ export interface TerrainChunkReadyMessage {
     buildingMatrices: ArrayBuffer;
     buildingColors: ArrayBuffer;
     domeMatrices: ArrayBuffer;
+    houseMatrices: ArrayBuffer;
+    houseColors: ArrayBuffer;
   };
 }
 export type TerrainToMainMessage = TerrainChunkReadyMessage;

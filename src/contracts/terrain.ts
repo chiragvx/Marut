@@ -212,6 +212,14 @@ export interface NetworkSpec {
   villageKeep: number;
   /** Discs with no villages (airbases). */
   exclusions: readonly { x: number; z: number; radiusM: number }[];
+  /**
+   * Scenery style (src/terrain/chunkFeatures.ts): 'punjab' = flat-roofed houses on lot grids,
+   * gurdwaras, field-edge trees; 'goa' = scattered red-tiled gabled houses among coconut palms,
+   * white churches, palm groves along the coast and estuaries, forest on the Ghats. Absent = 'punjab'.
+   */
+  style?: 'punjab' | 'goa';
+  /** Villages only below this elevation (m MSL). Absent = no limit. */
+  maxVillageElevM?: number;
 }
 
 // -----------------------------------------------------------------------------
@@ -420,6 +428,43 @@ export const THEATRE_TERRAIN_PARAMS: Readonly<Record<TheatreId, TerrainParams>> 
     seaLevelM: 0,
     heightBoundsM: { minM: -80, maxM: 1800 },
     surfaceStyle: 'coastal',
+    // Towns roughly where they are relative to Dabolim (INS Hansa), fitted to this map's coast and
+    // estuaries (x east, z south, m); real routes between them (NH66 bridges the estuaries).
+    // Villages and link roads are procedural.
+    network: {
+      style: 'goa',
+      towns: [
+        { name: 'Vasco da Gama', x: 46350, z: -2570, radiusM: 700, kind: 'town' },
+        { name: 'Panaji', x: 51000, z: -18300, radiusM: 750, kind: 'town' },
+        { name: 'Old Goa', x: 55000, z: -18500, radiusM: 400, kind: 'town' },
+        { name: 'Mapusa', x: 47500, z: -26500, radiusM: 600, kind: 'town' },
+        { name: 'Margao', x: 64950, z: 10000, radiusM: 750, kind: 'town' },
+        { name: 'Ponda', x: 66000, z: -3300, radiusM: 550, kind: 'town' },
+        { name: 'Verna', x: 55000, z: 3500, radiusM: 400, kind: 'town' },
+        { name: 'Cortalim', x: 52500, z: -3000, radiusM: 350, kind: 'town' },
+        { name: 'Calangute', x: 46149, z: -29000, radiusM: 500, kind: 'town' },
+        { name: 'Candolim', x: 46627, z: -33000, radiusM: 400, kind: 'town' },
+        { name: 'Colva', x: 46993, z: 12500, radiusM: 450, kind: 'town' },
+        { name: 'Benaulim', x: 48378, z: 16000, radiusM: 400, kind: 'town' },
+        { name: 'Bicholim', x: 60000, z: -34000, radiusM: 450, kind: 'town' },
+        { name: 'Canacona', x: 46686, z: 38000, radiusM: 450, kind: 'town' },
+      ],
+      routes: [
+        { name: 'NH66', cls: 'highway', via: [[50000, -100000], 'Mapusa', 'Panaji', [52000, -9000], 'Cortalim', 'Verna', 'Margao', [60000, 30000], 'Canacona', [52000, 100000]] },
+        { name: 'Vasco-Verna', cls: 'state', via: ['Vasco da Gama', [46800, 1800], [51500, 2600], 'Verna'] },
+        { name: 'Vasco-Cortalim', cls: 'state', via: ['Vasco da Gama', [49000, -3300], 'Cortalim'] },
+        { name: 'NH748 Panaji-Ponda', cls: 'state', via: ['Panaji', 'Old Goa', [61000, -10000], 'Ponda', [90000, 2000]] },
+        { name: 'Margao-Ponda', cls: 'state', via: ['Margao', [66000, 3000], 'Ponda'] },
+        { name: 'Margao-Colva', cls: 'district', via: ['Margao', [56000, 11500], 'Colva'] },
+        { name: 'Margao-Benaulim', cls: 'district', via: ['Margao', 'Benaulim'] },
+        { name: 'Mapusa-Calangute', cls: 'district', via: ['Mapusa', 'Calangute', 'Candolim'] },
+        { name: 'Mapusa-Bicholim', cls: 'state', via: ['Mapusa', 'Bicholim', [80000, -40000]] },
+      ],
+      villageSpacingM: 1900,
+      villageKeep: 0.5,
+      exclusions: [{ x: 48350, z: -900, radiusM: 2600 }],
+      maxVillageElevM: 260,
+    },
   },
   // Punjab: flat alluvial plain at ~234 m, cut by two braided rivers (Sutlej- and Beas-like) in
   // wide sandy floodplains a few metres below it.
@@ -674,6 +719,9 @@ export interface ChunkFeatures {
   buildingMatrices: Float32Array;
   buildingColors: Float32Array;
   domeMatrices: Float32Array;
+  /** Gabled houses (unit box with a pitched roof, base at y = 0; roofs drawn as terracotta tiles). */
+  houseMatrices: Float32Array;
+  houseColors: Float32Array;
 }
 
 export const DecalClass = {
@@ -694,9 +742,10 @@ export const TreeKind = {
   Poplar: 0,
   Eucalyptus: 1,
   Broadleaf: 2,
+  Palm: 3,
 } as const;
 export type TreeKind = (typeof TreeKind)[keyof typeof TreeKind];
-export const TREE_KIND_COUNT = 3;
+export const TREE_KIND_COUNT = 4;
 
 /**
  * Builds one chunk's geometry: samples `sampler.heightAt`/`normalAt` over a

@@ -212,17 +212,40 @@ const FRAGMENT_SHADER = /* glsl */ `
   // colour by depth. Each ripple layer fades once it is smaller than a pixel.
   // shoreDist: distance to the shore on the water side, m (sea only; large elsewhere). kind: 0 river,
   // 1 open sea, 2 estuary.
-  vec3 waterShade(vec3 w, vec3 rel, float px, float depth, float shoreDist, float kind) {
+  // Surface slope of four travelling waves around heading dir (rad, the way they run), wavelengths
+  // about lambda, each of steepness s, moving at deep-water speed. (Summed sines rather than noise:
+  // value noise has zero slope along its cell edges, which shows as a grid in the reflections.)
+  vec2 waveSet(vec2 p, float t, float dir, float lambda, float s, float warp) {
+    vec2 g = vec2(0.0);
+    for (int i = 0; i < 4; i++) {
+      float fi = float(i);
+      float a = dir + (fi - 1.5) * 0.7 + 0.2 * sin(fi * 5.3);
+      vec2 d = vec2(cos(a), sin(a));
+      float k = 6.2832 / (lambda * (0.62 + 0.27 * fi));
+      g += d * (s * cos(dot(d, p) * k - sqrt(9.81 * k) * t + fi * 1.9 + warp * (1.0 + 0.6 * fi)));
+    }
+    return g;
+  }
+
+  // sunVis = sun visibility at the surface (1 lit, 0 in the shadow of a cloud, the aircraft, a tree
+  // or a house): shade takes away the sun glint and the sunlit glow of the water body and foam.
+  vec3 waterShade(vec3 w, vec3 rel, float px, float depth, float shoreDist, float kind, float sunVis) {
     vec3 V = normalize(rel);
     float t = uTime;
     vec2 g = vec2(0.0);
-    // Long swell (sea only, visible far out), then two ripple layers drifting against each other.
-    float ampSwell = (kind > 0.5 && kind < 1.5 ? 1.0 : 0.4) * (1.0 - smoothstep(20.0, 80.0, px));
-    if (ampSwell > 0.0) g += vnoised(w.xz / 160.0 + t * vec2(0.012, 0.007)).yz * 0.10 * ampSwell;
-    float amp = 1.0 - smoothstep(1.5, 10.0, px);
+    // Long swell rolling in from the west-south-west (sea only; faint on rivers), then wind ripples
+    // across it. Each layer fades out once it is too fine for the pixel.
+    float ampSwell = (kind > 0.5 && kind < 1.5 ? 1.0 : 0.3) * (1.0 - smoothstep(25.0, 90.0, px));
+    // Phase warp so the wave trains wander and break up instead of running in straight bands. Built
+    // from sines, which are smooth everywhere (a noise warp kinks the crests along its cell edges).
+    vec2 q = w.xz;
+    float warp = px < 90.0 ? 2.2 * sin(dot(q, vec2(0.017, 0.011))) + 1.6 * sin(dot(q, vec2(-0.009, 0.023)) + 1.3) : 0.0;
+    if (ampSwell > 0.0) g += waveSet(w.xz, t, 0.25, 110.0, 0.03 * ampSwell, warp);
+    float amp = 1.0 - smoothstep(1.5, 7.0, px);
     if (amp > 0.0) {
-      g += vnoised(w.xz / 31.0 + t * vec2(0.045, 0.028)).yz * 0.16 * amp;
-      g += vnoised(w.xz / 7.0 + 3.0 - t * vec2(0.11, 0.06)).yz * 0.05 * amp;
+      float warp2 = warp + 1.6 * sin(dot(q, vec2(0.071, -0.052)) + 0.4) + 1.3 * sin(dot(q, vec2(0.043, 0.083)) + 2.1);
+      g += waveSet(w.xz, t, -0.6, 21.0, 0.032 * amp, warp2);
+      g += waveSet(w.xz, t, 1.1, 7.0, 0.018 * amp * (1.0 - smoothstep(0.5, 2.5, px)), warp2 * 1.7);
     }
     vec3 n = normalize(vec3(g.x, 1.0, g.y));
     vec3 body;
@@ -238,6 +261,7 @@ const FRAGMENT_SHADER = /* glsl */ `
     } else {
       body = mix(uWaterColor * 1.35 + vec3(0.05, 0.05, 0.03), uWaterColor, smoothstep(0.5, 18.0, depth));
     }
+    body *= mix(0.62, 1.0, sunVis);
     float cosi = max(dot(-V, n), 0.0);
     float fres = 0.02 + 0.98 * pow(1.0 - cosi, 5.0);
     vec3 col = mix(body, atmSky(reflect(V, n)), fres * 0.85);
@@ -252,11 +276,11 @@ const FRAGMENT_SHADER = /* glsl */ `
       float swash = 1.0 - smoothstep(0.0, 5.0 + 7.0 * nA + max(px, 0.0), shoreDist);
       foam = max(crest * 0.8, swash * 0.9);
       foam *= 0.6 + 0.4 * (px < 3.0 ? vnoise(w.xz / 2.5 + t * 0.2) : 0.5);
-      col = mix(col, vec3(0.92, 0.94, 0.95), foam);
+      col = mix(col, vec3(0.92, 0.94, 0.95) * mix(0.55, 1.0, sunVis), foam);
     }
     vec3 R = reflect(V, n);
     float spec = pow(max(dot(R, normalize(uSunDir)), 0.0), 160.0);
-    return col + vec3(1.0, 0.95, 0.85) * spec * 1.1 * (1.0 - foam);
+    return col + vec3(1.0, 0.95, 0.85) * spec * 1.1 * (1.0 - foam) * sunVis;
   }
 
 
@@ -304,7 +328,10 @@ const FRAGMENT_SHADER = /* glsl */ `
     vec3 col = mix(vec3(0.60, 0.54, 0.35), vec3(0.30, 0.40, 0.18), smoothstep(0.25, 0.5, f1));
     if (px < 30.0) col *= 0.93 + 0.14 * vnoise(w.xz / 70.0) * (1.0 - smoothstep(15.0, 30.0, px));
     // Laterite clearings: red soil.
-    col = mix(col, vec3(0.54, 0.36, 0.25), smoothstep(0.70, 0.80, vMacro.y) * 0.5);
+    float soilAmt = smoothstep(0.70, 0.80, vMacro.y) * 0.5;
+    col = mix(col, vec3(0.54, 0.36, 0.25), soilAmt);
+    // Dense ground detail (canopy/grass, soil in the clearings), fading cleanly with distance.
+    col *= mix(vec3(1.0), mix(detailAt(w.xz, 0.0, 16.0, px), detailAt(w.xz, 1.0, 12.0, px), soilAmt * 2.0), 0.6);
 
     // Ghats escarpment zone and the height the plain would have here (landform: rise per km inland).
     float ghatsZone = smoothstep(uCoastShape.y - 1500.0, uCoastShape.y + 1500.0, coastD);
@@ -334,24 +361,6 @@ const FRAGMENT_SHADER = /* glsl */ `
     col = mix(col, vec3(0.09, 0.19, 0.10), mangrove);
     col = mix(col, vec3(0.28, 0.26, 0.20), (1.0 - smoothstep(0.0, 12.0, toRiver)) * smoothstep(300.0, 1200.0, coastD));
 
-    // Villages: red-tile roofs among palms, on the low coastal land.
-    vec2 vid = floor(w.xz / 1500.0);
-    float village = 0.0;
-    if (w.y < 90.0 && coastD > 300.0 && coastD < 15000.0 && hash12(vid + 57.0) < 0.3) {
-      vec2 c = (vid + 0.25 + 0.5 * vec2(hash12(vid + 3.0), hash12(vid + 5.0))) * 1500.0;
-      float r = 180.0 + 220.0 * hash12(vid + 8.0);
-      village = (1.0 - smoothstep(r * 0.6, r, length(w.xz - c) + (px < 25.0 ? 70.0 * vnoise(w.xz / 90.0) : 35.0))) * (1.0 - rock);
-      vec3 vcol = vec3(0.45, 0.33, 0.20); // far: roofs and palms blended
-      if (px < 6.0) {
-        vec2 lot = floor(w.xz / 16.0);
-        float roof = step(hash12(lot + 11.0), 0.5);
-        vec3 tile = vec3(0.62, 0.30, 0.19) * (0.8 + 0.35 * hash12(lot + 2.0));
-        vec3 roofs = mix(vec3(0.26, 0.36, 0.17), tile, roof);
-        vcol = mix(roofs, vcol, smoothstep(2.0, 6.0, px));
-      }
-      col = mix(col, vcol, village);
-    }
-
     // Beaches (open coast only, not at headlands): dry sand 50-90 m wide, and wet sand at the water's
     // edge that the swash runs up over and back.
     float beachW = 70.0 + 30.0 * (px < 60.0 ? vnoise(w.xz / 180.0) - 0.5 : 0.0);
@@ -362,7 +371,7 @@ const FRAGMENT_SHADER = /* glsl */ `
 
     // Tree crowns and their shadows near the camera: palms along the coast and rivers, forest on
     // the Ghats, scattered cashew/mango trees elsewhere.
-    float density = max(max(palms * 0.75, ghats * 0.9), 0.2 * (1.0 - plateau) * (1.0 - beach)) * (1.0 - rock) * (1.0 - beach) * (1.0 - mangrove * 0.5) * (1.0 - village * 0.6) * (1.0 - airfieldClear(w.xz));
+    float density = max(max(palms * 0.75, ghats * 0.9), 0.2 * (1.0 - plateau) * (1.0 - beach)) * (1.0 - rock) * (1.0 - beach) * (1.0 - mangrove * 0.5) * (1.0 - airfieldClear(w.xz));
     vec3 crownCol = mix(vec3(0.20, 0.33, 0.13), vec3(0.10, 0.21, 0.08), ghats);
     // Crowns are 8-12 m: unresolvable once a pixel covers ~5 m, so they get their own, tighter fade.
     float treeNear = 1.0 - smoothstep(1.5, 5.0, px);
@@ -479,7 +488,14 @@ const FRAGMENT_SHADER = /* glsl */ `
     float seaW = -1e9;
     float coastWater = 0.0;
     vec2 coastPx = vec2(1e5, 0.0);
+    // Sea and estuaries are shaded where the view ray meets the water plane, not on the sea-floor
+    // mesh, so LOD seams, skirts and the floor's facets never show through the water.
+    vec3 wWater = vWorld;
+    float pxWater = px;
     if (uStyle == 1) {
+      float camY = vWorld.y - vRel.y;
+      if (vRel.y < -1e-3 && camY > uWaterLevel) wWater = vWorld + vRel * (clamp((uWaterLevel - camY) / vRel.y, 0.0, 1.0) - 1.0);
+      pxWater = max(length(dFdx(wWater.xz)), length(dFdy(wWater.xz)));
       if (uEstuaryCount > 0) est = estuariesAt(vWorld.xz);
       if (uCoastCount > 1) coastPx = coastAt(vWorld.xz);
       seaW = -coastPx.x;
@@ -489,7 +505,7 @@ const FRAGMENT_SHADER = /* glsl */ `
       coastWater = smoothstep(-0.5 * px - 0.5, 0.5 * px + 0.5, max(seaW, est)) * (1.0 - island);
     }
     if (uStyle == 0 && uHasWater > 0.5 && vWorld.y <= uWaterLevel + 0.05) {
-      col = waterShade(vWorld, vRel, px, max(nl - 1.0, 0.0) * 30.0, 1e9, 0.0);
+      col = waterShade(vWorld, vRel, px, max(nl - 1.0, 0.0) * 30.0, 1e9, 0.0, 1.0);
     } else {
       // Ring relief (chunkGeometryBuilder.ts LAND_LEN_*): > 0 in hollows, < 0 on raised ground.
       float relief = (0.62 - nl) / 0.6;
@@ -536,17 +552,20 @@ const FRAGMENT_SHADER = /* glsl */ `
       // Lighting: sun (with canopy shadows) plus a hemisphere sky/ground-bounce ambient, both
       // darkened by the baked valley occlusion.
       float ndlGeom = dot(normalize(vNormal), L);
-      float diff = max(dot(n, L), 0.0) * shadow * cloudShadow(vWorld) * sunShadow(vWorld, ndlGeom);
+      // Sun visibility taken on the water surface over the sea and estuaries (wWater = vWorld on land),
+      // so the aircraft's, trees' and clouds' shadows fall on the water too.
+      float sunVis = cloudShadow(wWater) * sunShadow(wWater, ndlGeom);
+      float diff = max(dot(n, L), 0.0) * shadow * sunVis;
       vec3 ambient = mix(vec3(0.30, 0.27, 0.22), vec3(0.44, 0.47, 0.52), 0.5 + 0.5 * n.y);
       col *= ambient * occ + vec3(1.0, 0.97, 0.9) * 0.62 * diff * mix(1.0, occ, 0.35);
-      if (riverWater > 0.0) col = mix(col, waterShade(vWorld, vRel, px, clamp(rv.x * 0.03, 0.0, 6.0), 1e9, 0.0), riverWater);
+      if (riverWater > 0.0) col = mix(col, waterShade(vWorld, vRel, px, clamp(rv.x * 0.03, 0.0, 6.0), 1e9, 0.0, sunVis), riverWater);
       if (coastWater > 0.0) {
         bool estuary = est > 0.0 && est > seaW;
         float depth = estuary ? min(est * 0.02, 6.0) : min(seaW * (0.01 - 0.006 * coastPx.y), 60.0);
-        col = mix(col, waterShade(vWorld, vRel, px, depth, estuary ? 1e9 : seaW, estuary ? 2.0 : 1.0), coastWater);
+        col = mix(col, waterShade(wWater, wWater - vWorld + vRel, pxWater, depth, estuary ? 1e9 : seaW, estuary ? 2.0 : 1.0, sunVis), coastWater);
       }
     }
-    gl_FragColor = vec4(atmApply(col, vWorld), 1.0);
+    gl_FragColor = vec4(atmApply(col, mix(vWorld, wWater, coastWater)), 1.0);
   }
 `;
 

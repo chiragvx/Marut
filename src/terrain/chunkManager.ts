@@ -168,6 +168,8 @@ class ChunkManagerImpl implements ChunkManager {
           buildingMatrices: new Float32Array(f.buildingMatrices),
           buildingColors: new Float32Array(f.buildingColors),
           domeMatrices: new Float32Array(f.domeMatrices),
+          houseMatrices: new Float32Array(f.houseMatrices),
+          houseColors: new Float32Array(f.houseColors),
         };
       }
       entry.geometry = geometry;

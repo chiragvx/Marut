@@ -14,6 +14,7 @@
  */
 import { DecalClass, TREE_KIND_COUNT, TreeKind, type ChunkBounds, type ChunkFeatures } from '../contracts/terrain';
 import { hash3, queryNetwork, type RoadNetwork, type Settlement } from './roadNetwork';
+import { ESTUARY_FLOATS, estuaryField, shoreAt } from './coastMath';
 
 export type SurfaceFn = (x: number, z: number) => number;
 
@@ -99,6 +100,8 @@ class Out {
   bldM: number[] = [];
   bldC: number[] = [];
   domeM: number[] = [];
+  houseM: number[] = [];
+  houseC: number[] = [];
 }
 
 /** Column-major matrix: rotate about Y, scale (sx, sy, sz), translate. */
@@ -132,7 +135,23 @@ export function buildChunkFeatures(net: RoadNetwork, b: ChunkBounds, surface: Su
     }
     return false;
   };
-  const wet = (x: number, z: number): boolean => wl !== undefined && surface(x, z) < wl + 4.5;
+  const goa = net.style === 'goa';
+  const shoreScratch = { x: 0, headland: 0 };
+  /** Goa: distance inland from the shoreline (m, < 0 at sea) and into the nearest estuary (m, > 0 in water). */
+  const coastDist = (x: number, z: number): number => {
+    if (!net.coast) return 1e9;
+    shoreAt(net.coast.table, z, shoreScratch);
+    return x - shoreScratch.x;
+  };
+  const estDist = (x: number, z: number): number => {
+    if (!net.coast) return -1e9;
+    let e = -1e9;
+    for (let i = 0; i < net.coast.count; i++) e = Math.max(e, estuaryField(net.coast.estuaries, i * ESTUARY_FLOATS, x, z));
+    return e;
+  };
+  const wet = goa
+    ? (x: number, z: number): boolean => coastDist(x, z) < 55 || estDist(x, z) > -12
+    : (x: number, z: number): boolean => wl !== undefined && surface(x, z) < wl + 4.5;
 
   // --- roads and canals ---------------------------------------------------------------------
   for (const ri of roadSet) {
@@ -210,7 +229,8 @@ export function buildChunkFeatures(net: RoadNetwork, b: ChunkBounds, surface: Su
           const tx = cx + nx * off * side;
           const tz = cz + nz * off * side;
           if (inSettlement(tx, tz, 0.9) || wet(tx, tz)) continue;
-          const mixKind = hash3(ri, m, side, 80) < (canal ? 0.2 : 0.35) ? TreeKind.Broadleaf : kind;
+          const hk = hash3(ri, m, side, 80);
+          const mixKind = goa ? (hk < 0.55 ? TreeKind.Palm : TreeKind.Broadleaf) : hk < (canal ? 0.2 : 0.35) ? TreeKind.Broadleaf : kind;
           pushTree(o, mixKind, tx, surface(tx, tz), tz, hash3(ri, m, side, 81), hash3(ri, m, side, 82));
         }
       }
@@ -220,6 +240,11 @@ export function buildChunkFeatures(net: RoadNetwork, b: ChunkBounds, surface: Su
   // --- settlements: ground, ponds, buildings, village trees ---------------------------------
   for (const s of nearSettlements) {
     const centreHere = inRect(b, s.x, s.z);
+    if (goa) {
+      // Goan village: no bare ground or pond, just houses scattered among palms, and a church.
+      if (opts.objects) buildGoanVillage(o, s, b, surface, opts, wet);
+      continue;
+    }
     if (centreHere) {
       pushFan(o, s.x, s.z, s.radiusM * 1.05, s.seed, DecalClass.VillageGround, surface, 1);
     }
@@ -227,6 +252,11 @@ export function buildChunkFeatures(net: RoadNetwork, b: ChunkBounds, surface: Su
     const pond = villagePond(s);
     if (centreHere) pushFan(o, pond.x, pond.z, pond.r, s.seed + 1, DecalClass.Canal, surface, 0.44);
     if (opts.objects) buildVillage(o, s, pond, b, surface, opts);
+  }
+
+  if (goa) {
+    if (opts.objects) goaVegetation(o, b, surface, opts, coastDist, estDist, inSettlement);
+    return finish(o);
   }
 
   // --- groves: small dense clumps of trees (the dark patches in aerial views) ------------------
@@ -301,6 +331,10 @@ export function buildChunkFeatures(net: RoadNetwork, b: ChunkBounds, surface: Su
     }
   }
 
+  return finish(o);
+}
+
+function finish(o: Out): ChunkFeatures {
   return {
     decalPositions: Float32Array.from(o.decalPos),
     decalAttribs: Float32Array.from(o.decalAttr),
@@ -310,7 +344,123 @@ export function buildChunkFeatures(net: RoadNetwork, b: ChunkBounds, surface: Su
     buildingMatrices: Float32Array.from(o.bldM),
     buildingColors: Float32Array.from(o.bldC),
     domeMatrices: Float32Array.from(o.domeM),
+    houseMatrices: Float32Array.from(o.houseM),
+    houseColors: Float32Array.from(o.houseC),
   };
+}
+
+/** Goan house wall colours: whitewash, cream, yellow, sky blue, salmon pink, mint green, ochre. */
+const GOA_WALLS: readonly (readonly [number, number, number])[] = [
+  [0.9, 0.89, 0.85], [0.9, 0.89, 0.85], [0.9, 0.89, 0.85], [0.88, 0.84, 0.72], [0.88, 0.84, 0.72],
+  [0.88, 0.8, 0.56], [0.72, 0.78, 0.82], [0.86, 0.72, 0.66], [0.74, 0.82, 0.72], [0.82, 0.68, 0.48],
+];
+
+/**
+ * A Goan village or town: gabled, red-tiled houses scattered (not on a grid) among coconut palms,
+ * denser towards the centre, and a whitewashed church with a bell tower (always in towns, in about
+ * half the villages).
+ */
+function buildGoanVillage(o: Out, s: Settlement, b: ChunkBounds, surface: SurfaceFn, opts: FeatureOptions, wet: (x: number, z: number) => boolean): void {
+  const R = s.radiusM;
+  const town = s.kind !== 'village';
+  const C = town ? 16 : 22;
+  const n = Math.ceil((R * 1.2) / C);
+  for (let iz = -n; iz <= n; iz++) {
+    for (let ix = -n; ix <= n; ix++) {
+      const lx = (ix + hash3(ix, iz, 1, s.seed) - 0.5) * C;
+      const lz = (iz + hash3(ix, iz, 2, s.seed) - 0.5) * C;
+      const d = Math.hypot(lx, lz) / R;
+      if (d > 1.15) continue;
+      const keep = (town ? 0.65 : 0.5) * (1 - 0.75 * d * d);
+      if (hash3(ix, iz, 3, s.seed) > keep) continue;
+      const x = s.x + lx;
+      const z = s.z + lz;
+      if (!inRect(b, x, z) || wet(x, z)) continue;
+      const h = hash3(ix, iz, 4, s.seed);
+      const storeys = town && h < 0.35 ? 2 : h < 0.12 ? 2 : 1;
+      const w = 7 + 4 * hash3(ix, iz, 5, s.seed);
+      const len = 8 + 5 * hash3(ix, iz, 6, s.seed);
+      const rot = s.rotRad + (hash3(ix, iz, 7, s.seed) - 0.5) * 0.9;
+      pushMatrix(o.houseM, x, surface(x, z), z, rot, w, 3.2 * storeys, len);
+      const c = GOA_WALLS[Math.floor(hash3(ix, iz, 8, s.seed) * GOA_WALLS.length)]!;
+      o.houseC.push(c[0], c[1], c[2]);
+    }
+  }
+  // Church: a white nave with a tiled roof, and a bell tower at its front.
+  if (town || hash3(s.seed, 9, 0, 5) < 0.55) {
+    const a = hash3(s.seed, 10, 0, 5) * Math.PI * 2;
+    const cx = s.x + Math.cos(a) * R * 0.25;
+    const cz = s.z + Math.sin(a) * R * 0.25;
+    if (inRect(b, cx, cz) && !wet(cx, cz)) {
+      const y = surface(cx, cz);
+      const rot = s.rotRad;
+      const L = town ? 34 : 26;
+      pushMatrix(o.houseM, cx, y, cz, rot, 11, 9, L);
+      o.houseC.push(0.95, 0.94, 0.9);
+      const fx = Math.sin(rot);
+      const fz = Math.cos(rot);
+      const tx = cx + fx * (L / 2 + 2.5);
+      const tz = cz + fz * (L / 2 + 2.5);
+      pushMatrix(o.bldM, tx, surface(tx, tz), tz, rot, 5.5, town ? 20 : 16, 5.5);
+      o.bldC.push(0.95, 0.94, 0.9);
+    }
+  }
+  // Palms (and a few mango/jackfruit trees) among the houses and around the village.
+  const nt = Math.round(((R * R) / 650) * opts.treeDensity);
+  for (let i = 0; i < nt; i++) {
+    const a = hash3(i, 1, 0, s.seed + 17) * Math.PI * 2;
+    const d = R * 1.4 * Math.sqrt(hash3(i, 2, 0, s.seed + 17));
+    const tx = s.x + Math.cos(a) * d;
+    const tz = s.z + Math.sin(a) * d;
+    if (!inRect(b, tx, tz) || wet(tx, tz)) continue;
+    pushTree(o, hash3(i, 3, 0, s.seed + 17) < 0.75 ? TreeKind.Palm : TreeKind.Broadleaf, tx, surface(tx, tz), tz, hash3(i, 4, 0, s.seed + 17), hash3(i, 5, 0, s.seed + 17));
+  }
+}
+
+/**
+ * Goa vegetation on a jittered 26 m grid, clumped into groves: coconut palms in a belt behind the
+ * beaches and along the estuary banks (and scattered on low land), mango/cashew/jackfruit on the
+ * plain, dense forest on the Ghats escarpment, sparse trees on the Deccan top.
+ */
+function goaVegetation(
+  o: Out,
+  b: ChunkBounds,
+  surface: SurfaceFn,
+  opts: FeatureOptions,
+  coastDist: (x: number, z: number) => number,
+  estDist: (x: number, z: number) => number,
+  inSettlement: (x: number, z: number, scale: number) => boolean
+): void {
+  const C = 26;
+  const ss = (e0: number, e1: number, x: number): number => {
+    const t = Math.max(0, Math.min(1, (x - e0) / (e1 - e0)));
+    return t * t * (3 - 2 * t);
+  };
+  for (let iz = Math.floor(b.minZ / C); iz * C < b.maxZ; iz++) {
+    for (let ix = Math.floor(b.minX / C); ix * C < b.maxX; ix++) {
+      const x = (ix + hash3(ix, iz, 2, 131)) * C;
+      const z = (iz + hash3(ix, iz, 3, 131)) * C;
+      if (!inRect(b, x, z)) continue;
+      const cd = coastDist(x, z);
+      if (cd < 55) continue;
+      const ed = estDist(x, z);
+      if (ed > -12) continue;
+      const h = surface(x, z);
+      const palm =
+        0.25 * ss(55, 120, cd) * (1 - ss(1800, 4200, cd)) +
+        (cd > 300 ? 0.24 * (1 - ss(40, 380, -ed)) : 0) +
+        (h < 60 ? 0.06 : 0);
+      const ghats = ss(220, 420, h) * (1 - ss(760, 840, h));
+      const broad = 0.05 + 0.2 * ghats + (h > 800 ? 0.02 : 0);
+      const cl = 0.25 + 1.5 * clump(x, z, 133);
+      const r = hash3(ix, iz, 1, 131);
+      const pPalm = palm * cl * opts.treeDensity;
+      const pBroad = broad * cl * opts.treeDensity;
+      if (r > pPalm + pBroad) continue;
+      if (inSettlement(x, z, 1.05)) continue;
+      pushTree(o, r < pPalm ? TreeKind.Palm : TreeKind.Broadleaf, x, h, z, hash3(ix, iz, 4, 131), hash3(ix, iz, 5, 131));
+    }
+  }
 }
 
 /** One tree: size and colour vary per kind; h1/h2 are per-tree random numbers. */
@@ -323,7 +473,11 @@ function pushTree(o: Out, kind: number, x: number, y: number, z: number, h1: num
   // Unit models are 1 m tall/wide; scale to real sizes.
   let sy: number;
   let sxz: number;
-  if (kind === TreeKind.Poplar) {
+  if (kind === TreeKind.Palm) {
+    // Coconut palms: 10-20 m tall, crowns ~8-11 m across.
+    sy = 10 + 10 * h1;
+    sxz = 8 + 3 * h2;
+  } else if (kind === TreeKind.Poplar) {
     sy = 13 + 7 * h1;
     sxz = sy * (0.2 + 0.05 * h2);
   } else if (kind === TreeKind.Eucalyptus) {

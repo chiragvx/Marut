@@ -250,6 +250,8 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
             buildingMatrices: new Float32Array(f.buildingMatrices),
             buildingColors: new Float32Array(f.buildingColors),
             domeMatrices: new Float32Array(f.domeMatrices),
+            houseMatrices: new Float32Array(f.houseMatrices),
+            houseColors: new Float32Array(f.houseColors),
           },
           -TERRAIN_WORLD_EXTENT_M / 2 + (msg.chunkX + 0.5) * size,
           -TERRAIN_WORLD_EXTENT_M / 2 + (msg.chunkZ + 0.5) * size,

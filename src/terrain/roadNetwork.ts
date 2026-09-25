@@ -14,7 +14,9 @@
  * Everything is a pure function of (params, sampler): the same network in every thread.
  */
 import type { HeightSampler } from '../contracts/core';
-import { DecalClass, TreeKind, type NetworkSpec, type TerrainParams } from '../contracts/terrain';
+import { DecalClass, TreeKind, type CoastProfile, type NetworkSpec, type TerrainParams } from '../contracts/terrain';
+import { buildCoastProfile } from './terrainHeight';
+import { ESTUARY_FLOATS, packEstuary } from './coastMath';
 
 export interface RoadPolyline {
   cls: DecalClass;
@@ -50,6 +52,9 @@ export interface RoadNetwork {
   settlementCells: Map<number, number[]>;
   /** Water surface level (m) if the terrain has water. */
   waterLevelM: number | undefined;
+  style: 'punjab' | 'goa';
+  /** Coast theatres: the shoreline table and packed estuaries (coastMath.ts), for vegetation. */
+  coast?: { table: CoastProfile; estuaries: Float32Array; count: number };
 }
 
 const CELL_M = 1000;
@@ -186,6 +191,7 @@ export function buildRoadNetwork(params: TerrainParams, sampler: HeightSampler):
       if (towns.some((t) => Math.hypot(x - t.x, z - t.z) < t.radiusM + 900)) continue;
       if (spec.exclusions.some((e) => Math.hypot(x - e.x, z - e.z) < e.radiusM + r)) continue;
       if (wet(x, z) || wet(x + r, z) || wet(x - r, z) || wet(x, z + r) || wet(x, z - r)) continue;
+      if (spec.maxVillageElevM !== undefined && sampler.heightAt(x, z) > spec.maxVillageElevM) continue;
       villageAt.set(i * 100000 + j, settlements.length);
       settlements.push({ x, z, radiusM: r, kind: 'village', rotRad: (hash3(i, j, 5, seed) - 0.5) * 0.5, seed: (seed ^ Math.imul(i * 7919 + j + 1, 0x2f6b3)) | 0 });
     }
@@ -287,7 +293,14 @@ export function buildRoadNetwork(params: TerrainParams, sampler: HeightSampler):
     add(settlementCells, s.x - m, s.z - m, s.x + m, s.z + m, si);
   });
 
-  return { settlements, roads, cellSizeM: CELL_M, roadCells, settlementCells, waterLevelM: wl };
+  let coast: RoadNetwork['coast'];
+  const table = buildCoastProfile(params);
+  if (table && params.shape?.kind === 'coast') {
+    const est = new Float32Array(params.shape.estuaries.length * ESTUARY_FLOATS);
+    params.shape.estuaries.forEach((e, i) => packEstuary(e, i, params.seed, est, i * ESTUARY_FLOATS));
+    coast = { table, estuaries: est, count: params.shape.estuaries.length };
+  }
+  return { settlements, roads, cellSizeM: CELL_M, roadCells, settlementCells, waterLevelM: wl, style: spec.style ?? 'punjab', ...(coast ? { coast } : {}) };
 }
 
 function segmentsNear(xz: number[], cx: number, cz: number, r: number): boolean {
