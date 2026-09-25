@@ -1,14 +1,14 @@
 {
   "id": "ins-hansa",
   "name": "INS Hansa, Goa",
-  "referenceWorldX": 56000,
-  "referenceWorldZ": 0,
-  "elevationM": 45,
+  "referenceWorldX": 48350,
+  "referenceWorldZ": -900,
+  "elevationM": 102,
   "flattenZones": [
     {
-      "centerWorldX": 56000,
-      "centerWorldZ": 0,
-      "elevationM": 45,
+      "centerWorldX": 48350,
+      "centerWorldZ": -900,
+      "elevationM": 102,
       "flatRadiusM": 1950.0,
       "blendRadiusM": 800
     }
@@ -16,9 +16,9 @@
   "runways": [
     {
       "id": "08",
-      "thresholdWorldX": 54325.83,
-      "thresholdWorldZ": 295.2,
-      "elevationM": 45,
+      "thresholdWorldX": 46675.83,
+      "thresholdWorldZ": -604.8,
+      "elevationM": 102,
       "headingRad": 1.3962634,
       "lengthM": 3400,
       "widthM": 45,
@@ -36,9 +36,9 @@
     },
     {
       "id": "26",
-      "thresholdWorldX": 57674.17,
-      "thresholdWorldZ": -295.2,
-      "elevationM": 45,
+      "thresholdWorldX": 50024.17,
+      "thresholdWorldZ": -1195.2,
+      "elevationM": 102,
       "headingRad": 4.5378561,
       "lengthM": 3400,
       "widthM": 45,
@@ -58,12 +58,12 @@
       "widthM": 20,
       "points": [
         {
-          "worldX": 55330.33,
-          "worldZ": 118.08
+          "worldX": 47680.33,
+          "worldZ": -781.92
         },
         {
-          "worldX": 55366.8,
-          "worldZ": 324.89
+          "worldX": 47716.8,
+          "worldZ": -575.11
         }
       ]
     }
@@ -73,20 +73,20 @@
       "id": "APRON-1",
       "points": [
         {
-          "worldX": 55279.9,
-          "worldZ": 350.37
+          "worldX": 47629.9,
+          "worldZ": -549.63
         },
         {
-          "worldX": 55457.17,
-          "worldZ": 319.11
+          "worldX": 47807.17,
+          "worldZ": -580.89
         },
         {
-          "worldX": 55471.06,
-          "worldZ": 397.89
+          "worldX": 47821.06,
+          "worldZ": -502.11
         },
         {
-          "worldX": 55293.79,
-          "worldZ": 429.15
+          "worldX": 47643.79,
+          "worldZ": -470.85
         }
       ]
     }
@@ -94,43 +94,43 @@
   "parkingSpots": [
     {
       "id": "PARK-1",
-      "worldX": 55303.36,
-      "worldZ": 397.0,
+      "worldX": 47653.36,
+      "worldZ": -503.0,
       "headingRad": 6.1086524,
       "type": "fighter"
     },
     {
       "id": "PARK-2",
-      "worldX": 55332.9,
-      "worldZ": 391.79,
+      "worldX": 47682.9,
+      "worldZ": -508.21,
       "headingRad": 6.1086524,
       "type": "fighter"
     },
     {
       "id": "PARK-3",
-      "worldX": 55362.44,
-      "worldZ": 386.58,
+      "worldX": 47712.44,
+      "worldZ": -513.42,
       "headingRad": 6.1086524,
       "type": "fighter"
     },
     {
       "id": "PARK-4",
-      "worldX": 55391.99,
-      "worldZ": 381.37,
+      "worldX": 47741.99,
+      "worldZ": -518.63,
       "headingRad": 6.1086524,
       "type": "fighter"
     },
     {
       "id": "PARK-5",
-      "worldX": 55421.53,
-      "worldZ": 376.16,
+      "worldX": 47771.53,
+      "worldZ": -523.84,
       "headingRad": 6.1086524,
       "type": "fighter"
     },
     {
       "id": "PARK-6",
-      "worldX": 55451.08,
-      "worldZ": 370.96,
+      "worldX": 47801.08,
+      "worldZ": -529.04,
       "headingRad": 6.1086524,
       "type": "fighter"
     }

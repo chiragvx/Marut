@@ -11,13 +11,14 @@ import type {
   BiomeBand,
   FbmParams,
   Vec2Like,
+  CoastProfile,
 } from '../contracts/terrain';
-import { TerrainNoiseSeedTag } from '../contracts/terrain';
+import { TerrainNoiseSeedTag, TERRAIN_WORLD_HALF_EXTENT_M } from '../contracts/terrain';
 import { createNoise2D } from './noise';
 import { createFbmNoise2D } from './fbm';
 import { createRidgeNoise2D } from './ridge';
 import { createDomainWarp2D } from './domainWarp';
-import { buildShapedHeight } from './theatreShapes';
+import { buildShapedHeight, coastLineAt } from './theatreShapes';
 
 /** Deterministic integer hash deriving an independent sub-seed for noise field `tag`. Never mulberry32 (see contracts/terrain.ts file header). */
 export const deriveTerrainSubSeed: DeriveTerrainSubSeed = (rootSeed: number, tag: TerrainNoiseSeedTag): number => {
@@ -99,3 +100,21 @@ export const createRawTerrainHeight: CreateRawTerrainHeight = (params: TerrainPa
     return band.baseElevationM + blended * band.heightScale;
   };
 };
+
+/** Samples of a coast theatre's shoreline along Z every `dzM` across the world (src/render colours by distance from the sea). Undefined for non-coast terrains. */
+export function buildCoastProfile(params: TerrainParams, dzM = 1000): CoastProfile | undefined {
+  const shape = params.shape;
+  if (!shape || shape.kind !== 'coast') return undefined;
+  const meander = createNoise2D(deriveTerrainSubSeed(params.seed, TerrainNoiseSeedTag.Continental));
+  const out: Vec2Like = { x: 0, z: 0 };
+  const z0 = -TERRAIN_WORLD_HALF_EXTENT_M;
+  const n = Math.round((2 * TERRAIN_WORLD_HALF_EXTENT_M) / dzM) + 1;
+  const shoreX: number[] = [];
+  const headland: number[] = [];
+  for (let i = 0; i < n; i++) {
+    coastLineAt(shape, meander, z0 + i * dzM, out);
+    shoreX.push(out.x);
+    headland.push(out.z);
+  }
+  return { z0, dz: dzM, shoreX, headland, plainRiseMPerKm: shape.plainRiseMPerKm, hillsStartM: shape.hillsStartM, hillsRampM: shape.hillsRampM };
+}

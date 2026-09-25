@@ -325,6 +325,8 @@ export const WEAPON_DISPLAY_LABEL: Readonly<Record<WeaponKind, string>> = {
 export interface SceneEnvironment {
   surfaceStyle: 'default' | 'coastal' | 'farmland';
   waterLevelM?: number;
+  /** Coast theatres only: shoreline X and headland weight sampled along Z (see contracts/terrain.ts CoastProfile). */
+  coast?: { z0: number; dz: number; shoreX: readonly number[]; headland: readonly number[]; plainRiseMPerKm: number; hillsStartM: number; hillsRampM: number };
   /** One entry per physical runway (not per direction). */
   runways: readonly { centerX: number; centerZ: number; headingRad: number; lengthM: number; widthM: number }[];
 }

@@ -13,9 +13,16 @@ function idx(i: number, j: number, res: number): number {
 
 /** World-scale radius of the valley-occlusion estimate. Fixed (not the grid step) so a vertex's shading does not change when its chunk changes LOD. */
 export const OCCLUSION_RADIUS_M = 300;
-/** Occlusion per unit of (mean ring height - height) / radius, and its floor. */
-const OCCLUSION_GAIN = 1.6;
-const OCCLUSION_MIN = 0.45;
+/**
+ * Land encoding of the ring relief v = (mean ring height - height) / OCCLUSION_RADIUS_M
+ * (positive in hollows, negative on raised ground): length = LAND_LEN_AT_ZERO - LAND_LEN_PER_V * v,
+ * clamped to [LAND_LEN_MIN, LAND_LEN_MAX]. Kept below 1 so it never collides with water (> 1).
+ * src/render/terrainMaterial.ts decodes it with the same constants.
+ */
+export const LAND_LEN_AT_ZERO = 0.62;
+export const LAND_LEN_PER_V = 0.6;
+const LAND_LEN_MIN = 0.3;
+const LAND_LEN_MAX = 0.98;
 /** Water depth encoded into the normal length saturates at this depth. */
 export const WATER_DEPTH_ENCODE_MAX_M = 30;
 
@@ -26,9 +33,9 @@ export const WATER_DEPTH_ENCODE_MAX_M = 30;
  * terrain.worker.ts on new-chunk events).
  *
  * NORMALS CARRY TWO EXTRA VALUES IN THEIR LENGTH (no extra vertex attribute, so no extra VRAM):
- * - Land vertices: length = sky occlusion in [OCCLUSION_MIN, 1]. It is estimated from how far the
- *   mean height on a ring of radius OCCLUSION_RADIUS_M rises above the vertex, so valley floors
- *   and gullies are darker than open slopes and ridges.
+ * - Land vertices: length encodes the ring relief: how far the mean height on a ring of radius
+ *   OCCLUSION_RADIUS_M sits above (hollows, valley floors: sky occlusion) or below (plateau tops,
+ *   headlands, ridges: exposed ground) the vertex. See LAND_LEN_AT_ZERO.
  * - Water vertices (at the sampler's water level): length = 1 + depth / WATER_DEPTH_ENCODE_MAX_M,
  *   the water depth to the seabed or riverbed, used for shallow-water colour and shore foam.
  * The shader normalises the direction and decodes the length (src/render/terrainMaterial.ts).
@@ -86,8 +93,8 @@ export const buildChunkGeometry: BuildChunkGeometry = (
         len = 1 + Math.min(Math.max(depth, 0), WATER_DEPTH_ENCODE_MAX_M) / WATER_DEPTH_ENCODE_MAX_M;
       } else {
         const ring = (sampler.heightAt(x + r, z) + sampler.heightAt(x - r, z) + sampler.heightAt(x, z + r) + sampler.heightAt(x, z - r)) * 0.25;
-        const occ = 1 - (OCCLUSION_GAIN * (ring - y)) / r;
-        len = occ < OCCLUSION_MIN ? OCCLUSION_MIN : occ > 1 ? 1 : occ;
+        const enc = LAND_LEN_AT_ZERO - (LAND_LEN_PER_V * (ring - y)) / r;
+        len = enc < LAND_LEN_MIN ? LAND_LEN_MIN : enc > LAND_LEN_MAX ? LAND_LEN_MAX : enc;
       }
 
       const v = idx(i, j, res) * 3;

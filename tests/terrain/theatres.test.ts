@@ -9,7 +9,7 @@ import type { PilotInputs } from '../../src/contracts/core';
 import { SIM_DT_SEC, EntityFlag } from '../../src/contracts/core';
 import { THEATRE_TERRAIN_PARAMS, type TheatreId } from '../../src/contracts/terrain';
 import type { AirportLayout } from '../../src/contracts/airport';
-import { createHeightSampler } from '../../src/terrain';
+import { buildCoastProfile, createHeightSampler } from '../../src/terrain';
 import { buildWorldDependencies, createWorld, resolveBuiltinMission } from '../../src/core';
 import { Quat } from '../../src/math';
 
@@ -68,6 +68,31 @@ describe('theatre landforms', () => {
     expect(sampler.heightAt(-50000, 0)).toBe(0);
     expect(sampler.isWaterAt!(95000, 0)).toBe(false);
     expect(sampler.heightAt(95000, 0)).toBeGreaterThan(300);
+  });
+
+  test('Goa has estuaries reaching inland, and INS Hansa sits on a laterite plateau', () => {
+    const { sampler, layout } = theatreSampler('konkan');
+    // The Zuari crosses the line x = 56 km (11 km inland) somewhere north of the base.
+    let water = 0;
+    for (let z = -15000; z <= 0; z += 100) if (sampler.isWaterAt!(56000, z)) water++;
+    expect(water).toBeGreaterThan(0);
+    // The plateau: the runway stands well above the coastal plain around it.
+    expect(layout.elevationM).toBeGreaterThan(80);
+  });
+
+  test('the Goa shoreline profile matches the terrain (sea just west of it, land just east)', () => {
+    const coast = buildCoastProfile(THEATRE_TERRAIN_PARAMS.konkan)!;
+    expect(coast.shoreX.length).toBe(201);
+    const { sampler } = theatreSampler('konkan');
+    let agree = 0;
+    let n = 0;
+    for (let i = 20; i < 180; i += 7) {
+      const z = coast.z0 + i * coast.dz;
+      n++;
+      if (sampler.isWaterAt!(coast.shoreX[i]! - 400, z) && !sampler.isWaterAt!(coast.shoreX[i]! + 400, z)) agree++;
+    }
+    // Estuary mouths and islands make a few samples ambiguous.
+    expect(agree / n).toBeGreaterThan(0.8);
   });
 
   test('Punjab is flat farmland with river water', () => {

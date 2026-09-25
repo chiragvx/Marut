@@ -62,7 +62,7 @@ import {
   computeFlattenZones,
 } from './ui';
 import { createChunkManager } from './terrain';
-import { createHeightSampler } from './terrain';
+import { buildCoastProfile, createHeightSampler } from './terrain';
 import { createAirportNavDb, validateAirportLayout } from './airport';
 import { tejasDefinition } from './aircraft';
 import { isBuiltinMissionId, resolveBuiltinMission } from './core/missions/index';
@@ -341,7 +341,7 @@ function showMainMenu(): void {
 }
 
 const MISSION_SUMMARIES: readonly MissionSummary[] = [
-  { id: 'konkan-free', name: 'Free Flight — Goa Coast', description: 'INS Hansa on the Konkan coast. Mostly Arabian Sea, with the Western Ghats inland. Water is not a runway.', aircraftLabel: 'HAL Tejas Mk1' },
+  { id: 'konkan-free', name: 'Free Flight — Goa Coast', description: 'INS Hansa, on a laterite plateau above the Zuari estuary. Beaches and headlands, three estuaries, the Western Ghats inland. Dry season. Water is not a runway.', aircraftLabel: 'HAL Tejas Mk1' },
   { id: 'konkan-dogfight', name: '1v1 Dogfight — Arabian Sea', description: 'One hostile Tejas off the Goa coast.', aircraftLabel: 'HAL Tejas Mk1' },
   { id: 'punjab-free', name: 'Free Flight — Punjab Plains', description: 'Adampur, over flat farmland crossed by the Sutlej and Beas.', aircraftLabel: 'HAL Tejas Mk1' },
   { id: 'punjab-dogfight', name: '1v1 Dogfight — Punjab Plains', description: 'One hostile Tejas low over the plains.', aircraftLabel: 'HAL Tejas Mk1' },
@@ -631,8 +631,10 @@ function buildSceneEnvironment(terrainParams: TerrainParams, airportLayouts: rea
       });
     }
   }
+  const coast = buildCoastProfile(terrainParams);
   return {
     surfaceStyle: terrainParams.surfaceStyle ?? 'default',
+    ...(coast ? { coast } : {}),
     ...(terrainParams.waterLevelM !== undefined ? { waterLevelM: terrainParams.waterLevelM } : {}),
     runways,
   };

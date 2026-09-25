@@ -8,6 +8,7 @@
  */
 import type {
   CoastShape,
+  EstuarySpec,
   Noise2D,
   PlainsShape,
   RawTerrainHeightFn,
@@ -32,16 +33,39 @@ function smoothstep(e0: number, e1: number, x: number): number {
   return c * c * (3 - 2 * c);
 }
 
+/** Shoreline X and headland weight (0 = beach, 1 = rocky headland) at `z`. Shared with src/render via buildCoastProfile. */
+export function coastLineAt(s: CoastShape, meander: Noise2D, z: number, out: Vec2Like): Vec2Like {
+  const f = s.shoreWiggleFreq;
+  const headland = smoothstep(0.2, 0.45, meander(z * s.headlandFreq, 71.9));
+  out.x = s.shorelineXM + s.shoreWiggleM * (0.7 * meander(z * f, 11.3) + 0.3 * meander(z * f * 3.1, 29.7)) - s.headlandProtrusionM * headland;
+  out.z = headland;
+  return out;
+}
+
+interface EstuaryPre {
+  e: EstuarySpec;
+  ux: number;
+  uz: number;
+  lane: number;
+  phase0: number;
+}
+
 function buildCoast(s: CoastShape, n: ShapeNoiseFields, scratch: Vec2Like): RawTerrainHeightFn {
+  const line: Vec2Like = { x: 0, z: 0 };
+  const estuaries: EstuaryPre[] = s.estuaries.map((e, i) => {
+    const lane = 91.3 + i * 13.7;
+    return { e, ux: Math.sin(e.headingRad), uz: -Math.cos(e.headingRad), lane, phase0: n.meander(0, lane) };
+  });
   return (x, z) => {
-    const f = s.shoreWiggleFreq;
-    const shoreX = s.shorelineXM + s.shoreWiggleM * (0.7 * n.meander(z * f, 11.3) + 0.3 * n.meander(z * f * 3.1, 29.7));
-    const d = x - shoreX;
+    coastLineAt(s, n.meander, z, line);
+    const headland = line.z;
+    const d = x - line.x;
     n.warp(x, z, scratch);
     const fb = n.fbmN(scratch.x, scratch.z);
+    let h: number;
     if (d < 0) {
-      // Continental shelf, deepening offshore, plus a scatter of islands near the coast.
-      let h = Math.max(d * 0.01, -60);
+      // Continental shelf, deepening offshore (shallow rock shelf off the headlands), plus islands.
+      h = Math.max(d * (0.01 - 0.006 * headland), -60);
       if (s.islandHeightM > 0) {
         const isl = Math.max(0, n.fbmN(x * 0.45 + 5000, z * 0.45) - 0.42) / 0.58;
         if (isl > 0) {
@@ -50,14 +74,36 @@ function buildCoast(s: CoastShape, n: ShapeNoiseFields, scratch: Vec2Like): RawT
           if (islandH > h) h = islandH;
         }
       }
-      return h;
+    } else {
+      const plain = (s.plainRiseMPerKm * d) / 1000;
+      const relief = s.plainReliefM * (0.5 + 0.5 * fb) * smoothstep(0, 2000, d);
+      const hillsT = smoothstep(s.hillsStartM, s.hillsStartM + s.hillsRampM, d);
+      // Escarpment: ridged spurs on the scarp face, a gentler Deccan plateau behind it.
+      const scarp = hillsT * (1 - smoothstep(s.hillsStartM + s.hillsRampM, s.hillsStartM + s.hillsRampM + 8000, d));
+      const hills = hillsT * s.hillsHeightM * (0.85 + 0.06 * fb) + scarp * s.hillsHeightM * 0.45 * n.ridgeN(scratch.x, scratch.z);
+      // Flat-topped laterite plateaus (mesas) on the coastal plain: steep sides, flat tops.
+      const mesa = s.plateauHeightM * smoothstep(0.08, 0.2, n.fbmN(scratch.x * 0.5 + 1234, scratch.z * 0.5)) * smoothstep(1500, 4000, d) * (1 - hillsT);
+      // Beach (rises over ~250 m) or headland cliff (rises over ~90 m).
+      const beach = smoothstep(0, 250, d) * (1.5 + plain + relief);
+      const cliff = s.headlandHeightM * (0.75 + 0.25 * fb) * smoothstep(0, 90, d) + smoothstep(0, 250, d) * (plain + relief);
+      h = beach + (cliff - beach) * headland + mesa + hills;
     }
-    const plain = (s.plainRiseMPerKm * d) / 1000;
-    const relief = s.plainReliefM * (0.5 + 0.5 * fb) * smoothstep(0, 2000, d);
-    const hillsT = smoothstep(s.hillsStartM, s.hillsStartM + s.hillsRampM, d);
-    const hills = hillsT * s.hillsHeightM * (0.45 + 0.55 * n.ridgeN(scratch.x, scratch.z) + 0.25 * fb);
-    // Beach: rise from the waterline over the first ~250 m.
-    return smoothstep(0, 250, d) * (1.5 + plain + relief) + hills;
+    for (const es of estuaries) {
+      const e = es.e;
+      const px = x - e.mouthX;
+      const pz = z - e.mouthZ;
+      const u = px * es.ux + pz * es.uz;
+      if (u < 0 || u > e.lengthM) continue;
+      const v = px * -es.uz + pz * es.ux;
+      const c = e.meanderAmpM * (n.meander(u * e.meanderFreq, es.lane) - es.phase0) * smoothstep(0, 8000, u);
+      const halfW = 0.5 * (e.inlandWidthM + (e.mouthWidthM - e.inlandWidthM) * Math.exp(-u / e.taperM)) * (1 - smoothstep(e.lengthM * 0.8, e.lengthM, u));
+      const dist = Math.abs(v - c);
+      if (dist > halfW + e.bankWidthM) continue;
+      const bed = -4;
+      const hr = bed + (h - bed) * smoothstep(halfW, halfW + e.bankWidthM, dist);
+      if (hr < h) h = hr;
+    }
+    return h;
   };
 }
 

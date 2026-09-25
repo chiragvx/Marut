@@ -11,8 +11,9 @@
  * around it (the airport renderer only draws runway outlines).
  *
  * All detail is procedural: no textures, and no vertex data beyond position + normal. The normal's
- * LENGTH carries baked data from src/terrain/chunkGeometryBuilder.ts: sky occlusion on land (valley
- * floors and gullies darker) and water depth on water (shallows and foam).
+ * LENGTH carries baked data from src/terrain/chunkGeometryBuilder.ts: on land the ring relief
+ * (hollows -> sky occlusion; raised ground -> plateau tops and headlands), on water the depth
+ * (shallows and foam).
  *
  * Cost is spent where it is visible. `px`, the ground footprint of one pixel in metres (from
  * screen-space derivatives), gates every detail layer: near-camera pixels get a per-pixel detail
@@ -34,6 +35,9 @@ import * as THREE from 'three';
 import type { SceneEnvironment } from '../contracts/render';
 
 export const MAX_TERRAIN_RUNWAYS = 4;
+/** Shoreline samples the vertex shader can hold (packed four per vec4). 201 = the 200 km world at 1 km. */
+export const MAX_COAST_SAMPLES = 204;
+const COAST_VEC4S = MAX_COAST_SAMPLES / 4;
 
 const STYLE_CODE: Readonly<Record<SceneEnvironment['surfaceStyle'], number>> = {
   default: 0,
@@ -69,19 +73,40 @@ const NOISE_GLSL = /* glsl */ `
 // Large-scale patterns (>= ~500 m) are evaluated per vertex and interpolated: far fewer vertices
 // than pixels, and the patterns are much larger than the vertex spacing, so nothing is lost.
 // vMacro: x = broad tonal variation (7 km), y/z/w = style-specific (see each colour function).
+// Coastal: y = laterite-patch noise, z = distance inland from the shoreline (m, negative at sea),
+// w = headland weight. The shoreline comes from a table of samples along Z (uShore/uHead, built
+// from the same landform the terrain uses — src/terrain/terrainHeight.ts buildCoastProfile).
 const VERTEX_SHADER = /* glsl */ `
   uniform int uStyle;
+  uniform int uCoastCount;
+  uniform vec2 uCoastZ; // z0, dz
+  uniform vec4 uShore[${COAST_VEC4S}];
+  uniform vec4 uHead[${COAST_VEC4S}];
   varying vec3 vViewPos;
   varying vec3 vWorld;
   varying vec3 vRel;
   varying vec3 vNormal;
   varying vec4 vMacro;
+  varying float vLow;
   ${NOISE_GLSL}
   void main() {
     vec2 p = position.xz;
     vMacro = vec4(vnoise(p / 7000.0), 0.0, 0.0, 0.0);
+    vLow = 0.0;
     if (uStyle == 1) {
+      // The two coarse octaves of the 600 m vegetation pattern (fbm3's first two terms); the fragment
+      // shader adds the fine octave near the camera.
+      vLow = 0.5 * vnoise(p / 600.0) + 0.3 * vnoise(p / 600.0 * 2.03 + 17.0);
       vMacro.y = fbm3(p / 1500.0 + 7.0); // laterite clearings
+      vMacro.z = 1e5;
+      if (uCoastCount > 1) {
+        float fi = clamp((p.y - uCoastZ.x) / uCoastZ.y, 0.0, float(uCoastCount - 1) - 0.001);
+        int i = int(fi);
+        int j = i + 1;
+        float t = fi - float(i);
+        vMacro.z = p.x - mix(uShore[i >> 2][i & 3], uShore[j >> 2][j & 3], t);
+        vMacro.w = mix(uHead[i >> 2][i & 3], uHead[j >> 2][j & 3], t);
+      }
     }
     vec4 wp = modelMatrix * vec4(position, 1.0);
     vWorld = position;
@@ -104,6 +129,7 @@ const FRAGMENT_SHADER = /* glsl */ `
   uniform float uWaterLevel;
   uniform vec3 uWaterColor;
   uniform vec3 uSunDir;
+  uniform vec3 uCoastShape; // plain rise m/km, Ghats start m, Ghats ramp m (coast theatres)
   uniform int uRunwayCount;
   uniform vec4 uRunways[${MAX_TERRAIN_RUNWAYS}];
   uniform float uRunwayHeadings[${MAX_TERRAIN_RUNWAYS}];
@@ -112,6 +138,9 @@ const FRAGMENT_SHADER = /* glsl */ `
   varying vec3 vRel;
   varying vec3 vNormal;
   varying vec4 vMacro;
+  varying float vLow;
+  // 0..1: how far this ground stands above its surroundings (set in main before the colour functions).
+  float gRaised = 0.0;
 
   ${NOISE_GLSL}
   // Value noise and its analytic gradient (x = value, yz = d/dp), for detail normals.
@@ -148,6 +177,8 @@ const FRAGMENT_SHADER = /* glsl */ `
     // Shallows show the bottom (turquoise over coastal sand, brighter silt in rivers).
     vec3 shallow = uStyle == 1 ? vec3(0.10, 0.42, 0.44) : uWaterColor * 1.35 + vec3(0.05, 0.05, 0.03);
     vec3 body = mix(shallow, uWaterColor, smoothstep(0.5, 18.0, depth));
+    // Goa's estuaries (inland of the shoreline) carry silt: olive green-brown, not sea blue.
+    if (uStyle == 1) body = mix(body, vec3(0.20, 0.30, 0.24), smoothstep(300.0, 2500.0, vMacro.z));
     float cosi = max(dot(-V, n), 0.0);
     float fres = 0.02 + 0.98 * pow(1.0 - cosi, 5.0);
     vec3 col = mix(body, uFogColor, fres * 0.85);
@@ -164,31 +195,92 @@ const FRAGMENT_SHADER = /* glsl */ `
     return col + vec3(1.0, 0.95, 0.85) * spec * 1.1 * (1.0 - foam);
   }
 
+  // Tree crowns (~crownM wide) covering density of the ground, with the shadows they cast away
+  // from the sun; near the camera only. Darkens col under crowns and returns the shadow factor.
+  float treeCanopy(vec2 p, float density, float crownM, float heightM, vec3 L, float near, inout vec3 col, vec3 crownCol) {
+    if (near <= 0.0 || density <= 0.0) return 1.0;
+    float thr = 1.0 - density;
+    vec2 toSun = L.xz / max(L.y, 0.25) * heightM;
+    float crown = smoothstep(thr, thr + 0.12, vnoise(p / crownM));
+    float caster = smoothstep(thr, thr + 0.12, vnoise((p + toSun) / crownM));
+    col = mix(col, crownCol * (0.85 + 0.3 * (near > 0.8 ? vnoise(p / (crownM * 0.3)) : 0.5)), crown * near);
+    return 1.0 - 0.6 * max(caster - crown, 0.0) * near;
+  }
+
+  // Goa in the dry season (Jan-Mar): straw and green paddy lowlands, a coconut-palm belt behind
+  // the beaches, red-brown laterite plateaus and headlands, mangroves on estuary banks, red-tile
+  // villages among palms, and dense forest on the Ghats escarpment.
   vec3 coastColor(vec3 w, vec3 n, float px, float near, vec3 L, inout float shadow) {
     float slope = 1.0 - n.y;
-    float f1 = fbm3(w.xz / 600.0);
-    vec3 col = mix(vec3(0.24, 0.40, 0.16), vec3(0.15, 0.30, 0.11), f1);
-    // Laterite (red soil) clearings.
-    col = mix(col, vec3(0.50, 0.36, 0.24), smoothstep(0.66, 0.76, vMacro.y) * 0.55);
-    // Paddy fields on the low flat land (90 m pattern: skipped once a pixel covers 30 m).
-    if (px < 30.0) {
-      col = mix(col, vec3(0.40, 0.54, 0.22), smoothstep(0.55, 0.7, vnoise(w.xz / 90.0)) * (1.0 - smoothstep(20.0, 60.0, w.y)) * 0.6 * (1.0 - smoothstep(15.0, 30.0, px)));
+    float coastD = vMacro.z;
+    float headland = vMacro.w;
+    float hw = w.y - uWaterLevel;
+    float f1 = vLow + 0.2 * (px < 20.0 ? vnoise(w.xz / 600.0 * 4.01 + 41.0) : 0.5);
+
+    // Lowland: mostly green (cashew, mango, scrub forest) with dry-season paddy (straw) in patches.
+    vec3 col = mix(vec3(0.60, 0.54, 0.35), vec3(0.30, 0.40, 0.18), smoothstep(0.25, 0.5, f1));
+    if (px < 30.0) col *= 0.93 + 0.14 * vnoise(w.xz / 70.0) * (1.0 - smoothstep(15.0, 30.0, px));
+    // Laterite clearings: red soil.
+    col = mix(col, vec3(0.54, 0.36, 0.25), smoothstep(0.70, 0.80, vMacro.y) * 0.5);
+
+    // Ghats escarpment zone and the height the plain would have here (landform: rise per km inland).
+    float ghatsZone = smoothstep(uCoastShape.y - 1500.0, uCoastShape.y + 1500.0, coastD);
+    float aboveplain = w.y - (uCoastShape.x * coastD / 1000.0 + 20.0);
+    // Laterite plateau tops: flat ground standing well above the plain, short of the Ghats.
+    float plateau = smoothstep(28.0, 45.0, aboveplain) * smoothstep(0.92, 0.985, n.y) * (1.0 - ghatsZone) * smoothstep(800.0, 1500.0, coastD);
+    if (plateau > 0.0) col = mix(col, mix(vec3(0.56, 0.38, 0.27), vec3(0.64, 0.56, 0.38), px < 40.0 ? vnoise(w.xz / 140.0) : 0.5), plateau * 0.85);
+
+    // Ghats escarpment and foothills: dense dark forest; the Deccan top is drier grassland.
+    float ghats = ghatsZone * (1.0 - plateau);
+    vec3 forest = mix(vec3(0.11, 0.23, 0.09), vec3(0.16, 0.28, 0.11), f1);
+    float deccanTop = smoothstep(780.0, 860.0, w.y) * smoothstep(0.97, 0.99, n.y);
+    col = mix(col, mix(forest, vec3(0.58, 0.52, 0.34), deccanTop * 0.7), ghats);
+
+    // Laterite rock: cliffs, plateau edges, headlands.
+    float rock = max(smoothstep(0.22, 0.42, slope), headland * (1.0 - smoothstep(150.0, 400.0, coastD)) * smoothstep(1.5, 4.0, hw));
+    if (rock > 0.0) col = mix(col, vec3(0.44, 0.28, 0.20) * (0.85 + 0.3 * (px < 8.0 ? vnoise(w.xz / 25.0) : 0.5)), rock * (1.0 - ghats * 0.6));
+
+    // Coconut-palm belt behind the beaches and along the estuaries.
+    float palmBelt = (1.0 - smoothstep(1500.0, 3500.0, coastD)) * smoothstep(20.0, 120.0, coastD);
+    float riverBank = smoothstep(1500.0, 2500.0, coastD) * (1.0 - smoothstep(4.0, 12.0, hw));
+    float palms = max(palmBelt, riverBank) * (1.0 - rock) * (1.0 - plateau) * (1.0 - smoothstep(60.0, 120.0, w.y));
+    col = mix(col, vec3(0.24, 0.35, 0.15), palms * 0.55);
+
+    // Mangroves: the tidal banks of the estuaries (inland water edges only).
+    float mangrove = smoothstep(1200.0, 2200.0, coastD) * (1.0 - smoothstep(0.8, 2.5, hw));
+    col = mix(col, vec3(0.09, 0.19, 0.10), mangrove);
+
+    // Villages: red-tile roofs among palms, on the low coastal land.
+    vec2 vid = floor(w.xz / 1500.0);
+    float village = 0.0;
+    if (w.y < 90.0 && coastD > 300.0 && coastD < 15000.0 && hash12(vid + 57.0) < 0.3) {
+      vec2 c = (vid + 0.25 + 0.5 * vec2(hash12(vid + 3.0), hash12(vid + 5.0))) * 1500.0;
+      float r = 180.0 + 220.0 * hash12(vid + 8.0);
+      village = (1.0 - smoothstep(r * 0.6, r, length(w.xz - c) + (px < 25.0 ? 70.0 * vnoise(w.xz / 90.0) : 35.0))) * (1.0 - rock);
+      vec3 vcol = vec3(0.45, 0.33, 0.20); // far: roofs and palms blended
+      if (px < 6.0) {
+        vec2 lot = floor(w.xz / 16.0);
+        float roof = step(hash12(lot + 11.0), 0.5);
+        vec3 tile = vec3(0.62, 0.30, 0.19) * (0.8 + 0.35 * hash12(lot + 2.0));
+        vec3 roofs = mix(vec3(0.26, 0.36, 0.17), tile, roof);
+        vcol = mix(roofs, vcol, smoothstep(2.0, 6.0, px));
+      }
+      col = mix(col, vcol, village);
     }
-    // Denser forest up in the Ghats.
-    col = mix(col, vec3(0.11, 0.24, 0.09), smoothstep(250.0, 600.0, w.y));
-    float rock = smoothstep(0.25, 0.45, slope);
-    col = mix(col, vec3(0.42, 0.33, 0.26), rock);
-    float beach = 1.0 - smoothstep(1.5, 4.5, w.y - uWaterLevel);
-    // Tree canopy (palms and forest clumps, ~9 m crowns) with the shadows they cast, near the camera only.
-    if (near > 0.0) {
-      float forest = smoothstep(0.35, 0.55, f1 + 0.3 * smoothstep(250.0, 600.0, w.y)) * (1.0 - rock) * (1.0 - beach);
-      vec2 toSun = L.xz / max(L.y, 0.25) * 11.0;
-      float canopy = smoothstep(0.52, 0.68, vnoise(w.xz / 9.0)) * forest;
-      float caster = smoothstep(0.52, 0.68, vnoise((w.xz + toSun) / 9.0)) * forest;
-      col = mix(col, col * vec3(0.62, 0.72, 0.60), canopy * near);
-      shadow *= 1.0 - 0.65 * max(caster - canopy, 0.0) * near;
-    }
-    return mix(col, vec3(0.86, 0.80, 0.62), beach);
+
+    // Beaches and wet sand: open coast only, not at headlands.
+    float beach = (1.0 - smoothstep(2.5, 5.0, hw)) * (1.0 - smoothstep(400.0, 900.0, coastD)) * (1.0 - smoothstep(0.35, 0.65, headland));
+    vec3 sand = mix(vec3(0.72, 0.64, 0.48), vec3(0.88, 0.82, 0.64), smoothstep(0.3, 1.2, hw));
+    col = mix(col, sand, beach);
+
+    // Tree crowns and their shadows near the camera: palms along the coast and rivers, forest on
+    // the Ghats, scattered cashew/mango trees elsewhere.
+    float density = max(max(palms * 0.75, ghats * 0.9), 0.2 * (1.0 - plateau) * (1.0 - beach)) * (1.0 - rock) * (1.0 - beach) * (1.0 - mangrove * 0.5) * (1.0 - village * 0.6);
+    vec3 crownCol = mix(vec3(0.20, 0.33, 0.13), vec3(0.10, 0.21, 0.08), ghats);
+    // Crowns are 8-12 m: unresolvable once a pixel covers ~5 m, so they get their own, tighter fade.
+    float treeNear = 1.0 - smoothstep(1.5, 5.0, px);
+    shadow *= treeCanopy(w.xz, density, mix(8.0, 12.0, ghats), mix(12.0, 18.0, ghats), L, treeNear, col, crownCol);
+    return col;
   }
 
   vec3 farmColor(vec3 w, float px) {
@@ -259,7 +351,10 @@ const FRAGMENT_SHADER = /* glsl */ `
     if (uHasWater > 0.5 && vWorld.y <= uWaterLevel + 0.05) {
       col = waterShade(vWorld, vRel, px, max(nl - 1.0, 0.0) * 30.0);
     } else {
-      float occ = min(nl, 1.0);
+      // Ring relief (chunkGeometryBuilder.ts LAND_LEN_*): > 0 in hollows, < 0 on raised ground.
+      float relief = (0.62 - nl) / 0.6;
+      float occ = clamp(1.0 - 1.6 * relief, 0.45, 1.0);
+      gRaised = clamp(-relief / 0.12, 0.0, 1.0);
       // Near-camera detail weight: full below 3 m per pixel, gone by 12 m.
       float near = 1.0 - smoothstep(3.0, 12.0, px);
       // (Not on farmland: flat fields show no visible relief at this scale; crop rows carry the detail.)
@@ -323,6 +418,11 @@ export function createTerrainMaterial(): THREE.ShaderMaterial {
       uRunwayCount: { value: 0 },
       uRunways: { value: Array.from({ length: MAX_TERRAIN_RUNWAYS }, () => new THREE.Vector4()) },
       uRunwayHeadings: { value: new Array<number>(MAX_TERRAIN_RUNWAYS).fill(0) },
+      uCoastCount: { value: 0 },
+      uCoastZ: { value: new THREE.Vector2(0, 1) },
+      uCoastShape: { value: new THREE.Vector3(0, 1e9, 1) },
+      uShore: { value: Array.from({ length: COAST_VEC4S }, () => new THREE.Vector4()) },
+      uHead: { value: Array.from({ length: COAST_VEC4S }, () => new THREE.Vector4()) },
     },
     vertexShader: VERTEX_SHADER,
     fragmentShader: FRAGMENT_SHADER,
@@ -346,4 +446,18 @@ export function applyTerrainEnvironment(material: THREE.ShaderMaterial, env: Rea
     headings[i] = r.headingRad;
   }
   u['uRunwayCount']!.value = nRwy;
+
+  const coast = env.coast;
+  const nCoast = coast ? Math.min(coast.shoreX.length, MAX_COAST_SAMPLES) : 0;
+  const shore = u['uShore']!.value as THREE.Vector4[];
+  const head = u['uHead']!.value as THREE.Vector4[];
+  for (let i = 0; i < nCoast; i++) {
+    shore[i >> 2]!.setComponent(i & 3, coast!.shoreX[i]!);
+    head[i >> 2]!.setComponent(i & 3, coast!.headland[i]!);
+  }
+  if (coast) {
+    (u['uCoastZ']!.value as THREE.Vector2).set(coast.z0, coast.dz);
+    (u['uCoastShape']!.value as THREE.Vector3).set(coast.plainRiseMPerKm, coast.hillsStartM, coast.hillsRampM);
+  }
+  u['uCoastCount']!.value = nCoast;
 }

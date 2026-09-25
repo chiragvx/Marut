@@ -194,7 +194,29 @@ export const TerrainSurfaceStyle = {
 } as const;
 export type TerrainSurfaceStyle = (typeof TerrainSurfaceStyle)[keyof typeof TerrainSurfaceStyle];
 
-/** A north-south coastline: sea to the west (x < shoreline), a coastal plain, then a hill range inland. */
+/** A river mouth cut into a coast: runs inland from (mouthX, mouthZ) along `headingRad`, wide at the sea and tapering. */
+export interface EstuarySpec {
+  /** A point at sea on the river's line (the carve starts here, so it always meets the shore). */
+  mouthX: number;
+  mouthZ: number;
+  /** Direction inland (world heading convention: 90 deg = east). */
+  headingRad: number;
+  /** Length of the river inland from (mouthX, mouthZ); it narrows to nothing over the last 20%. */
+  lengthM: number;
+  /** Width at the mouth, and far inland; it narrows from one to the other with e-folding distance `taperM`. */
+  mouthWidthM: number;
+  inlandWidthM: number;
+  taperM: number;
+  bankWidthM: number;
+  meanderAmpM: number;
+  meanderFreq: number;
+}
+
+/**
+ * A north-south coastline (Konkan/Goa): sea to the west (x < shoreline), sandy beaches broken by
+ * rocky laterite headlands, a coastal plain with flat-topped laterite plateaus, estuaries, and
+ * the Western Ghats escarpment rising to the Deccan plateau inland.
+ */
 export interface CoastShape {
   kind: 'coast';
   /** Mean shoreline world X. */
@@ -215,6 +237,29 @@ export interface CoastShape {
   hillsHeightM: number;
   /** Peak height of the occasional offshore islands (0 = none). */
   islandHeightM: number;
+  /** Spatial frequency (along Z) of the alternation between beaches and rocky headlands. */
+  headlandFreq: number;
+  /** How far a headland pushes the shoreline out to sea. */
+  headlandProtrusionM: number;
+  /** Cliff height at a headland. */
+  headlandHeightM: number;
+  /** Height of the flat-topped laterite plateaus on the coastal plain (0 = none). */
+  plateauHeightM: number;
+  estuaries: readonly EstuarySpec[];
+}
+
+/** Shoreline samples along Z for src/render (the shader colours by distance from the sea). */
+export interface CoastProfile {
+  z0: number;
+  dz: number;
+  /** Shoreline world X at z0 + i*dz. */
+  shoreX: readonly number[];
+  /** Headland weight 0..1 at z0 + i*dz (1 = rocky headland, 0 = beach). */
+  headland: readonly number[];
+  /** The landform's plain rise and Ghats start/ramp (CoastShape), so the shader can tell plateau tops and the escarpment from the plain. */
+  plainRiseMPerKm: number;
+  hillsStartM: number;
+  hillsRampM: number;
 }
 
 /** One river cut into a plains terrain: an infinite line through (x0,z0)-(x1,z1) with a noise meander. */
@@ -295,7 +340,8 @@ export type TheatreId = (typeof TheatreId)[keyof typeof TheatreId];
  * (tests/terrain/theatres.test.ts).
  */
 export const THEATRE_TERRAIN_PARAMS: Readonly<Record<TheatreId, TerrainParams>> = {
-  // West coast (Konkan/Goa): ~72% Arabian Sea to the west, coastal plain, Western Ghats inland.
+  // West coast (Konkan/Goa): ~72% Arabian Sea to the west; beaches between laterite headlands,
+  // estuaries, a coastal plain with laterite plateaus, and the Western Ghats escarpment inland.
   konkan: {
     ...DEFAULT_TERRAIN_PARAMS,
     fbm: { octaves: 6, baseFrequency: 1 / 5000, baseAmplitudeM: 1, lacunarity: 2.0, persistence: 0.5 },
@@ -310,10 +356,21 @@ export const THEATRE_TERRAIN_PARAMS: Readonly<Record<TheatreId, TerrainParams>> 
       shoreWiggleFreq: 1 / 25000,
       plainRiseMPerKm: 2.5,
       plainReliefM: 40,
+      // The Western Ghats: a steep ~6 km escarpment up to the Deccan plateau at ~800 m.
       hillsStartM: 28000,
-      hillsRampM: 14000,
-      hillsHeightM: 900,
-      islandHeightM: 90,
+      hillsRampM: 6000,
+      hillsHeightM: 750,
+      islandHeightM: 60,
+      headlandFreq: 1 / 7000,
+      headlandProtrusionM: 700,
+      headlandHeightM: 35,
+      plateauHeightM: 70,
+      estuaries: [
+        // Mandovi (Panaji), Zuari (Vasco/Dabolim, the widest), and the smaller Sal to the south.
+        { mouthX: 37000, mouthZ: -21000, headingRad: 1.4835, lengthM: 42000, mouthWidthM: 1600, inlandWidthM: 220, taperM: 9000, bankWidthM: 160, meanderAmpM: 1800, meanderFreq: 1 / 11000 },
+        { mouthX: 37000, mouthZ: -9500, headingRad: 1.8326, lengthM: 36000, mouthWidthM: 2600, inlandWidthM: 260, taperM: 10000, bankWidthM: 180, meanderAmpM: 1500, meanderFreq: 1 / 12000 },
+        { mouthX: 37000, mouthZ: 23000, headingRad: 1.6581, lengthM: 20000, mouthWidthM: 700, inlandWidthM: 140, taperM: 5000, bankWidthM: 120, meanderAmpM: 900, meanderFreq: 1 / 8000 },
+      ],
     },
     waterLevelM: 0,
     seaLevelM: 0,
