@@ -31,7 +31,7 @@ import {
   ingestSnapshotIntoHudBuffer,
   interpolateHudEntity,
 } from './snapshotView';
-import { drawAltitudeTape, drawAoaGReadout, drawHeadingTape, drawPowerIndicator, drawSpeedTape } from './tapes';
+import { drawAltitudeTape, drawAoaGReadout, drawGearIndicator, drawHeadingTape, drawPowerIndicator, drawSpeedTape } from './tapes';
 import { createScreenProjection, drawLeadSight, drawTargetBox, hasTarget } from './targetBox';
 import { createWeaponStatusState, drawWeaponStatus, ingestWeaponEvents, setWeaponLoadout as applyWeaponLoadout } from './weaponStatus';
 import { drawWarnings } from './warnings';
@@ -125,6 +125,7 @@ export const createHudRenderer: CreateHudRenderer = (canvas, initialTier) => {
       drawHeadingTape(ctx, hud, widthPx * 0.5, 16, widthPx * 0.28);
       drawAoaGReadout(ctx, hud, 16, heightPx - 44);
       drawPowerIndicator(ctx, playerThrottleFrac, playerAfterburnerOn, 100, heightPx - 44);
+      drawGearIndicator(ctx, hud[SnapshotHud.GEAR_POS]!, 184, heightPx - 44);
       drawIlsNeedles(ctx, hud, widthPx, heightPx);
 
       const tierSettings = RENDER_QUALITY_TABLE[tier];

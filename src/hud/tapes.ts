@@ -176,3 +176,43 @@ export function drawPowerIndicator(ctx: CanvasRenderingContext2D, throttleFrac: 
   }
   ctx.restore();
 }
+
+/** Landing-gear indicator states, see gearIndicatorState. */
+export const GearIndicator = {
+  Up: 0,
+  Down: 1,
+  Transit: 2,
+} as const;
+export type GearIndicator = (typeof GearIndicator)[keyof typeof GearIndicator];
+
+/** gearPos (0 = retracted, 1 = extended) within this of either end counts as locked there. */
+const GEAR_LOCKED_EPSILON = 0.01;
+
+/** Classifies the player's gearPos (HUD block SnapshotHud.GEAR_POS) for drawGearIndicator. */
+export function gearIndicatorState(gearPos: number): GearIndicator {
+  if (gearPos >= 1 - GEAR_LOCKED_EPSILON) return GearIndicator.Down;
+  if (gearPos <= GEAR_LOCKED_EPSILON) return GearIndicator.Up;
+  return GearIndicator.Transit;
+}
+
+/**
+ * Landing-gear status cue: green "GEAR DN" when down and locked, amber "GEAR" while travelling,
+ * dim "GEAR UP" when retracted. The HUD otherwise only shows gear via the GearUnsafe warning
+ * (low and slow with gear up), so the player had no way to confirm a G-key toggle took effect.
+ */
+export function drawGearIndicator(ctx: CanvasRenderingContext2D, gearPos: number, xPx: number, yPx: number): void {
+  const state = gearIndicatorState(gearPos);
+  ctx.save();
+  ctx.font = '12px monospace';
+  if (state === GearIndicator.Down) {
+    ctx.fillStyle = '#40ff60';
+    ctx.fillText('GEAR DN', xPx, yPx);
+  } else if (state === GearIndicator.Transit) {
+    ctx.fillStyle = '#ffc040';
+    ctx.fillText('GEAR', xPx, yPx);
+  } else {
+    ctx.fillStyle = 'rgba(64, 255, 96, 0.45)';
+    ctx.fillText('GEAR UP', xPx, yPx);
+  }
+  ctx.restore();
+}

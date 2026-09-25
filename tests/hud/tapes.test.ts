@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { MPS_PER_KNOT, mpsToKnots, throttlePercent, wrapHeadingDeg } from '../../src/hud/tapes';
+import { GearIndicator, MPS_PER_KNOT, gearIndicatorState, mpsToKnots, throttlePercent, wrapHeadingDeg } from '../../src/hud/tapes';
 
 // Regression coverage for the throttle/afterburner HUD indicator added after a user report that
 // the throttle "doesn't seem to be creating enough power" — the real answer was that afterburner
@@ -47,5 +47,16 @@ describe('wrapHeadingDeg (pre-existing, was untested)', () => {
     expect(wrapHeadingDeg(-10)).toBe(350);
     expect(wrapHeadingDeg(0)).toBe(0);
     expect(wrapHeadingDeg(360)).toBe(0);
+  });
+});
+
+describe('gearIndicatorState', () => {
+  it('locked down / up at the ends of travel, transit in between', () => {
+    expect(gearIndicatorState(1)).toBe(GearIndicator.Down);
+    expect(gearIndicatorState(0.995)).toBe(GearIndicator.Down);
+    expect(gearIndicatorState(0)).toBe(GearIndicator.Up);
+    expect(gearIndicatorState(0.005)).toBe(GearIndicator.Up);
+    expect(gearIndicatorState(0.5)).toBe(GearIndicator.Transit);
+    expect(gearIndicatorState(0.05)).toBe(GearIndicator.Transit);
   });
 });
