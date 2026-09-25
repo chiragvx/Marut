@@ -177,6 +177,24 @@ export function drawPowerIndicator(ctx: CanvasRenderingContext2D, throttleFrac: 
   ctx.restore();
 }
 
+/** Fuel remaining for display: whole kilograms, never negative. */
+export function fuelDisplayKg(fuelKg: number): number {
+  return Math.max(0, Math.round(fuelKg));
+}
+
+/**
+ * Fuel remaining, kg (HUD block SnapshotHud.FUEL_KG). Turns red while the LowFuel warning is
+ * active (world.ts, below WARNING_LOW_FUEL_FRAC of internal capacity). Added alongside the
+ * fuel-burn mass model: fuel now sets both weight and range, and the HUD never showed it.
+ */
+export function drawFuelIndicator(ctx: CanvasRenderingContext2D, fuelKg: number, lowFuel: boolean, xPx: number, yPx: number): void {
+  ctx.save();
+  ctx.font = '12px monospace';
+  ctx.fillStyle = lowFuel ? '#ff4040' : '#40ff60';
+  ctx.fillText(`FUEL ${fuelDisplayKg(fuelKg)}`, xPx, yPx);
+  ctx.restore();
+}
+
 /** Landing-gear indicator states, see gearIndicatorState. */
 export const GearIndicator = {
   Up: 0,

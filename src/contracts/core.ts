@@ -221,6 +221,15 @@ export interface EntityState {
   /** Current throttle lever position actually applied by the flight model, 0..1 (may lag PilotInputs.throttle per engine spool dynamics). */
   throttle: number;
   afterburnerOn: boolean;
+  /**
+   * Mass of carried stores (missiles + gun ammunition), kg. Aircraft only. Written each tick by
+   * src/core's combat adapter from the live weapon-station counts, so it drops as weapons are
+   * used; read by src/physics's `stepAircraft`, whose total mass is
+   * `AircraftDefinition.emptyMassKg + fuelKg + storesMassKg`. Optional: absent means 0 (clean).
+   */
+  storesMassKg?: number;
+  /** Drag area (CD*S, m^2) of carried stores, added to the airframe's drag. Same ownership as storesMassKg. Optional: absent means 0. */
+  storesDragAreaM2?: number;
 
   /** Bitmask of EntityFlag. */
   flags: EntityFlags;

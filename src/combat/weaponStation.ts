@@ -23,6 +23,32 @@ import {
 } from '../contracts/combat';
 import { Vec3, Quat, nextRange, type PrngState } from '../math';
 
+/**
+ * Carried-stores mass per round/missile, kg, and drag area per loaded missile (CD*S, m^2, incl.
+ * its launch rail). R-73-class IR missile ~105 kg; Derby-class radar missile ~118 kg; one GSh-23
+ * 23x115 round ~0.34 kg. Drag areas are typical for rail-mounted AAMs: a few percent of the clean
+ * airframe's ~1.5 m^2 each. Gun ammunition is internal (mass only, no drag).
+ */
+export const STORE_MASS_KG: Readonly<Record<WeaponKind, number>> = { gun: 0.34, ir_missile: 105, radar_missile: 118 };
+export const STORE_DRAG_AREA_M2: Readonly<Record<WeaponKind, number>> = { gun: 0, ir_missile: 0.03, radar_missile: 0.04 };
+
+/**
+ * Current mass (kg) and drag area (m^2) of everything still loaded on `state`'s stations. src/core
+ * writes these onto the aircraft's EntityState (storesMassKg/storesDragAreaM2) each tick, so both
+ * drop as rounds are fired and missiles launched. Allocation-free.
+ */
+export function computeStoresLoad(state: Pick<WeaponsState, 'stations'>, out: { massKg: number; dragAreaM2: number }): void {
+  let massKg = 0;
+  let dragAreaM2 = 0;
+  for (let i = 0; i < state.stations.length; i++) {
+    const st = state.stations[i]!;
+    massKg += st.count * STORE_MASS_KG[st.weapon];
+    dragAreaM2 += st.count * STORE_DRAG_AREA_M2[st.weapon];
+  }
+  out.massKg = massKg;
+  out.dragAreaM2 = dragAreaM2;
+}
+
 export const createCombatRngState: CreateCombatRngState = (subSeed) => ({ seedState: subSeed >>> 0 });
 
 export const createWeaponsState: CreateWeaponsState = (loadout: WeaponsLoadout, rngSubSeed: number): WeaponsState => {

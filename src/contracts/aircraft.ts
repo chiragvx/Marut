@@ -106,6 +106,10 @@ export interface AeroTables {
   CL_elevon: number;
   /** Per rad |symmetric elevon| (induced drag from control deflection). */
   CD_elevon: number;
+  /** Drag coefficient increment with the landing gear fully extended (scaled by gearPos). Optional: absent means 0. */
+  CD_gear?: number;
+  /** Drag coefficient increment with the airbrake extended (scaled by airbrake position). Optional: absent means 0. */
+  CD_airbrake?: number;
   /** Per rad symmetric elevon. MUST be negative — see the sign rule above. */
   Cm_elevon: number;
   /** Per rad (elevonL - elevonR). */

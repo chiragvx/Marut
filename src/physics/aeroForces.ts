@@ -75,7 +75,8 @@ export function computeAeroForceMoment(
   omega: Readonly<Vec3Like>,
   altAglM: number,
   def: AircraftDefinition,
-  out: AeroOutput
+  out: AeroOutput,
+  configDragCoeff = 0
 ): AeroOutput {
   const aero = def.aero;
   const elevonSym = (elevonL + elevonR) / 2;
@@ -83,7 +84,9 @@ export function computeAeroForceMoment(
   // 4.4 — force buildup.
   const groundEffectMultiplier = 1 + aero.groundEffectMaxDeltaCL * (1 - smoothstep(0, 1, altAglM / def.wingSpanM));
   const CL = (interpolate2D(aero.CL, frame.alpha, frame.mach) + aero.CL_elevon * elevonSym) * groundEffectMultiplier;
-  const CD = interpolate2D(aero.CD, frame.alpha, frame.mach) + aero.CD_elevon * Math.abs(elevonSym);
+  // configDragCoeff: gear/airbrake/external-stores drag, already referenced to wingAreaM2 (see
+  // integrator.ts's runSubstep, which owns the aircraft configuration this depends on).
+  const CD = interpolate2D(aero.CD, frame.alpha, frame.mach) + aero.CD_elevon * Math.abs(elevonSym) + configDragCoeff;
   const CY = aero.CY_beta * frame.beta + aero.CY_rudder * rudder;
 
   const D = CD * frame.qBar * def.wingAreaM2;

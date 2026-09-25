@@ -86,7 +86,8 @@ function makeState(overrides: Partial<EntityState> = {}): EntityState {
     omega: { x: 0, y: 0, z: 0 },
     alive: true,
     hp: 100,
-    fuelKg: 1000,
+    // emptyMassKg (8000) + fuel = the fixture's massKg (10000): stepAircraft's mass is empty+fuel+stores.
+    fuelKg: 2000,
     elevonL: 0,
     elevonR: 0,
     rudder: 0,

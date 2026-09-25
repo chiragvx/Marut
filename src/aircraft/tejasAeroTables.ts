@@ -144,6 +144,11 @@ export const aero: AeroTables = {
   Cn_beta: 0.15,
   CL_elevon: 0.42,
   CD_elevon: 0.15,
+  // Configuration drag, referenced to wingAreaM2 (38.4 m^2). Gear: ~0.02 is typical for a
+  // fighter's tricycle gear with doors open (~0.8 m^2 of drag area). Airbrake: the Tejas's
+  // upper-fuselage airbrake panels, ~0.05 (~1.9 m^2), enough to roughly double clean-cruise drag.
+  CD_gear: 0.02,
+  CD_airbrake: 0.05,
   /** MUST be negative — 00-architecture.md section 6.2's elevon sign rule. */
   Cm_elevon: -0.85,
   Cl_elevon: 0.12,

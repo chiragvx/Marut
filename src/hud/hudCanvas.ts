@@ -16,7 +16,7 @@
  * unaffected (none of them depended on camera mode per that same section).
  */
 
-import { NO_ENTITY_ID, SnapshotEntity, SnapshotHud, SpeedUnit, entityFieldOffset, type QualityTier } from '../contracts/core';
+import { NO_ENTITY_ID, SnapshotEntity, SnapshotHud, SpeedUnit, WarningBit, entityFieldOffset, type QualityTier } from '../contracts/core';
 import { RENDER_QUALITY_TABLE, type CameraState, type CreateHudRenderer, type HudRenderer } from '../contracts/render';
 
 import { drawLadder } from './ladder';
@@ -31,7 +31,7 @@ import {
   ingestSnapshotIntoHudBuffer,
   interpolateHudEntity,
 } from './snapshotView';
-import { drawAltitudeTape, drawAoaGReadout, drawGearIndicator, drawHeadingTape, drawPowerIndicator, drawSpeedTape } from './tapes';
+import { drawAltitudeTape, drawAoaGReadout, drawFuelIndicator, drawGearIndicator, drawHeadingTape, drawPowerIndicator, drawSpeedTape } from './tapes';
 import { createScreenProjection, drawLeadSight, drawTargetBox, hasTarget } from './targetBox';
 import { createWeaponStatusState, drawWeaponStatus, ingestWeaponEvents, setWeaponLoadout as applyWeaponLoadout } from './weaponStatus';
 import { drawWarnings } from './warnings';
@@ -126,6 +126,7 @@ export const createHudRenderer: CreateHudRenderer = (canvas, initialTier) => {
       drawAoaGReadout(ctx, hud, 16, heightPx - 44);
       drawPowerIndicator(ctx, playerThrottleFrac, playerAfterburnerOn, 100, heightPx - 44);
       drawGearIndicator(ctx, hud[SnapshotHud.GEAR_POS]!, 184, heightPx - 44);
+      drawFuelIndicator(ctx, hud[SnapshotHud.FUEL_KG]!, (hud[SnapshotHud.WARNING_BITS]! & WarningBit.LowFuel) !== 0, 184, heightPx - 28);
       drawIlsNeedles(ctx, hud, widthPx, heightPx);
 
       const tierSettings = RENDER_QUALITY_TABLE[tier];

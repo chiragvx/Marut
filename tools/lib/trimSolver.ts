@@ -41,6 +41,17 @@ import { Quat, clamp, inverseLerp, interpolate2D, type Table2D } from '../../src
 import { SIM_DT_SEC } from '../../src/contracts/core';
 import { resetFcsTrimState } from '../../src/physics';
 import { entityPoolIndex, getLastGLoad, neutralGReference } from '../../src/physics/fcs';
+import { emptyMassKg as TEJAS_EMPTY_MASS_KG } from '../../src/aircraft/tejasGeometry';
+
+/**
+ * Fuel load that makes the (clean, no-stores) Tejas weigh `massKg`. src/physics's mass is now
+ * `emptyMassKg + fuelKg + storesMassKg` (it used to be a fixed def.massKg regardless of fuel), so
+ * each performance condition's own massKg is honoured by fuelling to it. May exceed maxFuelKg for
+ * the heavier (e.g. 9500 kg, i.e. stores-equivalent) conditions -- the solver only needs the mass.
+ */
+function fuelKgForMass(massKg: number): number {
+  return Math.max(0, massKg - TEJAS_EMPTY_MASS_KG);
+}
 
 // -----------------------------------------------------------------------------
 // ISA atmosphere (module 12's own inlined copy — see 12-verification.md
@@ -84,7 +95,7 @@ export function isaAt(altitudeM: number): IsaResult {
 /** ISA sea-level air density, kg/m^3 — used by the analytic stall-speed check. */
 export const RHO0_KG_M3 = 1.225;
 
-/** Builds an EntityState per 12-verification.md section 4.2.1's exact recipe. `fuelKg` is not specified by that recipe; a generous fixed value is used so an engine model that zeroes thrust at zero fuel never masks a trim search. */
+/** Builds an EntityState per 12-verification.md section 4.2.1's exact recipe. `fuelKg` is not specified by that recipe; it is set so the aircraft weighs `condition.massKg` (see fuelKgForMass). */
 export function makeTrimSeedState(condition: TrimCondition): EntityState {
   const rot: QuatLike = { x: 0, y: 0, z: 0, w: 1 };
   Quat.fromYawPitchRoll(0, 0, condition.bankRad, rot);
@@ -98,7 +109,7 @@ export function makeTrimSeedState(condition: TrimCondition): EntityState {
     omega: { x: 0, y: 0, z: 0 },
     alive: true,
     hp: 100,
-    fuelKg: 3000,
+    fuelKg: fuelKgForMass(condition.massKg),
     elevonL: 0,
     elevonR: 0,
     rudder: 0,
@@ -1308,6 +1319,33 @@ function findVmax<TDef extends GCommandAircraftDefLike>(
   return { speedMps: lastGoodSpeed, trim: makeTrim(lastGoodSpeed, lastGood) };
 }
 
+/**
+ * Sustained turn rate at Mach TURN_RATE_TEST_MACH, measured by FLYING a closed-loop level turn at
+ * full afterburner. The pitch stick commands a load factor directly (via the FCS's own stick->g
+ * mapping, `pitchStickForGCommand` with the live neutral-stick reference), and that load factor is
+ * walked (PI on airspeed error) to where thrust exactly balances drag at the test speed. Roll holds
+ * the turn level: the level-turn bank for that load factor, plus a correction on vertical speed.
+ * The turn rate comes from the load factor and speed averaged over the final TURN_FLY_MEASURE_SEC.
+ *
+ * Replaces a bank-angle bisection over `trimConverges`, whose fixed pitch stick cannot hold a
+ * level turn (the aircraft climbs or sinks off the bank it was seeded at), so its steady-state
+ * check failed well short of the airframe's real capability: 8.3 deg/s at 9500 kg where a flown
+ * level turn settles at ~12.6 deg/s (~4.5g at Mach 0.6 / 5 km), consistent with the aero/thrust
+ * tables' own thrust=drag point. That gap was masked while src/physics used a fixed 8500 kg
+ * regardless of the condition's own massKg.
+ */
+const TURN_FLY_DURATION_SEC = 60;
+const TURN_FLY_MEASURE_SEC = 15;
+const TURN_FLY_INITIAL_G = 3;
+/** Load-factor PI on airspeed error: g per (m/s), and g per (m/s * s). */
+const TURN_FLY_G_KP = 0.2;
+const TURN_FLY_G_KI = 0.01;
+/** Extra bank per m/s of climb rate, rad/(m/s): climbing -> steepen the bank to stay level. */
+const TURN_FLY_BANK_PER_VS = 0.01;
+/** Extra bank per metre above the test altitude, rad/m (removes the slow altitude drift). */
+const TURN_FLY_BANK_PER_ALT_M = 0.0005;
+const TURN_FLY_ROLL_GAIN = 2;
+
 function findMaxSustainedTurnRateDegSec<TDef extends GCommandAircraftDefLike>(
   step: StepAircraftLike<TDef>,
   def: TDef,
@@ -1315,24 +1353,41 @@ function findMaxSustainedTurnRateDegSec<TDef extends GCommandAircraftDefLike>(
   massKg: number
 ): { degSec: number; trim?: TrimResult } {
   const speedMps = TURN_RATE_TEST_MACH * isaAt(altitudeM).soundSpeedMps;
-  let lo = 0;
-  let hi = TURN_RATE_BISECT_MAX_BANK_RAD;
-  let lastConverged: TrimResult | undefined;
-  const wingsLevel = trimConverges(step, def, altitudeM, speedMps, 0, massKg);
-  if (wingsLevel.status === TrimStatus.Converged) lastConverged = wingsLevel;
-  for (let i = 0; i < TURN_RATE_BISECT_ITERATIONS; i++) {
-    const mid = (lo + hi) / 2;
-    const r = trimConverges(step, def, altitudeM, speedMps, mid, massKg);
-    if (r.status === TrimStatus.Converged) {
-      lo = mid;
-      lastConverged = r;
-    } else {
-      hi = mid;
+  const initialBankRad = Math.acos(1 / TURN_FLY_INITIAL_G);
+  let state = makeTrimSeedState({ altitudeM, speedMps, bankRad: initialBankRad, massKg });
+  resetFcsTrimState(entityPoolIndex(state.id));
+  let scratch = cloneEntityState(state);
+  const damage = makeFullHealthDamageState();
+  const inputs = makeProbeInputs(0, 1); // throttle=1 => afterburner
+  const ypr = { headingRad: 0, pitchRad: 0, rollRad: 0 };
+  let gIntegral = TURN_FLY_INITIAL_G;
+  let gSum = 0;
+  let vSum = 0;
+  let samples = 0;
+  const totalSteps = Math.round(TURN_FLY_DURATION_SEC / SIM_DT_SEC);
+  const measureFrom = totalSteps - Math.round(TURN_FLY_MEASURE_SEC / SIM_DT_SEC);
+  for (let i = 0; i < totalSteps; i++) {
+    const speedErr = vecLength(state.vel) - speedMps;
+    gIntegral = clamp(gIntegral + TURN_FLY_G_KI * speedErr * SIM_DT_SEC, 1, def.fcsLimits.maxGLoadPos);
+    const gCmd = clamp(gIntegral + TURN_FLY_G_KP * speedErr, 1, def.fcsLimits.maxGLoadPos);
+    inputs.pitch = pitchStickForGCommand(gCmd, def.fcsLimits.maxGLoadPos, def.fcsLimits.maxGLoadNeg, neutralGReference(state.rot));
+    Quat.toYawPitchRoll(state.rot, ypr);
+    const bankTargetRad = clamp(Math.acos(1 / gCmd) + TURN_FLY_BANK_PER_VS * state.vel.y + TURN_FLY_BANK_PER_ALT_M * (state.pos.y - altitudeM), 0, TURN_RATE_BISECT_MAX_BANK_RAD);
+    inputs.roll = clamp(TURN_FLY_ROLL_GAIN * (bankTargetRad - ypr.rollRad), -1, 1);
+    step(state, damage, inputs, buildTrimEnvironment(state.pos.y), def, SIM_DT_SEC, scratch);
+    const tmp = state;
+    state = scratch;
+    scratch = tmp;
+    if (i >= measureFrom) {
+      gSum += getLastGLoad(entityPoolIndex(state.id));
+      vSum += vecLength(state.vel);
+      samples++;
     }
   }
-  const n = 1 / Math.cos(lo);
-  const turnRateRadSec = n > 1 ? (GRAVITY_MPS2 * Math.sqrt(n * n - 1)) / speedMps : 0;
-  return { degSec: (turnRateRadSec * 180) / Math.PI, trim: lastConverged };
+  const n = gSum / samples;
+  const vAvg = vSum / samples;
+  const turnRateRadSec = n > 1 ? (GRAVITY_MPS2 * Math.sqrt(n * n - 1)) / vAvg : 0;
+  return { degSec: (turnRateRadSec * 180) / Math.PI };
 }
 
 function computeClimbRateMps<TDef>(step: StepAircraftLike<TDef>, def: TDef, altitudeM: number, massKg: number): number {
@@ -1397,7 +1452,8 @@ function computeGroundRollM<TDef extends AircraftDefLike>(
   step: StepAircraftLike<TDef>,
   def: TDef,
   mode: 'takeoff' | 'landing',
-  startSpeedMps: number
+  startSpeedMps: number,
+  massKg: number
 ): number {
   const damage = makeFullHealthDamageState();
   // Spawn resting on the gear, not with the CG exactly at ground level:
@@ -1427,7 +1483,7 @@ function computeGroundRollM<TDef extends AircraftDefLike>(
     omega: { x: 0, y: 0, z: 0 },
     alive: true,
     hp: 100,
-    fuelKg: 3000,
+    fuelKg: fuelKgForMass(massKg),
     elevonL: 0,
     elevonR: 0,
     rudder: 0,
@@ -1496,11 +1552,11 @@ export function checkPerformanceTarget<TDef extends AircraftDefLike>(
       break;
     }
     case PerformanceTargetKind.TakeoffRollM:
-      measured = computeGroundRollM(step, def, 'takeoff', 0);
+      measured = computeGroundRollM(step, def, 'takeoff', 0, target.massKg);
       break;
     case PerformanceTargetKind.LandingRollM: {
       const vTouchdown = computeStallSpeedMps(def, target.massKg, 1.6) * LANDING_APPROACH_SPEED_FACTOR;
-      measured = computeGroundRollM(step, def, 'landing', vTouchdown);
+      measured = computeGroundRollM(step, def, 'landing', vTouchdown, target.massKg);
       break;
     }
     default: {

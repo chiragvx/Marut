@@ -62,6 +62,19 @@ const scratchTotalForce: Vec3Like = { x: 0, y: 0, z: 0 };
 const scratchTotalMoment: Vec3Like = { x: 0, y: 0, z: 0 };
 const scratchSurfaces: FcsSurfaces = { elevonL: 0, elevonR: 0, rudder: 0 };
 
+/**
+ * How strongly the rotational inertia follows the mass: `I = I_ref * (1 + k*(m/m_ref - 1))`,
+ * where `I_ref` is `def.inertiaBodyKgM2` at the reference mass `def.massKg`. Well under 1 because
+ * the mass that changes in flight -- internal fuel and fuselage/wing-root stores -- sits close to
+ * the CG, so it moves the inertia far less than it moves the mass.
+ */
+const INERTIA_MASS_SENSITIVITY = 0.5;
+
+/** Current all-up mass: empty airframe + remaining fuel + carried stores. */
+export function aircraftMassKg(state: Pick<EntityState, 'fuelKg' | 'storesMassKg'>, def: Pick<AircraftDefinition, 'emptyMassKg'>): number {
+  return def.emptyMassKg + state.fuelKg + (state.storesMassKg ?? 0);
+}
+
 function copyEntityState(src: EntityState, dst: EntityState): void {
   dst.id = src.id;
   dst.kind = src.kind;
@@ -79,6 +92,8 @@ function copyEntityState(src: EntityState, dst: EntityState): void {
   dst.gearPos = src.gearPos;
   dst.throttle = src.throttle;
   dst.afterburnerOn = src.afterburnerOn;
+  dst.storesMassKg = src.storesMassKg;
+  dst.storesDragAreaM2 = src.storesDragAreaM2;
   dst.flags = src.flags;
 }
 
@@ -106,9 +121,15 @@ function runSubstep(
 ): void {
   computeAirspeedFrame(out.vel, out.rot, env.windWorldMps, env.airDensityKgM3, env.soundSpeedMps, scratchFrame);
   const altAglM = out.pos.y - env.groundElevationM;
+  // Mass varies with fuel burn and stores release (previously a fixed def.massKg).
+  const massKg = aircraftMassKg(out, def);
 
   if (!structuralFailure) {
-    computeAeroForceMoment(scratchFrame, out.elevonL, out.elevonR, out.rudder, out.omega, altAglM, def, scratchAero);
+    const configDragCoeff =
+      out.gearPos * (def.aero.CD_gear ?? 0) +
+      (inputs.airbrake ? (def.aero.CD_airbrake ?? 0) : 0) +
+      (out.storesDragAreaM2 !== undefined && out.storesDragAreaM2 > 0 && def.wingAreaM2 > 0 ? out.storesDragAreaM2 / def.wingAreaM2 : 0);
+    computeAeroForceMoment(scratchFrame, out.elevonL, out.elevonR, out.rudder, out.omega, altAglM, def, scratchAero, configDragCoeff);
   } else {
     Vec3.set(scratchAero.forceBody, 0, 0, 0);
     Vec3.set(scratchAero.momentBody, 0, 0, 0);
@@ -137,7 +158,7 @@ function runSubstep(
   Vec3.add(scratchAero.forceBody, scratchThrustForceBody, scratchBodyForceSum);
   Quat.rotate(out.rot, scratchBodyForceSum, scratchWorldForceFromBody);
   Vec3.add(scratchWorldForceFromBody, scratchGearForceWorld, scratchTotalForce);
-  scratchTotalForce.y += -def.massKg * env.gravityMps2;
+  scratchTotalForce.y += -massKg * env.gravityMps2;
 
   // Total moment: aero + gear (thrust assumed through the CG, section 9).
   Vec3.add(scratchAero.momentBody, scratchGearMomentBody, scratchTotalMoment);
@@ -156,7 +177,7 @@ function runSubstep(
       out.omega,
       scratchTotalForce,
       out.rot,
-      def.massKg,
+      massKg,
       env.gravityMps2,
       inputs,
       damage,
@@ -170,7 +191,11 @@ function runSubstep(
     out.rudder = scratchSurfaces.rudder;
   }
 
-  integrateRigidBody(out, scratchTotalForce, scratchTotalMoment, def.massKg, inertia.I, inertia.Iinv, dtSub);
+  // Scaling the inertia tensor by s is equivalent to scaling the applied moment by 1/s in Euler's
+  // equation (the gyroscopic term's s cancels), so the cached tensor is reused as-is.
+  const inertiaScale = 1 + INERTIA_MASS_SENSITIVITY * (massKg / def.massKg - 1);
+  Vec3.scale(scratchTotalMoment, 1 / inertiaScale, scratchTotalMoment);
+  integrateRigidBody(out, scratchTotalForce, scratchTotalMoment, massKg, inertia.I, inertia.Iinv, dtSub);
 
   stepGearPos(out, inputs, damage.gearHealthPct, dtSub);
   if (inputs.gearDown) out.flags |= EntityFlag.GearDownCommanded;

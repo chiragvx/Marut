@@ -29,6 +29,7 @@ import {
   createProjectilePool,
   resetProjectile,
   initProjectile,
+  computeStoresLoad,
 } from '../combat';
 import {
   GUN_MAX_AMMO_ROUNDS,
@@ -103,6 +104,7 @@ export function createCombatAdapter(): CombatPort & CombatPortWithContacts {
   const sensorEventsScratch: SimEvent[] = [];
   const fireEventsScratch: SimEvent[] = [];
   const hitEventsScratch: SimEvent[] = [];
+  const storesLoadScratch = { massKg: 0, dragAreaM2: 0 };
   /** Projectiles finished this tick, despawned only after the step loop (see that loop's comment). */
   const despawnScratch: EntityId[] = [];
 
@@ -199,6 +201,11 @@ export function createCombatAdapter(): CombatPort & CombatPortWithContacts {
         outRequestsScratch.length = 0;
         fireEventsScratch.length = 0;
         fireWeapons(observer.id, observer, damage, lockedTarget, inputs, state, ctx.simTimeSec, dtSec, outRequestsScratch, fireEventsScratch);
+        // Carried weapons' mass/drag for the flight model, from the counts left after this tick's
+        // firing (EntityState.storesMassKg/storesDragAreaM2's doc comment).
+        computeStoresLoad(state, storesLoadScratch);
+        observer.storesMassKg = storesLoadScratch.massKg;
+        observer.storesDragAreaM2 = storesLoadScratch.dragAreaM2;
 
         for (const req of outRequestsScratch) {
           if (freeProjectileIndices.length === 0) continue;

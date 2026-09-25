@@ -172,7 +172,8 @@ describe('stepAircraft — landing gear static equilibrium (full pipeline)', () 
       rot: { x: 0, y: 0, z: 0, w: 1 },
       vel: { x: 0, y: 0, z: 0 },
       omega: { x: 0, y: 0, z: 0 },
-      alive: true, hp: 100, fuelKg: 1000,
+      // emptyMassKg (0.8*massKg) + fuel = massKg, which the analytic equilibrium above assumes.
+      alive: true, hp: 100, fuelKg: massKg * 0.2,
       elevonL: 0, elevonR: 0, rudder: 0, gearPos: 1, throttle: 0, afterburnerOn: false, flags: 0,
     };
     const damage: DamageState = {

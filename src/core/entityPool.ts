@@ -64,6 +64,8 @@ function freshEntityState(): EntityState {
     gearPos: 0,
     throttle: 0,
     afterburnerOn: false,
+    storesMassKg: 0,
+    storesDragAreaM2: 0,
     flags: 0,
   };
 }
@@ -168,6 +170,8 @@ class KindStore {
     state.gearPos = 0;
     state.throttle = 0;
     state.afterburnerOn = false;
+    state.storesMassKg = 0;
+    state.storesDragAreaM2 = 0;
     state.flags = 0;
     const dmg = this.damage[index];
     if (dmg) {

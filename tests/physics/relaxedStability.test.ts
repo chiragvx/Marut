@@ -116,7 +116,8 @@ function initialState(alpha: number): EntityState {
     rot: { x: 0, y: 0, z: 0, w: 1 },
     vel: { x: V0 * Math.cos(alpha), y: -V0 * Math.sin(alpha), z: 0 },
     omega: { x: 0, y: 0, z: 0 },
-    alive: true, hp: 100, fuelKg: 500,
+    // emptyMassKg (0.8*MASS_KG) + fuel = MASS_KG, the mass the trim above was computed for.
+    alive: true, hp: 100, fuelKg: MASS_KG * 0.2,
     elevonL: 0, elevonR: 0, rudder: 0, gearPos: 0, throttle: 0, afterburnerOn: false, flags: 0,
   };
 }
