@@ -44,6 +44,7 @@ import { createCloudSystem } from './clouds';
 import { createFarGround } from './farGround';
 import { getAtmosphereUniforms, setAtmosphereCamera } from './atmosphere';
 import { createGrade } from './postGrade';
+import { createSunShadows } from './sunShadows';
 import { TERRAIN_WORLD_EXTENT_M } from '../contracts/terrain';
 import { createWireframeAircraftRenderer } from './wireframeAircraftRenderer';
 
@@ -118,6 +119,8 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
 
   const skyFog = createSkyFogSystem(scene);
   const farGround = createFarGround(scene);
+  const sunShadows = createSunShadows();
+  const shadowFocus = new THREE.Vector3();
   const clouds = createCloudSystem(scene);
 
   const snapshotBuf = createSnapshotDoubleBuffer();
@@ -137,6 +140,10 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
   };
   const scratchProjMatrix = new THREE.Matrix4();
 
+  let shadowsOn = false;
+  /** Terrain only casts sun shadows where there is relief to cast them (Goa's Ghats, the test terrain). */
+  let hillyTheatre = false;
+
   function applyQualityTier(t: QualityTier): void {
     const settings = RENDER_QUALITY_TABLE[t];
     grade.setAntialias(settings.antialias !== AntiAliasMode.Off);
@@ -147,10 +154,15 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
     terrainConsumer.setFog(settings.fogStartM, settings.fogEndM);
     features.uniforms.uFogStart.value = settings.fogStartM;
     features.uniforms.uFogEnd.value = settings.fogEndM;
-    skyFog.setShadowsEnabled(settings.shadowsEnabled, settings.shadowCascades);
-    terrainConsumer.setShadowsEnabled(settings.shadowsEnabled);
+    // Sun shadows use their own map (sunShadows.ts); three's built-in shadow maps stay off, since
+    // every world material is a custom shader.
+    skyFog.setShadowsEnabled(false, 0);
+    sunShadows.setTier(t);
+    terrainConsumer.setShadowsEnabled(settings.shadowsEnabled && sunShadows.terrainCasts() && hillyTheatre);
+    features.setRealShadowRadius(settings.shadowsEnabled ? sunShadows.radiusM() : 0, settings.shadowsEnabled && sunShadows.treesCast());
     effects.setBudget(settings.effectBudget);
-    renderer.shadowMap.enabled = settings.shadowsEnabled;
+    renderer.shadowMap.enabled = false;
+    shadowsOn = settings.shadowsEnabled;
     if (settings.antialias === AntiAliasMode.Msaa4x) {
       composer.renderTarget1.samples = 4;
       composer.renderTarget2.samples = 4;
@@ -210,6 +222,8 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
       const shore = env.coast ? env.coast.shoreX.reduce((a, b) => a + b, 0) / env.coast.shoreX.length : undefined;
       farGround.setEnvironment(env, env.groundLevelM ?? 0, shore);
       terrainConsumer.setEnvironment(env);
+      hillyTheatre = env.surfaceStyle !== 'farmland';
+      applyQualityTier(tier);
     },
 
     ingestSnapshot(view) {
@@ -259,6 +273,7 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
         const f = computeInterpFraction(nowMs, curr.arrivalMs);
 
         interpolateEntity(snapshotBuf, playerSlot, f, interpEntity);
+        shadowFocus.set(interpEntity.pos.x, interpEntity.pos.y, interpEntity.pos.z);
         computeCameraPose(mode, interpEntity.pos, interpEntity.rot, interpEntity.vel, cameraModeState, frameDtSec, cameraPose);
         updateFloatingOrigin(floatingOrigin, cameraPose.pos);
         const origin = floatingOrigin.originWorld;
@@ -311,6 +326,7 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
       cameraState.worldPos.z = cameraPose.pos.z;
 
       if (!contextLost) {
+        sunShadows.render(renderer, scene, shadowFocus, floatingOrigin.originWorld, getAtmosphereUniforms().uAtmSunDir.value, shadowsOn);
         composer.render();
       }
 
@@ -323,6 +339,7 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
       features.dispose();
       clouds.dispose();
       farGround.dispose();
+      sunShadows.dispose();
       effects.dispose();
       airportLines.dispose();
       skyFog.dispose();

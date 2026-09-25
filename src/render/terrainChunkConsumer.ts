@@ -10,6 +10,7 @@ import * as THREE from 'three';
 import type { TerrainChunkReadyMessage, Vec3Like } from '../contracts/core';
 import type { SceneEnvironment } from '../contracts/render';
 import { applyTerrainEnvironment, createTerrainMaterial } from './terrainMaterial';
+import { CASTER_LAYER } from './sunShadows';
 
 function chunkKey(chunkX: number, chunkZ: number, lod: number): string {
   return `${chunkX}:${chunkZ}:${lod}`;
@@ -28,6 +29,7 @@ export interface TerrainChunkConsumer {
   setFogColor(color: THREE.Color): void;
   setSunDirection(dirWorld: Readonly<Vec3Like>): void;
   setEnvironment(env: Readonly<SceneEnvironment>): void;
+  /** Whether terrain chunks cast into the sun shadow map (sunShadows.ts; High/Ultra). */
   setShadowsEnabled(enabled: boolean): void;
   /** Repositions every resident chunk's root group from its absolute origin, section 4.3. */
   updateOrigin(originWorld: Readonly<Vec3Like>): void;
@@ -59,7 +61,7 @@ export function createTerrainChunkConsumer(root: THREE.Object3D): TerrainChunkCo
       geometry.setIndex(new THREE.BufferAttribute(indices, 1));
 
       const mesh = new THREE.Mesh(geometry, material);
-      mesh.receiveShadow = shadowsEnabled;
+      if (shadowsEnabled) mesh.layers.enable(CASTER_LAYER);
       mesh.matrixAutoUpdate = false;
       mesh.updateMatrix();
 
@@ -97,7 +99,10 @@ export function createTerrainChunkConsumer(root: THREE.Object3D): TerrainChunkCo
 
     setShadowsEnabled(enabled) {
       shadowsEnabled = enabled;
-      for (const entry of chunks.values()) entry.mesh.receiveShadow = enabled;
+      for (const entry of chunks.values()) {
+        if (enabled) entry.mesh.layers.enable(CASTER_LAYER);
+        else entry.mesh.layers.disable(CASTER_LAYER);
+      }
     },
 
     updateOrigin(originWorld) {

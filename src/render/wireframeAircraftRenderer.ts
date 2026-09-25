@@ -7,6 +7,7 @@
  */
 
 import * as THREE from 'three';
+import { AIRCRAFT_SHADOW_LAYER, buildAircraftShadowProxy } from './sunShadows';
 import type { QuatLike, Vec3Like } from '../contracts/core';
 import { GEAR_TRAVEL_RAD, WIREFRAME_CONTROL_GROUP_NAMES, type WireframeModel } from '../contracts/render';
 import { rotateVecByAxisAngle, rotateVecByQuat } from './mathInternal';
@@ -61,6 +62,8 @@ export function articulateVertex(
 
 interface WireframeInstance {
   lineSegments: THREE.LineSegments;
+  /** Solid shadow stand-in (shadow-caster layer only; never drawn by the main camera). */
+  shadowProxy: THREE.Mesh;
   assignedId: number;
 }
 
@@ -90,6 +93,8 @@ const scratchRender: Vec3Like = { x: 0, y: 0, z: 0 };
 export function createWireframeAircraftRenderer(root: THREE.Object3D, capacity: number = MAX_WIREFRAME_INSTANCES): WireframeAircraftRenderer {
   let model: WireframeModel | null = null;
   let material: THREE.LineBasicMaterial | null = null;
+  let proxyGeometry: THREE.BufferGeometry | null = null;
+  const proxyMaterial = new THREE.MeshBasicMaterial();
   const instances: WireframeInstance[] = [];
   const touchedThisFrame = new Uint8Array(capacity);
 
@@ -109,7 +114,13 @@ export function createWireframeAircraftRenderer(root: THREE.Object3D, capacity: 
     lineSegments.matrixAutoUpdate = false;
     lineSegments.frustumCulled = false;
     root.add(lineSegments);
-    return { lineSegments, assignedId: NO_ASSIGNED_ID };
+    proxyGeometry ??= buildAircraftShadowProxy(m.vertices);
+    const shadowProxy = new THREE.Mesh(proxyGeometry, proxyMaterial);
+    shadowProxy.layers.set(AIRCRAFT_SHADOW_LAYER);
+    shadowProxy.visible = false;
+    shadowProxy.frustumCulled = false;
+    root.add(shadowProxy);
+    return { lineSegments, shadowProxy, assignedId: NO_ASSIGNED_ID };
   }
 
   return {
@@ -151,6 +162,9 @@ export function createWireframeAircraftRenderer(root: THREE.Object3D, capacity: 
       inst.assignedId = entityId;
       inst.lineSegments.visible = true;
       touchedThisFrame[idx] = 1;
+      inst.shadowProxy.visible = true;
+      inst.shadowProxy.position.set(pos.x - originWorld.x, pos.y - originWorld.y, pos.z - originWorld.z);
+      inst.shadowProxy.quaternion.set(rot.x, rot.y, rot.z, rot.w);
 
       const posAttr = inst.lineSegments.geometry.getAttribute('position') as THREE.BufferAttribute;
       const posArr = posAttr.array as Float32Array;
@@ -183,6 +197,7 @@ export function createWireframeAircraftRenderer(root: THREE.Object3D, capacity: 
       for (let i = 0; i < instances.length; i++) {
         if (!touchedThisFrame[i]) {
           instances[i]!.lineSegments.visible = false;
+          instances[i]!.shadowProxy.visible = false;
           instances[i]!.assignedId = NO_ASSIGNED_ID;
         }
       }
@@ -191,6 +206,7 @@ export function createWireframeAircraftRenderer(root: THREE.Object3D, capacity: 
     dispose() {
       for (const inst of instances) {
         root.remove(inst.lineSegments);
+        root.remove(inst.shadowProxy);
         inst.lineSegments.geometry.dispose();
       }
       instances.length = 0;
@@ -198,6 +214,9 @@ export function createWireframeAircraftRenderer(root: THREE.Object3D, capacity: 
         material.dispose();
         material = null;
       }
+      proxyGeometry?.dispose();
+      proxyGeometry = null;
+      proxyMaterial.dispose();
       model = null;
     },
   };

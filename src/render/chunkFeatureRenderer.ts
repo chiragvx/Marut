@@ -17,6 +17,7 @@ import { TREE_KIND_COUNT, type ChunkFeatures } from '../contracts/terrain';
 import { DETAIL_GLSL, getDetailTexture } from './detailTextures';
 import { CLOUD_SHADOW_GLSL, getCloudShadowUniforms } from './clouds';
 import { ATMOSPHERE_GLSL, getAtmosphereUniforms } from './atmosphere';
+import { CASTER_LAYER, SUN_SHADOW_GLSL, getSunShadowUniforms } from './sunShadows';
 
 export const TREE_FADE_START_M = 3200;
 export const TREE_FADE_END_M = 4500;
@@ -49,9 +50,11 @@ const COMMON_GLSL = /* glsl */ `
     return mix(mix(hash12(i), hash12(i + vec2(1.0, 0.0)), u.x), mix(hash12(i + vec2(0.0, 1.0)), hash12(i + vec2(1.0, 1.0)), u.x), u.y);
   }
   ${CLOUD_SHADOW_GLSL}
-  // Same hemisphere + sun lighting as the terrain (including cloud shadows).
+  ${SUN_SHADOW_GLSL}
+  // Same hemisphere + sun lighting as the terrain (including cloud and sun shadows).
   vec3 lightGround(vec3 col, vec3 n, vec3 w) {
-    float diff = max(dot(n, normalize(uSunDir)), 0.0) * cloudShadow(w);
+    float ndl = dot(n, normalize(uSunDir));
+    float diff = max(ndl, 0.0) * cloudShadow(w) * sunShadow(w, ndl);
     vec3 ambient = mix(vec3(0.30, 0.27, 0.22), vec3(0.44, 0.47, 0.52), 0.5 + 0.5 * n.y);
     return col * (ambient + vec3(1.0, 0.97, 0.9) * 0.62 * diff);
   }
@@ -249,12 +252,14 @@ const TREE_SHADOW_FS = /* glsl */ `
   precision highp float;
   uniform float uFadeStart;
   uniform float uFadeEnd;
+  uniform float uRealShadowR; // real sun shadows cover this radius (0 = none): painted shadows fade in beyond it
   varying vec2 vQ;
   varying float vDist;
   void main() {
     float r2 = dot(vQ, vQ);
     if (r2 > 1.0) discard;
-    float a = 0.38 * (1.0 - r2) * (1.0 - smoothstep(uFadeStart, uFadeEnd, vDist));
+    float real = uRealShadowR > 0.0 ? 1.0 - smoothstep(uRealShadowR * 0.65, uRealShadowR * 0.9, vDist) : 0.0;
+    float a = 0.38 * (1.0 - r2) * (1.0 - smoothstep(uFadeStart, uFadeEnd, vDist)) * (1.0 - real);
     gl_FragColor = vec4(0.05, 0.06, 0.04, a);
   }
 `;
@@ -452,6 +457,11 @@ export interface ChunkFeatureRenderer {
   evict(key: string): void;
   /** Per frame: floating origin and distance-based visibility of trees/buildings. */
   update(originWorld: Readonly<Vec3Like>, cameraWorld: Readonly<Vec3Like>): void;
+  /**
+   * Radius of real sun shadows around the camera (0 = none) and whether trees cast into them. When
+   * trees cast, their painted shadows step aside inside that radius.
+   */
+  setRealShadowRadius(m: number, treesCast: boolean): void;
   readonly uniforms: FeatureUniforms;
   dispose(): void;
 }
@@ -463,7 +473,8 @@ export function createChunkFeatureRenderer(root: THREE.Object3D): ChunkFeatureRe
     uFogEnd: { value: 5000 },
     uSunDir: { value: new THREE.Vector3(0.4, 0.7, -0.3) },
   };
-  const shadowU = { ...getCloudShadowUniforms(), ...getAtmosphereUniforms() };
+  const shadowU = { ...getCloudShadowUniforms(), ...getAtmosphereUniforms(), ...getSunShadowUniforms() };
+  const realShadowR = { value: 0 };
   const decalMat = new THREE.ShaderMaterial({
     uniforms: { ...uniforms, ...shadowU, uDetail: { value: getDetailTexture() } },
     vertexShader: DECAL_VS,
@@ -483,7 +494,7 @@ export function createChunkFeatureRenderer(root: THREE.Object3D): ChunkFeatureRe
   );
   const shadowQuad = new THREE.PlaneGeometry(2, 2);
   const shadowMat = new THREE.ShaderMaterial({
-    uniforms: { uSunDir: uniforms.uSunDir, ...getAtmosphereUniforms(), ...fade },
+    uniforms: { uSunDir: uniforms.uSunDir, ...getAtmosphereUniforms(), ...fade, uRealShadowR: realShadowR },
     vertexShader: TREE_SHADOW_VS,
     fragmentShader: TREE_SHADOW_FS,
     transparent: true,
@@ -499,6 +510,11 @@ export function createChunkFeatureRenderer(root: THREE.Object3D): ChunkFeatureRe
   const buildingMat = new THREE.ShaderMaterial({ uniforms: { ...uniforms, ...shadowU, ...bFade }, vertexShader: BUILDING_VS, fragmentShader: BUILDING_FS });
 
   const chunks = new Map<string, ChunkEntry>();
+  let treesCast = false;
+  const setCast = (o: THREE.Object3D, on: boolean): void => {
+    if (on) o.layers.enable(CASTER_LAYER);
+    else o.layers.disable(CASTER_LAYER);
+  };
   const scratch = new THREE.Vector3();
 
   function instanced(geom: THREE.BufferGeometry, mat: THREE.Material, matrices: Float32Array, bound: THREE.Sphere, colors?: Float32Array): THREE.InstancedMesh | undefined {
@@ -548,16 +564,19 @@ export function createChunkFeatureRenderer(root: THREE.Object3D): ChunkFeatureRe
         shadows.frustumCulled = false;
         shadows.matrixAutoUpdate = false;
         shadows.renderOrder = 2;
+        setCast(trees, treesCast);
         group.add(trees, shadows);
         entry.treeObjects.push(trees, shadows);
       }
       const bld = instanced(boxGeom, buildingMat, f.buildingMatrices, bound, f.buildingColors);
       if (bld) {
+        bld.layers.enable(CASTER_LAYER);
         group.add(bld);
         entry.objects.push(bld);
       }
       const domes = instanced(domeGeom, buildingMat, f.domeMatrices, bound);
       if (domes) {
+        domes.layers.enable(CASTER_LAYER);
         group.add(domes);
         entry.objects.push(domes);
       }
@@ -572,6 +591,14 @@ export function createChunkFeatureRenderer(root: THREE.Object3D): ChunkFeatureRe
       for (const g of e.disposables) g.dispose();
       for (const o of [...e.objects, ...e.treeObjects]) (o as THREE.InstancedMesh).dispose?.();
       chunks.delete(key);
+    },
+
+    setRealShadowRadius(m, cast) {
+      realShadowR.value = cast ? m : 0;
+      treesCast = cast;
+      for (const e of chunks.values()) {
+        for (const o of e.treeObjects) if ((o as THREE.InstancedMesh).material !== shadowMat) setCast(o, cast);
+      }
     },
 
     update(origin, cam) {

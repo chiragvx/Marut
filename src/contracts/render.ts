@@ -72,12 +72,14 @@ export interface RenderQualitySettings {
   fogEndM: number;
 }
 
+// Shadows are on for every tier now (the user asked for low-quality shadows on Low and high-quality
+// on High); their per-tier quality lives in src/render/sunShadows.ts SHADOW_TIERS.
 export const RENDER_QUALITY_TABLE: Readonly<Record<QualityTier, RenderQualitySettings>> = {
   low: {
     terrainDrawDistanceChunks: 6,
     terrainMaxLodDepth: 3,
-    shadowsEnabled: false,
-    shadowCascades: 0,
+    shadowsEnabled: true,
+    shadowCascades: 1,
     effectBudget: 16,
     antialias: AntiAliasMode.Off,
     pixelRatioCap: 1.0,
@@ -89,8 +91,8 @@ export const RENDER_QUALITY_TABLE: Readonly<Record<QualityTier, RenderQualitySet
   medium: {
     terrainDrawDistanceChunks: 10,
     terrainMaxLodDepth: 4,
-    shadowsEnabled: false,
-    shadowCascades: 0,
+    shadowsEnabled: true,
+    shadowCascades: 1,
     effectBudget: 32,
     antialias: AntiAliasMode.Fxaa,
     pixelRatioCap: 1.5,
