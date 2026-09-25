@@ -49,41 +49,41 @@ describe('chunk addressing', () => {
 });
 
 describe('computeDesiredChunks (cold start, wasSplitLastFrame always false)', () => {
-  it('Ultra @ (0,5000,0): 124 chunks, depth histogram {4:16,5:44,6:64}, origin key {6,31,31}', () => {
+  it('Ultra @ (0,5000,0): 208 chunks, depth histogram {3:48,4:48,5:48,6:64}, origin key {6,31,31}', () => {
     const out: ChunkKey[] = [];
     computeDesiredChunks({ x: 0, y: 5000, z: 0 }, TERRAIN_QUALITY_PROFILES.ultra, neverSplit, out);
-    expect(out.length).toBe(124);
-    expect(depthHistogram(out)).toEqual({ 4: 16, 5: 44, 6: 64 });
+    expect(out.length).toBe(208);
+    expect(depthHistogram(out)).toEqual({ 3: 48, 4: 48, 5: 48, 6: 64 });
     expect(findCoveringKey(out, 0, 0)).toEqual({ depth: 6, cx: 31, cz: 31 });
   });
 
-  it('Ultra @ (0,15000,0): 44 chunks, origin key {5,15,15}', () => {
+  it('Ultra @ (0,15000,0): 160 chunks, origin key {5,15,15}', () => {
     const out: ChunkKey[] = [];
     computeDesiredChunks({ x: 0, y: 15000, z: 0 }, TERRAIN_QUALITY_PROFILES.ultra, neverSplit, out);
-    expect(out.length).toBe(44);
+    expect(out.length).toBe(160);
     expect(findCoveringKey(out, 0, 0)).toEqual({ depth: 5, cx: 15, cz: 15 });
   });
 
-  it('Low @ (0,2000,0): 4 chunks, all depth 3', () => {
+  it('Low @ (0,2000,0): 24 chunks, all depth 3', () => {
     const out: ChunkKey[] = [];
     computeDesiredChunks({ x: 0, y: 2000, z: 0 }, TERRAIN_QUALITY_PROFILES.low, neverSplit, out);
-    expect(out.length).toBe(4);
-    expect(depthHistogram(out)).toEqual({ 3: 4 });
+    expect(out.length).toBe(24);
+    expect(depthHistogram(out)).toEqual({ 3: 24 });
   });
 
-  it('Medium @ (0,5000,0): 12 chunks, depth histogram {4:12}, origin key {4,7,7}', () => {
+  it('Medium @ (0,5000,0): 80 chunks, depth histogram {3:16,4:64}, origin key {4,7,7}', () => {
     const out: ChunkKey[] = [];
     computeDesiredChunks({ x: 0, y: 5000, z: 0 }, TERRAIN_QUALITY_PROFILES.medium, neverSplit, out);
-    expect(out.length).toBe(12);
-    expect(depthHistogram(out)).toEqual({ 4: 12 });
+    expect(out.length).toBe(80);
+    expect(depthHistogram(out)).toEqual({ 3: 16, 4: 64 });
     expect(findCoveringKey(out, 0, 0)).toEqual({ depth: 4, cx: 7, cz: 7 });
   });
 
-  it('High @ (0,5000,0): 32 chunks, depth histogram {5:32}, origin key {5,15,15}', () => {
+  it('High @ (0,5000,0): 156 chunks, depth histogram {3:44,4:48,5:64}, origin key {5,15,15}', () => {
     const out: ChunkKey[] = [];
     computeDesiredChunks({ x: 0, y: 5000, z: 0 }, TERRAIN_QUALITY_PROFILES.high, neverSplit, out);
-    expect(out.length).toBe(32);
-    expect(depthHistogram(out)).toEqual({ 5: 32 });
+    expect(out.length).toBe(156);
+    expect(depthHistogram(out)).toEqual({ 3: 44, 4: 48, 5: 64 });
     expect(findCoveringKey(out, 0, 0)).toEqual({ depth: 5, cx: 15, cz: 15 });
   });
 });

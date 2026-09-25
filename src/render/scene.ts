@@ -43,6 +43,8 @@ import { createSkyFogSystem } from './skyFog';
 import { createTerrainChunkConsumer } from './terrainChunkConsumer';
 import { createChunkFeatureRenderer } from './chunkFeatureRenderer';
 import { createCloudSystem } from './clouds';
+import { createFarGround } from './farGround';
+import { setAtmosphereCamera } from './atmosphere';
 import { TERRAIN_WORLD_EXTENT_M } from '../contracts/terrain';
 import { createWireframeAircraftRenderer } from './wireframeAircraftRenderer';
 
@@ -110,6 +112,7 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
   const airportLines = createAirportLinesSystem(airportRoot);
 
   const skyFog = createSkyFogSystem(scene);
+  const farGround = createFarGround(scene);
   const clouds = createCloudSystem(scene);
 
   const snapshotBuf = createSnapshotDoubleBuffer();
@@ -200,6 +203,8 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
       features.uniforms.uFogColor.value.copy(skyFog.horizonColor);
       clouds.setFog(skyFog.horizonColor, 0);
       clouds.setConfig(env.clouds);
+      const shore = env.coast ? env.coast.shoreX.reduce((a, b) => a + b, 0) / env.coast.shoreX.length : undefined;
+      farGround.setEnvironment(env, env.groundLevelM ?? 0, shore);
       terrainConsumer.setEnvironment(env);
     },
 
@@ -257,6 +262,9 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
         camera.fov = FOV_BY_MODE[mode];
         camera.updateProjectionMatrix();
         camera.position.set(cameraPose.pos.x - origin.x, cameraPose.pos.y - origin.y, cameraPose.pos.z - origin.z);
+        setAtmosphereCamera(cameraPose.pos);
+        skyFog.followCamera(camera.position);
+        farGround.update(origin);
         if (cameraPose.useLookAt) {
           camera.up.set(0, 1, 0);
           camera.lookAt(cameraPose.lookAt.x - origin.x, cameraPose.lookAt.y - origin.y, cameraPose.lookAt.z - origin.z);
@@ -309,6 +317,7 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
       terrainConsumer.dispose();
       features.dispose();
       clouds.dispose();
+      farGround.dispose();
       effects.dispose();
       airportLines.dispose();
       skyFog.dispose();

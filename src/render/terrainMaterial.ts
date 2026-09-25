@@ -36,6 +36,7 @@ import * as THREE from 'three';
 import type { SceneEnvironment } from '../contracts/render';
 import { DETAIL_GLSL, getDetailTexture } from './detailTextures';
 import { CLOUD_SHADOW_GLSL, getCloudShadowUniforms } from './clouds';
+import { ATMOSPHERE_GLSL, getAtmosphereUniforms } from './atmosphere';
 
 export const MAX_TERRAIN_RUNWAYS = 4;
 /** Shoreline samples the vertex shader can hold (packed four per vec4). 201 = the 200 km world at 1 km. */
@@ -92,6 +93,7 @@ const VERTEX_SHADER = /* glsl */ `
   varying vec4 vMacro;
   varying float vLow;
   ${NOISE_GLSL}
+  ${ATMOSPHERE_GLSL}
   void main() {
     vec2 p = position.xz;
     vMacro = vec4(vnoise(p / 7000.0), 0.0, 0.0, 0.0);
@@ -111,7 +113,7 @@ const VERTEX_SHADER = /* glsl */ `
         vMacro.w = mix(uHead[i >> 2][i & 3], uHead[j >> 2][j & 3], t);
       }
     }
-    vec4 wp = modelMatrix * vec4(position, 1.0);
+    vec4 wp = modelMatrix * vec4(atmCurve(position), 1.0);
     vWorld = position;
     vRel = wp.xyz - cameraPosition;
     vNormal = normal;
@@ -144,6 +146,7 @@ const FRAGMENT_SHADER = /* glsl */ `
   varying float vLow;
   ${DETAIL_GLSL}
   ${CLOUD_SHADOW_GLSL}
+  ${ATMOSPHERE_GLSL}
   // 0..1: how far this ground stands above its surroundings (set in main before the colour functions).
   float gRaised = 0.0;
 
@@ -186,7 +189,7 @@ const FRAGMENT_SHADER = /* glsl */ `
     if (uStyle == 1) body = mix(body, vec3(0.20, 0.30, 0.24), smoothstep(300.0, 2500.0, vMacro.z));
     float cosi = max(dot(-V, n), 0.0);
     float fres = 0.02 + 0.98 * pow(1.0 - cosi, 5.0);
-    vec3 col = mix(body, uFogColor, fres * 0.85);
+    vec3 col = mix(body, atmSky(reflect(V, n)), fres * 0.85);
     // Surf: a broken foam band along the shore, widest on the open coast.
     float foam = 0.0;
     if (depth < 2.5) {
@@ -365,9 +368,8 @@ const FRAGMENT_SHADER = /* glsl */ `
   }
 
   void main() {
-    float fogT = clamp((length(vViewPos) - uFogStart) / max(uFogEnd - uFogStart, 1.0), 0.0, 1.0);
     if (uStyle == 0) {
-      gl_FragColor = vec4(mix(uGroundColor, uFogColor, fogT), 1.0);
+      gl_FragColor = vec4(atmApply(uGroundColor, vWorld), 1.0);
       return;
     }
     float nl = length(vNormal);
@@ -426,7 +428,7 @@ const FRAGMENT_SHADER = /* glsl */ `
       vec3 ambient = mix(vec3(0.30, 0.27, 0.22), vec3(0.44, 0.47, 0.52), 0.5 + 0.5 * n.y);
       col *= ambient * occ + vec3(1.0, 0.97, 0.9) * 0.62 * diff * mix(1.0, occ, 0.35);
     }
-    gl_FragColor = vec4(mix(col, uFogColor, fogT), 1.0);
+    gl_FragColor = vec4(atmApply(col, vWorld), 1.0);
   }
 `;
 
@@ -450,6 +452,7 @@ export function createTerrainMaterial(): THREE.ShaderMaterial {
       uCoastShape: { value: new THREE.Vector3(0, 1e9, 1) },
       uDetail: { value: getDetailTexture() },
       ...getCloudShadowUniforms(),
+      ...getAtmosphereUniforms(),
       uShore: { value: Array.from({ length: COAST_VEC4S }, () => new THREE.Vector4()) },
       uHead: { value: Array.from({ length: COAST_VEC4S }, () => new THREE.Vector4()) },
     },

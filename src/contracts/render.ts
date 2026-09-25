@@ -163,8 +163,12 @@ export const FLYBY_HEIGHT_OFFSET_M = 15;
 export const FLYBY_RESET_DISTANCE_M = 400;
 export const FLYBY_VERTICAL_FOV_DEG = 45;
 
-export const CAMERA_NEAR_M = 0.1;
-export const CAMERA_FAR_M = 40000;
+/**
+ * Near/far clip. Far covers the far-ground ring and sky dome out to the horizon (~300 km). Near is
+ * 0.5 m (not 0.1) to keep depth precision usable over that range with a 24-bit depth buffer.
+ */
+export const CAMERA_NEAR_M = 0.5;
+export const CAMERA_FAR_M = 330000;
 
 // -----------------------------------------------------------------------------
 // 3. Wireframe aircraft model. Structurally mirrors contracts/aircraft.ts
@@ -327,6 +331,8 @@ export interface SceneEnvironment {
   waterLevelM?: number;
   /** Coast theatres only: shoreline X and headland weight sampled along Z (see contracts/terrain.ts CoastProfile). */
   coast?: { z0: number; dz: number; shoreX: readonly number[]; headland: readonly number[]; plainRiseMPerKm: number; hillsStartM: number; hillsRampM: number };
+  /** Typical ground elevation (m MSL) for the far-ground ring beyond the streamed terrain. */
+  groundLevelM?: number;
   /** Fair-weather cumulus (absent = clear sky): fraction of 3.5 km cells with a cloud, base/top m MSL, seed. */
   clouds?: { coverage: number; baseM: number; topM: number; seed: number };
   /** One entry per physical runway (not per direction). */

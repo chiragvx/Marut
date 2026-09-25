@@ -8,13 +8,14 @@
 import * as THREE from 'three';
 import type { Vec3Like } from '../contracts/core';
 import type { SceneEnvironment } from '../contracts/render';
+import { ATMOSPHERE_GLSL, getAtmosphereUniforms, setAtmosphereSun, setAtmosphereStyle } from './atmosphere';
 
 export const SKY_ZENITH_COLOR_HEX = 0x3a6ea8;
 export const SKY_HORIZON_COLOR_HEX = 0xbcd4e8;
 export const SKY_GROUND_COLOR_HEX = 0x7a6a52;
 export const SUN_DISC_COLOR_HEX = 0xfff6e0;
-const SKY_DOME_RADIUS_M = 25000;
-const SUN_DISC_RADIUS_M = 250;
+const SKY_DOME_RADIUS_M = 200000;
+const SUN_DISC_RADIUS_M = 1100;
 const SUN_LIGHT_DISTANCE_M = 10000;
 /** Fixed cascade split distance from camera, per 08-render.md section 4.11. */
 const SHADOW_CASCADE_SPLIT_M = 500;
@@ -24,8 +25,8 @@ const SKY_BY_STYLE: Readonly<Record<SceneEnvironment['surfaceStyle'], readonly [
   default: [SKY_ZENITH_COLOR_HEX, SKY_HORIZON_COLOR_HEX, SKY_GROUND_COLOR_HEX],
   // Humid coastal haze; the sea fills the view below the horizon.
   coastal: [0x3f73a8, 0xc4d4df, 0x5f7f92],
-  // North Indian plains in winter: heavy dusty haze, a pale washed-out sky.
-  farmland: [0x6f8fb3, 0xc9c8bc, 0x9a9580],
+  // North Indian plains in winter: pale blue-grey haze, a slightly washed-out blue sky.
+  farmland: [0x4f7fb8, 0xc3ccd6, 0x9a9580],
 };
 
 export interface SkyFogSystem {
@@ -36,11 +37,13 @@ export interface SkyFogSystem {
   readonly horizonColor: THREE.Color;
   setSunDirection(dirWorld: Readonly<Vec3Like>): void;
   setShadowsEnabled(enabled: boolean, cascades: 0 | 1 | 2): void;
+  /** Centres the sky dome and sun disc on the camera (scene coordinates) every frame. */
+  followCamera(camScene: Readonly<Vec3Like>): void;
   dispose(): void;
 }
 
 export function createSkyFogSystem(scene: THREE.Scene): SkyFogSystem {
-  scene.fog = new THREE.Fog(SKY_HORIZON_COLOR_HEX, 1500, 5000);
+  scene.fog = new THREE.Fog(SKY_HORIZON_COLOR_HEX, 3000, 60000);
   scene.background = new THREE.Color(SKY_HORIZON_COLOR_HEX);
 
   const skyGeometry = new THREE.SphereGeometry(SKY_DOME_RADIUS_M, 32, 16);
@@ -49,6 +52,7 @@ export function createSkyFogSystem(scene: THREE.Scene): SkyFogSystem {
       uZenith: { value: new THREE.Color(SKY_ZENITH_COLOR_HEX) },
       uHorizon: { value: new THREE.Color(SKY_HORIZON_COLOR_HEX) },
       uGround: { value: new THREE.Color(SKY_GROUND_COLOR_HEX) },
+      ...getAtmosphereUniforms(),
     },
     vertexShader: `
       varying vec3 vDir;
@@ -57,14 +61,14 @@ export function createSkyFogSystem(scene: THREE.Scene): SkyFogSystem {
         gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
       }
     `,
+    // Same atmosphere as the ground shaders: sky above the horizon, pure haze below it (the
+    // far-ground ring and terrain cover it; this only shows at grazing angles).
     fragmentShader: `
-      uniform vec3 uZenith;
-      uniform vec3 uHorizon;
-      uniform vec3 uGround;
+      ${ATMOSPHERE_GLSL}
       varying vec3 vDir;
       void main() {
-        float t = vDir.y;
-        vec3 col = t >= 0.0 ? mix(uHorizon, uZenith, clamp(t, 0.0, 1.0)) : mix(uHorizon, uGround, clamp(-t, 0.0, 1.0));
+        vec3 d = normalize(vDir);
+        vec3 col = d.y >= 0.0 ? atmSky(d) : atmInscatter(vec3(d.x, 0.0, d.z) / max(length(d.xz), 1e-3));
         gl_FragColor = vec4(col, 1.0);
       }
     `,
@@ -90,6 +94,7 @@ export function createSkyFogSystem(scene: THREE.Scene): SkyFogSystem {
   scene.add(sunLight.target);
 
   const horizonColor = new THREE.Color(SKY_HORIZON_COLOR_HEX);
+  const sunDirScratch = new THREE.Vector3(0.4, 0.7, -0.3).normalize();
 
   return {
     horizonColor,
@@ -102,15 +107,26 @@ export function createSkyFogSystem(scene: THREE.Scene): SkyFogSystem {
       (skyMaterial.uniforms['uGround']!.value as THREE.Color).setHex(ground);
       (scene.fog as THREE.Fog).color.setHex(horizon);
       (scene.background as THREE.Color).setHex(horizon);
+      setAtmosphereStyle(style, horizonColor, new THREE.Color(zenith));
+      // Built-in materials (aircraft wireframes, airport lines, effects) use scene.fog: match the
+      // haze's ground-level visibility roughly.
+      const p = getAtmosphereUniforms().uAtmHazeParams.value;
+      (scene.fog as THREE.Fog).near = 0.15 / p.x;
+      (scene.fog as THREE.Fog).far = 3.0 / p.x;
     },
 
-    setFog(fogStartM, fogEndM) {
-      const fog = scene.fog as THREE.Fog;
-      fog.near = fogStartM;
-      fog.far = fogEndM;
+    followCamera(camScene) {
+      skyDome.position.set(camScene.x, camScene.y, camScene.z);
+      sunDisc.position.set(camScene.x + sunDirScratch.x * (SKY_DOME_RADIUS_M - 1000), camScene.y + sunDirScratch.y * (SKY_DOME_RADIUS_M - 1000), camScene.z + sunDirScratch.z * (SKY_DOME_RADIUS_M - 1000));
+    },
+
+    setFog() {
+      // Distances come from the atmosphere now (setStyle); the tier table no longer fogs the scene.
     },
 
     setSunDirection(dirWorld) {
+      sunDirScratch.set(dirWorld.x, dirWorld.y, dirWorld.z).normalize();
+      setAtmosphereSun(dirWorld);
       sunLight.position.set(-dirWorld.x * SUN_LIGHT_DISTANCE_M, -dirWorld.y * SUN_LIGHT_DISTANCE_M, -dirWorld.z * SUN_LIGHT_DISTANCE_M);
       sunLight.target.position.set(0, 0, 0);
       sunLight.target.updateMatrixWorld();

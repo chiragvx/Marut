@@ -636,6 +636,7 @@ function buildSceneEnvironment(terrainParams: TerrainParams, airportLayouts: rea
   const clouds = terrainParams.surfaceStyle === 'farmland' ? { coverage: 0.3, baseM: 1700, topM: 2350, seed: terrainParams.seed } : undefined;
   return {
     surfaceStyle: terrainParams.surfaceStyle ?? 'default',
+    groundLevelM: terrainParams.shape?.kind === 'plains' ? terrainParams.shape.baseElevationM : (terrainParams.waterLevelM ?? 0) + 20,
     ...(clouds ? { clouds } : {}),
     ...(coast ? { coast } : {}),
     ...(terrainParams.waterLevelM !== undefined ? { waterLevelM: terrainParams.waterLevelM } : {}),

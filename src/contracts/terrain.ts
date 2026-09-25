@@ -571,10 +571,12 @@ export interface QualityTerrainProfile {
 /** `streamRadiusChunks * REFERENCE_CHUNK_SIZE_M` for `profile` — the metres radius (horizontal+vertical 3D distance, see 04-terrain.md 4.4) beyond which no chunk is resident, regardless of LOD depth. Pure formula; no contract type needed beyond this comment — 04-terrain.md section 5.2 tabulates the resulting value per tier. */
 
 export const TERRAIN_QUALITY_PROFILES: Readonly<Record<QualityTier, QualityTerrainProfile>> = {
-  low: { qualityTier: 'low', maxLodDepth: 3, streamRadiusChunks: 6, chunkGridQuads: 12 },
-  medium: { qualityTier: 'medium', maxLodDepth: 4, streamRadiusChunks: 10, chunkGridQuads: 16 },
-  high: { qualityTier: 'high', maxLodDepth: 5, streamRadiusChunks: 16, chunkGridQuads: 24 },
-  ultra: { qualityTier: 'ultra', maxLodDepth: 6, streamRadiusChunks: 24, chunkGridQuads: 32 },
+  // Stream radii reach far (31-100 km): the quadtree picks coarse chunks at distance, so far terrain
+  // costs few chunks; the far-ground ring (src/render/farGround.ts) covers the rest to the horizon.
+  low: { qualityTier: 'low', maxLodDepth: 3, streamRadiusChunks: 40, chunkGridQuads: 12 },
+  medium: { qualityTier: 'medium', maxLodDepth: 4, streamRadiusChunks: 64, chunkGridQuads: 16 },
+  high: { qualityTier: 'high', maxLodDepth: 5, streamRadiusChunks: 96, chunkGridQuads: 24 },
+  ultra: { qualityTier: 'ultra', maxLodDepth: 6, streamRadiusChunks: 128, chunkGridQuads: 32 },
 } as const;
 
 /** Split threshold: a node recurses into its 4 children when the 3D camera-to-chunk-AABB distance is less than this factor times the node's world-space size, AND it was NOT already split last frame. */

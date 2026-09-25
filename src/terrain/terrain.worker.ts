@@ -51,8 +51,10 @@ self.onmessage = (ev: MessageEvent<MainToTerrainMessage | MainToTerrainMessageEx
     const geo = built.geometry;
     // Scenery on the finest chunks this tier reaches: roads from depth 4 (or the tier's finest),
     // trees and buildings from depth 5 (or the tier's finest, thinned).
-    const roadDepth = Math.min(4, maxLodDepth);
-    const objectDepth = Math.min(5, maxLodDepth);
+    // Scenery only on the tier's finest chunks (and never below depth 4): coarse far chunks now
+    // reach 50+ km, and their roads would be sub-pixel anyway.
+    const roadDepth = Math.max(4, maxLodDepth);
+    const objectDepth = Math.max(4, maxLodDepth);
     const features =
       network && msg.lod >= roadDepth
         ? buildChunkFeatures(network, built.bounds, built.surface, { objects: msg.lod >= objectDepth, treeDensity: msg.lod >= 5 ? 1 : 0.5 })

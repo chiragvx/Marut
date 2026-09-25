@@ -16,6 +16,7 @@ import type { Vec3Like } from '../contracts/core';
 import { TREE_KIND_COUNT, type ChunkFeatures } from '../contracts/terrain';
 import { DETAIL_GLSL, getDetailTexture } from './detailTextures';
 import { CLOUD_SHADOW_GLSL, getCloudShadowUniforms } from './clouds';
+import { ATMOSPHERE_GLSL, getAtmosphereUniforms } from './atmosphere';
 
 export const TREE_FADE_START_M = 3200;
 export const TREE_FADE_END_M = 4500;
@@ -35,7 +36,7 @@ const COMMON_GLSL = /* glsl */ `
   uniform float uFogStart;
   uniform float uFogEnd;
   uniform vec3 uSunDir;
-  float fogAmount(float dist) { return clamp((dist - uFogStart) / max(uFogEnd - uFogStart, 1.0), 0.0, 1.0); }
+  ${ATMOSPHERE_GLSL}
   float hash12(vec2 p) {
     vec3 p3 = fract(vec3(p.xyx) * 0.1031);
     p3 += dot(p3, p3.yzx + 33.33);
@@ -61,6 +62,7 @@ const COMMON_GLSL = /* glsl */ `
 // ---------------------------------------------------------------------------------------------
 
 const DECAL_VS = /* glsl */ `
+  ${ATMOSPHERE_GLSL}
   attribute vec4 aDecal; // across (-1..1), along (m), class, half width (m)
   varying vec4 vDecal;
   varying vec3 vWorld;
@@ -68,7 +70,7 @@ const DECAL_VS = /* glsl */ `
   void main() {
     vDecal = aDecal;
     vWorld = position;
-    vec4 mv = modelViewMatrix * vec4(position, 1.0);
+    vec4 mv = modelViewMatrix * vec4(atmCurve(position), 1.0);
     vDist = length(mv.xyz);
     gl_Position = projectionMatrix * mv;
   }
@@ -140,7 +142,7 @@ const DECAL_FS = /* glsl */ `
       alpha = 1.0 - smoothstep(0.7, 1.0, rim + 0.2 * (vnoise(vWorld.xz / 60.0) - 0.5));
     }
     col = lightGround(col, vec3(0.0, 1.0, 0.0), vWorld);
-    gl_FragColor = vec4(mix(col, uFogColor, fogAmount(vDist)), alpha);
+    gl_FragColor = vec4(atmApply(col, vWorld), alpha);
   }
 `;
 
@@ -149,6 +151,7 @@ const DECAL_FS = /* glsl */ `
 // ---------------------------------------------------------------------------------------------
 
 const TREE_VS = /* glsl */ `
+  ${ATMOSPHERE_GLSL}
   attribute float aFoliage; // 1 for foliage, 0 for trunk
   varying vec3 vNormalW;
   varying vec3 vTint;
@@ -172,7 +175,7 @@ const TREE_VS = /* glsl */ `
     vFoliage = aFoliage;
     vH = position.y;
     vWorld = wp.xyz;
-    vec4 mv = modelViewMatrix * wp;
+    vec4 mv = modelViewMatrix * vec4(atmCurve(wp.xyz), 1.0);
     vDist = length(mv.xyz);
     gl_Position = projectionMatrix * mv;
   }
@@ -208,12 +211,13 @@ function treeFragment(foliage: string, trunk: string): string {
       col = ${trunk};
       col *= vec3(0.40) + 0.6 * max(dot(n, L), 0.0) * cloudShadow(vWorld);
     }
-    gl_FragColor = vec4(mix(col, uFogColor, fogAmount(vDist)), 1.0);
+    gl_FragColor = vec4(atmApply(col, vWorld), 1.0);
   }
 `;
 }
 
 const TREE_SHADOW_VS = /* glsl */ `
+  ${ATMOSPHERE_GLSL}
   varying vec2 vQ;
   varying float vDist;
   uniform vec3 uSunDir;
@@ -234,7 +238,7 @@ const TREE_SHADOW_VS = /* glsl */ `
     vec2 c = base.xz + dir * reach;
     float along = sxz * 0.5 + reach * 0.5;
     vec2 xz = c + dir * position.x * along + side * position.y * sxz * 0.5;
-    vec4 wp = vec4(xz.x, base.y + 0.12, xz.y, 1.0);
+    vec4 wp = vec4(atmCurve(vec3(xz.x, base.y + 0.12, xz.y)), 1.0);
     vec4 mv = modelViewMatrix * wp;
     vDist = length(mv.xyz);
     gl_Position = projectionMatrix * mv;
@@ -260,6 +264,7 @@ const TREE_SHADOW_FS = /* glsl */ `
 // ---------------------------------------------------------------------------------------------
 
 const BUILDING_VS = /* glsl */ `
+  ${ATMOSPHERE_GLSL}
   varying vec3 vNormalW;
   varying vec3 vTint;
   varying vec3 vLocal; // metres from the building's base corner, in its own axes
@@ -284,7 +289,7 @@ const BUILDING_VS = /* glsl */ `
     vRoof = step(0.5, normal.y);
     vLocal = (position + vec3(0.5, 0.0, 0.5)) * scale;
     vWorld = wp.xyz;
-    vec4 mv = modelViewMatrix * wp;
+    vec4 mv = modelViewMatrix * vec4(atmCurve(wp.xyz), 1.0);
     vDist = length(mv.xyz);
     gl_Position = projectionMatrix * mv;
   }
@@ -318,7 +323,7 @@ const BUILDING_FS = /* glsl */ `
       col = mix(col, vec3(0.12, 0.13, 0.15), win * near * 0.85);
     }
     col = lightGround(col, n, vWorld);
-    gl_FragColor = vec4(mix(col, uFogColor, fogAmount(vDist)), 1.0);
+    gl_FragColor = vec4(atmApply(col, vWorld), 1.0);
   }
 `;
 
@@ -458,7 +463,7 @@ export function createChunkFeatureRenderer(root: THREE.Object3D): ChunkFeatureRe
     uFogEnd: { value: 5000 },
     uSunDir: { value: new THREE.Vector3(0.4, 0.7, -0.3) },
   };
-  const shadowU = getCloudShadowUniforms();
+  const shadowU = { ...getCloudShadowUniforms(), ...getAtmosphereUniforms() };
   const decalMat = new THREE.ShaderMaterial({
     uniforms: { ...uniforms, ...shadowU, uDetail: { value: getDetailTexture() } },
     vertexShader: DECAL_VS,
@@ -478,7 +483,7 @@ export function createChunkFeatureRenderer(root: THREE.Object3D): ChunkFeatureRe
   );
   const shadowQuad = new THREE.PlaneGeometry(2, 2);
   const shadowMat = new THREE.ShaderMaterial({
-    uniforms: { uSunDir: uniforms.uSunDir, ...fade },
+    uniforms: { uSunDir: uniforms.uSunDir, ...getAtmosphereUniforms(), ...fade },
     vertexShader: TREE_SHADOW_VS,
     fragmentShader: TREE_SHADOW_FS,
     transparent: true,
