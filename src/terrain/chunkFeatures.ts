@@ -163,7 +163,7 @@ export function buildChunkFeatures(net: RoadNetwork, b: ChunkBounds, surface: Su
   for (const s of nearSettlements) {
     const centreHere = inRect(b, s.x, s.z);
     if (centreHere) {
-      pushFan(o, s.x, s.z, s.kind === 'village' ? s.radiusM * 1.25 : s.radiusM * 1.05, s.seed, s.kind === 'village' ? DecalClass.VillageGround : DecalClass.TownGround, surface, 1);
+      pushFan(o, s.x, s.z, s.kind === 'village' ? s.radiusM * 1.05 : s.radiusM * 1.05, s.seed, s.kind === 'village' ? DecalClass.VillageGround : DecalClass.TownGround, surface, 1);
     }
     if (s.kind === 'village') {
       const pond = villagePond(s);
@@ -262,7 +262,7 @@ function pushFan(o: Out, cx: number, cz: number, r: number, seed: number, cls: n
 function villagePond(s: Settlement): { x: number; z: number; r: number } {
   const a = hash3(s.seed, 1, 0, 5) * Math.PI * 2;
   const d = s.radiusM * (0.45 + 0.3 * hash3(s.seed, 2, 0, 5));
-  return { x: s.x + Math.cos(a) * d, z: s.z + Math.sin(a) * d, r: 25 + 30 * hash3(s.seed, 3, 0, 5) };
+  return { x: s.x + Math.cos(a) * d, z: s.z + Math.sin(a) * d, r: 18 + 20 * hash3(s.seed, 3, 0, 5) };
 }
 
 function buildVillage(o: Out, s: Settlement, pond: { x: number; z: number; r: number }, b: ChunkBounds, surface: SurfaceFn, opts: FeatureOptions): void {

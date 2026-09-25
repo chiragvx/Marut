@@ -15,6 +15,7 @@ import * as THREE from 'three';
 import type { Vec3Like } from '../contracts/core';
 import { TREE_KIND_COUNT, type ChunkFeatures } from '../contracts/terrain';
 import { DETAIL_GLSL, getDetailTexture } from './detailTextures';
+import { CLOUD_SHADOW_GLSL, getCloudShadowUniforms } from './clouds';
 
 export const TREE_FADE_START_M = 3200;
 export const TREE_FADE_END_M = 4500;
@@ -46,9 +47,10 @@ const COMMON_GLSL = /* glsl */ `
     vec2 u = f * f * (3.0 - 2.0 * f);
     return mix(mix(hash12(i), hash12(i + vec2(1.0, 0.0)), u.x), mix(hash12(i + vec2(0.0, 1.0)), hash12(i + vec2(1.0, 1.0)), u.x), u.y);
   }
-  // Same hemisphere + sun lighting as the terrain.
-  vec3 lightGround(vec3 col, vec3 n) {
-    float diff = max(dot(n, normalize(uSunDir)), 0.0);
+  ${CLOUD_SHADOW_GLSL}
+  // Same hemisphere + sun lighting as the terrain (including cloud shadows).
+  vec3 lightGround(vec3 col, vec3 n, vec3 w) {
+    float diff = max(dot(n, normalize(uSunDir)), 0.0) * cloudShadow(w);
     vec3 ambient = mix(vec3(0.30, 0.27, 0.22), vec3(0.44, 0.47, 0.52), 0.5 + 0.5 * n.y);
     return col * (ambient + vec3(1.0, 0.97, 0.9) * 0.62 * diff);
   }
@@ -122,11 +124,11 @@ const DECAL_FS = /* glsl */ `
     } else {
       // Village / town ground: packed earth and dust, fading out at the rim.
       float rim = vDecal.x;
-      col = cls == 6 ? vec3(0.54, 0.49, 0.40) : vec3(0.52, 0.50, 0.46);
+      col = cls == 6 ? vec3(0.47, 0.45, 0.35) : vec3(0.52, 0.50, 0.46);
       col *= (0.88 + 0.24 * vnoise(vWorld.xz / 23.0)) * mix(vec3(1.0), detailAt(vWorld.xz, 1.0, 10.0, pw), 0.9);
-      alpha = 1.0 - smoothstep(0.7, 1.0, rim + 0.15 * vnoise(vWorld.xz / 60.0));
+      alpha = (1.0 - smoothstep(0.55, 1.0, rim + 0.15 * vnoise(vWorld.xz / 60.0))) * (cls == 6 ? 0.7 : 1.0);
     }
-    col = lightGround(col, vec3(0.0, 1.0, 0.0));
+    col = lightGround(col, vec3(0.0, 1.0, 0.0), vWorld);
     gl_FragColor = vec4(mix(col, uFogColor, fogAmount(vDist)), alpha);
   }
 `;
@@ -188,12 +190,12 @@ function treeFragment(foliage: string, trunk: string): string {
       col = ${foliage} * vTint;
       // Leafy clumps: break up the facets, darker inside and underneath the crown.
       col *= 0.8 + 0.4 * vnoise(vWorld.xz * 0.9 + vWorld.y * 0.7);
-      float wrap = max(dot(n, L) * 0.6 + 0.4, 0.0);
+      float wrap = max(dot(n, L) * 0.6 + 0.4, 0.0) * mix(0.45, 1.0, cloudShadow(vWorld));
       float self = mix(0.55, 1.0, clamp(vH * 1.2 - 0.1, 0.0, 1.0));
       col *= (vec3(0.36, 0.38, 0.40) + vec3(0.95, 0.92, 0.82) * 0.75 * wrap) * self;
     } else {
       col = ${trunk};
-      col *= vec3(0.40) + 0.6 * max(dot(n, L), 0.0);
+      col *= vec3(0.40) + 0.6 * max(dot(n, L), 0.0) * cloudShadow(vWorld);
     }
     gl_FragColor = vec4(mix(col, uFogColor, fogAmount(vDist)), 1.0);
   }
@@ -252,6 +254,7 @@ const BUILDING_VS = /* glsl */ `
   varying vec3 vLocal; // metres from the building's base corner, in its own axes
   varying float vDist;
   varying float vRoof;
+  varying vec3 vWorld;
   void main() {
     vec4 wp = vec4(position, 1.0);
     vec3 n = normal;
@@ -269,6 +272,7 @@ const BUILDING_VS = /* glsl */ `
     vNormalW = normalize(n);
     vRoof = step(0.5, normal.y);
     vLocal = (position + vec3(0.5, 0.0, 0.5)) * scale;
+    vWorld = wp.xyz;
     vec4 mv = modelViewMatrix * wp;
     vDist = length(mv.xyz);
     gl_Position = projectionMatrix * mv;
@@ -285,6 +289,7 @@ const BUILDING_FS = /* glsl */ `
   varying vec3 vLocal;
   varying float vDist;
   varying float vRoof;
+  varying vec3 vWorld;
   void main() {
     float fade = smoothstep(uFadeStart, uFadeEnd, vDist);
     if (hash12(floor(gl_FragCoord.xy)) < fade) discard;
@@ -301,7 +306,7 @@ const BUILDING_FS = /* glsl */ `
       float near = 1.0 - smoothstep(600.0, 1500.0, vDist);
       col = mix(col, vec3(0.12, 0.13, 0.15), win * near * 0.85);
     }
-    col = lightGround(col, n);
+    col = lightGround(col, n, vWorld);
     gl_FragColor = vec4(mix(col, uFogColor, fogAmount(vDist)), 1.0);
   }
 `;
@@ -442,8 +447,9 @@ export function createChunkFeatureRenderer(root: THREE.Object3D): ChunkFeatureRe
     uFogEnd: { value: 5000 },
     uSunDir: { value: new THREE.Vector3(0.4, 0.7, -0.3) },
   };
+  const shadowU = getCloudShadowUniforms();
   const decalMat = new THREE.ShaderMaterial({
-    uniforms: { ...uniforms, uDetail: { value: getDetailTexture() } },
+    uniforms: { ...uniforms, ...shadowU, uDetail: { value: getDetailTexture() } },
     vertexShader: DECAL_VS,
     fragmentShader: DECAL_FS,
     // Ribbons and fans are built without regard to winding; they are only ever seen from above.
@@ -457,7 +463,7 @@ export function createChunkFeatureRenderer(root: THREE.Object3D): ChunkFeatureRe
   const treeGeoms = makeTreeGeometries();
   const fade = { uFadeStart: { value: TREE_FADE_START_M }, uFadeEnd: { value: TREE_FADE_END_M } };
   const treeMats = treeGeoms.map(
-    (_, k) => new THREE.ShaderMaterial({ uniforms: { ...uniforms, ...fade }, vertexShader: TREE_VS, fragmentShader: treeFragment(TREE_FOLIAGE[k]!, TREE_TRUNK[k]!) })
+    (_, k) => new THREE.ShaderMaterial({ uniforms: { ...uniforms, ...shadowU, ...fade }, vertexShader: TREE_VS, fragmentShader: treeFragment(TREE_FOLIAGE[k]!, TREE_TRUNK[k]!) })
   );
   const shadowQuad = new THREE.PlaneGeometry(2, 2);
   const shadowMat = new THREE.ShaderMaterial({
@@ -474,7 +480,7 @@ export function createChunkFeatureRenderer(root: THREE.Object3D): ChunkFeatureRe
   boxGeom.translate(0, 0.5, 0);
   const domeGeom = new THREE.SphereGeometry(1, 12, 6, 0, Math.PI * 2, 0, Math.PI / 2);
   const bFade = { uFadeStart: { value: BUILDING_FADE_START_M }, uFadeEnd: { value: BUILDING_FADE_END_M } };
-  const buildingMat = new THREE.ShaderMaterial({ uniforms: { ...uniforms, ...bFade }, vertexShader: BUILDING_VS, fragmentShader: BUILDING_FS });
+  const buildingMat = new THREE.ShaderMaterial({ uniforms: { ...uniforms, ...shadowU, ...bFade }, vertexShader: BUILDING_VS, fragmentShader: BUILDING_FS });
 
   const chunks = new Map<string, ChunkEntry>();
   const scratch = new THREE.Vector3();

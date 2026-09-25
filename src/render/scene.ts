@@ -42,6 +42,7 @@ import {
 import { createSkyFogSystem } from './skyFog';
 import { createTerrainChunkConsumer } from './terrainChunkConsumer';
 import { createChunkFeatureRenderer } from './chunkFeatureRenderer';
+import { createCloudSystem } from './clouds';
 import { TERRAIN_WORLD_EXTENT_M } from '../contracts/terrain';
 import { createWireframeAircraftRenderer } from './wireframeAircraftRenderer';
 
@@ -109,6 +110,7 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
   const airportLines = createAirportLinesSystem(airportRoot);
 
   const skyFog = createSkyFogSystem(scene);
+  const clouds = createCloudSystem(scene);
 
   const snapshotBuf = createSnapshotDoubleBuffer();
   const floatingOrigin = createFloatingOriginState();
@@ -189,12 +191,15 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
       skyFog.setSunDirection(dirWorld);
       terrainConsumer.setSunDirection(dirWorld);
       features.uniforms.uSunDir.value.set(dirWorld.x, dirWorld.y, dirWorld.z);
+      clouds.setSunDirection(dirWorld);
     },
 
     setEnvironment(env) {
       skyFog.setStyle(env.surfaceStyle);
       terrainConsumer.setFogColor(skyFog.horizonColor);
       features.uniforms.uFogColor.value.copy(skyFog.horizonColor);
+      clouds.setFog(skyFog.horizonColor, 0);
+      clouds.setConfig(env.clouds);
       terrainConsumer.setEnvironment(env);
     },
 
@@ -278,6 +283,7 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
 
         terrainConsumer.updateOrigin(origin);
         features.update(origin, cameraPose.pos);
+        clouds.update(cameraPose.pos, origin);
         airportLines.updateOrigin(origin);
       }
 
@@ -302,6 +308,7 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
       wireframeRenderer.dispose();
       terrainConsumer.dispose();
       features.dispose();
+      clouds.dispose();
       effects.dispose();
       airportLines.dispose();
       skyFog.dispose();

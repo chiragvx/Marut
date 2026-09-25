@@ -64,7 +64,7 @@ const LAYERS: readonly Texel[] = [
   // Crop / grass canopy: clumps at several scales, per-texel speckle and a little yellow-green hue
   // shift. (No regular sowing rows: any periodic stripe moires into rings at a distance.)
   (u, v, ix, iy) => {
-    const clumps = fbm(u, v, 8, 5, 11);
+    const clumps = fbm(u, v, 16, 4, 11);
     const fine = hash(ix, iy, 12) - 0.5;
     const l = 0.5 + 0.5 * (clumps - 0.5) + 0.1 * fine;
     const hue = fbm(u, v, 4, 3, 13) - 0.5;
@@ -134,14 +134,18 @@ export function getDetailTexture(): THREE.DataArrayTexture {
 /**
  * GLSL helper: multiplicative detail (mean 1.0) for `layer` at world xz, sampling the tile at two
  * scales rotated against each other so the repeat never lines up. The small scale fades out once
- * a pixel covers more than ~1/10 of its tile (`px`, metres per pixel): past that its detail is gone
- * and only the tile's repeat would remain, which reads as a lattice (moire arcs) at a distance.
+ * a pixel covers more than ~1/10 of its tile (`px`, metres per pixel), and so does the large scale
+ * relative to its own tile: past that the detail is gone and only the repeat would remain, which
+ * reads as a lattice (moire arcs, or a grid from altitude).
  */
 export const DETAIL_GLSL = /* glsl */ `
   uniform highp sampler2DArray uDetail;
   vec3 detailAt(vec2 p, float layer, float tileM, float px) {
+    float bigM = tileM * 6.1;
+    float coarseW = 1.0 - smoothstep(bigM * 0.04, bigM * 0.1, px);
+    if (coarseW <= 0.0) return vec3(1.0);
     vec2 q = vec2(0.8 * p.x - 0.6 * p.y, 0.6 * p.x + 0.8 * p.y);
-    vec3 b = texture(uDetail, vec3(q / (tileM * 6.1), layer)).rgb * 2.0;
+    vec3 b = mix(vec3(1.0), texture(uDetail, vec3(q / bigM, layer)).rgb * 2.0, coarseW);
     float fineW = 1.0 - smoothstep(tileM * 0.03, tileM * 0.1, px);
     if (fineW <= 0.0) return b;
     vec3 a = texture(uDetail, vec3(p / tileM, layer)).rgb * 2.0;

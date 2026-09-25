@@ -327,6 +327,8 @@ export interface SceneEnvironment {
   waterLevelM?: number;
   /** Coast theatres only: shoreline X and headland weight sampled along Z (see contracts/terrain.ts CoastProfile). */
   coast?: { z0: number; dz: number; shoreX: readonly number[]; headland: readonly number[]; plainRiseMPerKm: number; hillsStartM: number; hillsRampM: number };
+  /** Fair-weather cumulus (absent = clear sky): fraction of 3.5 km cells with a cloud, base/top m MSL, seed. */
+  clouds?: { coverage: number; baseM: number; topM: number; seed: number };
   /** One entry per physical runway (not per direction). */
   runways: readonly { centerX: number; centerZ: number; headingRad: number; lengthM: number; widthM: number }[];
 }

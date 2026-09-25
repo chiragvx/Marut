@@ -632,8 +632,11 @@ function buildSceneEnvironment(terrainParams: TerrainParams, airportLayouts: rea
     }
   }
   const coast = buildCoastProfile(terrainParams);
+  // Winter fair-weather cumulus over Punjab (a weather system will own this later).
+  const clouds = terrainParams.surfaceStyle === 'farmland' ? { coverage: 0.3, baseM: 1700, topM: 2350, seed: terrainParams.seed } : undefined;
   return {
     surfaceStyle: terrainParams.surfaceStyle ?? 'default',
+    ...(clouds ? { clouds } : {}),
     ...(coast ? { coast } : {}),
     ...(terrainParams.waterLevelM !== undefined ? { waterLevelM: terrainParams.waterLevelM } : {}),
     runways,

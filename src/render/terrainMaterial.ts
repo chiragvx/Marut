@@ -35,6 +35,7 @@
 import * as THREE from 'three';
 import type { SceneEnvironment } from '../contracts/render';
 import { DETAIL_GLSL, getDetailTexture } from './detailTextures';
+import { CLOUD_SHADOW_GLSL, getCloudShadowUniforms } from './clouds';
 
 export const MAX_TERRAIN_RUNWAYS = 4;
 /** Shoreline samples the vertex shader can hold (packed four per vec4). 201 = the 200 km world at 1 km. */
@@ -147,6 +148,7 @@ const FRAGMENT_SHADER = /* glsl */ `
   varying vec4 vMacro;
   varying float vLow;
   ${DETAIL_GLSL}
+  ${CLOUD_SHADOW_GLSL}
   // 0..1: how far this ground stands above its surroundings (set in main before the colour functions).
   float gRaised = 0.0;
 
@@ -379,7 +381,7 @@ const FRAGMENT_SHADER = /* glsl */ `
 
       // Lighting: sun (with canopy shadows) plus a hemisphere sky/ground-bounce ambient, both
       // darkened by the baked valley occlusion.
-      float diff = max(dot(n, L), 0.0) * shadow;
+      float diff = max(dot(n, L), 0.0) * shadow * cloudShadow(vWorld);
       vec3 ambient = mix(vec3(0.30, 0.27, 0.22), vec3(0.44, 0.47, 0.52), 0.5 + 0.5 * n.y);
       col *= ambient * occ + vec3(1.0, 0.97, 0.9) * 0.62 * diff * mix(1.0, occ, 0.35);
     }
@@ -406,6 +408,7 @@ export function createTerrainMaterial(): THREE.ShaderMaterial {
       uCoastZ: { value: new THREE.Vector2(0, 1) },
       uCoastShape: { value: new THREE.Vector3(0, 1e9, 1) },
       uDetail: { value: getDetailTexture() },
+      ...getCloudShadowUniforms(),
       uShore: { value: Array.from({ length: COAST_VEC4S }, () => new THREE.Vector4()) },
       uHead: { value: Array.from({ length: COAST_VEC4S }, () => new THREE.Vector4()) },
     },
