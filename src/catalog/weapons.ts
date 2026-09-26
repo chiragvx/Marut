@@ -376,9 +376,9 @@ export interface FuelTankStore {
 
 export const FUEL_TANKS: Readonly<Record<string, FuelTankStore>> = {
   // Tejas 1200 L wing tank: 1200 L at ~0.80 kg/L = 960 kg; ~140 kg empty.
-  'tank-1200l': { id: 'tank-1200l', name: '1200 L tank', capacityKg: 960, emptyMassKg: 140, dragAreaM2: 0.12 },
+  'tank-1200l': { id: 'tank-1200l', name: '1200 L tank', capacityKg: 960, emptyMassKg: 140, dragAreaM2: 0.075 },
   // Tejas 725 L centreline tank.
-  'tank-725l': { id: 'tank-725l', name: '725 L tank', capacityKg: 580, emptyMassKg: 95, dragAreaM2: 0.09 },
+  'tank-725l': { id: 'tank-725l', name: '725 L tank', capacityKg: 580, emptyMassKg: 95, dragAreaM2: 0.055 },
 };
 
 export type StoreKind = 'gun' | 'ir_missile' | 'radar_missile' | 'fuel_tank';

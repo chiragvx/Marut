@@ -14,6 +14,8 @@ import type { AeroTables } from '../contracts/aircraft';
 
 const ALPHA_RAD = [-0.174533, -0.087266, 0, 0.087266, 0.174533, 0.261799, 0.349066, 0.383972] as const;
 const MACH = [0.2, 0.6, 0.9, 1.2, 1.6] as const;
+/** CD's own alpha breakpoints: ALPHA_RAD plus -2.5/2.5/7.5 deg (see the CD table's note). */
+const CD_ALPHA_RAD = [-0.174533, -0.087266, -0.043633, 0, 0.043633, 0.087266, 0.1309, 0.174533, 0.261799, 0.349066, 0.383972] as const;
 
 export const aero: AeroTables = {
   // Cross-module fix history, Mach 0.2 column, alpha 15/20/22 deg (see
@@ -75,42 +77,21 @@ export const aero: AeroTables = {
       [1.652, 1.08, 0.97, 0.76, 0.62],
     ],
   },
-  // Cross-module fix (this pass; see tests/integration/trimAndPerformance.
-  // test.ts's climb_sl failure): the Mach-0.2/0.6 columns below previously
-  // gave a clean-configuration subsonic parasite-drag level (CD~0.022-0.025
-  // at alpha=0) low enough that, combined with the engine's real
-  // military+AB thrust at that speed, sea-level excess thrust-minus-drag at
-  // the climb test's 180 m/s (Mach ~0.53) point produced a climb rate far
-  // ABOVE the public-data target (measured 97+ m/s vs a 66 m/s target) —
-  // opposite in sign from vmax_sl's/vmax_11000's thrust-limited shortfalls,
-  // which is what pointed at drag (not thrust) being too low specifically
-  // in this LOW/MODERATE-mach, LOW/MODERATE-alpha regime rather than a
-  // second engine-table error (the Mach-0.9+ columns, where vmax trims,
-  // were deliberately left untouched — see below). A flat ADDITIVE offset
-  // (+0.015 at Mach 0.2 and Mach 0.6, every alpha row) is used rather than a
-  // multiplicative scale so the INDUCED-drag shape (CD(alpha)-CD(alpha=0))
-  // this table already encodes is preserved unchanged — only the
-  // alpha-independent parasite/profile-drag floor is raised, which is the
-  // physically appropriate knob for "this airframe has more subsonic
-  // parasite drag than first assumed" (a profile-drag error, not an
-  // induced-drag/lift-dependent one). Mach 0.9/1.2/1.6 columns are
-  // UNCHANGED: vmax_sl/vmax_11000 both trim near alpha~0 at those mach
-  // numbers and already match their public-data targets with the original
-  // transonic/supersonic drag rise, so widening this fix to those columns
-  // would risk re-breaking a target this same pass just fixed. Offset
-  // magnitude (+0.015, not larger) is also chosen to stay clear of a
-  // SEPARATE, load-bearing constraint: at this table's Mach 0.6 column,
-  // `findMaxSustainedTurnRateDegSec`'s own wings-level baseline trim
-  // (5000 m, ~192 m/s) needs to stay reachable on MILITARY power alone,
-  // well under the throttle=1/afterburner-detent boundary
-  // (src/physics/engine.ts) — `tools/lib/trimSolver.ts`'s throttle-bisecting
-  // trim search has no continuous root at a throttle whose required drag
-  // sits between the military-only ceiling and the full-afterburner floor
-  // (see `findVmax`'s own fix, tools/lib/trimSolver.ts, for the general
-  // form of this issue); a larger offset here was confirmed empirically to
-  // push that baseline drag just over the military-only ceiling, breaking
-  // `turn_5000_m06`'s trim search entirely (measured 0 deg/s) rather than
-  // merely narrowing its margin.
+  // Subsonic parasite drag (Mach 0.2 / 0.6 / 0.9 columns), corrected 2026-09: zero-lift CD is
+  // ~0.016 subsonic and 0.019 at Mach 0.9 (drag area ~0.6-0.7 m^2, between a clean F-16's ~0.49 and
+  // a Mirage 2000's; the Tejas is a smaller, lighter delta). It had been ~0.037-0.040: raised by
+  // +0.015 to stop an earlier, under-powered engine table from out-climbing its target, and never
+  // lowered when the engine moved to published F404-IN20 ratings -- the climb target was moved to
+  // the model instead. The result was a jet that could not hold level at 10 km on military power,
+  // bled below 200 kt in any climb, and cruised at an L/D near 5 (play-test report). Every alpha row
+  // moved by the same per-column offset, so the lift-dependent (induced) drag is unchanged.
+  //
+  // CD has its own alpha breakpoints, adding -2.5/2.5/7.5 deg: each subsonic column is a parabolic
+  // polar (CD0 + K (CL - CLmd)^2, K ~0.13-0.16, CLmd ~0.12; fits the -5/0/5/10 deg rows within
+  // 1%), and linear interpolation between 5-deg rows overestimated drag across the whole cruise
+  // band (0-3 deg) by ~20%. The new rows come from each column's polar (7.5 deg: the lower of the
+  // polar and the linear value, since the transonic columns flatten at high alpha).
+  //
   // Supersonic columns (Mach 1.2 / 1.6): zero-lift drag lowered by 0.037 / 0.031 (to 0.048 /
   // 0.039 at alpha=0), keeping each column's lift-dependent rise. The old 0.085 / 0.070 were ~2x
   // typical fighter wave-drag levels (CD0 peaks ~0.045-0.05 around Mach 1.1-1.2 and settles near
@@ -118,17 +99,20 @@ export const aero: AeroTables = {
   // 112 kN at Mach 1.6 / 11 km. With the F404-IN20 now on realistic lapse (tejasEngineTables.ts,
   // ~63 kN there), these values give the Tejas's published ~Mach 1.6 at altitude.
   CD: {
-    xs: ALPHA_RAD,
+    xs: CD_ALPHA_RAD,
     ys: MACH,
     zs: [
-      [0.1, 0.11, 0.13, 0.173, 0.134],
-      [0.05, 0.055, 0.06, 0.073, 0.059],
-      [0.037, 0.04, 0.04, 0.048, 0.039],
-      [0.06, 0.065, 0.075, 0.103, 0.084],
-      [0.105, 0.113, 0.13, 0.183, 0.149],
-      [0.175, 0.185, 0.21, 0.283, 0.229],
-      [0.275, 0.285, 0.32, 0.403, 0.339],
-      [0.325, 0.335, 0.37, 0.453, 0.389],
+      [0.079, 0.086, 0.109, 0.173, 0.134], // -10 deg
+      [0.029, 0.031, 0.039, 0.073, 0.059], // -5 deg
+      [0.0179, 0.0185, 0.0224, 0.0516, 0.0426], // -2.5 deg
+      [0.016, 0.016, 0.019, 0.048, 0.039], // 0 deg
+      [0.0231, 0.0235, 0.0294, 0.0647, 0.052], // 2.5 deg
+      [0.039, 0.041, 0.054, 0.103, 0.084], // 5 deg
+      [0.0583, 0.0622, 0.0815, 0.143, 0.1165], // 7.5 deg
+      [0.084, 0.089, 0.109, 0.183, 0.149], // 10 deg
+      [0.154, 0.161, 0.189, 0.283, 0.229], // 15 deg
+      [0.254, 0.261, 0.299, 0.403, 0.339], // 20 deg
+      [0.304, 0.311, 0.349, 0.453, 0.389], // 22 deg
     ],
   },
   Cm: {
