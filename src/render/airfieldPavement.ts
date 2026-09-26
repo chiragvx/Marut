@@ -200,7 +200,7 @@ const FS = /* glsl */ `
       // Slab joints across and along the lanes.
       float j = span(fract(p.x / 6.0) * 6.0, 0.0, 0.08, pw.x);
       col *= 1.0 - 0.18 * j * (1.0 - smoothstep(0.05, 0.3, pwMax));
-      float m = span(p.y, -0.15, 0.15, pw.y);
+      float m = 0.0;
       // Hold-short lines where the taxiway crosses a runway's holding distance (75 m from its
       // centreline): two solid lines on the taxiway side, two dashed on the runway side.
       for (int i = 0; i < ${MAX_PAVEMENT_RUNWAYS}; i++) {
@@ -219,6 +219,16 @@ const FS = /* glsl */ `
         m = max(m, clamp(solid + dashed, 0.0, 1.0));
       }
       col = mix(col, yellow, m);
+    } else if (kind == 5) {
+      // Taxiway centreline (its own strip over the taxiway surfaces): 0.4 m yellow, antialiased.
+      float cover = span(p.y, -0.2, 0.2, pw.y);
+      if (cover < 0.004) discard;
+      col = yellow * (1.0 - 0.3 * uAtmWet);
+      vec3 L = normalize(uSunDir);
+      float diff = max(L.y, 0.0) * cloudShadow(vWorld) * sunShadow(vWorld, L.y);
+      col *= uAtmAmbSky * 0.9 + uAtmAmbGround * 0.1 + uAtmSunCol * diff;
+      gl_FragColor = vec4(atmApply(col, vWorld), cover);
+      return;
     } else if (kind == 2) {
       // Blast pad / overrun: older asphalt, yellow chevrons pointing at the runway.
       float len = vExtra.x;

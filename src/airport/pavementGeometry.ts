@@ -28,6 +28,8 @@ export const PavementKind = {
   BlastPad: 2,
   Taxiway: 3,
   Runway: 4,
+  /** A taxiway's yellow centreline, drawn over all taxiway surfaces: v = metres from the line. */
+  TaxiLine: 5,
 } as const;
 
 export interface PavementGeometry {
@@ -46,7 +48,59 @@ const LIFT_M = 0.04;
  * and disappears into it. Cut into 80 m pieces, the error is under a millimetre.
  */
 const MAX_PIECE_M = 80;
-const JOIN_SEGMENTS = 10;
+const JOIN_SEGMENTS = 12;
+/** Half width of the strip each taxiway centreline is drawn in (the line itself is 0.4 m). */
+const LINE_STRIP_HW = 1.0;
+/** Largest radius, m, a taxiway bend is rounded to. */
+const MAX_BEND_RADIUS_M = 50;
+
+/**
+ * A taxiway centreline with its bends rounded: each interior point (other than a fixed one) is
+ * replaced by a circular arc tangent to both segments, of radius up to MAX_BEND_RADIUS_M but never
+ * using more than 45% of either segment, sampled every ~6 degrees.
+ */
+export function smoothTaxiway(points: readonly { worldX: number; worldZ: number }[], fixed: (x: number, z: number, isEnd: boolean) => boolean): [number, number][] {
+  const P = points.map((p) => [p.worldX, p.worldZ] as [number, number]);
+  if (P.length < 3) return P;
+  const out: [number, number][] = [P[0]!];
+  for (let i = 1; i < P.length - 1; i++) {
+    const [px, pz] = P[i - 1]!;
+    const [cx, cz] = P[i]!;
+    const [nx, nz] = P[i + 1]!;
+    const l0 = Math.hypot(cx - px, cz - pz);
+    const l1 = Math.hypot(nx - cx, nz - cz);
+    if (fixed(cx, cz, false) || l0 < 0.5 || l1 < 0.5) {
+      out.push([cx, cz]);
+      continue;
+    }
+    const ax = (cx - px) / l0;
+    const az = (cz - pz) / l0;
+    const bx = (nx - cx) / l1;
+    const bz = (nz - cz) / l1;
+    const turn = Math.acos(Math.max(-1, Math.min(1, ax * bx + az * bz)));
+    if (turn < (3 * Math.PI) / 180) {
+      out.push([cx, cz]);
+      continue;
+    }
+    const tanHalf = Math.tan(turn / 2);
+    const t = Math.min(MAX_BEND_RADIUS_M * tanHalf, 0.45 * Math.min(l0, l1));
+    const r = t / tanHalf;
+    // Arc from the tangent point on the incoming segment to the one on the outgoing segment.
+    const sx = cx - ax * t;
+    const sz = cz - az * t;
+    const side = ax * bz - az * bx > 0 ? 1 : -1; // turning left (+) or right (-) in x-z
+    const ox = sx + -az * r * side;
+    const oz = sz + ax * r * side;
+    const a0 = Math.atan2(sz - oz, sx - ox);
+    const steps = Math.max(2, Math.ceil(turn / ((6 * Math.PI) / 180)));
+    for (let k = 0; k <= steps; k++) {
+      const a = a0 + side * turn * (k / steps);
+      out.push([ox + Math.cos(a) * r, oz + Math.sin(a) * r]);
+    }
+  }
+  out.push(P[P.length - 1]!);
+  return out;
+}
 
 export function designatorCode(id: string): number {
   const n = parseInt(id.replace(/\D/g, ''), 10) || 0;
@@ -142,6 +196,26 @@ export function buildPavementGeometry(layouts: readonly AirportLayout[]): Paveme
       for (const t of tri) index.push(base + t);
     };
 
+    // Taxiway points that must not move when bends are smoothed: every end, and every point
+    // another taxiway shares (junctions).
+    const key = (x: number, z: number): string => `${Math.round(x * 2)},${Math.round(z * 2)}`;
+    const seen = new Map<string, number>();
+    for (const t of L.taxiways) for (const p of t.points) seen.set(key(p.worldX, p.worldZ), (seen.get(key(p.worldX, p.worldZ)) ?? 0) + 1);
+    const fixedPoints = (x: number, z: number, isEnd: boolean): boolean => isEnd || (seen.get(key(x, z)) ?? 0) > 1;
+
+    /** A filled disc of radius r: v = across the direction (dx, dz), or the radial distance if radial. */
+    const disc = (px: number, pz: number, r: number, kind: number, p: number, dx: number, dz: number, radial: boolean): void => {
+      const c = vert(px, y, pz, kind, 0, 0, p, radial ? 0 : dx, radial ? 0 : dz);
+      const ring: number[] = [];
+      for (let k = 0; k < JOIN_SEGMENTS; k++) {
+        const ang = (k / JOIN_SEGMENTS) * Math.PI * 2;
+        const ox = Math.cos(ang) * r;
+        const oz = Math.sin(ang) * r;
+        ring.push(vert(px + ox, y, pz + oz, kind, ox * dx + oz * dz, radial ? r : ox * -dz + oz * dx, p, radial ? 0 : dx, radial ? 0 : dz));
+      }
+      for (let k = 0; k < JOIN_SEGMENTS; k++) index.push(c, ring[(k + 1) % JOIN_SEGMENTS]!, ring[k]!);
+    };
+
     const aprons = L.aprons.filter((a) => (a.kind ?? 'apron') === 'apron' || a.kind === 'stopway');
     const pads = L.aprons.filter((a) => a.kind === 'shelter_pad');
     const blast = L.aprons.filter((a) => a.kind === 'blast_pad');
@@ -190,57 +264,76 @@ export function buildPavementGeometry(layouts: readonly AirportLayout[]): Paveme
       polygon(a.points, PavementKind.BlastPad, (x, z) => [(x - r.thresholdWorldX) * f.fx + (z - r.thresholdWorldZ) * f.fz, (x - r.thresholdWorldX) * f.rx + (z - r.thresholdWorldZ) * f.rz], [r.lengthM, r.widthM, 0, 0]);
     }
 
-    for (const t of L.taxiways) {
-      const P = t.points;
-      const hw = t.widthM / 2;
+    // Taxiways: centrelines smoothed through their bends (fillet arcs; junctions stay put), drawn as
+    // surface strips with round joins, then the yellow centrelines on top of them all as their own
+    // continuous strips, so lines flow through bends and meet cleanly at junctions.
+    const smoothed = L.taxiways.map((t) => ({ hw: t.widthM / 2, pts: smoothTaxiway(t.points, fixedPoints) }));
+    for (const { hw, pts: P } of smoothed) {
       let u = 0;
       for (let i = 0; i < P.length - 1; i++) {
-        const a = P[i]!;
-        const b = P[i + 1]!;
-        const len = Math.hypot(b.worldX - a.worldX, b.worldZ - a.worldZ);
+        const [ax, az] = P[i]!;
+        const [bx, bz] = P[i + 1]!;
+        const len = Math.hypot(bx - ax, bz - az);
         if (len < 1e-3) continue;
-        const dx = (b.worldX - a.worldX) / len;
-        const dz = (b.worldZ - a.worldZ) / len;
+        const dx = (bx - ax) / len;
+        const dz = (bz - az) / len;
         const nx = -dz;
         const nz = dx;
         const pieces = Math.max(1, Math.ceil(len / MAX_PIECE_M));
-        let l0 = vert(a.worldX + nx * hw, y, a.worldZ + nz * hw, PavementKind.Taxiway, u, hw, hw, dx, dz);
-        let r0 = vert(a.worldX - nx * hw, y, a.worldZ - nz * hw, PavementKind.Taxiway, u, -hw, hw, dx, dz);
+        let l0 = vert(ax + nx * hw, y, az + nz * hw, PavementKind.Taxiway, u, hw, hw, dx, dz);
+        let r0 = vert(ax - nx * hw, y, az - nz * hw, PavementKind.Taxiway, u, -hw, hw, dx, dz);
         for (let k = 1; k <= pieces; k++) {
-          const s = (len * k) / pieces;
-          const cx = a.worldX + dx * s;
-          const cz = a.worldZ + dz * s;
-          const l1 = vert(cx + nx * hw, y, cz + nz * hw, PavementKind.Taxiway, u + s, hw, hw, dx, dz);
-          const r1 = vert(cx - nx * hw, y, cz - nz * hw, PavementKind.Taxiway, u + s, -hw, hw, dx, dz);
+          const sk = (len * k) / pieces;
+          const cx = ax + dx * sk;
+          const cz = az + dz * sk;
+          const l1 = vert(cx + nx * hw, y, cz + nz * hw, PavementKind.Taxiway, u + sk, hw, hw, dx, dz);
+          const r1 = vert(cx - nx * hw, y, cz - nz * hw, PavementKind.Taxiway, u + sk, -hw, hw, dx, dz);
           index.push(l0, l1, r0, r0, l1, r1);
           l0 = l1;
           r0 = r1;
         }
         u += len;
       }
-      // Round joins and ends: a disc at every point, v measured across the mean direction so the
-      // centreline carries on through the join.
-      let uAt = 0;
+      // Round joins and ends: a disc at every point (also fills the outside of each bend).
       for (let i = 0; i < P.length; i++) {
-        const p = P[i]!;
-        const prev = P[Math.max(0, i - 1)]!;
-        const next = P[Math.min(P.length - 1, i + 1)]!;
-        if (i > 0) uAt += Math.hypot(p.worldX - prev.worldX, p.worldZ - prev.worldZ);
-        let dx = next.worldX - prev.worldX;
-        let dz = next.worldZ - prev.worldZ;
+        const [px, pz] = P[i]!;
+        const [qx, qz] = P[Math.max(0, i - 1)]!;
+        const [rx, rz] = P[Math.min(P.length - 1, i + 1)]!;
+        let dx = rx - qx;
+        let dz = rz - qz;
         const dl = Math.hypot(dx, dz) || 1;
         dx /= dl;
         dz /= dl;
-        const c = vert(p.worldX, y, p.worldZ, PavementKind.Taxiway, uAt, 0, hw, dx, dz);
-        const ring: number[] = [];
-        for (let k = 0; k < JOIN_SEGMENTS; k++) {
-          const ang = (k / JOIN_SEGMENTS) * Math.PI * 2;
-          const ox = Math.cos(ang) * hw;
-          const oz = Math.sin(ang) * hw;
-          ring.push(vert(p.worldX + ox, y, p.worldZ + oz, PavementKind.Taxiway, uAt + ox * dx + oz * dz, ox * -dz + oz * dx, hw, dx, dz));
-        }
-        for (let k = 0; k < JOIN_SEGMENTS; k++) index.push(c, ring[(k + 1) % JOIN_SEGMENTS]!, ring[k]!);
+        disc(px, pz, hw, PavementKind.Taxiway, hw, dx, dz, false);
       }
+    }
+    for (const { pts: P } of smoothed) {
+      let u = 0;
+      for (let i = 0; i < P.length - 1; i++) {
+        const [ax, az] = P[i]!;
+        const [bx, bz] = P[i + 1]!;
+        const len = Math.hypot(bx - ax, bz - az);
+        if (len < 1e-3) continue;
+        const dx = (bx - ax) / len;
+        const dz = (bz - az) / len;
+        const nx = -dz * LINE_STRIP_HW;
+        const nz = dx * LINE_STRIP_HW;
+        const pieces = Math.max(1, Math.ceil(len / MAX_PIECE_M));
+        let l0 = vert(ax + nx, y, az + nz, PavementKind.TaxiLine, u, LINE_STRIP_HW, 0);
+        let r0 = vert(ax - nx, y, az - nz, PavementKind.TaxiLine, u, -LINE_STRIP_HW, 0);
+        for (let k = 1; k <= pieces; k++) {
+          const sk = (len * k) / pieces;
+          const cx = ax + dx * sk;
+          const cz = az + dz * sk;
+          const l1 = vert(cx + nx, y, cz + nz, PavementKind.TaxiLine, u + sk, LINE_STRIP_HW, 0);
+          const r1 = vert(cx - nx, y, cz - nz, PavementKind.TaxiLine, u + sk, -LINE_STRIP_HW, 0);
+          index.push(l0, l1, r0, r0, l1, r1);
+          l0 = l1;
+          r0 = r1;
+        }
+        u += len;
+      }
+      for (const [px, pz] of P) disc(px, pz, LINE_STRIP_HW, PavementKind.TaxiLine, 0, 1, 0, true);
     }
 
     for (const r of runways) {

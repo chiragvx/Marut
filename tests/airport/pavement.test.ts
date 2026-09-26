@@ -4,7 +4,7 @@
 import { describe, expect, test } from 'vitest';
 import { loadAirportLayout } from '../../src/airport';
 import type { AirportLayout } from '../../src/contracts/airport';
-import { PavementKind, buildPavementGeometry, designatorCode, triangulate } from '../../src/airport/pavementGeometry';
+import { PavementKind, buildPavementGeometry, designatorCode, smoothTaxiway, triangulate } from '../../src/airport/pavementGeometry';
 import { AIRFIELD_MASK_SIZE, buildAirfieldMask } from '../../src/airport/airfieldMask';
 import bhisiana from '../../src/airport/layouts/bhisiana-afs.json';
 import shahbaz from '../../src/airport/layouts/pafb-shahbaz.json';
@@ -54,7 +54,7 @@ describe('pavement geometry', () => {
     const nr = S.runways.filter((r) => r.id.startsWith('15')).reduce((n, r) => n + pieces(r.lengthM), 0);
     for (let v = ns - nr; v < ns; v++) expect(single.surf[v * 4]).toBe(PavementKind.Runway);
     expect(g.indices.length % 3).toBe(0);
-    expect(Math.max(...g.indices)).toBeLessThan(n);
+    expect(g.indices.reduce((m, v) => Math.max(m, v), 0)).toBeLessThan(n);
     const codes = new Set<number>();
     for (const v of rwy) codes.add(g.extra[v * 4 + 2]!).add(g.extra[v * 4 + 3]!);
     expect([...codes].sort()).toEqual([130, 151, 152, 310, 331, 332]);
@@ -72,6 +72,25 @@ test('runways and taxiways are cut into short pieces so they follow the curved g
       const d = Math.hypot(g.positions[a * 3]! - g.positions[b * 3]!, g.positions[a * 3 + 2]! - g.positions[b * 3 + 2]!);
       expect(d).toBeLessThan(100);
     }
+  }
+});
+
+test('taxiway bends are rounded into arcs; ends and junctions stay where they are', () => {
+  const pts = [{ worldX: 0, worldZ: 0 }, { worldX: 200, worldZ: 0 }, { worldX: 200, worldZ: 200 }, { worldX: 400, worldZ: 200 }];
+  const junction = (x: number, z: number, end: boolean): boolean => end || (x === 200 && z === 200);
+  const out = smoothTaxiway(pts, junction);
+  expect(out[0]).toEqual([0, 0]);
+  expect(out[out.length - 1]).toEqual([400, 200]);
+  expect(out.some(([x, z]) => x === 200 && z === 200)).toBe(true); // the junction is kept
+  expect(out.some(([x, z]) => x === 200 && z === 0)).toBe(false); // the free corner is rounded
+  // No step turns more than ~7 degrees, and none of the arc strays far from the corner's legs.
+  for (let i = 1; i + 1 < out.length; i++) {
+    const [ax, az] = out[i - 1]!;
+    const [bx, bz] = out[i]!;
+    const [cx, cz] = out[i + 1]!;
+    if (bx === 200 && bz === 200) continue;
+    const t = Math.acos(Math.min(1, ((bx - ax) * (cx - bx) + (bz - az) * (cz - bz)) / (Math.hypot(bx - ax, bz - az) * Math.hypot(cx - bx, cz - bz))));
+    expect(t).toBeLessThan((7.5 * Math.PI) / 180);
   }
 });
 
