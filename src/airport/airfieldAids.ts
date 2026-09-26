@@ -9,7 +9,7 @@
  * - Signs: red mandatory signs ("13-31") both sides of each taxiway at the runway holding point;
  *   yellow direction signs before taxiway junctions, pointing along the branch towards each runway
  *   end ("<- 31"); runway distance-remaining boards every 300 m along both edges.
- * - Floodlight masts: around the main aprons.
+ * - Floodlight masts: a few round each large apron, on open ground.
  */
 import type { AirportLayout, RunwayDef } from '../contracts/airport';
 import { buildTaxiGraph, HOLD_BEYOND_EDGE_M, shortestDistances } from './taxiGraph';
@@ -242,25 +242,49 @@ export function buildAirfieldAids(L: AirportLayout): AirfieldAids {
     }
   }
 
-  // --- Floodlight masts at the corners of the larger aprons ----------------------------------------
-  for (const a of L.aprons) {
-    if ((a.kind ?? 'apron') !== 'apron' || a.points.length < 3) continue;
+  // --- Floodlight masts: a few round each large apron -------------------------------------------
+  // Along the apron's outline every ~150 m, 12 m outside it, only on open ground (not on any
+  // taxiway, apron or runway strip) and at least 120 m from any other mast; at most 4 per apron.
+  const aprons = L.aprons.filter((a) => (a.kind ?? 'apron') === 'apron' && a.points.length >= 3);
+  const inPoly = (pts: readonly { worldX: number; worldZ: number }[], x: number, z: number): boolean => {
+    let inside = false;
+    for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+      const p = pts[i]!;
+      const q = pts[j]!;
+      if (p.worldZ > z !== q.worldZ > z && x < ((q.worldX - p.worldX) * (z - p.worldZ)) / (q.worldZ - p.worldZ) + p.worldX) inside = !inside;
+    }
+    return inside;
+  };
+  const onAnyApron = (x: number, z: number): boolean => L.aprons.some((a) => a.points.length >= 3 && inPoly(a.points, x, z));
+  for (const a of aprons) {
     let area = 0;
-    let cx = 0;
-    let cz = 0;
     for (let i = 0; i < a.points.length; i++) {
       const p = a.points[i]!;
       const q = a.points[(i + 1) % a.points.length]!;
       area += p.worldX * q.worldZ - q.worldX * p.worldZ;
-      cx += p.worldX / a.points.length;
-      cz += p.worldZ / a.points.length;
     }
-    if (Math.abs(area) / 2 < 6000) continue;
-    for (const p of a.points) {
-      const dx = p.worldX - cx;
-      const dz = p.worldZ - cz;
-      const d = Math.hypot(dx, dz) || 1;
-      aids.floodlights.push([p.worldX + (dx / d) * 8, p.worldZ + (dz / d) * 8]);
+    if (Math.abs(area) / 2 < 20000) continue;
+    const sign = area > 0 ? 1 : -1; // outward normal side for this winding
+    let placed = 0;
+    let carry = 75;
+    for (let i = 0; i < a.points.length && placed < 4; i++) {
+      const p = a.points[i]!;
+      const q = a.points[(i + 1) % a.points.length]!;
+      const len = Math.hypot(q.worldX - p.worldX, q.worldZ - p.worldZ);
+      if (len < 1e-3) continue;
+      const dx = (q.worldX - p.worldX) / len;
+      const dz = (q.worldZ - p.worldZ) / len;
+      for (let t = carry; t < len && placed < 4; t += 150) {
+        // Outward normal: for counter-clockwise (x, z) winding it is (dz, -dx).
+        const x = p.worldX + dx * t + dz * 12 * sign;
+        const z = p.worldZ + dz * t - dx * 12 * sign;
+        if (onAnyApron(x, z) || pavedAt(x, z) || onRunway(x, z, 80)) continue;
+        if (aids.floodlights.some(([fx, fz]) => Math.hypot(fx - x, fz - z) < 120)) continue;
+        if ((L.structures ?? []).some((st) => Math.hypot(st.worldX - x, st.worldZ - z) < Math.max(st.widthM, st.lengthM) * 0.6 + 8)) continue;
+        aids.floodlights.push([x, z]);
+        placed++;
+      }
+      carry = Math.max(0, 150 - (len % 150));
     }
   }
   return aids;

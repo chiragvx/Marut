@@ -53,3 +53,11 @@ test('Shahbaz has no PAPI (none in its layout) but has hold signs for both runwa
   const names = new Set(aids.signs.filter((s) => s.style === 'mandatory').map((s) => s.text));
   expect(names.has('15L-33R') || names.has('15R-33L')).toBe(true);
 });
+
+test('floodlight masts: a few, on open ground, well apart', () => {
+  const L = load(bhisiana);
+  const f = buildAirfieldAids(L).floodlights;
+  expect(f.length).toBeGreaterThan(0);
+  expect(f.length).toBeLessThan(20);
+  for (let i = 0; i < f.length; i++) for (let j = i + 1; j < f.length; j++) expect(Math.hypot(f[i]![0] - f[j]![0], f[i]![1] - f[j]![1])).toBeGreaterThanOrEqual(120);
+});
