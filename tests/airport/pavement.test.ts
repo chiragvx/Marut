@@ -1,0 +1,77 @@
+/**
+ * tests/airport/pavement.test.ts — the airfield pavement mesh and ground mask.
+ */
+import { describe, expect, test } from 'vitest';
+import { loadAirportLayout } from '../../src/airport';
+import type { AirportLayout } from '../../src/contracts/airport';
+import { PavementKind, buildPavementGeometry, designatorCode, triangulate } from '../../src/airport/pavementGeometry';
+import { AIRFIELD_MASK_SIZE, buildAirfieldMask } from '../../src/airport/airfieldMask';
+import bhisiana from '../../src/airport/layouts/bhisiana-afs.json';
+import shahbaz from '../../src/airport/layouts/pafb-shahbaz.json';
+
+const load = (raw: unknown): AirportLayout => {
+  const r = loadAirportLayout(raw);
+  if (!r.ok) throw new Error('layout failed');
+  return r.value.layout;
+};
+
+describe('pavement geometry', () => {
+  test('designator codes', () => {
+    expect(designatorCode('13')).toBe(130);
+    expect(designatorCode('15R')).toBe(152);
+    expect(designatorCode('33L')).toBe(331);
+    expect(designatorCode('09C')).toBe(93);
+  });
+
+  test('triangulates a concave polygon with the right area, either winding', () => {
+    const L: [number, number][] = [[0, 0], [10, 0], [10, 4], [4, 4], [4, 10], [0, 10]];
+    for (const pts of [L, [...L].reverse()]) {
+      const t = triangulate(pts);
+      expect(t.length).toBe((pts.length - 2) * 3);
+      let area = 0;
+      for (let i = 0; i < t.length; i += 3) {
+        const [a, b, c] = [pts[t[i]!]!, pts[t[i + 1]!]!, pts[t[i + 2]!]!];
+        area += Math.abs((b[0] - a[0]) * (c[1] - a[1]) - (c[0] - a[0]) * (b[1] - a[1])) / 2;
+      }
+      expect(area).toBeCloseTo(64, 6);
+    }
+  });
+
+  test('both bases: runways drawn once each, last; every surface kind present', () => {
+    const g = buildPavementGeometry([load(bhisiana), load(shahbaz)]);
+    const kinds = new Set<number>();
+    for (let i = 0; i < g.surf.length; i += 4) kinds.add(g.surf[i]!);
+    for (const k of Object.values(PavementKind)) expect(kinds.has(k)).toBe(true);
+    // 3 physical runways x 4 corners, each base's runways drawn after its other surfaces.
+    const n = g.positions.length / 3;
+    const rwy: number[] = [];
+    for (let v = 0; v < n; v++) if (g.surf[v * 4] === PavementKind.Runway) rwy.push(v);
+    expect(rwy.length).toBe(12);
+    const single = buildPavementGeometry([load(shahbaz)]);
+    const ns = single.positions.length / 3;
+    for (let v = ns - 8; v < ns; v++) expect(single.surf[v * 4]).toBe(PavementKind.Runway);
+    expect(g.indices.length % 3).toBe(0);
+    expect(Math.max(...g.indices)).toBeLessThan(n);
+    const codes = new Set<number>();
+    for (const v of rwy) codes.add(g.extra[v * 4 + 2]!).add(g.extra[v * 4 + 3]!);
+    expect([...codes].sort()).toEqual([130, 151, 152, 310, 331, 332]);
+  });
+});
+
+describe('airfield ground mask', () => {
+  test('is airfield on and around the pavement and not far outside it', () => {
+    const L = load(bhisiana);
+    const m = buildAirfieldMask(L);
+    const N = AIRFIELD_MASK_SIZE;
+    const at = (x: number, z: number): [number, number] => {
+      const i = Math.floor(((x - m.minX) / m.sizeM) * N);
+      const j = Math.floor(((z - m.minZ) / m.sizeM) * N);
+      return [m.data[(j * N + i) * 2]!, m.data[(j * N + i) * 2 + 1]!];
+    };
+    const r = L.runways[0]!;
+    expect(at(r.thresholdWorldX + Math.sin(r.headingRad) * 500, r.thresholdWorldZ - Math.cos(r.headingRad) * 500)).toEqual([255, 0]);
+    const z = L.flattenZones[0]!;
+    expect(at(m.minX + 5, m.minZ + 5)[0]).toBe(0);
+    expect(at(z.centerWorldX, z.centerWorldZ)[0]).toBeGreaterThan(200);
+  });
+});

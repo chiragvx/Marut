@@ -60,6 +60,8 @@ import { buildCoastProfile, createHeightSampler } from './terrain';
 import { RIVER_FLOATS, packRiver } from './terrain/riverMath';
 import { ESTUARY_FLOATS, packEstuary } from './terrain/coastMath';
 import { createAirportNavDb } from './airport';
+import { buildPavementGeometry } from './airport/pavementGeometry';
+import { buildAirfieldMask } from './airport/airfieldMask';
 import { tejasDefinition } from './aircraft';
 import { isBuiltinMissionId, resolveBuiltinMission } from './core/missions/index';
 import { readSnapshotEntity, readSnapshotHeader } from './core/snapshotReader';
@@ -548,6 +550,8 @@ function buildSceneEnvironment(terrainParams: TerrainParams, airportLayouts: rea
     ...(estuaries ? { estuaries } : {}),
     ...(coast ? { coast } : {}),
     ...(terrainParams.waterLevelM !== undefined ? { waterLevelM: terrainParams.waterLevelM } : {}),
+    pavement: buildPavementGeometry(airportLayouts),
+    airfieldMasks: airportLayouts.map((a) => buildAirfieldMask(a)),
     runways,
   };
 }

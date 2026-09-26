@@ -341,6 +341,10 @@ export interface SceneEnvironment {
   rivers?: { packed: readonly number[]; count: number };
   /** Coast theatres: estuaries packed by src/terrain/coastMath.ts packEstuary (16 floats each). */
   estuaries?: { packed: readonly number[]; count: number };
+  /** Airbases' paved surfaces as one mesh (src/airport/pavementGeometry.ts), drawn with markings. */
+  pavement?: { positions: Float32Array; surf: Float32Array; extra: Float32Array; indices: Uint32Array };
+  /** Per airbase: where the airfield ground is (src/airport/airfieldMask.ts), for the ground shader. */
+  airfieldMasks?: readonly { minX: number; minZ: number; sizeM: number; data: Uint8Array }[];
   /** One entry per physical runway (not per direction). */
   runways: readonly { centerX: number; centerZ: number; headingRad: number; lengthM: number; widthM: number }[];
 }

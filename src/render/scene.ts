@@ -44,6 +44,7 @@ import { createCloudSystem } from './clouds';
 import { createCloudDeck } from './cloudDeck';
 import { createRain } from './rain';
 import { createRunwayLights, setLightViewport } from './nightLights';
+import { createAirfieldPavement } from './airfieldPavement';
 import { createFarGround } from './farGround';
 import { getAtmosphereUniforms, setAtmosphereCamera, setAtmosphereHaze } from './atmosphere';
 import type { WeatherMode } from '../contracts/core';
@@ -142,6 +143,7 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
   const deck = createCloudDeck(scene);
   const rain = createRain(scene);
   const runwayLights = createRunwayLights(scene);
+  const pavement = createAirfieldPavement(scene);
   /** Overcast deck base/top per theatre, m MSL. */
   const DECK_LEVELS: Readonly<Record<SceneEnvironment['surfaceStyle'], [number, number]>> = {
     coastal: [1000, 1450],
@@ -226,6 +228,7 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
       lastKey.z = k.z;
       terrainConsumer.setSunDirection(k);
       features.uniforms.uSunDir.value.set(k.x, k.y, k.z);
+      pavement.setSunDirection(k);
     }
     if (Math.abs(w.cumulus - lastCoverage) > 0.001 || Math.abs(w.cloudDark - lastDark) > 0.01) {
       lastCoverage = w.cumulus;
@@ -368,6 +371,7 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
       const shore = env.coast ? env.coast.shoreX.reduce((a, b) => a + b, 0) / env.coast.shoreX.length : undefined;
       farGround.setEnvironment(env, env.groundLevelM ?? 0, shore);
       terrainConsumer.setEnvironment(env);
+      pavement.setGeometry(env.pavement ?? null, env.runways);
       hillyTheatre = env.surfaceStyle !== 'farmland';
       applyQualityTier(tier);
     },
@@ -460,6 +464,7 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
         features.update(origin, cameraPose.pos);
         clouds.update(cameraPose.pos, origin);
         airportLines.updateOrigin(origin);
+        pavement.updateOrigin(origin);
       }
 
       camera.updateMatrixWorld(true);
@@ -490,6 +495,7 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
       features.dispose();
       clouds.dispose();
       runwayLights.dispose();
+      pavement.dispose();
       deck.dispose();
       rain.dispose();
       farGround.dispose();

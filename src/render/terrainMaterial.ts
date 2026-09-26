@@ -40,6 +40,9 @@ import { ATMOSPHERE_GLSL, getAtmosphereUniforms } from './atmosphere';
 import { SUN_SHADOW_GLSL, getSunShadowUniforms } from './sunShadows';
 import { MAX_RIVERS, RIVER_FLOATS, RIVER_GLSL } from '../terrain/riverMath';
 import { ESTUARY_FLOATS, ESTUARY_GLSL, MAX_ESTUARIES } from '../terrain/coastMath';
+import { AIRFIELD_MASK_SIZE } from '../airport/airfieldMask';
+
+export const MAX_AIRFIELDS = 4;
 
 export const MAX_TERRAIN_RUNWAYS = 4;
 /** Shoreline samples the vertex shader can hold (packed four per vec4). 201 = the 200 km world at 1 km. */
@@ -148,6 +151,18 @@ const FRAGMENT_SHADER = /* glsl */ `
   varying vec4 vMacro;
   varying float vLow;
   ${DETAIL_GLSL}
+  // Airbases (src/airport/airfieldMask.ts): R = airfield weight, G = distance to pavement / 64 m.
+  uniform highp sampler2DArray uAirfieldTex;
+  uniform vec4 uAirfield[${MAX_AIRFIELDS}];
+  uniform int uAirfieldCount;
+  vec2 airfieldAt(vec2 p) {
+    for (int i = 0; i < ${MAX_AIRFIELDS}; i++) {
+      if (i >= uAirfieldCount) break;
+      vec2 uv = (p - uAirfield[i].xy) * uAirfield[i].z;
+      if (uv.x > 0.0 && uv.y > 0.0 && uv.x < 1.0 && uv.y < 1.0) return texture(uAirfieldTex, vec3(uv, float(i))).rg;
+    }
+    return vec2(0.0, 1.0);
+  }
   ${CLOUD_SHADOW_GLSL}
   ${ATMOSPHERE_GLSL}
   ${SUN_SHADOW_GLSL}
@@ -521,6 +536,20 @@ const FRAGMENT_SHADER = /* glsl */ `
       float shadow = 1.0;
       if (uStyle == 1) col = coastColor(vWorld, n, px, near, L, shadow, est, coastPx);
       else col = plainsColor(vWorld, px, L, shadow, rv);
+      // Airfield ground: mown, sun-dried grass with a little mowing texture, and bare, scuffed earth
+      // along the pavement edges (instead of crops, groves or painted trees).
+      vec2 af = airfieldAt(vWorld.xz);
+      if (af.x > 0.004) {
+        vec2 ap = vWorld.xz;
+        vec3 grass = mix(vec3(0.52, 0.50, 0.33), vec3(0.42, 0.45, 0.27), vnoise(ap / 70.0));
+        grass *= 0.93 + 0.1 * vnoise(ap / 9.0);
+        grass *= mix(vec3(1.0), detailAt(ap, 0.0, 14.0, px), 0.5);
+        vec3 earth = vec3(0.56, 0.49, 0.38) * mix(vec3(1.0), detailAt(ap, 1.0, 10.0, px), 0.6);
+        float bare = (1.0 - smoothstep(0.03, 0.16, af.y + 0.06 * vnoise(ap / 11.0))) * 0.85;
+        vec3 ground = mix(grass, earth, bare);
+        col = mix(col, ground, af.x);
+        shadow = mix(shadow, 1.0, af.x);
+      }
       // Rain-soaked ground is darker.
       col *= 1.0 - 0.3 * uAtmWet;
 
@@ -571,6 +600,13 @@ const FRAGMENT_SHADER = /* glsl */ `
   }
 `;
 
+function emptyAirfieldTexture(): THREE.DataArrayTexture {
+  const t = new THREE.DataArrayTexture(new Uint8Array(2), 1, 1, 1);
+  t.format = THREE.RGFormat;
+  t.needsUpdate = true;
+  return t;
+}
+
 export function createTerrainMaterial(): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
     uniforms: {
@@ -590,6 +626,9 @@ export function createTerrainMaterial(): THREE.ShaderMaterial {
       uCoastZ: { value: new THREE.Vector2(0, 1) },
       uCoastShape: { value: new THREE.Vector3(0, 1e9, 1) },
       uDetail: { value: getDetailTexture() },
+      uAirfieldTex: { value: emptyAirfieldTexture() },
+      uAirfield: { value: Array.from({ length: MAX_AIRFIELDS }, () => new THREE.Vector4()) },
+      uAirfieldCount: { value: 0 },
       uTime: { value: 0 },
       uRivers: { value: Array.from({ length: 4 * MAX_RIVERS }, () => new THREE.Vector4()) },
       uRiverCount: { value: 0 },
@@ -655,4 +694,22 @@ export function applyTerrainEnvironment(material: THREE.ShaderMaterial, env: Rea
     (u['uCoastShape']!.value as THREE.Vector3).set(coast.plainRiseMPerKm, coast.hillsStartM, coast.hillsRampM);
   }
   u['uCoastCount']!.value = nCoast;
+
+  const masks = (env.airfieldMasks ?? []).slice(0, MAX_AIRFIELDS);
+  const old = u['uAirfieldTex']!.value as THREE.DataArrayTexture;
+  if (masks.length > 0) {
+    const N = AIRFIELD_MASK_SIZE;
+    const data = new Uint8Array(N * N * 2 * masks.length);
+    masks.forEach((m, i) => data.set(m.data, i * N * N * 2));
+    const tex = new THREE.DataArrayTexture(data, N, N, masks.length);
+    tex.format = THREE.RGFormat;
+    tex.magFilter = THREE.LinearFilter;
+    tex.minFilter = THREE.LinearFilter;
+    tex.needsUpdate = true;
+    u['uAirfieldTex']!.value = tex;
+    old.dispose();
+  }
+  const af = u['uAirfield']!.value as THREE.Vector4[];
+  masks.forEach((m, i) => af[i]!.set(m.minX, m.minZ, 1 / m.sizeM, 0));
+  u['uAirfieldCount']!.value = masks.length;
 }
