@@ -5,7 +5,7 @@
  * 08-render.md section 4.9, table 5.6.
  */
 
-import { SnapshotHud, SpeedUnit } from '../contracts/core';
+import { ServiceStateCode, SnapshotHud, SpeedUnit } from '../contracts/core';
 
 export const SPEED_TAPE_PX_PER_MPS = 4;
 export const SPEED_TAPE_MINOR_TICK_MPS = 10;
@@ -226,6 +226,39 @@ export function drawAirbrakeIndicator(ctx: CanvasRenderingContext2D, out: boolea
   ctx.font = '12px monospace';
   ctx.fillStyle = moving ? '#ffc040' : '#40ff60';
   ctx.fillText('SPD BRK', xPx, yPx);
+  ctx.restore();
+}
+
+/**
+ * Ground service cue (SnapshotHud.SERVICE_*), centred low on the HUD: a prompt when stopped on a
+ * friendly stand or apron with something to service, fuel and weapons progress bars while it
+ * runs, then "SERVICE COMPLETE" until the aircraft moves.
+ */
+export function drawServiceStatus(ctx: CanvasRenderingContext2D, hud: Float64Array, centerX: number, yPx: number): void {
+  const state = hud[SnapshotHud.SERVICE_STATE]!;
+  if (state === ServiceStateCode.None) return;
+  ctx.save();
+  ctx.font = '14px monospace';
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#40ff60';
+  ctx.strokeStyle = '#40ff60';
+  if (state === ServiceStateCode.Available) {
+    ctx.fillText('REFUEL / REARM  —  PRESS R', centerX, yPx);
+  } else if (state === ServiceStateCode.Complete) {
+    ctx.fillText('SERVICE COMPLETE', centerX, yPx);
+  } else {
+    const bar = (label: string, frac: number, y: number): void => {
+      const w = 160;
+      ctx.textAlign = 'right';
+      ctx.fillText(label, centerX - w / 2 - 10, y);
+      ctx.strokeRect(centerX - w / 2, y - 11, w, 12);
+      ctx.fillRect(centerX - w / 2, y - 11, w * Math.max(0, Math.min(1, frac)), 12);
+      ctx.textAlign = 'left';
+      ctx.fillText(`${Math.round(frac * 100)}%`, centerX + w / 2 + 10, y);
+    };
+    bar('FUEL', hud[SnapshotHud.SERVICE_FUEL_FRAC]!, yPx);
+    bar('ARM', hud[SnapshotHud.SERVICE_ARM_FRAC]!, yPx + 20);
+  }
   ctx.restore();
 }
 

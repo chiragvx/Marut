@@ -305,6 +305,8 @@ export interface PilotInputs {
   airbrake: boolean;
   /** Jettison all external drop tanks (level; jettisoning is idempotent). Optional: absent = false. */
   jettisonTanks?: boolean;
+  /** Service key held (refuel + re-arm when stopped on a friendly stand or apron). Optional: absent = not held. */
+  requestService?: boolean;
   /** Gun trigger held. */
   trigger: boolean;
   /** Missile launch commanded. Edge-triggered by the consumer (src/combat fires once per false→true transition, not once per tick held). */
@@ -807,9 +809,27 @@ export const SnapshotHud = {
   PIPPER_VALID: 26,
   /** Fuel remaining in attached drop tanks, kg, or -1 when none are attached. */
   TANK_FUEL_KG: 27,
+  /** ServiceStateCode: ground refuel/re-arm on a friendly stand or apron. */
+  SERVICE_STATE: 28,
+  /** Fuel (internal + drop tanks) as a fraction of full, 0..1, while servicing. */
+  SERVICE_FUEL_FRAC: 29,
+  /** Re-arming progress, 0..1, while servicing. */
+  SERVICE_ARM_FRAC: 30,
 } as const;
-/** Floats in the HUD block. Keep in sync with the field count above (27). */
-export const HUD_BLOCK_FLOATS = 28;
+/** Floats in the HUD block. Keep in sync with the field count above (31). */
+export const HUD_BLOCK_FLOATS = 31;
+
+/**
+ * Ground service state (SnapshotHud.SERVICE_STATE): None = not on a friendly stand/apron or not
+ * stopped; Available = stopped at idle on one (press the service key); Servicing = refuelling and
+ * re-arming; Complete = full and re-armed (shown until the aircraft moves).
+ */
+export const ServiceStateCode = {
+  None: 0,
+  Available: 1,
+  Servicing: 2,
+  Complete: 3,
+} as const;
 
 /** Total length, in floats, of one snapshot ArrayBuffer's Float64Array view. */
 export const SNAPSHOT_FLOATS = HEADER_FLOATS + MAX_ENTITIES * ENTITY_STRIDE + HUD_BLOCK_FLOATS;

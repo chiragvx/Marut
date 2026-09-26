@@ -31,7 +31,7 @@ import {
   ingestSnapshotIntoHudBuffer,
   interpolateHudEntity,
 } from './snapshotView';
-import { drawAirbrakeIndicator, drawAltitudeTape, drawAoaGReadout, drawFuelIndicator, drawGearIndicator, drawHeadingTape, drawPowerIndicator, drawSpeedTape } from './tapes';
+import { drawAirbrakeIndicator, drawAltitudeTape, drawAoaGReadout, drawFuelIndicator, drawGearIndicator, drawHeadingTape, drawPowerIndicator, drawServiceStatus, drawSpeedTape } from './tapes';
 import { createScreenProjection, drawLeadSight, drawTargetBox, hasTarget } from './targetBox';
 import { createWeaponStatusState, drawWeaponStatus, ingestWeaponEvents, setWeaponLoadout as applyWeaponLoadout } from './weaponStatus';
 import { drawWarnings } from './warnings';
@@ -137,6 +137,7 @@ export const createHudRenderer: CreateHudRenderer = (canvas, initialTier) => {
       drawAirbrakeIndicator(ctx, playerAirbrakeOut, nowMs - airbrakeToggledAtMs, 184, heightPx - 60);
       drawFuelIndicator(ctx, hud[SnapshotHud.FUEL_KG]!, (hud[SnapshotHud.WARNING_BITS]! & WarningBit.LowFuel) !== 0, hud[SnapshotHud.TANK_FUEL_KG]!, 184, heightPx - 28);
       drawIlsNeedles(ctx, hud, widthPx, heightPx);
+      drawServiceStatus(ctx, hud, widthPx * 0.5, heightPx * 0.78);
 
       const tierSettings = RENDER_QUALITY_TABLE[tier];
       const headingRad = hud[SnapshotHud.HEADING_RAD]!;

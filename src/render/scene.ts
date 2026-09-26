@@ -10,7 +10,7 @@ import * as THREE from 'three';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 
-import { EntityKindCode, type QualityTier } from '../contracts/core';
+import { EntityKindCode, HUD_BLOCK_START, ServiceStateCode, SnapshotHud, type QualityTier } from '../contracts/core';
 import {
   AntiAliasMode,
   CAMERA_FAR_M,
@@ -146,6 +146,9 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
   const runwayLights = createRunwayLights(scene);
   const pavement = createAirfieldPavement(scene);
   const structures = createAirbaseStructures(scene);
+  /** The player's ground-service state and heading from the latest snapshot (for the service vehicles). */
+  let playerServiceState = 0;
+  let playerHeadingRad = 0;
   /** Overcast deck base/top per theatre, m MSL. */
   const DECK_LEVELS: Readonly<Record<SceneEnvironment['surfaceStyle'], [number, number]>> = {
     coastal: [1000, 1450],
@@ -386,6 +389,8 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
     },
 
     ingestSnapshot(view) {
+      playerServiceState = view[HUD_BLOCK_START + SnapshotHud.SERVICE_STATE] ?? 0;
+      playerHeadingRad = view[HUD_BLOCK_START + SnapshotHud.HEADING_RAD] ?? 0;
       ingestSnapshotIntoBuffer(snapshotBuf, view, performance.now());
     },
 
@@ -435,6 +440,9 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
 
         interpolateEntity(snapshotBuf, playerSlot, f, interpEntity);
         shadowFocus.set(interpEntity.pos.x, interpEntity.pos.y, interpEntity.pos.z);
+        structures.setServiceVehicles(
+          playerServiceState === ServiceStateCode.Servicing ? { x: interpEntity.pos.x, y: interpEntity.pos.y - 1.15, z: interpEntity.pos.z, headingRad: playerHeadingRad } : null
+        );
         computeCameraPose(mode, interpEntity.pos, interpEntity.rot, interpEntity.vel, cameraModeState, frameDtSec, cameraPose);
         if (debugCam) {
           // Dev aid (?cam=x,y,z,lookX,lookY,lookZ): a fixed camera anywhere, for checking scenery.

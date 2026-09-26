@@ -151,6 +151,11 @@ const FS = /* glsl */ `
 
 export interface AirbaseStructures {
   setStructures(list: StructureList | undefined): void;
+  /**
+   * The ground-service vehicles beside the player while it is refuelled and re-armed: a fuel bowser
+   * on its right and a weapons trolley on its left (null hides them). y = ground level.
+   */
+  setServiceVehicles(at: { x: number; y: number; z: number; headingRad: number } | null): void;
   update(originWorld: Readonly<Vec3Like>, timeSec: number): void;
   setSunDirection(dir: Readonly<Vec3Like>): void;
   dispose(): void;
@@ -192,6 +197,26 @@ export function createAirbaseStructures(root: THREE.Object3D): AirbaseStructures
   });
   let meshes: THREE.InstancedMesh[] = [];
   const m4 = new THREE.Matrix4();
+  const place = (mesh: THREE.InstancedMesh, x: number, y: number, z: number, h: number, w: number, l: number, ht: number): void => {
+    const c = Math.cos(h);
+    const s = Math.sin(h);
+    m4.set(c * w, 0, -s * l, x, 0, ht, 0, y, s * w, 0, c * l, z, 0, 0, 0, 1);
+    mesh.setMatrixAt(0, m4);
+    mesh.instanceMatrix.needsUpdate = true;
+  };
+  const vehicle = (kind: string, tint: [number, number, number]): THREE.InstancedMesh => {
+    const geom = assets[kind]!.clone();
+    geom.setAttribute('iStyle', new THREE.InstancedBufferAttribute(new Float32Array(1), 1));
+    const mesh = new THREE.InstancedMesh(geom, mat, 1);
+    mesh.setColorAt(0, new THREE.Color(...tint));
+    mesh.frustumCulled = false;
+    mesh.visible = false;
+    mesh.layers.enable(CASTER_LAYER);
+    group.add(mesh);
+    return mesh;
+  };
+  const bowser = vehicle('fuel_truck', [0.36, 0.4, 0.27]);
+  const cart = vehicle('weapons_cart', [0.3, 0.33, 0.26]);
 
   return {
     setStructures(list) {
@@ -236,6 +261,18 @@ export function createAirbaseStructures(root: THREE.Object3D): AirbaseStructures
         meshes.push(mesh);
       }
     },
+    setServiceVehicles(at) {
+      bowser.visible = cart.visible = !!at;
+      if (!at) return;
+      const fx = Math.sin(at.headingRad);
+      const fz = -Math.cos(at.headingRad);
+      const rx = Math.cos(at.headingRad);
+      const rz = Math.sin(at.headingRad);
+      // Bowser parked alongside on the right, facing the same way; trolley across the left wing root.
+      place(bowser, at.x + rx * 8.5 - fx * 2.5, at.y, at.z + rz * 8.5 - fz * 2.5, at.headingRad, 2.5, 9, 3.1);
+      place(cart, at.x - rx * 6 + fx * 1.5, at.y, at.z - rz * 6 + fz * 1.5, at.headingRad + Math.PI / 2, 1.8, 3.6, 1.0);
+    },
+
     update(origin, t) {
       group.position.set(-origin.x, -origin.y, -origin.z);
       group.updateMatrix();
@@ -250,6 +287,7 @@ export function createAirbaseStructures(root: THREE.Object3D): AirbaseStructures
         m.geometry.dispose();
         m.dispose();
       }
+      for (const m of [bowser, cart]) m.geometry.dispose();
       for (const g of Object.values(assets)) g.dispose();
       root.remove(group);
       mat.dispose();

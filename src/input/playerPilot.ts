@@ -402,6 +402,7 @@ export function createPlayerInputSystem(config: PlayerInputConfig): PlayerInputS
       const rawAfterburner = rawButtonHeld(LogicalButton.Afterburner, scheme);
       const rawBrakes = rawButtonHeld(LogicalButton.Brakes, scheme);
       const rawJettison = rawButtonHeld(LogicalButton.JettisonTanks, scheme);
+      const rawService = rawButtonHeld(LogicalButton.Service, scheme);
 
       // Internal toggles (persisted level, edge-triggered).
       const rawGear = rawButtonHeld(LogicalButton.GearToggle, scheme);
@@ -431,6 +432,7 @@ export function createPlayerInputSystem(config: PlayerInputConfig): PlayerInputS
       out.gearDown = gearDownState;
       out.airbrake = airbrakeState;
       out.jettisonTanks = rawJettison;
+      out.requestService = rawService;
       out.trigger = rawTrigger;
       out.launch = rawLaunch;
       out.cycleWeapon = rawCycleWeapon;

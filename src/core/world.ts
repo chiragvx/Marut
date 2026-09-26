@@ -9,6 +9,7 @@
 import { Quat } from '../math';
 import {
   EntityFlag,
+  ServiceStateCode,
   EntityKind,
   GRAVITY_MPS2,
   MissionObjectiveKind,
@@ -70,7 +71,7 @@ import { createEventQueue } from './eventQueue';
 import { subSeed } from './seed';
 import { writeSnapshot as writeSnapshotBuffer } from './snapshotWriter';
 import { computeIlsDeviation, forwardWorldInto, rightWorldInto } from './hudTelemetry';
-import type { CombatPortWithContacts } from './combatContext';
+import type { CombatPortWithContacts, CombatPortWithRearm } from './combatContext';
 
 const SIM_DT_SEC_LOCAL = 1 / 120; // avoid importing SIM_DT_SEC just to re-derive it; core.ts already fixes this at 1/120 (SIM_HZ)
 
@@ -104,6 +105,24 @@ const SIM_DT_SEC_LOCAL = 1 / 120; // avoid importing SIM_DT_SEC just to re-deriv
  * with different gear geometry is added.
  */
 const RUNWAY_SPAWN_CLEARANCE_M = 1.1;
+
+/** Ground service: empty-to-full refuelling time and full re-arming time, s (compressed from real life). */
+const REFUEL_FULL_SEC = 40;
+const REARM_SEC = 20;
+/** How close to a parking spot counts as "on the stand", m. */
+const SERVICE_SPOT_RADIUS_M = 15;
+
+/** Stands (parking spots) and aprons of the mission's friendly or neutral bases, where the player can be serviced. */
+function buildServiceZones(mission: Mission): { spots: { x: number; z: number }[]; aprons: { x: number; z: number }[][] } {
+  const spots: { x: number; z: number }[] = [];
+  const aprons: { x: number; z: number }[][] = [];
+  for (const a of (mission.world.airports ?? []) as readonly Partial<AirportLayout>[]) {
+    if (a.side === 'hostile') continue;
+    for (const p of a.parkingSpots ?? []) spots.push({ x: p.worldX, z: p.worldZ });
+    for (const ap of a.aprons ?? []) if ((ap.kind ?? 'apron') === 'apron') aprons.push(ap.points.map((q) => ({ x: q.worldX, z: q.worldZ })));
+  }
+  return { spots, aprons };
+}
 
 /** A parking spot of one of the mission's airports (layouts as loaded by src/core/missions), or undefined. */
 function findParkingSpot(mission: Mission, airportId: string, spotId: string): { x: number; z: number; headingRad: number; elevationM: number } | undefined {
@@ -222,6 +241,7 @@ class WorldImpl implements World {
     headingRad: 0, pitchRad: 0, rollRad: 0, vspeedMps: 0, fuelKg: 0, thrustFrac: 0, gearPos: 0,
     weaponIdx: 0, targetId: NO_ENTITY_ID, targetRangeM: 0, closureMps: 0, lockState: 0,
     warningBits: 0, ilsLoc: 0, ilsGs: 0, pipperX: 0, pipperY: 0, pipperZ: 0, pipperValid: 0, tankFuelKg: -1,
+    serviceState: 0, serviceFuelFrac: 0, serviceArmFrac: 0,
   };
   private readonly ilsScratch = { loc: 0, gs: 0 };
   private readonly fwdScratch: Vec3Like = { x: 0, y: 0, z: 0 };
@@ -231,6 +251,9 @@ class WorldImpl implements World {
   // section 2/13), so this is a reused, .length-reset array rather than a
   // fresh `string[]` literal on every stepOnce() call.
   private readonly completedObjectivesScratch: string[] = [];
+  /** Ground service (refuel + re-arm) of the player on a friendly stand or apron. */
+  private readonly service = { state: 0, fuelFrac: 0, armFrac: 0, active: false, prevHeld: false };
+  private serviceZones: { spots: { x: number; z: number }[]; aprons: { x: number; z: number }[][] } = { spots: [], aprons: [] };
 
   constructor(deps: WorldDependencies) {
     this.deps = deps;
@@ -295,6 +318,7 @@ class WorldImpl implements World {
     this.mission = mission;
     this.missionSeedInternal = mission.world.seed;
     this.windState = createWindState(subSeed(this.missionSeedInternal, 'wind'));
+    this.serviceZones = buildServiceZones(mission);
 
     // Player.
     const ps = mission.playerStart;
@@ -417,6 +441,11 @@ class WorldImpl implements World {
     this.playerEntityIdInternal = NO_ENTITY_ID;
     this.hostileAircraftIds.clear();
     this.missionEndedThisLoad = false;
+    this.service.state = ServiceStateCode.None;
+    this.service.active = false;
+    this.service.prevHeld = false;
+    this.service.fuelFrac = 0;
+    this.service.armFrac = 0;
   }
 
   // ---- spawning ----
@@ -592,6 +621,7 @@ class WorldImpl implements World {
     // Settings "AoA limiter" toggle never reached the sim and drop tanks could not be jettisoned.
     target.alphaLimiterDisabled = inputs.alphaLimiterDisabled ?? false;
     target.jettisonTanks = inputs.jettisonTanks ?? false;
+    target.requestService = inputs.requestService ?? false;
   }
 
   setDifficulty(entityId: EntityId, difficulty: AiDifficulty): void {
@@ -746,6 +776,9 @@ class WorldImpl implements World {
     // Step 6: weapons/missiles/collisions/damage.
     this.deps.combat.step(SIM_DT_SEC_LOCAL, this.combatCtx, this.eventQueue);
 
+    // Step 7: ground service (refuel + re-arm) of the player.
+    this.stepService(SIM_DT_SEC_LOCAL);
+
     // Step 8: bookkeeping.
     this.tickInternal += 1;
     this.simTimeSecInternal = this.tickInternal * SIM_DT_SEC_LOCAL;
@@ -763,6 +796,90 @@ class WorldImpl implements World {
         this.missionEndedThisLoad = true;
       }
     }
+  }
+
+  /**
+   * Refuel and re-arm the player while stopped (on its wheels, < 1 m/s, throttle idle) on a stand or
+   * apron of a friendly or neutral base. The service key starts it; drop tanks are refitted, fuel
+   * flows (internal first, then the tanks; empty to full in REFUEL_FULL_SEC) and the weapon
+   * stations refill over REARM_SEC. Moving or opening the throttle stops it; what is loaded stays.
+   */
+  private stepService(dt: number): void {
+    const sv = this.service;
+    const id = this.playerEntityIdInternal;
+    const state = id !== NO_ENTITY_ID ? this.pool.get(id) : undefined;
+    const rec = state ? this.aircraft.get(id) : undefined;
+    if (!state || !rec || !state.alive) {
+      sv.state = ServiceStateCode.None;
+      sv.active = false;
+      return;
+    }
+    const held = rec.inputs.requestService ?? false;
+    const pressed = held && !sv.prevHeld;
+    sv.prevHeld = held;
+    const speed = Math.hypot(state.vel.x, state.vel.y, state.vel.z);
+    const stopped = (state.flags & EntityFlag.OnGround) !== 0 && speed < 1 && rec.inputs.throttle <= 0.05 && !rec.inputs.afterburner;
+    if (!stopped || !this.inServiceZone(state.pos.x, state.pos.z)) {
+      sv.state = ServiceStateCode.None;
+      sv.active = false;
+      return;
+    }
+    const maxInternal = this.deps.flightModel.maxFuelKg(rec.aircraftDefId);
+    const tanks = this.deps.flightModel.dropTankLoad?.(rec.aircraftDefId) ?? { count: 0, fuelKg: 0 };
+    const full = maxInternal + tanks.fuelKg;
+    const tankFuel = (state.dropTankCount ?? 0) > 0 ? (state.dropTankFuelKg ?? 0) : 0;
+    const port = this.deps.combat as Partial<CombatPortWithRearm>;
+    if (sv.active) {
+      if ((state.dropTankCount ?? 0) < tanks.count) {
+        state.dropTankCount = tanks.count;
+        state.dropTankFuelKg = tankFuel;
+      }
+      let add = (full / REFUEL_FULL_SEC) * dt;
+      const toInternal = Math.min(add, Math.max(0, maxInternal - state.fuelKg));
+      state.fuelKg += toInternal;
+      add -= toInternal;
+      if (add > 0 && tanks.count > 0) state.dropTankFuelKg = Math.min(tanks.fuelKg, (state.dropTankFuelKg ?? 0) + add);
+      sv.armFrac = Math.min(1, sv.armFrac + dt / REARM_SEC);
+      port.rearm?.(id, sv.armFrac);
+      const now = state.fuelKg + (tanks.count > 0 ? (state.dropTankFuelKg ?? 0) : 0);
+      sv.fuelFrac = full > 0 ? now / full : 1;
+      if (now >= full - 0.5 && sv.armFrac >= 1) {
+        sv.active = false;
+        sv.state = ServiceStateCode.Complete;
+      } else {
+        sv.state = ServiceStateCode.Servicing;
+      }
+      return;
+    }
+    sv.fuelFrac = full > 0 ? (state.fuelKg + tankFuel) / full : 1;
+    const armed = port.armedFrac ? port.armedFrac(id) : 1;
+    const needs = sv.fuelFrac < 0.995 || armed < 1 || (state.dropTankCount ?? 0) < tanks.count;
+    if (pressed && needs) {
+      sv.active = true;
+      sv.armFrac = armed;
+      sv.state = ServiceStateCode.Servicing;
+    } else if (sv.state !== ServiceStateCode.Complete) {
+      sv.state = needs ? ServiceStateCode.Available : ServiceStateCode.None;
+    }
+  }
+
+  private inServiceZone(x: number, z: number): boolean {
+    const r2 = SERVICE_SPOT_RADIUS_M * SERVICE_SPOT_RADIUS_M;
+    for (const s of this.serviceZones.spots) {
+      const dx = s.x - x;
+      const dz = s.z - z;
+      if (dx * dx + dz * dz < r2) return true;
+    }
+    for (const poly of this.serviceZones.aprons) {
+      let inside = false;
+      for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+        const a = poly[i]!;
+        const b = poly[j]!;
+        if (a.z > z !== b.z > z && x < ((b.x - a.x) * (z - a.z)) / (b.z - a.z) + a.x) inside = !inside;
+      }
+      if (inside) return true;
+    }
+    return false;
   }
 
   private pushWarningEdge(entityId: EntityId, prevBits: number, bits: number, bit: number): void {
@@ -920,6 +1037,9 @@ class WorldImpl implements World {
       hud.pipperZ = rec.combat.aimPointWorld.z;
       hud.pipperValid = rec.combat.aimPointValid ? 1 : 0;
       hud.tankFuelKg = (state.dropTankCount ?? 0) > 0 ? (state.dropTankFuelKg ?? 0) : -1;
+      hud.serviceState = this.service.state;
+      hud.serviceFuelFrac = this.service.fuelFrac;
+      hud.serviceArmFrac = this.service.armFrac;
     }
     writeSnapshotBuffer(this.pool, playerId, this.tickInternal, this.simTimeSecInternal, hud, out);
   }

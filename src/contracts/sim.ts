@@ -362,6 +362,10 @@ export interface SnapshotHudView {
   pipperValid: number;
   /** Fuel in attached drop tanks, kg; -1 when none are attached (SnapshotHud.TANK_FUEL_KG). */
   tankFuelKg: number;
+  /** SnapshotHud.SERVICE_STATE / SERVICE_FUEL_FRAC / SERVICE_ARM_FRAC. */
+  serviceState: number;
+  serviceFuelFrac: number;
+  serviceArmFrac: number;
 }
 
 export interface SnapshotHeaderView {

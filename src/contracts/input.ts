@@ -156,6 +156,8 @@ export const LogicalButton = {
   NwsToggle: 'nwsToggle',
   /** Jettison drop tanks (PilotInputs.jettisonTanks), passed through as raw held state. */
   JettisonTanks: 'jettisonTanks',
+  /** Refuel + re-arm on the ground (PilotInputs.requestService), passed through as raw held state. */
+  Service: 'service',
 } as const;
 export type LogicalButton = (typeof LogicalButton)[keyof typeof LogicalButton];
 

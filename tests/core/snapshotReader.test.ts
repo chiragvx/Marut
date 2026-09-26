@@ -10,7 +10,7 @@ function makeHud(): SnapshotHudView {
     iasMps: 123.4, tasMps: 130, mach: 0.4, altMslM: 5000, altAglM: 4500, aoaRad: 0.05, betaRad: -0.01,
     gLoad: 1.2, headingRad: 1.5, pitchRad: 0.1, rollRad: -0.2, vspeedMps: 3, fuelKg: 2000, thrustFrac: 0.6,
     gearPos: 0, weaponIdx: 1, targetId: 7, targetRangeM: 4000, closureMps: 50, lockState: 2,
-    warningBits: 5, ilsLoc: 0.1, ilsGs: -0.1, pipperX: 10, pipperY: 20, pipperZ: 30, pipperValid: 1, tankFuelKg: 1500,
+    warningBits: 5, ilsLoc: 0.1, ilsGs: -0.1, pipperX: 10, pipperY: 20, pipperZ: 30, pipperValid: 1, tankFuelKg: 1500, serviceState: 2, serviceFuelFrac: 0.5, serviceArmFrac: 0.25,
   };
 }
 
@@ -70,5 +70,8 @@ describe('snapshot write/read round-trip', () => {
     expect(hudView.lockState).toBe(2);
     expect(hudView.pipperValid).toBe(1);
     expect(hudView.tankFuelKg).toBe(1500);
+    expect(hudView.serviceState).toBe(2);
+    expect(hudView.serviceFuelFrac).toBe(0.5);
+    expect(hudView.serviceArmFrac).toBe(0.25);
   });
 });

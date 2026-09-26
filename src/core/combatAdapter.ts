@@ -16,7 +16,7 @@
 import { EntityKind, NO_ENTITY_ID } from '../contracts/core';
 import type { Contact, EntityId, EntityState, SimEvent } from '../contracts/core';
 import type { CombatPort, CombatTickContext, EventQueue } from '../contracts/sim';
-import type { CombatPortWithContacts, WorldCombatTickContext } from './combatContext';
+import type { CombatPortWithContacts, CombatPortWithRearm, WorldCombatTickContext } from './combatContext';
 import { subSeed } from './seed';
 import { tejasDefinition } from '../aircraft';
 import {
@@ -81,7 +81,7 @@ function defaultCombatEnvironment(): CombatEnvironment {
 
 const EMPTY_CONTACTS: readonly Contact[] = [];
 
-export function createCombatAdapter(): CombatPort & CombatPortWithContacts {
+export function createCombatAdapter(): CombatPort & CombatPortWithContacts & CombatPortWithRearm {
   const weaponsStates = new Map<EntityId, WeaponsState>();
   const detectableScratch: DetectableEntity[] = [];
   // Reused view over detectableScratch[0..liveCount), rebuilt (references
@@ -115,6 +115,29 @@ export function createCombatAdapter(): CombatPort & CombatPortWithContacts {
   }
 
   return {
+    rearm(id: EntityId, frac: number): void {
+      const w = weaponsStates.get(id);
+      if (!w) return;
+      const f = Math.max(0, Math.min(1, frac));
+      for (let i = 0; i < w.stations.length; i++) {
+        const spec = TEJAS_LOADOUT.stations[i];
+        if (!spec) continue;
+        const target = f >= 1 ? spec.maxCount : Math.floor(spec.maxCount * f);
+        if (w.stations[i]!.count < target) w.stations[i]!.count = target;
+      }
+    },
+
+    armedFrac(id: EntityId): number {
+      const w = weaponsStates.get(id);
+      if (!w) return 1;
+      let f = 1;
+      for (let i = 0; i < w.stations.length; i++) {
+        const spec = TEJAS_LOADOUT.stations[i];
+        if (spec && spec.maxCount > 0) f = Math.min(f, w.stations[i]!.count / spec.maxCount);
+      }
+      return f;
+    },
+
     getContacts(id: EntityId): readonly Contact[] {
       return contactsScratchByObserver.get(id) ?? EMPTY_CONTACTS;
     },

@@ -132,6 +132,22 @@ function vaultRing(g: Builder, hw: number, innerHw: number, y0: number, rise: nu
   }
 }
 
+/** A horizontal cylinder along z (x radius r, centre height cy), capped at both ends. */
+function hcyl(g: Builder, cx: number, cy: number, r: number, z0: number, z1: number, segs: number, part: number): void {
+  for (let i = 0; i < segs; i++) {
+    const a0 = (i / segs) * Math.PI * 2;
+    const a1 = ((i + 1) / segs) * Math.PI * 2;
+    const p0 = [cx + Math.cos(a0) * r, cy + Math.sin(a0) * r];
+    const p1 = [cx + Math.cos(a1) * r, cy + Math.sin(a1) * r];
+    const n0 = [Math.cos(a0), Math.sin(a0), 0];
+    const n1 = [Math.cos(a1), Math.sin(a1), 0];
+    tri(g, [p0[0]!, p0[1]!, z0], [p1[0]!, p1[1]!, z1], [p1[0]!, p1[1]!, z0], part, n0, n1, n1);
+    tri(g, [p0[0]!, p0[1]!, z0], [p0[0]!, p0[1]!, z1], [p1[0]!, p1[1]!, z1], part, n0, n0, n1);
+    tri(g, [cx, cy, z0], [p0[0]!, p0[1]!, z0], [p1[0]!, p1[1]!, z0], part, [0, 0, -1], [0, 0, -1], [0, 0, -1]);
+    tri(g, [cx, cy, z1], [p1[0]!, p1[1]!, z1], [p0[0]!, p0[1]!, z1], part, [0, 0, 1], [0, 0, 1], [0, 0, 1]);
+  }
+}
+
 function geometry(g: Builder): THREE.BufferGeometry {
   const out = new THREE.BufferGeometry();
   out.setAttribute('position', new THREE.Float32BufferAttribute(g.p, 3));
@@ -205,6 +221,27 @@ export function makeAirbaseAssets(): Record<string, THREE.BufferGeometry> {
       g.p.push(...off.p);
       g.n.push(...off.n);
       g.part.push(...off.part);
+    }),
+    // Fuel bowser (service vehicle): chassis and wheels, cab with a windscreen at the front, tank.
+    fuel_truck: make((g) => {
+      box(g, -0.5, 0.5, 0.12, 0.3, -0.5, 0.5, Part.Door);
+      for (const z of [-0.36, 0.12, 0.36]) {
+        box(g, -0.52, -0.36, 0, 0.2, z - 0.07, z + 0.07, Part.Door);
+        box(g, 0.36, 0.52, 0, 0.2, z - 0.07, z + 0.07, Part.Door);
+      }
+      box(g, -0.5, 0.5, 0.3, 0.95, -0.5, -0.24, [Part.Concrete, Part.Concrete, Part.Concrete, Part.Concrete, Part.Roof]);
+      quad(g, [0.44, 0.62, -0.501], [-0.44, 0.62, -0.501], [-0.44, 0.9, -0.501], [0.44, 0.9, -0.501], Part.Glass);
+      hcyl(g, 0, 0.62, 0.46, -0.2, 0.48, 12, Part.Concrete);
+    }),
+    // Weapons loading trolley with two missiles on it.
+    weapons_cart: make((g) => {
+      box(g, -0.5, 0.5, 0.25, 0.4, -0.5, 0.5, Part.Door);
+      for (const z of [-0.35, 0.35]) {
+        box(g, -0.55, -0.4, 0, 0.26, z - 0.1, z + 0.1, Part.Door);
+        box(g, 0.4, 0.55, 0, 0.26, z - 0.1, z + 0.1, Part.Door);
+      }
+      hcyl(g, -0.22, 0.6, 0.1, -0.48, 0.48, 8, Part.Tank);
+      hcyl(g, 0.22, 0.6, 0.1, -0.48, 0.48, 8, Part.Tank);
     }),
     // Surveillance radar: a lattice-ish mast, a platform and a rotating antenna (Part.Antenna).
     radar: make((g) => {

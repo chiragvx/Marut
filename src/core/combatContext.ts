@@ -36,6 +36,13 @@ export interface WorldCombatTickContext extends CombatTickContext {
  * integration pass should use. Not part of any contract file — nothing
  * outside `src/core` observes it.
  */
+/** Ground re-arming: refills aircraft `id`'s weapon stations to at least `frac` (0..1) of their full load. */
+export interface CombatPortWithRearm {
+  rearm(id: EntityId, frac: number): void;
+  /** How fully armed aircraft `id` is: the lowest station fill fraction, 0..1 (1 if unknown). */
+  armedFrac(id: EntityId): number;
+}
+
 export interface CombatPortWithContacts {
   /** Sensor contacts visible to aircraft `id` as of the most recent `CombatPort.step` call, most-threatening first (whatever order `updateSensors` produced), or an empty array if `id` has never been observed as a live aircraft by combat. Never allocates when `id` has no entry. */
   getContacts(id: EntityId): readonly Contact[];

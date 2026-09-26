@@ -58,6 +58,7 @@ const BINDABLE_ACTION_TARGETS: Readonly<Record<BindableAction, BindableActionTar
   [BA.CycleWeapon]: { rebindAction: LogicalButton.CycleWeapon },
   [BA.CycleTarget]: { rebindAction: LogicalButton.CycleTarget },
   [BA.JettisonTanks]: { rebindAction: LogicalButton.JettisonTanks },
+  [BA.Service]: { rebindAction: LogicalButton.Service },
   [BA.NoseWheelSteer]: { rebindAction: LogicalButton.NwsToggle },
   [BA.PauseToggle]: { rebindAction: MetaAction.MenuToggle },
   [BA.CameraCycle]: { rebindAction: MetaAction.CameraCycle },
