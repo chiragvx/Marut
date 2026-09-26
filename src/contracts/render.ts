@@ -345,6 +345,14 @@ export interface SceneEnvironment {
   pavement?: { positions: Float32Array; surf: Float32Array; extra: Float32Array; indices: Uint32Array };
   /** Airbase structures (contracts/airport.ts StructureDef, placed at their base's elevation). */
   structures?: readonly { kind: string; worldX: number; worldY: number; worldZ: number; headingRad: number; widthM: number; lengthM: number; heightM: number; side: string }[];
+  /** Per airbase: taxiway edge lights, floodlights, PAPIs and signs (src/airport/airfieldAids.ts). */
+  airfieldAids?: readonly {
+    groundY: number;
+    taxiEdgeLights: readonly (readonly [number, number])[];
+    floodlights: readonly (readonly [number, number])[];
+    papi: readonly { x: number; z: number; approachX: number; approachZ: number; angleRad: number }[];
+    signs: readonly { x: number; z: number; headingRad: number; text: string; style: 'mandatory' | 'direction' | 'distance' }[];
+  }[];
   /** Per airbase: where the airfield ground is (src/airport/airfieldMask.ts), for the ground shader. */
   airfieldMasks?: readonly { minX: number; minZ: number; sizeM: number; data: Uint8Array }[];
   /** One entry per physical runway (not per direction). */

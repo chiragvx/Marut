@@ -212,6 +212,11 @@ function dijkstra(g: TaxiGraph, from: number): { dist: Float64Array; prev: Int32
   return { dist, prev };
 }
 
+/** Shortest taxi distance from node `from` to every node (Infinity where unreachable). */
+export function shortestDistances(g: TaxiGraph, from: number): Float64Array {
+  return dijkstra(g, from).dist;
+}
+
 function pathTo(g: TaxiGraph, prev: Int32Array, to: number): [number, number][] {
   const out: [number, number][] = [];
   for (let n = to; n >= 0; n = prev[n]!) out.push(g.nodes[n]!);

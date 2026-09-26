@@ -131,6 +131,9 @@ const FS = /* glsl */ `
       col *= 1.0 - 0.2 * smoothstep(0.6, 0.0, vLocalM.y); // rust/dirt at the foot
     } else if (part == 6) {
       col = vec3(0.78, 0.78, 0.76);
+    } else if (part == 8) {
+      // Windsock bands: orange and white.
+      col = mod(floor(-vLocalM.z / 0.9), 2.0) < 0.5 ? vec3(0.95, 0.42, 0.08) : vec3(0.92, 0.92, 0.9);
     } else {
       // Roofs: weathered metal / concrete.
       col = vTint * vec3(0.78, 0.80, 0.82) * (0.8 + 0.25 * stain);

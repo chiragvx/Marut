@@ -86,11 +86,54 @@ const RUNWAY_VS = /* glsl */ `
   }
 `;
 
+const PAPI_VS = /* glsl */ `
+  ${ATMOSPHERE_GLSL}
+  ${LIGHT_SPRITE_VS_GLSL}
+  attribute vec3 iPos;
+  attribute vec3 iDir;   // horizontal direction towards the approach
+  attribute float iAngle; // this lamp's glide angle, rad
+  varying vec3 vCol;
+  void main() {
+    vec3 d = uAtmCamPos - iPos;
+    float horiz = dot(d.xz, iDir.xz);
+    if (horiz <= 1.0) {
+      gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
+      vCol = vec3(0.0);
+      return;
+    }
+    // White above this lamp's angle, red below; bright enough to read by day.
+    vCol = atan(d.y, horiz) > iAngle ? vec3(2.6, 2.5, 2.3) : vec3(2.8, 0.25, 0.15);
+    gl_Position = lightSprite(iPos, 2.0, 5.0);
+  }
+`;
+
+/** Airfield aids to light (src/airport/airfieldAids.ts, per base). */
+export interface LightAids {
+  groundY: number;
+  taxiEdgeLights: readonly (readonly [number, number])[];
+  floodlights: readonly (readonly [number, number])[];
+  papi: readonly { x: number; z: number; approachX: number; approachZ: number; angleRad: number }[];
+}
+
 export interface RunwayLights {
   setNavDb(navDb: AirportNavDb): void;
+  /** Taxiway edge lights, apron floodlights and PAPIs for the mission's bases. */
+  setAids(aids: readonly LightAids[]): void;
   /** Per frame: brightness 0..1 (0 hides them). */
   update(intensity: number, originWorld: Readonly<Vec3Like>): void;
   dispose(): void;
+}
+
+function spriteMesh(quad: THREE.PlaneGeometry, mat: THREE.ShaderMaterial, attrs: Record<string, [Float32Array, number]>, count: number): THREE.Mesh {
+  const geom = new THREE.InstancedBufferGeometry();
+  geom.index = quad.index;
+  geom.setAttribute('position', quad.getAttribute('position'));
+  for (const [name, [arr, size]] of Object.entries(attrs)) geom.setAttribute(name, new THREE.InstancedBufferAttribute(arr, size));
+  geom.instanceCount = count;
+  const mesh = new THREE.Mesh(geom, mat);
+  mesh.frustumCulled = false;
+  mesh.renderOrder = 15;
+  return mesh;
 }
 
 const EDGE_SPACING_M = 60;
@@ -102,6 +145,11 @@ export function createRunwayLights(root: THREE.Object3D): RunwayLights {
   const mat = lightSpriteMaterial(RUNWAY_VS, {});
   let mesh: THREE.Mesh | undefined;
   let geom: THREE.InstancedBufferGeometry | undefined;
+  // Taxiway edge lights and floodlights share the runway-light shader (own brightness each).
+  const taxiMat = lightSpriteMaterial(RUNWAY_VS, {});
+  const floodMat = lightSpriteMaterial(RUNWAY_VS, {});
+  const papiMat = lightSpriteMaterial(PAPI_VS, {});
+  const aidMeshes: THREE.Mesh[] = [];
 
   return {
     setNavDb(navDb) {
@@ -157,18 +205,63 @@ export function createRunwayLights(root: THREE.Object3D): RunwayLights {
       root.add(mesh);
     },
 
+    setAids(list) {
+      for (const m of aidMeshes) {
+        root.remove(m);
+        m.geometry.dispose();
+      }
+      aidMeshes.length = 0;
+      const taxi: number[] = [];
+      const flood: number[] = [];
+      const papiPos: number[] = [];
+      const papiDir: number[] = [];
+      const papiAng: number[] = [];
+      for (const a of list) {
+        for (const [x, z] of a.taxiEdgeLights) taxi.push(x, a.groundY + 0.35, z);
+        for (const [x, z] of a.floodlights) flood.push(x, a.groundY + 21, z);
+        for (const p of a.papi) {
+          papiPos.push(p.x, a.groundY + 0.8, p.z);
+          papiDir.push(p.approachX, 0, p.approachZ);
+          papiAng.push(p.angleRad);
+        }
+      }
+      const add = (m: THREE.Mesh): void => {
+        root.add(m);
+        aidMeshes.push(m);
+      };
+      const n = (arr: number[]): number => arr.length / 3;
+      const fill = (count: number, rgb: [number, number, number]): Float32Array => {
+        const c = new Float32Array(count * 3);
+        for (let i = 0; i < count; i++) c.set(rgb, i * 3);
+        return c;
+      };
+      if (taxi.length) add(spriteMesh(quad, taxiMat, { iPos: [Float32Array.from(taxi), 3], iCol: [fill(n(taxi), [0.25, 0.45, 1.6]), 3], iDir: [new Float32Array(taxi.length), 3] }, n(taxi)));
+      if (flood.length) add(spriteMesh(quad, floodMat, { iPos: [Float32Array.from(flood), 3], iCol: [fill(n(flood), [2.2, 1.8, 1.2]), 3], iDir: [new Float32Array(flood.length), 3] }, n(flood)));
+      if (papiPos.length) add(spriteMesh(quad, papiMat, { iPos: [Float32Array.from(papiPos), 3], iDir: [Float32Array.from(papiDir), 3], iAngle: [Float32Array.from(papiAng), 1] }, n(papiPos)));
+    },
+
     update(intensity, origin) {
+      for (const m of [mat, taxiMat, floodMat, papiMat]) (m.uniforms['uOrigin']!.value as THREE.Vector3).set(origin.x, origin.y, origin.z);
+      // Taxiway lights with the runway lights (night, poor visibility); floodlights at night only
+      // (their mesh is dimmed by the same value); the PAPI always.
+      taxiMat.uniforms['uIntensity']!.value = intensity;
+      floodMat.uniforms['uIntensity']!.value = Math.max(0, (getAtmosphereUniforms().uAtmLights.value as number) - 0.05);
+      papiMat.uniforms['uIntensity']!.value = 1;
+      for (const m of aidMeshes) m.visible = (m.material as THREE.ShaderMaterial).uniforms['uIntensity']!.value > 0.01;
       if (!mesh) return;
       mesh.visible = intensity > 0.01;
       mat.uniforms['uIntensity']!.value = intensity;
-      (mat.uniforms['uOrigin']!.value as THREE.Vector3).set(origin.x, origin.y, origin.z);
     },
 
     dispose() {
       if (mesh) root.remove(mesh);
       geom?.dispose();
+      for (const m of aidMeshes) m.geometry.dispose();
       quad.dispose();
       mat.dispose();
+      taxiMat.dispose();
+      floodMat.dispose();
+      papiMat.dispose();
     },
   };
 }

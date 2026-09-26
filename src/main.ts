@@ -62,6 +62,7 @@ import { ESTUARY_FLOATS, packEstuary } from './terrain/coastMath';
 import { createAirportNavDb } from './airport';
 import { buildPavementGeometry } from './airport/pavementGeometry';
 import { buildAirfieldMask } from './airport/airfieldMask';
+import { buildAirfieldAids } from './airport/airfieldAids';
 import { activeRunway, buildTaxiGraph, routeToRunway, routeToStand, type TaxiGraph } from './airport/taxiGraph';
 import { tejasDefinition } from './aircraft';
 import { isBuiltinMissionId, resolveBuiltinMission } from './core/missions/index';
@@ -517,7 +518,14 @@ function sendToTerrainWorker(msg: MainToTerrainMessage | MainToTerrainMessageExt
 }
 
 /** The theatre look for the renderer: ground style and water from the terrain, runways from the layouts. */
-function buildSceneEnvironment(terrainParams: TerrainParams, airportLayouts: readonly AirportLayout[]): SceneEnvironment {
+function buildSceneEnvironment(terrainParams: TerrainParams, airportLayouts: readonly AirportLayout[], wind: { x: number; z: number } = { x: 0, z: 0 }): SceneEnvironment {
+  const aids = airportLayouts.map((a) => buildAirfieldAids(a));
+  // Windsocks stream downwind (limp towards the south in calm air); floodlight masts at the aprons.
+  const downwind = Math.hypot(wind.x, wind.z) > 0.2 ? Math.atan2(wind.x, -wind.z) : Math.PI;
+  const aidStructures = aids.flatMap((a, i) => [
+    ...a.windsocks.map(([x, z]) => ({ kind: 'windsock', worldX: x, worldY: a.groundY, worldZ: z, headingRad: downwind, widthM: 2, lengthM: 6, heightM: 7, side: airportLayouts[i]!.side ?? 'neutral' })),
+    ...a.floodlights.map(([x, z]) => ({ kind: 'light_mast', worldX: x, worldY: a.groundY, worldZ: z, headingRad: 0, widthM: 2.4, lengthM: 2.4, heightM: 21, side: airportLayouts[i]!.side ?? 'neutral' })),
+  ]);
   const runways: SceneEnvironment['runways'][number][] = [];
   for (const layout of airportLayouts) {
     for (const r of layout.runways) {
@@ -562,9 +570,13 @@ function buildSceneEnvironment(terrainParams: TerrainParams, airportLayouts: rea
     ...(terrainParams.waterLevelM !== undefined ? { waterLevelM: terrainParams.waterLevelM } : {}),
     pavement: buildPavementGeometry(airportLayouts),
     airfieldMasks: airportLayouts.map((a) => buildAirfieldMask(a)),
-    structures: airportLayouts.flatMap((a) =>
-      (a.structures ?? []).map((s) => ({ kind: s.kind, worldX: s.worldX, worldY: a.elevationM, worldZ: s.worldZ, headingRad: s.headingRad, widthM: s.widthM, lengthM: s.lengthM, heightM: s.heightM, side: a.side ?? 'neutral' }))
-    ),
+    structures: [
+      ...airportLayouts.flatMap((a) =>
+        (a.structures ?? []).map((s) => ({ kind: s.kind, worldX: s.worldX, worldY: a.elevationM, worldZ: s.worldZ, headingRad: s.headingRad, widthM: s.widthM, lengthM: s.lengthM, heightM: s.heightM, side: a.side ?? 'neutral' }))
+      ),
+      ...aidStructures,
+    ],
+    airfieldAids: aids,
     runways,
   };
 }
@@ -625,7 +637,7 @@ function launchMission(missionIn: Mission): void {
   const flattenZones: readonly AirportFlattenZone[] = airportLayouts.flatMap((a) => a.flattenZones);
   const navDb = createAirportNavDb(airportLayouts);
   renderer.setNavDb(navDb);
-  renderer.setEnvironment(buildSceneEnvironment(terrainParams, airportLayouts));
+  renderer.setEnvironment(buildSceneEnvironment(terrainParams, airportLayouts, { x: mission.weather.windWorldMps.x, z: mission.weather.windWorldMps.z }));
   renderer.setWeather(weatherMode, newWeatherSeed());
 
   terrainReady = false;

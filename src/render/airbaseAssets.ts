@@ -17,6 +17,8 @@ export const Part = {
   Tank: 5,
   Antenna: 6,
   Roof: 7,
+  /** Windsock fabric: orange and white bands. */
+  Sock: 8,
 } as const;
 
 interface Builder {
@@ -242,6 +244,34 @@ export function makeAirbaseAssets(): Record<string, THREE.BufferGeometry> {
       }
       hcyl(g, -0.22, 0.6, 0.1, -0.48, 0.48, 8, Part.Tank);
       hcyl(g, 0.22, 0.6, 0.1, -0.48, 0.48, 8, Part.Tank);
+    }),
+    // Windsock: a pole at the back, the sock streaming forward (downwind: the instance faces where
+    // the wind blows to), tapering and drooping a little.
+    windsock: make((g) => {
+      box(g, -0.025, 0.025, 0, 1, 0.45, 0.5, Part.Concrete);
+      const segs = 10;
+      const n = 5;
+      for (let k = 0; k < n; k++) {
+        const z0 = 0.47 - (k / n) * 0.9;
+        const z1 = 0.47 - ((k + 1) / n) * 0.9;
+        const r0 = 0.09 - (k / n) * 0.045;
+        const r1 = 0.09 - ((k + 1) / n) * 0.045;
+        const y0 = 0.93 - (k / n) * (k / n) * 0.08;
+        const y1 = 0.93 - ((k + 1) / n) * ((k + 1) / n) * 0.08;
+        for (let i = 0; i < segs; i++) {
+          const a0 = (i / segs) * Math.PI * 2;
+          const a1 = ((i + 1) / segs) * Math.PI * 2;
+          const P = (r: number, y: number, z: number, a: number): number[] => [Math.cos(a) * r, y + Math.sin(a) * r, z];
+          const N = (a: number): number[] => [Math.cos(a), Math.sin(a), 0];
+          tri(g, P(r0, y0, z0, a0), P(r1, y1, z1, a1), P(r1, y1, z1, a0), Part.Sock, N(a0), N(a1), N(a0));
+          tri(g, P(r0, y0, z0, a0), P(r0, y0, z0, a1), P(r1, y1, z1, a1), Part.Sock, N(a0), N(a1), N(a1));
+        }
+      }
+    }),
+    // Floodlight mast: a pole with a lamp head.
+    light_mast: make((g) => {
+      box(g, -0.05, 0.05, 0, 0.95, -0.05, 0.05, Part.Concrete);
+      box(g, -0.4, 0.4, 0.95, 1.0, -0.12, 0.12, Part.Tank);
     }),
     // Surveillance radar: a lattice-ish mast, a platform and a rotating antenna (Part.Antenna).
     radar: make((g) => {

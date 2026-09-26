@@ -46,6 +46,7 @@ import { createRain } from './rain';
 import { createRunwayLights, setLightViewport } from './nightLights';
 import { createAirfieldPavement } from './airfieldPavement';
 import { createAirbaseStructures } from './airbaseStructures';
+import { createAirfieldSigns } from './airfieldSigns';
 import { createFarGround } from './farGround';
 import { getAtmosphereUniforms, setAtmosphereCamera, setAtmosphereHaze } from './atmosphere';
 import type { WeatherMode } from '../contracts/core';
@@ -146,6 +147,7 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
   const runwayLights = createRunwayLights(scene);
   const pavement = createAirfieldPavement(scene);
   const structures = createAirbaseStructures(scene);
+  const signs = createAirfieldSigns(scene);
   /** The player's ground-service state and heading from the latest snapshot (for the service vehicles). */
   let playerServiceState = 0;
   let playerHeadingRad = 0;
@@ -384,6 +386,8 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
       terrainConsumer.setEnvironment(env);
       pavement.setGeometry(env.pavement ?? null, env.runways);
       structures.setStructures(env.structures);
+      runwayLights.setAids(env.airfieldAids ?? []);
+      signs.setSigns(env.airfieldAids ?? []);
       hillyTheatre = env.surfaceStyle !== 'farmland';
       applyQualityTier(tier);
     },
@@ -493,6 +497,7 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
         airportLines.updateOrigin(origin);
         pavement.updateOrigin(origin);
         structures.update(origin, lastFrameMs / 1000);
+        signs.updateOrigin(origin);
       }
 
       camera.updateMatrixWorld(true);
@@ -525,6 +530,7 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
       runwayLights.dispose();
       pavement.dispose();
       structures.dispose();
+      signs.dispose();
       deck.dispose();
       rain.dispose();
       farGround.dispose();
