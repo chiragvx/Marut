@@ -46,16 +46,33 @@ describe('pavement geometry', () => {
     const n = g.positions.length / 3;
     const rwy: number[] = [];
     for (let v = 0; v < n; v++) if (g.surf[v * 4] === PavementKind.Runway) rwy.push(v);
-    expect(rwy.length).toBe(12);
-    const single = buildPavementGeometry([load(shahbaz)]);
+    const S = load(shahbaz);
+    const pieces = (len: number): number => 2 * (Math.ceil(len / 80) + 1);
+    expect(rwy.length).toBe(pieces(2739.39) + S.runways.filter((r) => r.id.startsWith('15')).reduce((n, r) => n + pieces(r.lengthM), 0));
+    const single = buildPavementGeometry([S]);
     const ns = single.positions.length / 3;
-    for (let v = ns - 8; v < ns; v++) expect(single.surf[v * 4]).toBe(PavementKind.Runway);
+    const nr = S.runways.filter((r) => r.id.startsWith('15')).reduce((n, r) => n + pieces(r.lengthM), 0);
+    for (let v = ns - nr; v < ns; v++) expect(single.surf[v * 4]).toBe(PavementKind.Runway);
     expect(g.indices.length % 3).toBe(0);
     expect(Math.max(...g.indices)).toBeLessThan(n);
     const codes = new Set<number>();
     for (const v of rwy) codes.add(g.extra[v * 4 + 2]!).add(g.extra[v * 4 + 3]!);
     expect([...codes].sort()).toEqual([130, 151, 152, 310, 331, 332]);
   });
+});
+
+test('runways and taxiways are cut into short pieces so they follow the curved ground', () => {
+  const g = buildPavementGeometry([load(bhisiana)]);
+  for (let t = 0; t < g.indices.length; t += 3) {
+    const k = g.surf[g.indices[t]! * 4]!;
+    if (k !== PavementKind.Runway && k !== PavementKind.Taxiway) continue;
+    for (let e = 0; e < 3; e++) {
+      const a = g.indices[t + e]!;
+      const b = g.indices[t + ((e + 1) % 3)]!;
+      const d = Math.hypot(g.positions[a * 3]! - g.positions[b * 3]!, g.positions[a * 3 + 2]! - g.positions[b * 3 + 2]!);
+      expect(d).toBeLessThan(100);
+    }
+  }
 });
 
 describe('airfield ground mask', () => {

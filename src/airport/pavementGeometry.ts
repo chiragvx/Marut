@@ -39,6 +39,13 @@ export interface PavementGeometry {
 
 /** Height of the pavement above the flattened ground, m. */
 const LIFT_M = 0.04;
+/**
+ * Longest straight run of a strip between vertices, m. The ground is drawn curving away with the
+ * earth (atmCurve, per vertex), and a long pavement triangle is interpolated straight across that
+ * curve: a 2.7 km runway quad sags up to 14 cm below the finely tessellated ground near the camera
+ * and disappears into it. Cut into 80 m pieces, the error is under a millimetre.
+ */
+const MAX_PIECE_M = 80;
 const JOIN_SEGMENTS = 10;
 
 export function designatorCode(id: string): number {
@@ -196,11 +203,19 @@ export function buildPavementGeometry(layouts: readonly AirportLayout[]): Paveme
         const dz = (b.worldZ - a.worldZ) / len;
         const nx = -dz;
         const nz = dx;
-        const v0 = vert(a.worldX + nx * hw, y, a.worldZ + nz * hw, PavementKind.Taxiway, u, hw, hw, dx, dz);
-        const v1 = vert(a.worldX - nx * hw, y, a.worldZ - nz * hw, PavementKind.Taxiway, u, -hw, hw, dx, dz);
-        const v2 = vert(b.worldX + nx * hw, y, b.worldZ + nz * hw, PavementKind.Taxiway, u + len, hw, hw, dx, dz);
-        const v3 = vert(b.worldX - nx * hw, y, b.worldZ - nz * hw, PavementKind.Taxiway, u + len, -hw, hw, dx, dz);
-        index.push(v0, v2, v1, v1, v2, v3);
+        const pieces = Math.max(1, Math.ceil(len / MAX_PIECE_M));
+        let l0 = vert(a.worldX + nx * hw, y, a.worldZ + nz * hw, PavementKind.Taxiway, u, hw, hw, dx, dz);
+        let r0 = vert(a.worldX - nx * hw, y, a.worldZ - nz * hw, PavementKind.Taxiway, u, -hw, hw, dx, dz);
+        for (let k = 1; k <= pieces; k++) {
+          const s = (len * k) / pieces;
+          const cx = a.worldX + dx * s;
+          const cz = a.worldZ + dz * s;
+          const l1 = vert(cx + nx * hw, y, cz + nz * hw, PavementKind.Taxiway, u + s, hw, hw, dx, dz);
+          const r1 = vert(cx - nx * hw, y, cz - nz * hw, PavementKind.Taxiway, u + s, -hw, hw, dx, dz);
+          index.push(l0, l1, r0, r0, l1, r1);
+          l0 = l1;
+          r0 = r1;
+        }
         u += len;
       }
       // Round joins and ends: a disc at every point, v measured across the mean direction so the
@@ -235,13 +250,19 @@ export function buildPavementGeometry(layouts: readonly AirportLayout[]): Paveme
       const e: [number, number, number, number] = [r.lengthM, r.widthM, designatorCode(r.id), other ? designatorCode(other.id) : 0];
       const ax = r.thresholdWorldX;
       const az = r.thresholdWorldZ;
-      const bx = ax + f.fx * r.lengthM;
-      const bz = az + f.fz * r.lengthM;
-      const v0 = vert(ax + f.rx * hw, y, az + f.rz * hw, PavementKind.Runway, 0, hw, 0, ...e);
-      const v1 = vert(ax - f.rx * hw, y, az - f.rz * hw, PavementKind.Runway, 0, -hw, 0, ...e);
-      const v2 = vert(bx + f.rx * hw, y, bz + f.rz * hw, PavementKind.Runway, r.lengthM, hw, 0, ...e);
-      const v3 = vert(bx - f.rx * hw, y, bz - f.rz * hw, PavementKind.Runway, r.lengthM, -hw, 0, ...e);
-      index.push(v0, v2, v1, v1, v2, v3);
+      const pieces = Math.max(1, Math.ceil(r.lengthM / MAX_PIECE_M));
+      let l0 = vert(ax + f.rx * hw, y, az + f.rz * hw, PavementKind.Runway, 0, hw, 0, ...e);
+      let r0 = vert(ax - f.rx * hw, y, az - f.rz * hw, PavementKind.Runway, 0, -hw, 0, ...e);
+      for (let k = 1; k <= pieces; k++) {
+        const s = (r.lengthM * k) / pieces;
+        const cx = ax + f.fx * s;
+        const cz = az + f.fz * s;
+        const l1 = vert(cx + f.rx * hw, y, cz + f.rz * hw, PavementKind.Runway, s, hw, 0, ...e);
+        const r1 = vert(cx - f.rx * hw, y, cz - f.rz * hw, PavementKind.Runway, s, -hw, 0, ...e);
+        index.push(l0, l1, r0, r0, l1, r1);
+        l0 = l1;
+        r0 = r1;
+      }
     }
   }
   return {

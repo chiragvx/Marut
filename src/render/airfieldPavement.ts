@@ -193,7 +193,8 @@ const FS = /* glsl */ `
       if (p.x > 90.0 && p.x < len - 90.0) m = max(m, span(p.y, -0.45, 0.45, pw.y) * step(fract((p.x - 90.0) / 50.0), 0.6));
       // Side stripes.
       m = max(m, span(abs(p.y), hw - 1.4, hw - 0.5, pw.y));
-      col = mix(col, white, m * (0.85 + 0.15 * vnoise(vWorld.xz * 1.3)));
+      // Worn paint: the asphalt's own fine grain shows through a little.
+      col = mix(col, white * mix(vec3(1.0), detailAt(vWorld.xz, 3.0, 4.0, px), 0.3), m);
     } else if (kind == 3) {
       col = concrete;
       // Slab joints across and along the lanes.
