@@ -565,7 +565,7 @@ const FRAGMENT_SHADER = /* glsl */ `
         // Mown grass strip around the runway, then the asphalt.
         float strip = (1.0 - smoothstep(r.z + 250.0, r.z + 300.0, along)) * (1.0 - smoothstep(r.w + 130.0, r.w + 170.0, across));
         if (strip <= 0.0) continue;
-        col = mix(col, vec3(0.42, 0.50, 0.27) * (0.92 + 0.16 * vnoise(vWorld.xz / 25.0)), strip);
+        col = mix(col, vec3(0.46, 0.49, 0.30) * (0.92 + 0.16 * vnoise(vWorld.xz / 25.0)), strip);
         shadow = mix(shadow, 1.0, strip); // the airfield is cleared: no tree shadows on it
         float onRwy = (1.0 - smoothstep(r.z, r.z + px, along)) * (1.0 - smoothstep(r.w, r.w + px, across));
         // Centreline dashes and threshold bars, fading out when too small to resolve.

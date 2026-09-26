@@ -552,6 +552,9 @@ function buildSceneEnvironment(terrainParams: TerrainParams, airportLayouts: rea
     ...(terrainParams.waterLevelM !== undefined ? { waterLevelM: terrainParams.waterLevelM } : {}),
     pavement: buildPavementGeometry(airportLayouts),
     airfieldMasks: airportLayouts.map((a) => buildAirfieldMask(a)),
+    structures: airportLayouts.flatMap((a) =>
+      (a.structures ?? []).map((s) => ({ kind: s.kind, worldX: s.worldX, worldY: a.elevationM, worldZ: s.worldZ, headingRad: s.headingRad, widthM: s.widthM, lengthM: s.lengthM, heightM: s.heightM, side: a.side ?? 'neutral' }))
+    ),
     runways,
   };
 }

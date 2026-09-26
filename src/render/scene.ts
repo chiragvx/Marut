@@ -45,6 +45,7 @@ import { createCloudDeck } from './cloudDeck';
 import { createRain } from './rain';
 import { createRunwayLights, setLightViewport } from './nightLights';
 import { createAirfieldPavement } from './airfieldPavement';
+import { createAirbaseStructures } from './airbaseStructures';
 import { createFarGround } from './farGround';
 import { getAtmosphereUniforms, setAtmosphereCamera, setAtmosphereHaze } from './atmosphere';
 import type { WeatherMode } from '../contracts/core';
@@ -144,6 +145,7 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
   const rain = createRain(scene);
   const runwayLights = createRunwayLights(scene);
   const pavement = createAirfieldPavement(scene);
+  const structures = createAirbaseStructures(scene);
   /** Overcast deck base/top per theatre, m MSL. */
   const DECK_LEVELS: Readonly<Record<SceneEnvironment['surfaceStyle'], [number, number]>> = {
     coastal: [1000, 1450],
@@ -157,6 +159,11 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
   const cameraPose = createCameraPose();
   const interpEntity = createInterpolatedEntity();
 
+  const debugCam = ((): number[] | undefined => {
+    if (typeof location === 'undefined') return undefined;
+    const v = new URLSearchParams(location.search).get('cam')?.split(',').map(Number);
+    return v && v.length === 6 && v.every(Number.isFinite) ? v : undefined;
+  })();
   let tier: QualityTier = initialTier;
   let mode: CameraMode = CameraMode.Chase;
   let lastFrameMs = -1;
@@ -229,6 +236,7 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
       terrainConsumer.setSunDirection(k);
       features.uniforms.uSunDir.value.set(k.x, k.y, k.z);
       pavement.setSunDirection(k);
+      structures.setSunDirection(k);
     }
     if (Math.abs(w.cumulus - lastCoverage) > 0.001 || Math.abs(w.cloudDark - lastDark) > 0.01) {
       lastCoverage = w.cumulus;
@@ -372,6 +380,7 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
       farGround.setEnvironment(env, env.groundLevelM ?? 0, shore);
       terrainConsumer.setEnvironment(env);
       pavement.setGeometry(env.pavement ?? null, env.runways);
+      structures.setStructures(env.structures);
       hillyTheatre = env.surfaceStyle !== 'farmland';
       applyQualityTier(tier);
     },
@@ -427,6 +436,16 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
         interpolateEntity(snapshotBuf, playerSlot, f, interpEntity);
         shadowFocus.set(interpEntity.pos.x, interpEntity.pos.y, interpEntity.pos.z);
         computeCameraPose(mode, interpEntity.pos, interpEntity.rot, interpEntity.vel, cameraModeState, frameDtSec, cameraPose);
+        if (debugCam) {
+          // Dev aid (?cam=x,y,z,lookX,lookY,lookZ): a fixed camera anywhere, for checking scenery.
+          cameraPose.pos.x = debugCam[0]!;
+          cameraPose.pos.y = debugCam[1]!;
+          cameraPose.pos.z = debugCam[2]!;
+          cameraPose.lookAt.x = debugCam[3]!;
+          cameraPose.lookAt.y = debugCam[4]!;
+          cameraPose.lookAt.z = debugCam[5]!;
+          cameraPose.useLookAt = true;
+        }
         updateFloatingOrigin(floatingOrigin, cameraPose.pos);
         const origin = floatingOrigin.originWorld;
 
@@ -465,6 +484,7 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
         clouds.update(cameraPose.pos, origin);
         airportLines.updateOrigin(origin);
         pavement.updateOrigin(origin);
+        structures.update(origin, lastFrameMs / 1000);
       }
 
       camera.updateMatrixWorld(true);
@@ -496,6 +516,7 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
       clouds.dispose();
       runwayLights.dispose();
       pavement.dispose();
+      structures.dispose();
       deck.dispose();
       rain.dispose();
       farGround.dispose();
