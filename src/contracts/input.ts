@@ -158,6 +158,8 @@ export const LogicalButton = {
   JettisonTanks: 'jettisonTanks',
   /** Refuel + re-arm on the ground (PilotInputs.requestService), passed through as raw held state. */
   Service: 'service',
+  /** Radar mode (PilotInputs.radarModeCycle: RWS <-> ACM), passed through as raw held state. */
+  RadarMode: 'radarMode',
 } as const;
 export type LogicalButton = (typeof LogicalButton)[keyof typeof LogicalButton];
 
@@ -171,6 +173,9 @@ export const MetaAction = {
   MenuToggle: 'menuToggle',
   /** Taxi guidance on/off (HUD follow-me route to the runway or back to a stand). */
   TaxiGuide: 'taxiGuide',
+  /** Radar display range scale up / down. */
+  RadarRangeUp: 'radarRangeUp',
+  RadarRangeDown: 'radarRangeDown',
 } as const;
 export type MetaAction = (typeof MetaAction)[keyof typeof MetaAction];
 

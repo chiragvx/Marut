@@ -821,6 +821,8 @@ function wireMetaActionsOnce(): void {
       }
     } else if (action === 'taxiGuide' && appState === 'gameplay') {
       toggleTaxiGuide();
+    } else if ((action === 'radarRangeUp' || action === 'radarRangeDown') && appState === 'gameplay') {
+      hud.cycleRadarRange(action === 'radarRangeUp' ? 1 : -1);
     } else if (action === 'cameraCycle' && appState === 'gameplay') {
       // SceneRenderer.setCameraMode cycling is a small local rotation this
       // shell owns directly (module 08 exposes the setter, not a cycle

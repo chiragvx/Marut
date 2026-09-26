@@ -24,8 +24,9 @@ export const INPUT_MAP_STORAGE_KEY = 'tejas.inputMap.v1';
 // browser that already has an old InputMapData saved in localStorage, without needing the player
 // to manually hit "Reset Defaults".
 // Bumped 2 -> 3 when the jettisonTanks button (J) was added, for the same reason.
-// Bumped 4 -> 5 when the service button (R: refuel + re-arm) was added; 5 -> 6 for taxi guidance (H).
-export const INPUT_MAP_VERSION = 6;
+// Bumped 4 -> 5 when the service button (R: refuel + re-arm) was added; 5 -> 6 for taxi guidance (H);
+// 6 -> 7 for the radar mode (M) and radar range ([ / ]) keys.
+export const INPUT_MAP_VERSION = 7;
 
 /**
  * The literal default binding/tuning data, matching 09-input.md section 5.1 (throttle keys
@@ -59,8 +60,9 @@ export const DEFAULT_INPUT_MAP_DATA: InputMapData = {
       nwsToggle: 'KeyN',
       jettisonTanks: 'KeyJ',
       service: 'KeyR',
+      radarMode: 'KeyM',
     },
-    meta: { cameraCycle: 'KeyV', menuToggle: 'Escape', taxiGuide: 'KeyH' },
+    meta: { cameraCycle: 'KeyV', menuToggle: 'Escape', taxiGuide: 'KeyH', radarRangeUp: 'BracketRight', radarRangeDown: 'BracketLeft' },
   },
   gamepad: {
     axes: {
@@ -82,11 +84,14 @@ export const DEFAULT_INPUT_MAP_DATA: InputMapData = {
       nwsToggle: { buttonIndex: 10 },
       jettisonTanks: { buttonIndex: 13 },
       service: { buttonIndex: 14 },
+      radarMode: null,
     },
     meta: {
       cameraCycle: { buttonIndex: 11 },
       menuToggle: { buttonIndex: 9 },
       taxiGuide: { buttonIndex: 15 },
+      radarRangeUp: null,
+      radarRangeDown: null,
     },
     deadzone: 0.12,
     stickCurveExponent: 1.6,

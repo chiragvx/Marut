@@ -63,6 +63,9 @@ const BINDABLE_ACTION_TARGETS: Readonly<Record<BindableAction, BindableActionTar
   [BA.PauseToggle]: { rebindAction: MetaAction.MenuToggle },
   [BA.CameraCycle]: { rebindAction: MetaAction.CameraCycle },
   [BA.TaxiGuide]: { rebindAction: MetaAction.TaxiGuide },
+  [BA.RadarMode]: { rebindAction: LogicalButton.RadarMode },
+  [BA.RadarRangeUp]: { rebindAction: MetaAction.RadarRangeUp },
+  [BA.RadarRangeDown]: { rebindAction: MetaAction.RadarRangeDown },
 };
 
 /** The `RebindableAction` + axis direction (if any) a given settings-screen row corresponds to. */

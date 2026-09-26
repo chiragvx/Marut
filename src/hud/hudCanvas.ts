@@ -22,7 +22,7 @@ import { RENDER_QUALITY_TABLE, type CameraState, type CreateHudRenderer, type Hu
 import { drawLadder } from './ladder';
 import { drawControlSurfaceDebug } from './controlSurfaceDebug';
 import { drawIlsNeedles } from './ilsNeedles';
-import { drawRadarScope } from './radarScope';
+import { RADAR_RANGE_SCALES_KM, drawRadarDisplay } from './radarDisplay';
 import {
   computeInterpFraction,
   createHudSnapshotDoubleBuffer,
@@ -50,6 +50,7 @@ export const createHudRenderer: CreateHudRenderer = (canvas, initialTier) => {
   const interpTarget = createInterpolatedHudEntity();
   const weaponState = createWeaponStatusState();
   const taxiGuide = createTaxiGuideState();
+  let radarRangeIndex = 3; // 80 km
   let lastNowMs = 0;
   const scratchProjection = createScreenProjection();
 
@@ -117,6 +118,10 @@ export const createHudRenderer: CreateHudRenderer = (canvas, initialTier) => {
       applyWeaponLoadout(weaponState, ammoGun, missilesIr, missilesRadar);
     },
 
+    cycleRadarRange(dir) {
+      radarRangeIndex = Math.max(0, Math.min(RADAR_RANGE_SCALES_KM.length - 1, radarRangeIndex + dir));
+    },
+
     setTaxiGuide(guide) {
       applyTaxiGuide(taxiGuide, guide, lastNowMs);
     },
@@ -159,7 +164,11 @@ export const createHudRenderer: CreateHudRenderer = (canvas, initialTier) => {
       const headingRad = hud[SnapshotHud.HEADING_RAD]!;
       const playerTeam = curr.team[playerSlot]!;
       const scopeRadiusPx = 90;
-      drawRadarScope(ctx, curr, playerSlot, headingRad, playerTeam, tierSettings.radarScopeContactCap, widthPx - scopeRadiusPx - 20, heightPx - scopeRadiusPx - 20, scopeRadiusPx);
+      const radarSize = Math.round(Math.min(230, heightPx * 0.3));
+      drawRadarDisplay(ctx, hud, curr.posX[playerSlot]!, curr.posY[playerSlot]!, curr.posZ[playerSlot]!, headingRad, RADAR_RANGE_SCALES_KM[radarRangeIndex]! * 1000, widthPx - radarSize - 100, heightPx - radarSize - 30, radarSize);
+      void playerTeam;
+      void tierSettings;
+      void scopeRadiusPx;
 
       const targetId = hud[SnapshotHud.TARGET_ID]!;
       if (hasTarget(targetId)) {

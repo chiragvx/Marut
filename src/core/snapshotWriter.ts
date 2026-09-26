@@ -15,6 +15,9 @@ import {
   SnapshotHud,
   SNAPSHOT_FLOATS,
   entityFieldOffset,
+  HUD_BLOCK_FLOATS,
+  MAX_SNAPSHOT_TRACKS,
+  SNAPSHOT_TRACK_STRIDE,
 } from '../contracts/core';
 import type { EntityId } from '../contracts/core';
 import type { EntityPool, SnapshotHudView, WriteSnapshot } from '../contracts/sim';
@@ -75,7 +78,7 @@ export const writeSnapshot: WriteSnapshot = (
 
   const hudBase = HUD_BLOCK_START;
   if (playerEntityId === NO_ENTITY_ID || playerIndex === -1) {
-    for (let f = 0; f < 27; f++) out[hudBase + f] = 0;
+    for (let f = 0; f < HUD_BLOCK_FLOATS; f++) out[hudBase + f] = 0;
   } else {
     out[hudBase + SnapshotHud.IAS_MPS] = hud.iasMps;
     out[hudBase + SnapshotHud.TAS_MPS] = hud.tasMps;
@@ -108,6 +111,13 @@ export const writeSnapshot: WriteSnapshot = (
     out[hudBase + SnapshotHud.SERVICE_STATE] = hud.serviceState;
     out[hudBase + SnapshotHud.SERVICE_FUEL_FRAC] = hud.serviceFuelFrac;
     out[hudBase + SnapshotHud.SERVICE_ARM_FRAC] = hud.serviceArmFrac;
+    out[hudBase + SnapshotHud.RADAR_MODE] = hud.radarMode;
+    out[hudBase + SnapshotHud.RADAR_MAX_RANGE_M] = hud.radarMaxRangeM;
+    out[hudBase + SnapshotHud.RADAR_SCAN_AZ_RAD] = hud.radarScanAzRad;
+    const n = Math.min(hud.trackCount, MAX_SNAPSHOT_TRACKS);
+    out[hudBase + SnapshotHud.TRACK_COUNT] = n;
+    const tb = hudBase + SnapshotHud.TRACKS_BASE;
+    for (let k = 0; k < n * SNAPSHOT_TRACK_STRIDE; k++) out[tb + k] = hud.tracks[k]!;
   }
 };
 

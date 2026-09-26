@@ -50,6 +50,9 @@ export const createWeaponsState: CreateWeaponsState = (loadout: WeaponsLoadout, 
   return {
     stations,
     radar: loadout.radar ?? GENERIC_RADAR_PROFILE,
+    radarMode: 'rws',
+    prevRadarModeCycle: false,
+    tracks: new Map(),
     selectedWeapon: stations.length > 0 ? stations[0]!.weapon : WeaponKind.Gun,
     gunCooldownSec: 0,
     prevLaunch: false,
@@ -77,6 +80,9 @@ export const writeCombatStatus: WriteCombatStatus = (state, out: CombatStatus) =
     else if (st.weapon === WeaponKind.RadarMissile) missilesRadar += st.count;
   }
   out.selectedWeapon = state.selectedWeapon;
+  out.radarMode = state.radarMode;
+  out.radarMaxRangeM = state.radar.maxRangeM;
+  out.radarScanAzRad = state.radar.scanAzHalfAngleRad;
   out.ammoGun = ammoGun;
   out.missilesIr = missilesIr;
   out.missilesRadar = missilesRadar;

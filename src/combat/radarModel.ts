@@ -41,6 +41,12 @@ import {
   type DetectableEntity,
   type WeaponsState,
   type RadarProfile,
+  type TrackRecord,
+  IFF_INTERROGATION_SEC,
+  NCTR_TIME_SEC,
+  ACM_FIELD_AZ_HALF_RAD,
+  ACM_FIELD_EL_DOWN_RAD,
+  ACM_FIELD_EL_UP_RAD,
 } from '../contracts/combat';
 import { Vec3, Quat, clamp, lerp } from '../math';
 import { computeLeadSolution } from './leadComputingSight';
@@ -68,6 +74,11 @@ const _toObserver: Vec3Like = { x: 0, y: 0, z: 0 };
 const _scaledVel: Vec3Like = { x: 0, y: 0, z: 0 };
 const _missVec: Vec3Like = { x: 0, y: 0, z: 0 };
 const _aimPoint: Vec3Like = { x: 0, y: 0, z: 0 };
+
+function findEntity(all: readonly DetectableEntity[], id: EntityId): DetectableEntity | undefined {
+  for (let i = 0; i < all.length; i++) if (all[i]!.id === id) return all[i];
+  return undefined;
+}
 
 /** Exported (beyond contracts/combat.ts's fixed public surface) so unit tests can assert the section 4.4 az/el/cone worked example directly. */
 export interface Geometry {
@@ -170,10 +181,11 @@ export function computeMissileThreat(observerPos: Vec3Like, missilePos: Vec3Like
 }
 
 interface ScoredContact {
-  entity: DetectableEntity;
-  geom: Geometry;
-  detectedBy: 'radar' | 'visual';
-  identified: boolean;
+  track: TrackRecord;
+  rangeM: number;
+  azRad: number;
+  elRad: number;
+  closureMps: number;
   score: number;
 }
 
@@ -183,7 +195,7 @@ const MAX_SCAN_CANDIDATES = 256;
 const _candidates: ScoredContact[] = new Array(MAX_SCAN_CANDIDATES);
 const _used: boolean[] = new Array(MAX_SCAN_CANDIDATES).fill(false);
 for (let i = 0; i < MAX_SCAN_CANDIDATES; i++) {
-  _candidates[i] = { entity: undefined as unknown as DetectableEntity, geom: undefined as unknown as Geometry, detectedBy: 'radar', identified: false, score: 0 };
+  _candidates[i] = { track: undefined as unknown as TrackRecord, rangeM: 0, azRad: 0, elRad: 0, closureMps: 0, score: 0 };
 }
 
 export const updateSensors: UpdateSensors = (
@@ -222,42 +234,91 @@ export const updateSensors: UpdateSensors = (
     }
   }
 
-  // ---- 1. Build contacts (radar + visual, terrain-LOS-masked, threat-sorted) ----
-  let candCount = 0;
-  for (let i = 0; i < allEntities.length && candCount < MAX_SCAN_CANDIDATES; i++) {
+  // ---- 1. Detection -> track file (memory, IFF/NCTR identity) -> contacts (threat-sorted) ----
+  const radarOn = observerDamage.radarHealthPct > 0;
+  const tracks = state.tracks;
+  for (let i = 0; i < allEntities.length; i++) {
     const e = allEntities[i]!;
     if (e.id === observerId || !e.alive || e.kind !== 'aircraft') continue;
 
     const geom = computeGeometry(observer, e, sampler, radar);
     if (geom.terrainMasked) continue;
-
-    const radarDetected = geom.inScanCone && geom.rangeM <= radarDetectionRangeM(geom.rcsM2, radar);
+    // A pulse-Doppler radar loses a target in the ground-clutter notch altogether.
+    const radarDetected = radarOn && geom.inScanCone && !geom.isNotched && geom.rangeM <= radarDetectionRangeM(geom.rcsM2, radar);
     const angleFromNoseObs = Math.acos(clamp(Vec3.dot(_bearing, _forwardW), -1, 1));
     const visualDetected = geom.rangeM <= VISUAL_DETECT_RANGE_M && angleFromNoseObs <= VISUAL_FOV_HALF_ANGLE_RAD;
     if (!radarDetected && !visualDetected) continue;
 
-    let detectedBy: 'radar' | 'visual';
-    let identified: boolean;
-    if (radarDetected) {
-      detectedBy = 'radar';
-      identified = observerDamage.radarHealthPct > 0 && geom.inTrackCone && !geom.isNotched;
-    } else {
-      detectedBy = 'visual';
-      identified = geom.rangeM <= VISUAL_IFF_CONFIRM_RANGE_M;
+    let t = tracks.get(e.id);
+    if (!t) {
+      t = {
+        id: e.id, pos: { x: 0, y: 0, z: 0 }, vel: { x: 0, y: 0, z: 0 }, firstSeenSec: simTimeSec, lastSeenSec: simTimeSec,
+        identity: 'unknown', iffSec: 0, nctrSec: 0, source: 'radar', memory: false, aspectFromNoseRad: 0, targetingMe: 0,
+      };
+      tracks.set(e.id, t);
     }
+    t.pos.x = e.pos.x; t.pos.y = e.pos.y; t.pos.z = e.pos.z;
+    t.vel.x = e.vel.x; t.vel.y = e.vel.y; t.vel.z = e.vel.z;
+    t.lastSeenSec = simTimeSec;
+    t.memory = false;
+    t.source = radarDetected ? 'radar' : 'visual';
+    t.aspectFromNoseRad = geom.aspectFromNoseRad;
+    t.targetingMe = e.radarEmission?.lockedTargetId === observerId ? 1 : e.radarEmission?.trackedTargetId === observerId ? 0.5 : 0;
+    // Identification: an IFF reply from a friendly transponder; a non-responder held in radar track
+    // inside NCTR range is identified by its radar signature; anything close enough to see is known.
+    if (t.identity === 'unknown') {
+      const sameTeam = e.team === observer.team;
+      if (radarDetected && radar.iffRangeM > 0 && geom.rangeM <= radar.iffRangeM) {
+        if (sameTeam) {
+          t.iffSec += dtSec;
+          if (t.iffSec >= IFF_INTERROGATION_SEC) t.identity = 'friend';
+        } else if (radar.nctrRangeM > 0 && geom.rangeM <= radar.nctrRangeM) {
+          t.nctrSec += dtSec;
+          if (t.nctrSec >= NCTR_TIME_SEC) t.identity = 'hostile';
+        }
+      }
+      if (visualDetected && geom.rangeM <= VISUAL_IFF_CONFIRM_RANGE_M) t.identity = sameTeam ? 'friend' : 'hostile';
+    }
+  }
 
-    const targetingMeTerm = e.radarEmission?.lockedTargetId === observerId ? 1 : e.radarEmission?.trackedTargetId === observerId ? 0.5 : 0;
-    const score = THREAT_SCORE_WEIGHTS.range * (1 - clamp(geom.rangeM / radar.maxRangeM, 0, 1))
-      + THREAT_SCORE_WEIGHTS.aspect * ((1 + Math.cos(geom.aspectFromNoseRad)) / 2)
-      + THREAT_SCORE_WEIGHTS.targetingMe * targetingMeTerm
-      + THREAT_SCORE_WEIGHTS.closure * clamp(geom.closureMps / 500, 0, 1);
+  // Tracks not detected this tick coast on memory (extrapolated), then drop.
+  for (const t of tracks.values()) {
+    if (t.lastSeenSec === simTimeSec) continue;
+    if (simTimeSec - t.lastSeenSec > radar.trackMemorySec) {
+      tracks.delete(t.id);
+      if (state.lockedTargetId === t.id) state.lockedTargetId = undefined;
+      continue;
+    }
+    t.memory = true;
+    t.pos.x += t.vel.x * dtSec;
+    t.pos.y += t.vel.y * dtSec;
+    t.pos.z += t.vel.z * dtSec;
+  }
 
+  // Contacts from the track file, most threatening first.
+  let candCount = 0;
+  for (const t of tracks.values()) {
+    if (candCount >= MAX_SCAN_CANDIDATES) break;
+    const dx = t.pos.x - observer.pos.x;
+    const dy = t.pos.y - observer.pos.y;
+    const dz = t.pos.z - observer.pos.z;
+    const rangeM = Math.sqrt(dx * dx + dy * dy + dz * dz);
+    const inv = rangeM > 1e-9 ? 1 / rangeM : 0;
+    const bx = dx * inv, by = dy * inv, bz = dz * inv;
+    const fwd = bx * _forwardW.x + by * _forwardW.y + bz * _forwardW.z;
+    const right = bx * _rightW.x + by * _rightW.y + bz * _rightW.z;
+    const up = bx * _upW.x + by * _upW.y + bz * _upW.z;
+    const closureMps = -((t.vel.x - observer.vel.x) * bx + (t.vel.y - observer.vel.y) * by + (t.vel.z - observer.vel.z) * bz);
     const slot = _candidates[candCount]!;
-    slot.entity = e;
-    slot.geom = geom;
-    slot.detectedBy = detectedBy;
-    slot.identified = identified;
-    slot.score = score;
+    slot.track = t;
+    slot.rangeM = rangeM;
+    slot.azRad = Math.atan2(right, fwd);
+    slot.elRad = Math.atan2(up, Math.sqrt(fwd * fwd + right * right));
+    slot.closureMps = closureMps;
+    slot.score = THREAT_SCORE_WEIGHTS.range * (1 - clamp(rangeM / radar.maxRangeM, 0, 1))
+      + THREAT_SCORE_WEIGHTS.aspect * ((1 + Math.cos(t.aspectFromNoseRad)) / 2)
+      + THREAT_SCORE_WEIGHTS.targetingMe * t.targetingMe
+      + THREAT_SCORE_WEIGHTS.closure * clamp(closureMps / 500, 0, 1);
     candCount++;
   }
 
@@ -268,32 +329,40 @@ export const updateSensors: UpdateSensors = (
     let bestScore = -Infinity;
     for (let i = 0; i < candCount; i++) {
       if (_used[i]) continue;
-      const s = _candidates[i]!.score;
-      if (s > bestScore) { bestScore = s; bestIdx = i; }
+      const sc = _candidates[i]!.score;
+      if (sc > bestScore) { bestScore = sc; bestIdx = i; }
     }
     if (bestIdx < 0) break;
     _used[bestIdx] = true;
     const c = _candidates[bestIdx]!;
+    const t = c.track;
+    const truth = findEntity(allEntities, t.id);
     outContacts.push({
-      id: c.entity.id,
-      team: c.entity.team,
-      kind: c.entity.kind,
-      pos: { x: c.entity.pos.x, y: c.entity.pos.y, z: c.entity.pos.z },
-      vel: { x: c.entity.vel.x, y: c.entity.vel.y, z: c.entity.vel.z },
-      rangeM: c.geom.rangeM,
-      bearingRad: c.geom.azRad,
-      elevationRad: c.geom.elRad,
-      closureMps: c.geom.closureMps,
-      detectedBy: c.detectedBy,
-      identified: c.identified,
+      id: t.id,
+      team: truth ? truth.team : observer.team,
+      kind: 'aircraft',
+      pos: { x: t.pos.x, y: t.pos.y, z: t.pos.z },
+      vel: { x: t.vel.x, y: t.vel.y, z: t.vel.z },
+      rangeM: c.rangeM,
+      bearingRad: c.azRad,
+      elevationRad: c.elRad,
+      closureMps: c.closureMps,
+      detectedBy: t.source,
+      identified: t.identity !== 'unknown',
+      identity: t.identity,
+      memory: t.memory,
     });
   }
 
-  // ---- 2/3. Edge-detect cycleTarget/cycleWeapon against LAST tick's inputs ----
+  // ---- 2/3. Edge-detect cycleTarget/cycleWeapon/radar mode against LAST tick's inputs ----
   const cycleTargetEdge = inputs.cycleTarget && !state.prevCycleTarget;
   const cycleWeaponEdge = inputs.cycleWeapon && !state.prevCycleWeapon;
+  const radarModeEdge = (inputs.radarModeCycle ?? false) && !state.prevRadarModeCycle;
   state.prevCycleTarget = inputs.cycleTarget;
   state.prevCycleWeapon = inputs.cycleWeapon;
+  state.prevRadarModeCycle = inputs.radarModeCycle ?? false;
+
+  if (radarModeEdge) state.radarMode = state.radarMode === 'rws' ? 'acm' : 'rws';
 
   if (cycleWeaponEdge) {
     const kinds: (typeof state.selectedWeapon)[] = [];
@@ -311,13 +380,48 @@ export const updateSensors: UpdateSensors = (
     state.lockBreakGraceRemainingSec = 0;
   }
 
-  if (cycleTargetEdge && outContacts.length > 0) {
-    state.selectedContactIndex = (state.selectedContactIndex + 1) % outContacts.length;
-    state.lockedTargetId = outContacts[state.selectedContactIndex]!.id;
-    state.lockState = LockState.Searching;
-    state.lockProgressSec = 0;
-    state.lockBreakGraceRemainingSec = 0;
+  // Target designation: T steps through the non-friendly tracks nearest first (a stable order:
+  // the next one further out than the current designation, wrapping round).
+  if (cycleTargetEdge) {
+    let curRange = -1;
+    for (let i = 0; i < outContacts.length; i++) if (outContacts[i]!.id === state.lockedTargetId) curRange = outContacts[i]!.rangeM;
+    let next: Contact | undefined;
+    let nearest: Contact | undefined;
+    for (let i = 0; i < outContacts.length; i++) {
+      const c = outContacts[i]!;
+      if (c.identity === 'friend' || c.id === state.lockedTargetId) continue;
+      if (!nearest || c.rangeM < nearest.rangeM) nearest = c;
+      if (c.rangeM > curRange && (!next || c.rangeM < next.rangeM)) next = c;
+    }
+    const pick = next ?? nearest;
+    if (pick) {
+      state.lockedTargetId = pick.id;
+      state.lockState = LockState.Searching;
+      state.lockProgressSec = 0;
+      state.lockBreakGraceRemainingSec = 0;
+    }
   }
+
+  // Dogfight mode: with nothing designated, take the nearest non-friend in the HUD field.
+  if (state.radarMode === 'acm' && (state.lockedTargetId === undefined || !tracks.has(state.lockedTargetId))) {
+    let best: Contact | undefined;
+    for (let i = 0; i < outContacts.length; i++) {
+      const c = outContacts[i]!;
+      if (c.identity === 'friend' || c.memory || c.rangeM > radar.acmRangeM) continue;
+      if (Math.abs(c.bearingRad) > ACM_FIELD_AZ_HALF_RAD || c.elevationRad < -ACM_FIELD_EL_DOWN_RAD || c.elevationRad > ACM_FIELD_EL_UP_RAD) continue;
+      if (!best || c.rangeM < best.rangeM) best = c;
+    }
+    if (best) {
+      state.lockedTargetId = best.id;
+      state.lockState = LockState.Searching;
+      state.lockProgressSec = 0;
+      state.lockBreakGraceRemainingSec = 0;
+    }
+  }
+
+  // The designation's index in this tick's contacts (for the gunsight), or -1.
+  state.selectedContactIndex = -1;
+  for (let i = 0; i < outContacts.length; i++) if (outContacts[i]!.id === state.lockedTargetId) state.selectedContactIndex = i;
 
   // ---- 4. Lock state machine ----
   const prevLockState = state.lockState;

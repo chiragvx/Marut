@@ -93,6 +93,11 @@ export const readSnapshotHud: ReadSnapshotHud = (buf: Float64Array, out: Snapsho
   out.serviceState = buf[base + SnapshotHud.SERVICE_STATE] as number;
   out.serviceFuelFrac = buf[base + SnapshotHud.SERVICE_FUEL_FRAC] as number;
   out.serviceArmFrac = buf[base + SnapshotHud.SERVICE_ARM_FRAC] as number;
+  out.radarMode = buf[base + SnapshotHud.RADAR_MODE] as number;
+  out.radarMaxRangeM = buf[base + SnapshotHud.RADAR_MAX_RANGE_M] as number;
+  out.radarScanAzRad = buf[base + SnapshotHud.RADAR_SCAN_AZ_RAD] as number;
+  out.trackCount = buf[base + SnapshotHud.TRACK_COUNT] as number;
+  if (out.tracks) for (let k = 0; k < out.tracks.length; k++) out.tracks[k] = buf[base + SnapshotHud.TRACKS_BASE + k] as number;
   return out;
 };
 

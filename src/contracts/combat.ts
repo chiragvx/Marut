@@ -327,6 +327,40 @@ export interface RadarProfile {
   notchMaxRangeM: number;
   /** Simultaneous tracks. */
   maxTracks: number;
+  /** IFF interrogator range, m (0 = no IFF). */
+  iffRangeM: number;
+  /** Non-cooperative target recognition: a tracked non-responder inside this range is identified hostile after NCTR_TIME_SEC, m (0 = none). */
+  nctrRangeM: number;
+  /** Dogfight (ACM) mode auto-acquisition range, m. */
+  acmRangeM: number;
+  /** Seconds a track coasts on memory after it is lost. */
+  trackMemorySec: number;
+}
+
+/** Seconds of continuous radar track needed for an IFF reply / a non-cooperative identification. */
+export const IFF_INTERROGATION_SEC = 1.0;
+export const NCTR_TIME_SEC = 2.0;
+/** ACM auto-acquisition field, relative to the nose: +-azimuth, and elevation from -down to +up, rad. */
+export const ACM_FIELD_AZ_HALF_RAD = 0.26;
+export const ACM_FIELD_EL_DOWN_RAD = 0.17;
+export const ACM_FIELD_EL_UP_RAD = 0.79;
+
+/** One entry of an aircraft's track file (radar/visual), with its estimate and identification. */
+export interface TrackRecord {
+  id: EntityId;
+  pos: Vec3Like;
+  vel: Vec3Like;
+  firstSeenSec: number;
+  lastSeenSec: number;
+  identity: 'unknown' | 'friend' | 'hostile';
+  /** Accumulated seconds of IFF interrogation / NCTR while unidentified. */
+  iffSec: number;
+  nctrSec: number;
+  source: 'radar' | 'visual';
+  memory: boolean;
+  /** Last threat-score inputs (kept while coasting). */
+  aspectFromNoseRad: number;
+  targetingMe: number;
 }
 
 // -----------------------------------------------------------------------------
@@ -373,6 +407,10 @@ export interface WeaponsState {
   stations: WeaponStationRuntime[];
   /** This aircraft's radar. */
   radar: RadarProfile;
+  radarMode: 'rws' | 'acm';
+  prevRadarModeCycle: boolean;
+  /** Track file by entity id (radar/visual detections, with memory and identity). */
+  tracks: Map<EntityId, TrackRecord>;
   selectedWeapon: WeaponKind;
   /** Seconds until the gun may fire its next round; counts down, reset to GUN_ROUND_INTERVAL_SEC on every round fired. */
   gunCooldownSec: number;

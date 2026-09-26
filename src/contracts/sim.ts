@@ -366,6 +366,13 @@ export interface SnapshotHudView {
   serviceState: number;
   serviceFuelFrac: number;
   serviceArmFrac: number;
+  /** SnapshotHud.RADAR_MODE / RADAR_MAX_RANGE_M / RADAR_SCAN_AZ_RAD / TRACK_COUNT. */
+  radarMode: number;
+  radarMaxRangeM: number;
+  radarScanAzRad: number;
+  trackCount: number;
+  /** MAX_SNAPSHOT_TRACKS x SNAPSHOT_TRACK_STRIDE floats (SnapshotTrack layout), trackCount valid. */
+  tracks: Float64Array;
 }
 
 export interface SnapshotHeaderView {

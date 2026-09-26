@@ -424,6 +424,8 @@ export interface HudRenderer {
   setTaxiGuide(guide: { points: readonly (readonly [number, number])[]; groundY: number; holdIndex: number; runwayId: string; standNumber: number } | { message: string } | null): void;
   /** True while a taxi route is being shown. */
   hasTaxiGuide(): boolean;
+  /** Steps the radar display's range scale up (+1) or down (-1). */
+  cycleRadarRange(dir: 1 | -1): void;
   /** Sets/resets the ammo counters the weapon-status widget decrements locally; call at spawn and at any rearm. */
   setWeaponLoadout(ammoGun: number, missilesIr: number, missilesRadar: number): void;
   /** Debug-only overlay (src/hud/controlSurfaceDebug.ts): live elevonL/elevonR/rudder as text + bar gauges. Off by default; not a player-facing Settings option — src/main.ts toggles it on a raw F9 keydown for FCS debug testing. */

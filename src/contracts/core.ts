@@ -307,6 +307,8 @@ export interface PilotInputs {
   jettisonTanks?: boolean;
   /** Service key held (refuel + re-arm when stopped on a friendly stand or apron). Optional: absent = not held. */
   requestService?: boolean;
+  /** Radar mode key held (edge-detected: cycles RWS <-> ACM). Optional: absent = not held. */
+  radarModeCycle?: boolean;
   /** Gun trigger held. */
   trigger: boolean;
   /** Missile launch commanded. Edge-triggered by the consumer (src/combat fires once per false→true transition, not once per tick held). */
@@ -413,6 +415,21 @@ export const ContactSource = {
 export type ContactSource = (typeof ContactSource)[keyof typeof ContactSource];
 
 /** What a Pilot (human or AI) can know about another entity: sensor output, never ground truth beyond what the sensor model allows. Produced by src/combat's radar/visual detection logic, consumed by src/ai and src/hud. */
+/** What the observer's systems have established a track is: IFF reply = friend; non-cooperative ID (radar signature) or visual = hostile. */
+export const TrackIdentity = {
+  Unknown: 'unknown',
+  Friend: 'friend',
+  Hostile: 'hostile',
+} as const;
+export type TrackIdentity = (typeof TrackIdentity)[keyof typeof TrackIdentity];
+
+/** Air-to-air radar mode: range-while-search (wide search, track while scan), or dogfight (auto-lock the nearest non-friend in the HUD field). */
+export const RadarMode = {
+  Rws: 'rws',
+  Acm: 'acm',
+} as const;
+export type RadarMode = (typeof RadarMode)[keyof typeof RadarMode];
+
 export interface Contact {
   id: EntityId;
   team: Team;
@@ -431,10 +448,18 @@ export interface Contact {
   detectedBy: ContactSource;
   /** IFF resolved: true once the observer's systems have positively identified team. Contacts may exist with identified === false (e.g. a distant radar return of unknown team) — never used to infer team beyond what the sensor model allows; src/ai must not read `.team` on an unidentified contact as ground truth for weapons-free decisions (see 06's ROE rules). */
   identified: boolean;
+  /** The track's identity (identified === (identity !== 'unknown')). Absent = derive from `identified`. */
+  identity?: TrackIdentity;
+  /** True while the track is coasting on memory (not detected this tick; position extrapolated). */
+  memory?: boolean;
 }
 
 export interface CombatStatus {
   selectedWeapon: WeaponKind;
+  /** The radar's mode, instrumented range and search half-angle (absent before the first sensor update). */
+  radarMode?: RadarMode;
+  radarMaxRangeM?: number;
+  radarScanAzRad?: number;
   ammoGun: number;
   missilesIr: number;
   missilesRadar: number;
@@ -819,9 +844,43 @@ export const SnapshotHud = {
   SERVICE_FUEL_FRAC: 29,
   /** Re-arming progress, 0..1, while servicing. */
   SERVICE_ARM_FRAC: 30,
+  /** RadarModeCode of the player's radar. */
+  RADAR_MODE: 31,
+  /** The player's radar: instrumented range and search half-angle in azimuth. */
+  RADAR_MAX_RANGE_M: 32,
+  RADAR_SCAN_AZ_RAD: 33,
+  /** Number of valid entries in the track list at TRACKS_BASE. */
+  TRACK_COUNT: 34,
+  /** Start of the player's track list: MAX_SNAPSHOT_TRACKS entries of SNAPSHOT_TRACK_STRIDE floats (SnapshotTrack). */
+  TRACKS_BASE: 40,
 } as const;
-/** Floats in the HUD block. Keep in sync with the field count above (31). */
-export const HUD_BLOCK_FLOATS = 31;
+
+/** The player's radar/visual tracks carried in the snapshot HUD block (nearest first). */
+export const MAX_SNAPSHOT_TRACKS = 32;
+export const SNAPSHOT_TRACK_STRIDE = 8;
+/** Field offsets within one snapshot track entry. */
+export const SnapshotTrack = {
+  ID: 0,
+  X: 1,
+  Y: 2,
+  Z: 3,
+  VX: 4,
+  VZ: 5,
+  /** TrackIdentityCode. */
+  IDENTITY: 6,
+  /** SnapshotTrackFlag bits. */
+  FLAGS: 7,
+} as const;
+export const TrackIdentityCode: Readonly<Record<TrackIdentity, number>> = { unknown: 0, friend: 1, hostile: 2 };
+export const SnapshotTrackFlag = {
+  Memory: 1,
+  Designated: 2,
+  Locked: 4,
+} as const;
+export const RadarModeCode: Readonly<Record<RadarMode, number>> = { rws: 0, acm: 1 };
+
+/** Floats in the HUD block (fields above plus the track list). */
+export const HUD_BLOCK_FLOATS = 40 + MAX_SNAPSHOT_TRACKS * SNAPSHOT_TRACK_STRIDE;
 
 /**
  * Ground service state (SnapshotHud.SERVICE_STATE): None = not on a friendly stand/apron or not

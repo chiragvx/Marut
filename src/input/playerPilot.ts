@@ -120,6 +120,8 @@ export function createPlayerInputSystem(config: PlayerInputConfig): PlayerInputS
   const cameraCycleEdge = createEdgeDetector();
   const menuToggleEdge = createEdgeDetector();
   const taxiGuideEdge = createEdgeDetector();
+  const radarRangeUpEdge = createEdgeDetector();
+  const radarRangeDownEdge = createEdgeDetector();
 
   const rebindEdgeDetectors = new Map<KeyboardCode, ReturnType<typeof createEdgeDetector>>();
   for (const code of KEYBOARD_REBIND_CANDIDATES) rebindEdgeDetectors.set(code, createEdgeDetector());
@@ -404,6 +406,7 @@ export function createPlayerInputSystem(config: PlayerInputConfig): PlayerInputS
       const rawBrakes = rawButtonHeld(LogicalButton.Brakes, scheme);
       const rawJettison = rawButtonHeld(LogicalButton.JettisonTanks, scheme);
       const rawService = rawButtonHeld(LogicalButton.Service, scheme);
+      const rawRadarMode = rawButtonHeld(LogicalButton.RadarMode, scheme);
 
       // Internal toggles (persisted level, edge-triggered).
       const rawGear = rawButtonHeld(LogicalButton.GearToggle, scheme);
@@ -426,6 +429,12 @@ export function createPlayerInputSystem(config: PlayerInputConfig): PlayerInputS
       if (taxiGuideEdge.risingEdge(rawTaxiGuide)) {
         for (const handler of metaHandlers) handler(MetaAction.TaxiGuide);
       }
+      if (radarRangeUpEdge.risingEdge(rawButtonHeld(MetaAction.RadarRangeUp, scheme))) {
+        for (const handler of metaHandlers) handler(MetaAction.RadarRangeUp);
+      }
+      if (radarRangeDownEdge.risingEdge(rawButtonHeld(MetaAction.RadarRangeDown, scheme))) {
+        for (const handler of metaHandlers) handler(MetaAction.RadarRangeDown);
+      }
 
       out.pitch = pitch;
       out.roll = roll;
@@ -438,6 +447,7 @@ export function createPlayerInputSystem(config: PlayerInputConfig): PlayerInputS
       out.airbrake = airbrakeState;
       out.jettisonTanks = rawJettison;
       out.requestService = rawService;
+      out.radarModeCycle = rawRadarMode;
       out.trigger = rawTrigger;
       out.launch = rawLaunch;
       out.cycleWeapon = rawCycleWeapon;

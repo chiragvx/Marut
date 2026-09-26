@@ -109,6 +109,7 @@ export function createCombatAdapter(): CombatPort & CombatPortWithContacts & Com
   // no-allocation-in-hot-path rule; this array's `.length` is truncated/
   // extended in place, never replaced with a fresh array.
   const allEntitiesScratch: DetectableEntity[] = [];
+  const emissionScratch: { trackedTargetId: EntityId | undefined; lockedTargetId: EntityId | undefined }[] = [];
   const liveIdsScratch = new Set<EntityId>();
   const contactsScratchByObserver = new Map<EntityId, Contact[]>();
   const projectilePool: ProjectileState[] = createProjectilePool(MAX_PROJECTILES);
@@ -183,6 +184,18 @@ export function createCombatAdapter(): CombatPort & CombatPortWithContacts & Com
         d.rot.z = e.rot.z;
         d.rot.w = e.rot.w;
         d.alive = e.alive;
+        // What this aircraft's radar is doing (from last tick's weapons state): tracking its designated
+        // target, locked on it for a radar missile. Other aircraft's radar-warning receivers read it.
+        const ws = e.kind === EntityKind.Aircraft ? weaponsStates.get(e.id) : undefined;
+        if (ws && ws.lockedTargetId !== undefined) {
+          let em = emissionScratch[i];
+          if (!em) em = emissionScratch[i] = { trackedTargetId: undefined, lockedTargetId: undefined };
+          em.trackedTargetId = ws.lockedTargetId;
+          em.lockedTargetId = ws.lockState === 'locked' && ws.selectedWeapon === 'radar_missile' ? ws.lockedTargetId : undefined;
+          d.radarEmission = em;
+        } else {
+          d.radarEmission = undefined;
+        }
         const sig = e.kind === EntityKind.Aircraft ? signatureFor(ctx.getAircraftDefId(e.id)) : undefined;
         if (sig) {
           d.radarSignature = sig.radar;

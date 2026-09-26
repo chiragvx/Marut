@@ -165,6 +165,9 @@ export const BindableAction = {
   PauseToggle: 'pauseToggle',
   CameraCycle: 'cameraCycle',
   TaxiGuide: 'taxiGuide',
+  RadarMode: 'radarMode',
+  RadarRangeUp: 'radarRangeUp',
+  RadarRangeDown: 'radarRangeDown',
 } as const;
 export type BindableAction = (typeof BindableAction)[keyof typeof BindableAction];
 

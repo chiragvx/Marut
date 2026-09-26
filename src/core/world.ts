@@ -10,6 +10,12 @@ import { Quat } from '../math';
 import {
   EntityFlag,
   ServiceStateCode,
+  MAX_SNAPSHOT_TRACKS,
+  SNAPSHOT_TRACK_STRIDE,
+  SnapshotTrack,
+  SnapshotTrackFlag,
+  TrackIdentityCode,
+  RadarModeCode,
   EntityKind,
   GRAVITY_MPS2,
   MissionObjectiveKind,
@@ -245,8 +251,10 @@ class WorldImpl implements World {
     weaponIdx: 0, targetId: NO_ENTITY_ID, targetRangeM: 0, closureMps: 0, lockState: 0,
     warningBits: 0, ilsLoc: 0, ilsGs: 0, pipperX: 0, pipperY: 0, pipperZ: 0, pipperValid: 0, tankFuelKg: -1,
     serviceState: 0, serviceFuelFrac: 0, serviceArmFrac: 0,
+    radarMode: 0, radarMaxRangeM: 0, radarScanAzRad: 0, trackCount: 0, tracks: new Float64Array(MAX_SNAPSHOT_TRACKS * SNAPSHOT_TRACK_STRIDE),
   };
   private readonly ilsScratch = { loc: 0, gs: 0 };
+  private readonly trackOrderScratch: number[] = [];
   private readonly fwdScratch: Vec3Like = { x: 0, y: 0, z: 0 };
   private readonly rightScratch: Vec3Like = { x: 0, y: 0, z: 0 };
   // Step 9 (mission objective evaluation) runs every tick until the mission
@@ -631,6 +639,7 @@ class WorldImpl implements World {
     target.alphaLimiterDisabled = inputs.alphaLimiterDisabled ?? false;
     target.jettisonTanks = inputs.jettisonTanks ?? false;
     target.requestService = inputs.requestService ?? false;
+    target.radarModeCycle = inputs.radarModeCycle ?? false;
   }
 
   setDifficulty(entityId: EntityId, difficulty: AiDifficulty): void {
@@ -1049,6 +1058,33 @@ class WorldImpl implements World {
       hud.serviceState = this.service.state;
       hud.serviceFuelFrac = this.service.fuelFrac;
       hud.serviceArmFrac = this.service.armFrac;
+      // The player's radar and its track list (nearest first).
+      hud.radarMode = RadarModeCode[rec.combat.radarMode ?? 'rws'];
+      hud.radarMaxRangeM = rec.combat.radarMaxRangeM ?? 0;
+      hud.radarScanAzRad = rec.combat.radarScanAzRad ?? 0;
+      const contacts = (this.deps.combat as Partial<CombatPortWithContacts>).getContacts?.(playerId) ?? [];
+      const order = this.trackOrderScratch;
+      order.length = 0;
+      for (let i = 0; i < contacts.length; i++) order.push(i);
+      order.sort((a, b) => contacts[a]!.rangeM - contacts[b]!.rangeM);
+      const n = Math.min(order.length, MAX_SNAPSHOT_TRACKS);
+      for (let k = 0; k < n; k++) {
+        const c = contacts[order[k]!]!;
+        const o = k * SNAPSHOT_TRACK_STRIDE;
+        const identity = c.identity ?? (c.identified ? (c.team === state.team ? 'friend' : 'hostile') : 'unknown');
+        let flags = c.memory ? SnapshotTrackFlag.Memory : 0;
+        if (c.id === rec.combat.lockedTargetId) flags |= SnapshotTrackFlag.Designated;
+        if (c.id === rec.combat.lockedTargetId && rec.combat.lockState === 'locked') flags |= SnapshotTrackFlag.Locked;
+        hud.tracks[o + SnapshotTrack.ID] = c.id;
+        hud.tracks[o + SnapshotTrack.X] = c.pos.x;
+        hud.tracks[o + SnapshotTrack.Y] = c.pos.y;
+        hud.tracks[o + SnapshotTrack.Z] = c.pos.z;
+        hud.tracks[o + SnapshotTrack.VX] = c.vel.x;
+        hud.tracks[o + SnapshotTrack.VZ] = c.vel.z;
+        hud.tracks[o + SnapshotTrack.IDENTITY] = TrackIdentityCode[identity];
+        hud.tracks[o + SnapshotTrack.FLAGS] = flags;
+      }
+      hud.trackCount = n;
     }
     writeSnapshotBuffer(this.pool, playerId, this.tickInternal, this.simTimeSecInternal, hud, out);
   }

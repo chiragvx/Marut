@@ -165,6 +165,10 @@ export const GENERIC_RADAR_PROFILE: RadarProfile = {
   notchClosureMps: RADAR_NOTCH_CLOSURE_MPS,
   notchMaxRangeM: RADAR_NOTCH_MAX_RANGE_M,
   maxTracks: 10,
+  iffRangeM: 100000,
+  nctrRangeM: 40000,
+  acmRangeM: 15000,
+  trackMemorySec: 4,
 };
 
 /** Every weapon store by catalogue id. */
