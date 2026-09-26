@@ -1,0 +1,51 @@
+{
+  "id": "border-intercept",
+  "name": "Intercept \u2014 Aggressors from Shahbaz",
+  "seed": 1965,
+  "terrain": {
+    "seed": 1965,
+    "theatre": "border"
+  },
+  "airportIds": [
+    "bhisiana-afs",
+    "pafb-shahbaz"
+  ],
+  "playerStart": {
+    "airportId": "bhisiana-afs",
+    "runwayId": "31",
+    "speedMps": 0
+  },
+  "aiFlights": [
+    {
+      "id": "bandit-1",
+      "aircraftId": "tejas-mk1",
+      "team": 1,
+      "difficulty": "veteran",
+      "startPos": {
+        "x": -24000,
+        "y": 3500,
+        "z": 8000
+      },
+      "startHeadingRad": 1.22,
+      "startSpeedMps": 230,
+      "count": 2
+    }
+  ],
+  "weather": {
+    "windWorldMps": {
+      "x": -1.5,
+      "y": 0,
+      "z": 0.5
+    },
+    "gustMps": 1,
+    "turbulence": 0.05
+  },
+  "objectives": [
+    {
+      "id": "obj-kill",
+      "kind": "destroy_all_hostiles",
+      "description": "Two aggressors are inbound from PAF Shahbaz. Intercept and destroy them.",
+      "params": {}
+    }
+  ]
+}

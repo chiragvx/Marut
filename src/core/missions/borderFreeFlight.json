@@ -1,0 +1,38 @@
+{
+  "id": "border-free",
+  "name": "Free Flight \u2014 Bhisiana, India-Pakistan border",
+  "seed": 1947,
+  "terrain": {
+    "seed": 1947,
+    "theatre": "border"
+  },
+  "airportIds": [
+    "bhisiana-afs",
+    "pafb-shahbaz"
+  ],
+  "playerStart": {
+    "airportId": "bhisiana-afs",
+    "runwayId": "31",
+    "speedMps": 0
+  },
+  "aiFlights": [],
+  "weather": {
+    "windWorldMps": {
+      "x": -1.5,
+      "y": 0,
+      "z": 0.5
+    },
+    "gustMps": 1,
+    "turbulence": 0.05
+  },
+  "objectives": [
+    {
+      "id": "obj-survive",
+      "kind": "survive_time",
+      "description": "Fly the border area and land back at Bhisiana.",
+      "params": {
+        "seconds": 3600
+      }
+    }
+  ]
+}

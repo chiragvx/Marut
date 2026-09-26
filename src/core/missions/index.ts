@@ -31,10 +31,14 @@ import konkanFreeFlightRaw from './konkanFreeFlight.json';
 import konkanDogfightRaw from './konkanDogfight.json';
 import punjabFreeFlightRaw from './punjabFreeFlight.json';
 import punjabDogfightRaw from './punjabDogfight.json';
+import borderFreeFlightRaw from './borderFreeFlight.json';
+import borderInterceptRaw from './borderIntercept.json';
 import rangpurAfbRaw from '../../airport/layouts/rangpur-afb.json';
 import konarakCoastalRaw from '../../airport/layouts/konarak-coastal.json';
 import insHansaRaw from '../../airport/layouts/ins-hansa.json';
 import adampurAfsRaw from '../../airport/layouts/adampur-afs.json';
+import bhisianaAfsRaw from '../../airport/layouts/bhisiana-afs.json';
+import pafbShahbazRaw from '../../airport/layouts/pafb-shahbaz.json';
 
 export const loadMissionDescriptor: LoadMissionDescriptor = (
   descriptor: MissionDescriptor,
@@ -73,6 +77,8 @@ const BUILTIN_AIRPORT_JSON: Readonly<Record<string, unknown>> = {
   'konarak-coastal': konarakCoastalRaw,
   'ins-hansa': insHansaRaw,
   'adampur-afs': adampurAfsRaw,
+  'bhisiana-afs': bhisianaAfsRaw,
+  'pafb-shahbaz': pafbShahbazRaw,
 };
 
 function resolveBuiltinAirport(id: string): AirportLayout | undefined {
@@ -104,6 +110,8 @@ const BUILTIN_DESCRIPTORS = {
   'konkan-dogfight': konkanDogfightRaw as unknown as MissionDescriptor,
   'punjab-free': punjabFreeFlightRaw as unknown as MissionDescriptor,
   'punjab-dogfight': punjabDogfightRaw as unknown as MissionDescriptor,
+  'border-free': borderFreeFlightRaw as unknown as MissionDescriptor,
+  'border-intercept': borderInterceptRaw as unknown as MissionDescriptor,
 } as const satisfies Readonly<Record<string, MissionDescriptor>>;
 
 export type BuiltinMissionId = keyof typeof BUILTIN_DESCRIPTORS;

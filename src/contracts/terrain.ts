@@ -381,6 +381,7 @@ export const DEFAULT_TERRAIN_PARAMS: TerrainParams = {
 export const TheatreId = {
   Konkan: 'konkan',
   Punjab: 'punjab',
+  Border: 'border',
 } as const;
 export type TheatreId = (typeof TheatreId)[keyof typeof TheatreId];
 
@@ -537,6 +538,67 @@ export const THEATRE_TERRAIN_PARAMS: Readonly<Record<TheatreId, TerrainParams>> 
       villageSpacingM: 2300,
       villageKeep: 0.82,
       exclusions: [{ x: 0, z: 0, radiusM: 2600 }],
+    },
+  },
+  // The India-Pakistan border plains: Bhisiana AFS (Bathinda, friendly) in the east and PAF Base
+  // Shahbaz (Jacobabad, hostile) 65 km west-south-west, on their real relative bearing with the
+  // distance compressed (really ~650 km). The border runs NNE-SSW between them (x = -0.364 z);
+  // a broad Indus-like river crosses the Pakistani side. Towns keep their real directions from
+  // their base at compressed distances; highways stop short of the border.
+  border: {
+    ...DEFAULT_TERRAIN_PARAMS,
+    fbm: { octaves: 4, baseFrequency: 1 / 9000, baseAmplitudeM: 1, lacunarity: 2.0, persistence: 0.5 },
+    domainWarp: { enabled: true, warpFrequency: 1 / 10000, warpAmplitudeM: 2000, octaves: 3 },
+    shape: {
+      kind: 'plains',
+      baseElevationM: 190,
+      reliefM: 2.5,
+      rivers: [{ x0: -4000, z0: -100000, x1: -20000, z1: 100000, widthM: 650, bankWidthM: 300, meanderAmpM: 3200, meanderFreq: 1 / 22000, floodplainWidthM: 2400 }],
+    },
+    waterLevelM: 182,
+    seaLevelM: 0,
+    heightBoundsM: { minM: 174, maxM: 206 },
+    surfaceStyle: 'farmland',
+    network: {
+      towns: [
+        // India
+        { name: 'Bathinda', x: 45500, z: -7000, radiusM: 700, kind: 'city' },
+        { name: 'Rampura Phul', x: 66000, z: -6000, radiusM: 400, kind: 'town' },
+        { name: 'Mansa', x: 60000, z: 20000, radiusM: 450, kind: 'town' },
+        { name: 'Malout', x: 14000, z: -2000, radiusM: 400, kind: 'town' },
+        { name: 'Abohar', x: 9000, z: 9000, radiusM: 450, kind: 'town' },
+        { name: 'Sri Muktsar Sahib', x: 16000, z: -30000, radiusM: 450, kind: 'town' },
+        { name: 'Faridkot', x: 32000, z: -42000, radiusM: 450, kind: 'town' },
+        // Pakistan
+        { name: 'Jacobabad', x: -29000, z: 6500, radiusM: 700, kind: 'city' },
+        { name: 'Shikarpur', x: -18500, z: 25000, radiusM: 450, kind: 'town' },
+        { name: 'Sukkur', x: -18500, z: 41000, radiusM: 600, kind: 'town' },
+        { name: 'Kandhkot', x: -18000, z: -9000, radiusM: 400, kind: 'town' },
+        { name: 'Dera Murad Jamali', x: -56000, z: 0, radiusM: 400, kind: 'town' },
+        { name: 'Larkana', x: -36000, z: 45000, radiusM: 550, kind: 'town' },
+      ],
+      routes: [
+        // India
+        { name: 'NH54 Bathinda-Malout-Abohar', cls: 'highway', via: ['Bathinda', [28000, -1500], 'Malout', 'Abohar', [3000, 13000]] },
+        { name: 'NH7 Bathinda-Rampura Phul', cls: 'highway', via: ['Bathinda', 'Rampura Phul', [100000, -5000]] },
+        { name: 'Bathinda-Mansa', cls: 'state', via: ['Bathinda', 'Mansa', [100000, 42000]] },
+        { name: 'Bathinda-Faridkot', cls: 'state', via: ['Bathinda', [40000, -25000], 'Faridkot', [36000, -100000]] },
+        { name: 'Malout-Muktsar', cls: 'state', via: ['Malout', 'Sri Muktsar Sahib', 'Faridkot'] },
+        { name: 'Abohar-Mansa', cls: 'district', via: ['Abohar', [35000, 18000], 'Mansa'] },
+        { name: 'Sirhind Feeder', cls: 'canal', via: [[70000, -60000], [42000, -30000], [24000, -12000], [12000, 4000]] },
+        // Pakistan
+        { name: 'N65 Jacobabad-Shikarpur-Sukkur', cls: 'highway', via: ['Jacobabad', [-24000, 16000], 'Shikarpur', 'Sukkur', [-12000, 100000]] },
+        { name: 'Jacobabad-Kandhkot', cls: 'state', via: ['Jacobabad', 'Kandhkot', [-2000, -100000]] },
+        { name: 'N65 Jacobabad-Dera Murad Jamali', cls: 'highway', via: ['Jacobabad', 'Dera Murad Jamali', [-100000, -6000]] },
+        { name: 'Jacobabad-Larkana', cls: 'state', via: ['Jacobabad', [-38000, 12000], 'Larkana', [-42000, 100000]] },
+        { name: 'Begari Canal', cls: 'canal', via: [[-9000, -60000], [-24000, -12000], [-40000, 2000], [-60000, 8000]] },
+      ],
+      villageSpacingM: 2300,
+      villageKeep: 0.75,
+      exclusions: [
+        { x: 30500, z: -11000, radiusM: 2800 },
+        { x: -30500, z: 11000, radiusM: 2800 },
+      ],
     },
   },
 };

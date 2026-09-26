@@ -14,18 +14,19 @@ import { buildCoastProfile, createHeightSampler } from '../../src/terrain';
 import { buildWorldDependencies, createWorld, resolveBuiltinMission } from '../../src/core';
 import { Quat } from '../../src/math';
 
-const MISSION_FOR: Readonly<Record<TheatreId, 'konkan-free' | 'punjab-free'>> = {
+const MISSION_FOR: Readonly<Record<TheatreId, 'konkan-free' | 'punjab-free' | 'border-free'>> = {
   konkan: 'konkan-free',
   punjab: 'punjab-free',
+  border: 'border-free',
 };
 
 function theatreSampler(id: TheatreId) {
   const mission = resolveBuiltinMission(MISSION_FOR[id]);
   const layouts = mission.world.airports as readonly AirportLayout[];
-  return { sampler: createHeightSampler(THEATRE_TERRAIN_PARAMS[id], layouts.flatMap((a) => a.flattenZones)), layout: layouts[0]! };
+  return { sampler: createHeightSampler(THEATRE_TERRAIN_PARAMS[id], layouts.flatMap((a) => a.flattenZones)), layout: layouts[0]!, layouts };
 }
 
-describe.each(['konkan', 'punjab'] as const)('theatre %s', (id) => {
+describe.each(['konkan', 'punjab', 'border'] as const)('theatre %s', (id) => {
   test('stays within its declared height bounds (2 km grid over the whole world)', () => {
     const { sampler } = theatreSampler(id);
     const bounds = THEATRE_TERRAIN_PARAMS[id].heightBoundsM!;
@@ -38,10 +39,9 @@ describe.each(['konkan', 'punjab'] as const)('theatre %s', (id) => {
     }
   });
 
-  test('home airbase runways are dry and at the layout elevation', () => {
-    const { sampler, layout } = theatreSampler(id);
-    expect(layout.runways.length).toBeGreaterThan(0);
-    for (const r of layout.runways) {
+  test('every airbase runway is dry and at the layout elevation', () => {
+    const { sampler, layouts } = theatreSampler(id);
+    for (const r of layouts.flatMap((l) => l.runways)) {
       for (let f = 0; f <= 1; f += 0.25) {
         const x = r.thresholdWorldX + Math.sin(r.headingRad) * r.lengthM * f;
         const z = r.thresholdWorldZ - Math.cos(r.headingRad) * r.lengthM * f;
