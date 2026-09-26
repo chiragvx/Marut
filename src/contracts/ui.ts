@@ -28,7 +28,7 @@
  * =============================================================================
  */
 
-import type { AiDifficulty, HeightSampler, QualityTier, Result, SpeedUnit } from './core';
+import type { AiDifficulty, HeightSampler, QualityTier, Result, SpeedUnit, WeatherMode } from './core';
 
 // -----------------------------------------------------------------------------
 // 1. Generic screen-mount conventions. Every DOM screen factory in this file
@@ -191,6 +191,14 @@ export interface SettingsState {
    * next mission start). Optional so older callers still type-check; missing means on.
    */
   weatherEnabled?: boolean;
+  /**
+   * Weather choice (see core.ts WeatherMode). Visuals change immediately; 'off' also calms the air
+   * (no wind, gusts or turbulence) from the next mission start. Missing = 'clear' (or 'off' when
+   * weatherEnabled is false, for older callers).
+   */
+  weatherMode?: WeatherMode;
+  /** Local time of day, hours 0-24 (sun, moon, sky and night lights). Missing = 10.5. */
+  timeOfDayH?: number;
 }
 
 export interface SettingsCallbacks {

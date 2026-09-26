@@ -39,7 +39,7 @@ const FS = /* glsl */ `
   void main() {
     vec3 col = vWorld.x < uShoreX ? uSea : uLand;
     float diff = max(normalize(uAtmSunDir).y, 0.0);
-    col *= vec3(0.44, 0.47, 0.52) + vec3(1.0, 0.97, 0.9) * 0.62 * diff;
+    col *= uAtmAmbSky + uAtmSunCol * diff;
     gl_FragColor = vec4(atmApply(col, vWorld), 1.0);
   }
 `;

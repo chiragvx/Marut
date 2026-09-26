@@ -33,6 +33,13 @@ const SHADOW_TEX = 512;
 const PUFF_TEX = 128;
 const PUFF_VARIANTS = 4;
 const MAX_PUFFS = 9000;
+/**
+ * Clouds exist for cells whose hash is below this; each fades in as the live coverage (weather)
+ * passes its hash, so coverage changes smoothly without regenerating anything.
+ */
+const COVERAGE_CAP = 0.25;
+/** Coverage over which one cloud fades in or out. */
+const COVERAGE_FADE = 0.03;
 
 function hash(a: number, b: number, c: number, seed: number): number {
   let h = (Math.imul(a | 0, 0x27d4eb2d) ^ Math.imul(b | 0, 0x165667b1) ^ Math.imul(c | 0, 0x2545f491) ^ Math.imul(seed | 0, 0x9e3779b9)) >>> 0;
@@ -48,10 +55,13 @@ interface Cloud {
   base: number;
   top: number;
   cell: [number, number];
+  /** Coverage at which this cloud appears. */
+  h: number;
 }
 
 function cloudAt(cfg: CloudConfig, ix: number, iz: number): Cloud | undefined {
-  if (hash(ix, iz, 1, cfg.seed) > cfg.coverage) return undefined;
+  const h = hash(ix, iz, 1, cfg.seed);
+  if (h > COVERAGE_CAP) return undefined;
   const radius = 500 + 1000 * hash(ix, iz, 4, cfg.seed);
   return {
     x: (ix + 0.2 + 0.6 * hash(ix, iz, 2, cfg.seed)) * CELL_M,
@@ -60,6 +70,7 @@ function cloudAt(cfg: CloudConfig, ix: number, iz: number): Cloud | undefined {
     base: cfg.baseM + 150 * (hash(ix, iz, 5, cfg.seed) - 0.5),
     top: cfg.baseM + (cfg.topM - cfg.baseM) * (0.5 + 0.5 * hash(ix, iz, 6, cfg.seed)),
     cell: [ix, iz],
+    h,
   };
 }
 
@@ -97,8 +108,9 @@ function makePuffTexture(): THREE.DataArrayTexture {
 const PUFF_VS = /* glsl */ `
   attribute vec4 iPuff;  // world x, y, z, radius
   attribute vec4 iCloud; // cloud centre x, cloud base y, cloud centre z, cloud radius
-  attribute vec4 iMisc;  // cloud top y, sprite variant, opacity, brightness jitter
+  attribute vec4 iMisc;  // cloud top y, sprite variant, coverage at which the cloud appears, brightness jitter
   uniform vec3 uOrigin;
+  uniform float uCoverage;
   varying vec2 vQ;
   varying vec3 vCentre;
   varying float vRadius;
@@ -108,13 +120,18 @@ const PUFF_VS = /* glsl */ `
   varying vec3 vUp;
   varying vec3 vBack;
   void main() {
+    float show = clamp((uCoverage - iMisc.z) / ${COVERAGE_FADE.toFixed(3)}, 0.0, 1.0);
+    if (show <= 0.0) {
+      gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
+      return;
+    }
     vec4 mv = viewMatrix * vec4(iPuff.xyz - uOrigin, 1.0);
     mv.xy += position.xy * iPuff.w;
     vQ = position.xy;
     vCentre = iPuff.xyz;
     vRadius = iPuff.w;
     vCloud = iCloud;
-    vMisc = iMisc;
+    vMisc = vec4(iMisc.xy, 0.85 * show, iMisc.w);
     // Camera axes in world space (the rows of the view rotation).
     vRight = vec3(viewMatrix[0][0], viewMatrix[1][0], viewMatrix[2][0]);
     vUp = vec3(viewMatrix[0][1], viewMatrix[1][1], viewMatrix[2][1]);
@@ -127,6 +144,8 @@ const PUFF_FS = /* glsl */ `
   precision highp float;
   uniform highp sampler2DArray uPuff;
   uniform float uFadeEnd;
+  uniform float uCloudDark;
+  uniform float uCoverage;
   ${ATMOSPHERE_GLSL}
   varying vec2 vQ;
   varying vec3 vCentre;
@@ -163,8 +182,10 @@ const PUFF_FS = /* glsl */ `
     float mu = dot(V, L);
     // Silver lining: thin edges glow when looking towards the sun.
     float lining = pow(max(mu, 0.0), 6.0) * smoothstep(0.55, 1.0, r2) * 0.9;
-    vec3 sky = mix(vec3(0.52, 0.58, 0.68), vec3(0.72, 0.78, 0.88), h);
-    vec3 col = (sky * 0.58 + vec3(1.0, 0.97, 0.9) * sun * 0.95) * baseDark * vMisc.w + vec3(1.0, 0.95, 0.85) * lining;
+    vec3 sky = mix(vec3(0.52, 0.58, 0.68), vec3(0.72, 0.78, 0.88), h) * (uAtmAmbSky / vec3(0.44, 0.47, 0.52));
+    // Rain clouds: darker all over, darkest at the base.
+    baseDark *= 1.0 - uCloudDark * (0.55 - 0.25 * h);
+    vec3 col = (sky * 0.58 + uAtmSunCol * (1.53 * sun)) * baseDark * vMisc.w + uAtmSunCol * (1.6 * lining) * (1.0 - uCloudDark);
     col = min(col, vec3(1.0));
     col = atmApply(col, pw);
     // Soft, lumpy sprite edge; fade puffs right next to the camera and at the view limit.
@@ -215,6 +236,8 @@ export interface CloudSystem {
   update(cameraWorld: Readonly<Vec3Like>, originWorld: Readonly<Vec3Like>): void;
   setFog(fogColor: THREE.Color, fogEndM: number): void;
   setSunDirection(dir: Readonly<Vec3Like>): void;
+  /** Live weather: cumulus coverage (0..0.25, fades clouds in and out) and darkness (0 white, 1 rain clouds). */
+  setWeather(coverage: number, dark: number): void;
   /** Shared uniforms for ground shaders (see CLOUD_SHADOW_GLSL). */
   readonly shadowUniforms: { uCloudShadow: { value: THREE.Texture }; uCloudShadowParams: { value: THREE.Vector4 } };
   dispose(): void;
@@ -240,6 +263,8 @@ export function createCloudSystem(scene: THREE.Scene): CloudSystem {
       uPuff: { value: puffTex },
       uOrigin: { value: new THREE.Vector3() },
       uFadeEnd: { value: VIEW_RADIUS_M },
+      uCoverage: { value: 0 },
+      uCloudDark: { value: 0 },
       ...getAtmosphereUniforms(),
     },
     vertexShader: PUFF_VS,
@@ -258,6 +283,9 @@ export function createCloudSystem(scene: THREE.Scene): CloudSystem {
   const shadowData = shadowTex.image.data as unknown as Uint8Array;
 
   let cfg: CloudConfig | undefined;
+  let darkness = 0;
+  /** Coverage the ground-shadow map was last built for. */
+  let shadowCoverage = -1;
   // Puffs near the camera: world positions (x, y, z, radius) and shading, unsorted.
   let puffs: Float32Array = new Float32Array(0);
   let cloudsArr: Float32Array = new Float32Array(0);
@@ -268,7 +296,7 @@ export function createCloudSystem(scene: THREE.Scene): CloudSystem {
   const order: number[] = [];
   const dist: Float32Array = new Float32Array(MAX_PUFFS);
 
-  function buildShadowMap(c: CloudConfig): void {
+  function buildShadowMap(c: CloudConfig, coverage: number): void {
     shadowData.fill(0);
     const texel = (2 * TERRAIN_WORLD_HALF_EXTENT_M) / SHADOW_TEX;
     const n = Math.ceil(TERRAIN_WORLD_HALF_EXTENT_M / CELL_M) + 1;
@@ -276,6 +304,8 @@ export function createCloudSystem(scene: THREE.Scene): CloudSystem {
       for (let ix = -n; ix <= n; ix++) {
         const cl = cloudAt(c, ix, iz);
         if (!cl) continue;
+        const show = Math.max(0, Math.min(1, (coverage - cl.h) / COVERAGE_FADE));
+        if (show <= 0) continue;
         const r = cl.radius * 0.9;
         const x0 = Math.floor((cl.x - r + TERRAIN_WORLD_HALF_EXTENT_M) / texel);
         const x1 = Math.ceil((cl.x + r + TERRAIN_WORLD_HALF_EXTENT_M) / texel);
@@ -286,7 +316,7 @@ export function createCloudSystem(scene: THREE.Scene): CloudSystem {
             const wx = (tx + 0.5) * texel - TERRAIN_WORLD_HALF_EXTENT_M;
             const wz = (tz + 0.5) * texel - TERRAIN_WORLD_HALF_EXTENT_M;
             const d = Math.hypot(wx - cl.x, wz - cl.z) / r;
-            const v = Math.max(0, Math.min(1, (1 - d) * 2.5));
+            const v = Math.max(0, Math.min(1, (1 - d) * 2.5)) * show;
             const k = tz * SHADOW_TEX + tx;
             shadowData[k] = Math.max(shadowData[k]!, Math.round(v * 255));
           }
@@ -346,7 +376,7 @@ export function createCloudSystem(scene: THREE.Scene): CloudSystem {
           const y = cl.base + size * 0.35 + h * H;
           list.push(x, y, z, size);
           cl4.push(cl.x, cl.base, cl.z, R);
-          mi.push(cl.top, Math.floor(hp(10) * PUFF_VARIANTS), 0.85, 0.92 + 0.16 * hp(11));
+          mi.push(cl.top, Math.floor(hp(10) * PUFF_VARIANTS), cl.h, 0.92 + 0.16 * hp(11));
         }
       }
     }
@@ -365,11 +395,28 @@ export function createCloudSystem(scene: THREE.Scene): CloudSystem {
     setConfig(c) {
       cfg = c;
       seededAt = undefined;
-      mesh.visible = !!c;
-      shadowUniforms.uCloudShadowParams.value.w = c ? 1 : 0;
+      shadowCoverage = -1;
       if (c) {
         shadowUniforms.uCloudShadowParams.value.y = (c.baseM + c.topM) / 2;
-        buildShadowMap(c);
+        this.setWeather(c.coverage, darkness);
+      } else {
+        mesh.visible = false;
+        shadowUniforms.uCloudShadowParams.value.w = 0;
+      }
+    },
+
+    setWeather(coverage, dark) {
+      darkness = dark;
+      mat.uniforms['uCloudDark']!.value = dark;
+      const cov = cfg ? Math.min(coverage, COVERAGE_CAP) : 0;
+      mat.uniforms['uCoverage']!.value = cov;
+      mesh.visible = cov > 0;
+      shadowUniforms.uCloudShadowParams.value.w = cov > 0 ? 1 : 0;
+      // Shadows darken with the clouds; the coverage map is rebuilt only when coverage has moved.
+      shadowUniforms.uCloudShadowParams.value.z = 0.5 + 0.25 * dark;
+      if (cfg && Math.abs(cov - shadowCoverage) > 0.004) {
+        shadowCoverage = cov;
+        buildShadowMap(cfg, cov);
       }
     },
 
@@ -407,8 +454,8 @@ export function createCloudSystem(scene: THREE.Scene): CloudSystem {
     },
 
     setSunDirection(dir) {
+      // Shading reads the shared uAtmSunDir; nothing to rebuild.
       sunDir.set(dir.x, dir.y, dir.z).normalize();
-      seededAt = undefined;
     },
 
     dispose() {

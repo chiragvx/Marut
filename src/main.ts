@@ -7,7 +7,7 @@
  * exports of modules 04/08/09/11 rather than a contracts/*.ts file).
  */
 
-import { NO_ENTITY_ID, MissionObjectiveKind, SpeedUnit } from './contracts/core';
+import { NO_ENTITY_ID, MissionObjectiveKind, SpeedUnit, WeatherMode } from './contracts/core';
 import type {
   AiDifficulty,
   EntityId,
@@ -91,8 +91,12 @@ interface PersistedSettings {
   speedUnit?: SpeedUnit;
   /** src/ui/settings.ts's "AoA limiter" control; see PilotInputs.alphaLimiterDisabled's doc comment. Optional so old saved data still parses fine; missing means the limiter stays enabled (the safe default). */
   alphaLimiterEnabled?: boolean;
-  /** src/ui/settings.ts's "Weather" control. Optional so old saved data still parses; missing means on. */
+  /** src/ui/settings.ts's old "Weather" on/off control. Optional so old saved data still parses; missing means on. */
   weatherEnabled?: boolean;
+  /** src/ui/settings.ts's "Weather" choice; missing = 'clear' (or 'off' if weatherEnabled was false). */
+  weatherMode?: WeatherMode;
+  /** src/ui/settings.ts's "Time of day" (hours); missing = 10.5. */
+  timeOfDayH?: number;
 }
 
 function loadPersistedSettings(): PersistedSettings | undefined {
@@ -105,6 +109,8 @@ function loadPersistedSettings(): PersistedSettings | undefined {
     if (parsed.speedUnit !== undefined && typeof parsed.speedUnit !== 'string') return undefined;
     if (parsed.alphaLimiterEnabled !== undefined && typeof parsed.alphaLimiterEnabled !== 'boolean') return undefined;
     if (parsed.weatherEnabled !== undefined && typeof parsed.weatherEnabled !== 'boolean') return undefined;
+    if (parsed.weatherMode !== undefined && !(Object.values(WeatherMode) as string[]).includes(parsed.weatherMode)) delete parsed.weatherMode;
+    if (parsed.timeOfDayH !== undefined && !(typeof parsed.timeOfDayH === 'number' && parsed.timeOfDayH >= 0 && parsed.timeOfDayH <= 24)) delete parsed.timeOfDayH;
     return parsed as PersistedSettings;
   } catch {
     return undefined;
@@ -151,8 +157,12 @@ let chunkManager: ChunkManager;
 let currentQualityTier: QualityTier;
 let currentSpeedUnit: SpeedUnit = SpeedUnit.Mps;
 let currentMission: Mission | undefined;
-/** Settings "Weather" toggle (clouds, wind, turbulence). */
-let weatherEnabled = true;
+/** Settings "Weather" choice; 'off' = clear sky and calm air. */
+let weatherMode: WeatherMode = 'clear';
+/** Settings "Time of day", hours. */
+let timeOfDayH = 10.5;
+/** Seeds dynamic weather: a new random sequence every mission. */
+const newWeatherSeed = (): number => Math.floor(Math.random() * 4294967296) >>> 0;
 let currentDifficulty: AiDifficulty = 'veteran';
 let playerEntityId: EntityId = NO_ENTITY_ID;
 let sessionStartSimTimeSec = 0;
@@ -413,7 +423,9 @@ function showSettingsOverlay(): void {
     invertPitch: false,
     speedUnit: currentSpeedUnit,
     alphaLimiterEnabled: inputSystem ? !inputSystem.isAlphaLimiterDisabled() : true,
-    weatherEnabled,
+    weatherEnabled: weatherMode !== 'off',
+    weatherMode,
+    timeOfDayH,
   };
   const handle: SettingsScreenHandle = createSettingsScreen(uiRoot, initial, {
     onChange: (next) => {
@@ -422,7 +434,9 @@ function showSettingsOverlay(): void {
         version: 1,
         speedUnit: next.speedUnit,
         alphaLimiterEnabled: next.alphaLimiterEnabled,
-        weatherEnabled: next.weatherEnabled ?? true,
+        weatherEnabled: (next.weatherMode ?? 'clear') !== 'off',
+        weatherMode: next.weatherMode ?? 'clear',
+        timeOfDayH: next.timeOfDayH ?? 10.5,
       });
       if (next.qualityOverride !== 'auto') {
         currentQualityTier = next.qualityOverride;
@@ -432,13 +446,16 @@ function showSettingsOverlay(): void {
       currentSpeedUnit = next.speedUnit;
       hud?.setSpeedUnit(currentSpeedUnit);
       inputSystem?.setAlphaLimiterDisabled(!next.alphaLimiterEnabled);
-      const w = next.weatherEnabled ?? true;
-      if (w !== weatherEnabled) {
-        weatherEnabled = w;
-        // Clouds switch right away; wind and turbulence follow at the next mission start.
-        if (currentMission && renderer) {
-          renderer.setEnvironment(buildSceneEnvironment(currentMission.world.terrain as TerrainParams, currentMission.world.airports as readonly AirportLayout[]));
-        }
+      const w = next.weatherMode ?? 'clear';
+      if (w !== weatherMode) {
+        weatherMode = w;
+        // The sky changes right away; wind and turbulence follow at the next mission start.
+        renderer?.setWeather(weatherMode, newWeatherSeed());
+      }
+      const t = next.timeOfDayH ?? 10.5;
+      if (t !== timeOfDayH) {
+        timeOfDayH = t;
+        renderer?.setTimeOfDay(timeOfDayH);
       }
     },
     onRebindStart: (action) => {
@@ -551,6 +568,8 @@ async function initWorkersAndRenderer(qualityTier: QualityTier): Promise<void> {
   });
   renderer.registerAircraftModel(tejasDefinition.wireframe);
   renderer.setSunDirection({ x: 0.4, y: 0.7, z: -0.3 });
+  renderer.setTimeOfDay(timeOfDayH);
+  renderer.setWeather(weatherMode, newWeatherSeed());
 
   // Single terrain-worker message router for the whole session. `chunkManager`
   // is reassigned per mission load (launchMission, below) but this handler
@@ -661,10 +680,9 @@ function buildSceneEnvironment(terrainParams: TerrainParams, airportLayouts: rea
     terrainParams.shape.rivers.forEach((r, i) => packRiver(r, i, terrainParams.seed, packed, i * RIVER_FLOATS));
     rivers = { packed: Array.from(packed), count: terrainParams.shape.rivers.length };
   }
-  // Winter cumulus over Punjab; a few dry-season fair-weather clouds over Goa (a weather system will own this later).
-  const clouds = !weatherEnabled
-    ? undefined
-    : terrainParams.surfaceStyle === 'farmland'
+  // Cumulus layer heights per theatre; how much cloud there is comes from the weather (skyState.ts).
+  const clouds =
+    terrainParams.surfaceStyle === 'farmland'
       ? { coverage: 0.22, baseM: 1700, topM: 2300, seed: terrainParams.seed }
       : terrainParams.surfaceStyle === 'coastal'
         ? { coverage: 0.09, baseM: 1200, topM: 1700, seed: terrainParams.seed }
@@ -696,10 +714,22 @@ function applyDevStart(mission: Mission): Mission {
   };
 }
 
-/** Weather off: calm air (no wind, gusts or turbulence) for the simulation. */
+/**
+ * The air for the simulation from the weather choice: 'off' = calm (no wind, gusts or turbulence);
+ * fog forms in near-calm air; rain brings gusts and turbulence. Other choices keep the mission's air.
+ */
 function applyWeatherSetting(mission: Mission): Mission {
-  if (weatherEnabled) return mission;
-  return { ...mission, weather: { windWorldMps: { x: 0, y: 0, z: 0 }, gustMps: 0, turbulence: 0 } };
+  const wx = mission.weather;
+  switch (weatherMode) {
+    case 'off':
+      return { ...mission, weather: { windWorldMps: { x: 0, y: 0, z: 0 }, gustMps: 0, turbulence: 0 } };
+    case 'fog':
+      return { ...mission, weather: { windWorldMps: { x: wx.windWorldMps.x * 0.3, y: 0, z: wx.windWorldMps.z * 0.3 }, gustMps: 0, turbulence: 0 } };
+    case 'rain':
+      return { ...mission, weather: { ...wx, gustMps: Math.max(wx.gustMps, 6), turbulence: Math.max(wx.turbulence, 0.35) } };
+    default:
+      return mission;
+  }
 }
 
 function launchMission(missionIn: Mission): void {
@@ -726,6 +756,7 @@ function launchMission(missionIn: Mission): void {
   const navDb = createAirportNavDb(airportLayouts);
   renderer.setNavDb(navDb);
   renderer.setEnvironment(buildSceneEnvironment(terrainParams, airportLayouts));
+  renderer.setWeather(weatherMode, newWeatherSeed());
 
   terrainReady = false;
   pendingTerrainMsgs.length = 0;
@@ -810,7 +841,10 @@ async function boot(): Promise<void> {
   await initWorkersAndRenderer(currentQualityTier);
   hud.setSpeedUnit(currentSpeedUnit);
   inputSystem.setAlphaLimiterDisabled((persisted?.alphaLimiterEnabled ?? true) === false);
-  weatherEnabled = persisted?.weatherEnabled ?? true;
+  weatherMode = persisted?.weatherMode ?? (persisted?.weatherEnabled === false ? 'off' : 'clear');
+  timeOfDayH = persisted?.timeOfDayH ?? 10.5;
+  renderer.setTimeOfDay(timeOfDayH);
+  renderer.setWeather(weatherMode, newWeatherSeed());
   // Size renderer/HUD from the current window/DPR once, synchronously, right
   // now — before the first requestAnimationFrame(frame) callback draws
   // anything. onResize() is otherwise wired only as a 'resize' listener

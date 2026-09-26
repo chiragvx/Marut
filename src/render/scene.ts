@@ -42,7 +42,21 @@ import { createTerrainChunkConsumer } from './terrainChunkConsumer';
 import { createChunkFeatureRenderer } from './chunkFeatureRenderer';
 import { createCloudSystem } from './clouds';
 import { createFarGround } from './farGround';
-import { getAtmosphereUniforms, setAtmosphereCamera } from './atmosphere';
+import { getAtmosphereUniforms, setAtmosphereCamera, setAtmosphereHaze } from './atmosphere';
+import type { WeatherMode } from '../contracts/core';
+import type { SceneEnvironment } from '../contracts/render';
+import {
+  computeSkyLight,
+  createDynamicWeather,
+  createSkyLight,
+  latitudeFor,
+  moonDirAt,
+  sunDirAt,
+  weatherPreset,
+  type Dir3,
+  type DynamicWeather,
+  type WeatherState,
+} from './skyState';
 import { createGrade } from './postGrade';
 import { createSunShadows } from './sunShadows';
 import { TERRAIN_WORLD_EXTENT_M } from '../contracts/terrain';
@@ -140,6 +154,63 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
   };
   const scratchProjMatrix = new THREE.Matrix4();
 
+  // --- Time of day and weather (skyState.ts) ---
+  let timeOfDayH: number | undefined;
+  let weatherMode: WeatherMode = 'clear';
+  let dynamicWeather: DynamicWeather | undefined;
+  let weatherSeed = 1;
+  let style: SceneEnvironment['surfaceStyle'] = 'default';
+  let fixedWeather: WeatherState = weatherPreset('clear', style);
+  const skyLight = createSkyLight();
+  const sunDir: Dir3 = { x: 0.4, y: 0.7, z: -0.3 };
+  const moonDir: Dir3 = { x: 0, y: -1, z: 0 };
+  const lastKey = { x: NaN, y: NaN, z: NaN };
+  let wet = 0;
+  let lastCoverage = -1;
+  let lastDark = -1;
+
+  function resetWeather(): void {
+    fixedWeather = weatherPreset(weatherMode === 'dynamic' ? 'clear' : weatherMode, style);
+    dynamicWeather = weatherMode === 'dynamic' ? createDynamicWeather(style, weatherSeed) : undefined;
+    const w = dynamicWeather ? dynamicWeather.current : fixedWeather;
+    wet = w.rain;
+    lastCoverage = -1;
+  }
+
+  /** Per frame: advance the weather, then set the sky, haze, light, clouds and glare from it. */
+  function updateSky(dt: number): void {
+    const w = dynamicWeather ? dynamicWeather.update(dt) : fixedWeather;
+    // The ground takes a couple of minutes to get wet in rain, and longer to dry.
+    wet += (w.rain - wet) * Math.min(1, dt / (w.rain > wet ? 90 : 300));
+    if (timeOfDayH !== undefined) {
+      const lat = latitudeFor(style);
+      sunDirAt(timeOfDayH, lat, sunDir);
+      moonDirAt(timeOfDayH, lat, moonDir);
+    }
+    computeSkyLight(sunDir, moonDir, skyFog.baseZenith, skyFog.baseHorizon, w, skyLight);
+    skyFog.setSkyLight(skyLight, sunDir, moonDir);
+    setAtmosphereHaze(w.visKm, w.hazeScaleM);
+    const u = getAtmosphereUniforms();
+    u.uAtmWet.value = wet;
+    const fog = scene.fog as THREE.Fog;
+    fog.near = 0.15 / u.uAtmHazeParams.value.x;
+    fog.far = 3.0 / u.uAtmHazeParams.value.x;
+    const k = skyLight.keyDir;
+    if (k.x !== lastKey.x || k.y !== lastKey.y || k.z !== lastKey.z) {
+      lastKey.x = k.x;
+      lastKey.y = k.y;
+      lastKey.z = k.z;
+      terrainConsumer.setSunDirection(k);
+      features.uniforms.uSunDir.value.set(k.x, k.y, k.z);
+    }
+    if (Math.abs(w.cumulus - lastCoverage) > 0.001 || Math.abs(w.cloudDark - lastDark) > 0.01) {
+      lastCoverage = w.cumulus;
+      lastDark = w.cloudDark;
+      clouds.setWeather(w.cumulus, w.cloudDark);
+    }
+    grade.setGlare(skyLight.glare);
+  }
+
   let shadowsOn = false;
   /** Terrain only casts sun shadows where there is relief to cast them (Goa's Ghats, the test terrain). */
   let hillyTheatre = false;
@@ -206,7 +277,20 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
       airportLines.setNavDb(navDb);
     },
 
+    setTimeOfDay(hours) {
+      timeOfDayH = ((hours % 24) + 24) % 24;
+    },
+
+    setWeather(m, seed) {
+      weatherMode = m;
+      weatherSeed = seed;
+      resetWeather();
+    },
+
     setSunDirection(dirWorld) {
+      sunDir.x = dirWorld.x;
+      sunDir.y = dirWorld.y;
+      sunDir.z = dirWorld.z;
       skyFog.setSunDirection(dirWorld);
       terrainConsumer.setSunDirection(dirWorld);
       features.uniforms.uSunDir.value.set(dirWorld.x, dirWorld.y, dirWorld.z);
@@ -215,10 +299,12 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
 
     setEnvironment(env) {
       skyFog.setStyle(env.surfaceStyle);
+      style = env.surfaceStyle;
       terrainConsumer.setFogColor(skyFog.horizonColor);
       features.uniforms.uFogColor.value.copy(skyFog.horizonColor);
       clouds.setFog(skyFog.horizonColor, 0);
       clouds.setConfig(env.clouds);
+      resetWeather();
       const shore = env.coast ? env.coast.shoreX.reduce((a, b) => a + b, 0) / env.coast.shoreX.length : undefined;
       farGround.setEnvironment(env, env.groundLevelM ?? 0, shore);
       terrainConsumer.setEnvironment(env);
@@ -317,6 +403,7 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
       }
 
       camera.updateMatrixWorld(true);
+      updateSky(frameDtSec);
       grade.update(nowMs, camera, getAtmosphereUniforms().uAtmSunDir.value);
       // Wrapped so float precision in the water animation never degrades over a long session.
       terrainConsumer.setTime((nowMs / 1000) % 3600);

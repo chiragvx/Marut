@@ -35,6 +35,17 @@ export interface AtmosphereUniforms {
   uAtmHazeParams: { value: THREE.Vector4 };
   /** 1 / (2 R): vertical drop per m^2 of horizontal distance. */
   uAtmCurv: { value: number };
+  /** Direction of the glow in the haze (the sun, even below the horizon at twilight; the moon at night). */
+  uAtmGlowDir: { value: THREE.Vector3 };
+  /** Direct light (sun, or moon at night) colour x intensity; uAtmSunDir is its direction. */
+  uAtmSunCol: { value: THREE.Color };
+  /** Hemisphere ambient light from the sky and from the ground. */
+  uAtmAmbSky: { value: THREE.Color };
+  uAtmAmbGround: { value: THREE.Color };
+  /** Artificial lights (towns, runways): 0 by day, 1 at night. */
+  uAtmLights: { value: number };
+  /** Rain-wet ground, 0..1. */
+  uAtmWet: { value: number };
 }
 
 let shared: AtmosphereUniforms | undefined;
@@ -44,14 +55,27 @@ export function getAtmosphereUniforms(): AtmosphereUniforms {
     shared = {
       uAtmCamPos: { value: new THREE.Vector3() },
       uAtmSunDir: { value: new THREE.Vector3(0.4, 0.7, -0.3).normalize() },
+      uAtmGlowDir: { value: new THREE.Vector3(0.4, 0.7, -0.3).normalize() },
       uAtmHaze: { value: new THREE.Color(0xbcd4e8) },
       uAtmSunGlow: { value: new THREE.Color(0xfff0d0) },
       uAtmZenith: { value: new THREE.Color(0x3a6ea8) },
       uAtmHazeParams: { value: new THREE.Vector4(1e-4, 1200, 0, 1.3e-5) },
       uAtmCurv: { value: 1 / (2 * EARTH_RADIUS_M) },
+      uAtmSunCol: { value: new THREE.Color(0.62, 0.6014, 0.558) },
+      uAtmAmbSky: { value: new THREE.Color(0.44, 0.47, 0.52) },
+      uAtmAmbGround: { value: new THREE.Color(0.3, 0.27, 0.22) },
+      uAtmLights: { value: 0 },
+      uAtmWet: { value: 0 },
     };
   }
   return shared;
+}
+
+/** Sets haze visibility (km at ground level) and scale height (m), e.g. from the weather. */
+export function setAtmosphereHaze(visKm: number, scaleM: number): void {
+  const p = getAtmosphereUniforms().uAtmHazeParams.value;
+  p.x = 3.912 / (visKm * 1000);
+  p.y = scaleM;
 }
 
 /** Haze per theatre: meteorological visibility at ground level (km), haze scale height (m), ground level (m). */
@@ -78,6 +102,7 @@ export function setAtmosphereCamera(camWorld: Readonly<Vec3Like>): void {
 
 export function setAtmosphereSun(dir: Readonly<Vec3Like>): void {
   getAtmosphereUniforms().uAtmSunDir.value.set(dir.x, dir.y, dir.z).normalize();
+  getAtmosphereUniforms().uAtmGlowDir.value.set(dir.x, dir.y, dir.z).normalize();
 }
 
 /** Transmittance of the haze from the camera to a point `dist` metres away along `dir` (for CPU-side use). */
@@ -97,11 +122,22 @@ export function hazeTransmittance(camY: number, dirY: number, dist: number): num
 export const ATMOSPHERE_GLSL = /* glsl */ `
   uniform vec3 uAtmCamPos;
   uniform vec3 uAtmSunDir;
+  uniform vec3 uAtmGlowDir;
   uniform vec3 uAtmHaze;
   uniform vec3 uAtmSunGlow;
   uniform vec3 uAtmZenith;
   uniform vec4 uAtmHazeParams;
   uniform float uAtmCurv;
+  uniform vec3 uAtmSunCol;
+  uniform vec3 uAtmAmbSky;
+  uniform vec3 uAtmAmbGround;
+  uniform float uAtmLights;
+  uniform float uAtmWet;
+  // Overall light level relative to a clear midday (~1 by day, ~0.05 on a moonlit night): for
+  // surfaces whose colour is authored already lit (water, clouds' skylight, unlit markings).
+  vec3 atmLightLevel() {
+    return (uAtmAmbSky + uAtmSunCol * 0.8) / vec3(0.936, 0.951, 0.966);
+  }
 
   vec3 atmCurve(vec3 w) {
     vec2 d = w.xz - uAtmCamPos.xz;
@@ -109,8 +145,14 @@ export const ATMOSPHERE_GLSL = /* glsl */ `
     return w;
   }
   vec3 atmInscatter(vec3 dir) {
-    float mu = dot(dir, normalize(uAtmSunDir));
+    float mu = dot(dir, normalize(uAtmGlowDir));
     float glow = pow(max(mu, 0.0), 8.0) * 0.55 + pow(max(mu, 0.0), 64.0) * 0.6;
+    // Once the sun has set: a wide band of afterglow low along the horizon beneath it.
+    float sunSet = smoothstep(0.0, -0.08, normalize(uAtmGlowDir).y);
+    if (sunSet > 0.0) {
+      float band = pow(mu * 0.5 + 0.5, 4.0) * exp(-max(dir.y, 0.0) * 9.0);
+      glow = mix(glow, band * 0.9, sunSet);
+    }
     // Slightly darker and bluer looking away from the sun.
     vec3 base = uAtmHaze * (0.93 + 0.07 * mu);
     return mix(base, uAtmSunGlow, clamp(glow, 0.0, 1.0));

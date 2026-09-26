@@ -239,11 +239,11 @@ const FRAGMENT_SHADER = /* glsl */ `
     // Phase warp so the wave trains wander and break up instead of running in straight bands. Built
     // from sines, which are smooth everywhere (a noise warp kinks the crests along its cell edges).
     vec2 q = w.xz;
-    float warp = px < 90.0 ? 2.2 * sin(dot(q, vec2(0.017, 0.011))) + 1.6 * sin(dot(q, vec2(-0.009, 0.023)) + 1.3) : 0.0;
+    float warp = px < 90.0 ? 1.3 * sin(dot(q, vec2(0.0137, 0.0071))) + 0.9 * sin(dot(q, vec2(-0.0063, 0.0191)) + 1.3) : 0.0;
     if (ampSwell > 0.0) g += waveSet(w.xz, t, 0.25, 110.0, 0.03 * ampSwell, warp);
     float amp = 1.0 - smoothstep(1.5, 7.0, px);
     if (amp > 0.0) {
-      float warp2 = warp + 1.6 * sin(dot(q, vec2(0.071, -0.052)) + 0.4) + 1.3 * sin(dot(q, vec2(0.043, 0.083)) + 2.1);
+      float warp2 = warp + 1.1 * sin(dot(q, vec2(0.0613, -0.0377)) + 0.4) + 0.8 * sin(dot(q, vec2(0.0291, 0.0719)) + 2.1);
       g += waveSet(w.xz, t, -0.6, 21.0, 0.032 * amp, warp2);
       g += waveSet(w.xz, t, 1.1, 7.0, 0.018 * amp * (1.0 - smoothstep(0.5, 2.5, px)), warp2 * 1.7);
     }
@@ -261,7 +261,7 @@ const FRAGMENT_SHADER = /* glsl */ `
     } else {
       body = mix(uWaterColor * 1.35 + vec3(0.05, 0.05, 0.03), uWaterColor, smoothstep(0.5, 18.0, depth));
     }
-    body *= mix(0.62, 1.0, sunVis);
+    body *= mix(0.62, 1.0, sunVis) * atmLightLevel();
     float cosi = max(dot(-V, n), 0.0);
     float fres = 0.02 + 0.98 * pow(1.0 - cosi, 5.0);
     vec3 col = mix(body, atmSky(reflect(V, n)), fres * 0.85);
@@ -276,11 +276,11 @@ const FRAGMENT_SHADER = /* glsl */ `
       float swash = 1.0 - smoothstep(0.0, 5.0 + 7.0 * nA + max(px, 0.0), shoreDist);
       foam = max(crest * 0.8, swash * 0.9);
       foam *= 0.6 + 0.4 * (px < 3.0 ? vnoise(w.xz / 2.5 + t * 0.2) : 0.5);
-      col = mix(col, vec3(0.92, 0.94, 0.95) * mix(0.55, 1.0, sunVis), foam);
+      col = mix(col, vec3(0.92, 0.94, 0.95) * mix(0.55, 1.0, sunVis) * atmLightLevel(), foam);
     }
     vec3 R = reflect(V, n);
     float spec = pow(max(dot(R, normalize(uSunDir)), 0.0), 160.0);
-    return col + vec3(1.0, 0.95, 0.85) * spec * 1.1 * (1.0 - foam) * sunVis;
+    return col + uAtmSunCol * (1.8 * spec) * (1.0 - foam) * sunVis;
   }
 
 
@@ -556,8 +556,8 @@ const FRAGMENT_SHADER = /* glsl */ `
       // so the aircraft's, trees' and clouds' shadows fall on the water too.
       float sunVis = cloudShadow(wWater) * sunShadow(wWater, ndlGeom);
       float diff = max(dot(n, L), 0.0) * shadow * sunVis;
-      vec3 ambient = mix(vec3(0.30, 0.27, 0.22), vec3(0.44, 0.47, 0.52), 0.5 + 0.5 * n.y);
-      col *= ambient * occ + vec3(1.0, 0.97, 0.9) * 0.62 * diff * mix(1.0, occ, 0.35);
+      vec3 ambient = mix(uAtmAmbGround, uAtmAmbSky, 0.5 + 0.5 * n.y);
+      col *= ambient * occ + uAtmSunCol * diff * mix(1.0, occ, 0.35);
       if (riverWater > 0.0) col = mix(col, waterShade(vWorld, vRel, px, clamp(rv.x * 0.03, 0.0, 6.0), 1e9, 0.0, sunVis), riverWater);
       if (coastWater > 0.0) {
         bool estuary = est > 0.0 && est > seaW;

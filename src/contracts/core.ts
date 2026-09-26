@@ -579,6 +579,21 @@ export const SpeedUnit = {
 } as const;
 export type SpeedUnit = (typeof SpeedUnit)[keyof typeof SpeedUnit];
 
+/**
+ * Weather choice (Settings): a fixed preset, 'dynamic' (random weather that changes every few
+ * minutes, blending smoothly), or 'off' (clear sky and calm air: no clouds, wind or turbulence).
+ */
+export const WeatherMode = {
+  Off: 'off',
+  Clear: 'clear',
+  Hazy: 'hazy',
+  Fog: 'fog',
+  Overcast: 'overcast',
+  Rain: 'rain',
+  Dynamic: 'dynamic',
+} as const;
+export type WeatherMode = (typeof WeatherMode)[keyof typeof WeatherMode];
+
 export const AiDifficulty = {
   Rookie: 'rookie',
   Veteran: 'veteran',

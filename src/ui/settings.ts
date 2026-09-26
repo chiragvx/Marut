@@ -5,7 +5,7 @@
  * `onChange` hands the caller a full new SettingsState to persist however
  * it chooses.
  */
-import type { QualityTier, SpeedUnit } from '../contracts/core';
+import type { QualityTier, SpeedUnit, WeatherMode } from '../contracts/core';
 import type {
   BindableAction,
   CreateSettingsScreen,
@@ -20,6 +20,22 @@ import { el, actionButton } from './domHelpers';
 const QUALITY_OPTIONS: readonly (QualityTier | 'auto')[] = ['auto', 'low', 'medium', 'high', 'ultra'];
 const SPEED_UNIT_OPTIONS: readonly SpeedUnit[] = ['ms', 'kt'];
 const SPEED_UNIT_LABELS: Readonly<Record<SpeedUnit, string>> = { ms: 'm/s', kt: 'knots' };
+
+const WEATHER_OPTIONS: readonly [WeatherMode, string][] = [
+  ['dynamic', 'Dynamic (random, changing)'],
+  ['clear', 'Clear'],
+  ['hazy', 'Hazy'],
+  ['fog', 'Fog'],
+  ['overcast', 'Overcast'],
+  ['rain', 'Rain'],
+  ['off', 'Off (clear sky, calm air)'],
+];
+
+/** "HH:MM" for a time of day in hours. */
+export function formatTimeOfDay(hours: number): string {
+  const m = Math.round((((hours % 24) + 24) % 24) * 60) % 1440;
+  return String(Math.floor(m / 60)).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0');
+}
 
 const REBIND_TIMEOUT_MS = 5000;
 
@@ -42,6 +58,8 @@ export const createSettingsScreen: CreateSettingsScreen = (container, initial, c
     speedUnit: initial.speedUnit,
     alphaLimiterEnabled: initial.alphaLimiterEnabled,
     weatherEnabled: initial.weatherEnabled ?? true,
+    weatherMode: initial.weatherMode ?? (initial.weatherEnabled === false ? 'off' : 'clear'),
+    timeOfDayH: initial.timeOfDayH ?? 10.5,
   };
 
   let capturingAction: BindableAction | null = null;
@@ -98,11 +116,21 @@ export const createSettingsScreen: CreateSettingsScreen = (container, initial, c
 
   // --- Weather ---
   const weatherSection = el('div', { className: 'tj-settings-section' });
-  const weatherLabel = el('label', { text: 'Weather (clouds, wind, turbulence)' });
-  const weatherInput = el('input', { attrs: { 'data-role': 'weather', type: 'checkbox' } }) as HTMLInputElement;
-  weatherInput.checked = current.weatherEnabled ?? true;
-  weatherLabel.appendChild(weatherInput);
+  const weatherLabel = el('label', { text: 'Weather' });
+  const weatherSelect = el('select', { attrs: { 'data-role': 'weather' } });
+  for (const [m, text] of WEATHER_OPTIONS) weatherSelect.appendChild(el('option', { text, attrs: { value: m } }));
+  weatherSelect.value = current.weatherMode ?? 'clear';
+  weatherLabel.appendChild(weatherSelect);
   weatherSection.appendChild(weatherLabel);
+
+  // --- Time of day ---
+  const timeSection = el('div', { className: 'tj-settings-section' });
+  const timeLabel = el('label', { text: 'Time of day' });
+  const timeInput = el('input', { attrs: { 'data-role': 'time-of-day', type: 'range', min: '0', max: '24', step: '0.25' } }) as HTMLInputElement;
+  timeInput.value = String(current.timeOfDayH ?? 10.5);
+  const timeValue = el('span', { className: 'tj-settings-value', attrs: { 'data-role': 'time-of-day-value' }, text: formatTimeOfDay(current.timeOfDayH ?? 10.5) });
+  timeLabel.append(timeInput, timeValue);
+  timeSection.appendChild(timeLabel);
 
   // --- Key bindings ---
   const bindingsSection = el('div', { className: 'tj-settings-bindings' });
@@ -128,7 +156,7 @@ export const createSettingsScreen: CreateSettingsScreen = (container, initial, c
   const backBtn = actionButton('back', 'Back');
   nav.append(resetBtn, backBtn);
 
-  root.append(title, qualitySection, speedUnitSection, sensitivitySection, invertSection, alphaLimiterSection, weatherSection, bindingsSection, nav);
+  root.append(title, qualitySection, speedUnitSection, sensitivitySection, invertSection, alphaLimiterSection, weatherSection, timeSection, bindingsSection, nav);
 
   function fireChange(): void {
     // Hand out a fresh snapshot; keyBindings is always a new array too.
@@ -140,7 +168,9 @@ export const createSettingsScreen: CreateSettingsScreen = (container, initial, c
       invertPitch: current.invertPitch,
       speedUnit: current.speedUnit,
       alphaLimiterEnabled: current.alphaLimiterEnabled,
-      weatherEnabled: current.weatherEnabled ?? true,
+      weatherEnabled: current.weatherMode !== 'off',
+      weatherMode: current.weatherMode ?? 'clear',
+      timeOfDayH: current.timeOfDayH ?? 10.5,
     };
     callbacks.onChange(current);
   }
@@ -198,8 +228,14 @@ export const createSettingsScreen: CreateSettingsScreen = (container, initial, c
     current.alphaLimiterEnabled = alphaLimiterInput.checked;
     fireChange();
   });
-  weatherInput.addEventListener('change', () => {
-    current.weatherEnabled = weatherInput.checked;
+  weatherSelect.addEventListener('change', () => {
+    current.weatherMode = weatherSelect.value as WeatherMode;
+    fireChange();
+  });
+  // Live while dragging, so the sky can be watched changing.
+  timeInput.addEventListener('input', () => {
+    current.timeOfDayH = Number(timeInput.value);
+    timeValue.textContent = formatTimeOfDay(current.timeOfDayH);
     fireChange();
   });
   resetBtn.addEventListener('click', () => callbacks.onResetDefaults());
@@ -223,7 +259,9 @@ export const createSettingsScreen: CreateSettingsScreen = (container, initial, c
         invertPitch: current.invertPitch,
         speedUnit: current.speedUnit,
         alphaLimiterEnabled: current.alphaLimiterEnabled,
-        weatherEnabled: current.weatherEnabled ?? true,
+        weatherEnabled: current.weatherMode !== 'off',
+        weatherMode: current.weatherMode ?? 'clear',
+        timeOfDayH: current.timeOfDayH ?? 10.5,
       };
       const entry = bindingRows.get(action);
       if (entry !== undefined) {

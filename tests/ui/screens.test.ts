@@ -214,14 +214,45 @@ describe('createSettingsScreen weather', () => {
     };
     createSettingsScreen(container, initial, { onChange, onRebindStart: noop, onResetDefaults: noop, onBack: noop });
 
-    const checkbox = container.querySelector('[data-role="weather"]') as HTMLInputElement;
-    expect(checkbox.checked).toBe(true);
+    const select = container.querySelector('[data-role="weather"]') as HTMLSelectElement;
+    expect(select.value).toBe('clear');
 
-    checkbox.checked = false;
-    checkbox.dispatchEvent(new Event('change', { bubbles: true }));
+    select.value = 'off';
+    select.dispatchEvent(new Event('change', { bubbles: true }));
 
     expect(onChange).toHaveBeenCalledTimes(1);
-    expect((onChange.mock.calls[0]![0] as SettingsState).weatherEnabled).toBe(false);
+    const next = onChange.mock.calls[0]![0] as SettingsState;
+    expect(next.weatherEnabled).toBe(false);
+    expect(next.weatherMode).toBe('off');
+
+    select.value = 'rain';
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+    expect((onChange.mock.calls[1]![0] as SettingsState).weatherMode).toBe('rain');
+    expect((onChange.mock.calls[1]![0] as SettingsState).weatherEnabled).toBe(true);
+  });
+
+  it('time of day slider reports hours live and shows HH:MM', () => {
+    const container = makeContainer();
+    const onChange = vi.fn();
+    const initial: SettingsState = {
+      qualityOverride: 'auto',
+      detectedTier: 'medium',
+      keyBindings: [],
+      mouseSensitivityMultiplier: 1,
+      invertPitch: false,
+      speedUnit: 'ms',
+      alphaLimiterEnabled: true,
+      timeOfDayH: 22,
+    };
+    createSettingsScreen(container, initial, { onChange, onRebindStart: noop, onResetDefaults: noop, onBack: noop });
+    const slider = container.querySelector('[data-role="time-of-day"]') as HTMLInputElement;
+    const label = container.querySelector('[data-role="time-of-day-value"]') as HTMLElement;
+    expect(Number(slider.value)).toBe(22);
+    expect(label.textContent).toBe('22:00');
+    slider.value = '6.25';
+    slider.dispatchEvent(new Event('input', { bubbles: true }));
+    expect((onChange.mock.calls[0]![0] as SettingsState).timeOfDayH).toBe(6.25);
+    expect(label.textContent).toBe('06:15');
   });
 });
 

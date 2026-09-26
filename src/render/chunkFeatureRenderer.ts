@@ -55,8 +55,8 @@ const COMMON_GLSL = /* glsl */ `
   vec3 lightGround(vec3 col, vec3 n, vec3 w) {
     float ndl = dot(n, normalize(uSunDir));
     float diff = max(ndl, 0.0) * cloudShadow(w) * sunShadow(w, ndl);
-    vec3 ambient = mix(vec3(0.30, 0.27, 0.22), vec3(0.44, 0.47, 0.52), 0.5 + 0.5 * n.y);
-    return col * (ambient + vec3(1.0, 0.97, 0.9) * 0.62 * diff);
+    vec3 ambient = mix(uAtmAmbGround, uAtmAmbSky, 0.5 + 0.5 * n.y);
+    return col * (ambient + uAtmSunCol * diff);
   }
 `;
 
@@ -209,10 +209,10 @@ function treeFragment(foliage: string, trunk: string): string {
       col *= 0.8 + 0.4 * vnoise(vWorld.xz * 0.9 + vWorld.y * 0.7);
       float wrap = max(dot(n, L) * 0.6 + 0.4, 0.0) * mix(0.45, 1.0, cloudShadow(vWorld));
       float self = mix(0.55, 1.0, clamp(vH * 1.2 - 0.1, 0.0, 1.0));
-      col *= (vec3(0.36, 0.38, 0.40) + vec3(0.95, 0.92, 0.82) * 0.75 * wrap) * self;
+      col *= (uAtmAmbSky * 0.8 + uAtmSunCol * 1.15 * wrap) * self;
     } else {
       col = ${trunk};
-      col *= vec3(0.40) + 0.6 * max(dot(n, L), 0.0) * cloudShadow(vWorld);
+      col *= uAtmAmbSky * 0.88 + uAtmSunCol * 0.97 * max(dot(n, L), 0.0) * cloudShadow(vWorld);
     }
     gl_FragColor = vec4(atmApply(col, vWorld), 1.0);
   }

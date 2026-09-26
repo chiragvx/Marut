@@ -136,6 +136,8 @@ export interface GradeController {
   setSize(widthPx: number, heightPx: number): void;
   /** Per frame: time, and the sun's screen position from the camera. */
   update(nowMs: number, camera: THREE.PerspectiveCamera, sunDirWorld: THREE.Vector3): void;
+  /** Sun glare strength, 0..1 (0 at night and under overcast). */
+  setGlare(amount: number): void;
   setAntialias(on: boolean): void;
   setTier(tier: 'low' | 'medium' | 'high' | 'ultra'): void;
 }
@@ -167,7 +169,10 @@ export function createGrade(): GradeController {
       gradePass.enabled = !on;
     },
     setTier(tier) {
-      setAll('uAmount', (u) => (u.value as THREE.Vector4).set(0, 0, tier === 'low' ? 0.6 : 1, 1));
+      setAll('uAmount', (u) => ((u.value as THREE.Vector4).z = tier === 'low' ? 0.6 : 1));
+    },
+    setGlare(amount) {
+      setAll('uAmount', (u) => ((u.value as THREE.Vector4).w = amount));
     },
   };
 }

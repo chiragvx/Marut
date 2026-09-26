@@ -26,7 +26,7 @@
  * =============================================================================
  */
 
-import type { AirportNavDb, QualityTier, SimEvent, SpeedUnit, TerrainChunkReadyMessage, Vec3Like, WeaponKind } from './core';
+import type { AirportNavDb, QualityTier, SimEvent, SpeedUnit, TerrainChunkReadyMessage, Vec3Like, WeaponKind, WeatherMode } from './core';
 import { WarningBit } from './core';
 
 // -----------------------------------------------------------------------------
@@ -364,6 +364,10 @@ export interface SceneRenderer {
   setEnvironment(env: SceneEnvironment): void;
   /** World-frame unit vector toward the sun, used for sky gradient + directional light + shadows. */
   setSunDirection(dirWorld: Vec3Like): void;
+  /** Local solar time, hours (0-24): sun and moon positions, sky, light, stars, night lights. Overrides setSunDirection. */
+  setTimeOfDay(hours: number): void;
+  /** Visual weather: a preset, or 'dynamic' (random, changing every few minutes; seeded). */
+  setWeather(mode: WeatherMode, seed: number): void;
   /**
    * Copies everything this frame's render needs out of `view` synchronously
    * before returning (per-entity pos/rot/kind/team/alive/elevonL/elevonR/
