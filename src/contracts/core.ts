@@ -309,6 +309,8 @@ export interface PilotInputs {
   requestService?: boolean;
   /** Radar mode key held (edge-detected: cycles RWS <-> ACM). Optional: absent = not held. */
   radarModeCycle?: boolean;
+  /** The pilot is moving the throttle this frame (keys/buttons held, slider dragged): disconnects the autothrottle. Optional: absent = no. */
+  throttleActive?: boolean;
   /** Gun trigger held. */
   trigger: boolean;
   /** Missile launch commanded. Edge-triggered by the consumer (src/combat fires once per false→true transition, not once per tick held). */
@@ -854,9 +856,40 @@ export const SnapshotHud = {
   RADAR_SCAN_AZ_RAD: 33,
   /** Number of valid entries in the track list at TRACKS_BASE. */
   TRACK_COUNT: 34,
+  /** Autopilot: AutopilotFlag bits, then the heading/altitude/vertical-speed/speed bugs and the
+   *  autothrottle's lever position (the HUD's throttle follows it while the A/T is engaged). */
+  AP_FLAGS: 35,
+  AP_HDG_RAD: 36,
+  AP_ALT_M: 37,
+  AP_VS_MPS: 38,
+  AP_SPD_MPS: 39,
+  AP_THROTTLE: 40,
   /** Start of the player's track list: MAX_SNAPSHOT_TRACKS entries of SNAPSHOT_TRACK_STRIDE floats (SnapshotTrack). */
-  TRACKS_BASE: 40,
+  TRACKS_BASE: 48,
 } as const;
+
+/** SnapshotHud.AP_FLAGS bits. */
+export const AutopilotFlag = {
+  Engaged: 1,
+  Autothrottle: 2,
+  /** Vertical mode is VS (else ALT). */
+  VsMode: 4,
+  /** In VS mode, heading towards the altitude bug (it will be captured). */
+  AltArmed: 8,
+  /** Recently disconnected (the HUD flashes AP OFF / A/T OFF). */
+  ApOffFlash: 16,
+  AtOffFlash: 32,
+  /** Bugs worth showing (engaged, or preset by the pilot). */
+  HdgBug: 64,
+  AltBug: 128,
+  SpdBug: 256,
+} as const;
+
+/** A pilot command to the autopilot (SimCommand 'autopilot'). Deltas are SI: rad, m, m/s. */
+export type AutopilotAction =
+  | { type: 'toggleAp' }
+  | { type: 'toggleAt' }
+  | { type: 'adjust'; target: 'hdg' | 'alt' | 'vs' | 'spd'; delta: number };
 
 /** The player's radar/visual tracks carried in the snapshot HUD block (nearest first). */
 export const MAX_SNAPSHOT_TRACKS = 32;
@@ -883,7 +916,7 @@ export const SnapshotTrackFlag = {
 export const RadarModeCode: Readonly<Record<RadarMode, number>> = { rws: 0, acm: 1 };
 
 /** Floats in the HUD block (fields above plus the track list). */
-export const HUD_BLOCK_FLOATS = 40 + MAX_SNAPSHOT_TRACKS * SNAPSHOT_TRACK_STRIDE;
+export const HUD_BLOCK_FLOATS = 48 + MAX_SNAPSHOT_TRACKS * SNAPSHOT_TRACK_STRIDE;
 
 /**
  * Ground service state (SnapshotHud.SERVICE_STATE): None = not on a friendly stand/apron or not
@@ -1044,7 +1077,8 @@ export type SimCommand =
   | { kind: 'reset' }
   | { kind: 'loadMission'; mission: Mission }
   | { kind: 'setDifficulty'; entityId: EntityId; difficulty: AiDifficulty }
-  | { kind: 'pause'; paused: boolean };
+  | { kind: 'pause'; paused: boolean }
+  | { kind: 'autopilot'; action: AutopilotAction };
 export interface SimCommandMessage {
   type: 'command';
   command: SimCommand;

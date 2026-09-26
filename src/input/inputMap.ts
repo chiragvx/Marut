@@ -25,8 +25,8 @@ export const INPUT_MAP_STORAGE_KEY = 'tejas.inputMap.v1';
 // to manually hit "Reset Defaults".
 // Bumped 2 -> 3 when the jettisonTanks button (J) was added, for the same reason.
 // Bumped 4 -> 5 when the service button (R: refuel + re-arm) was added; 5 -> 6 for taxi guidance (H);
-// 6 -> 7 for the radar mode (M) and radar range ([ / ]) keys.
-export const INPUT_MAP_VERSION = 7;
+// 6 -> 7 for the radar mode (M) and radar range ([ / ]) keys; 7 -> 8 for the autopilot keys.
+export const INPUT_MAP_VERSION = 8;
 
 /**
  * The literal default binding/tuning data, matching 09-input.md section 5.1 (throttle keys
@@ -62,7 +62,24 @@ export const DEFAULT_INPUT_MAP_DATA: InputMapData = {
       service: 'KeyR',
       radarMode: 'KeyM',
     },
-    meta: { cameraCycle: 'KeyV', menuToggle: 'Escape', taxiGuide: 'KeyH', radarRangeUp: 'BracketRight', radarRangeDown: 'BracketLeft' },
+    meta: {
+      cameraCycle: 'KeyV',
+      menuToggle: 'Escape',
+      taxiGuide: 'KeyH',
+      radarRangeUp: 'BracketRight',
+      radarRangeDown: 'BracketLeft',
+      // Autopilot: P master, O autothrottle, 1/2 heading, 3/4 altitude, 5/6 vertical speed, 7/8 speed.
+      apToggle: 'KeyP',
+      atToggle: 'KeyO',
+      apHdgDown: 'Digit1',
+      apHdgUp: 'Digit2',
+      apAltDown: 'Digit3',
+      apAltUp: 'Digit4',
+      apVsDown: 'Digit5',
+      apVsUp: 'Digit6',
+      apSpdDown: 'Digit7',
+      apSpdUp: 'Digit8',
+    },
   },
   gamepad: {
     axes: {
@@ -92,6 +109,16 @@ export const DEFAULT_INPUT_MAP_DATA: InputMapData = {
       taxiGuide: { buttonIndex: 15 },
       radarRangeUp: null,
       radarRangeDown: null,
+      apToggle: null,
+      atToggle: null,
+      apHdgDown: null,
+      apHdgUp: null,
+      apAltDown: null,
+      apAltUp: null,
+      apVsDown: null,
+      apVsUp: null,
+      apSpdDown: null,
+      apSpdUp: null,
     },
     deadzone: 0.12,
     stickCurveExponent: 1.6,

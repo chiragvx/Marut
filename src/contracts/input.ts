@@ -176,6 +176,18 @@ export const MetaAction = {
   /** Radar display range scale up / down. */
   RadarRangeUp: 'radarRangeUp',
   RadarRangeDown: 'radarRangeDown',
+  /** Autopilot master and autothrottle on/off. */
+  ApToggle: 'apToggle',
+  AtToggle: 'atToggle',
+  /** Autopilot bugs down/up: heading, altitude, vertical speed, speed (held = repeat). */
+  ApHdgDown: 'apHdgDown',
+  ApHdgUp: 'apHdgUp',
+  ApAltDown: 'apAltDown',
+  ApAltUp: 'apAltUp',
+  ApVsDown: 'apVsDown',
+  ApVsUp: 'apVsUp',
+  ApSpdDown: 'apSpdDown',
+  ApSpdUp: 'apSpdUp',
 } as const;
 export type MetaAction = (typeof MetaAction)[keyof typeof MetaAction];
 
@@ -462,10 +474,13 @@ export interface PlayerInputSystem extends Pilot {
 
   /** Whether update() writes PilotInputs.alphaLimiterDisabled=true (a player-facing Settings option; see that field's own doc comment). Defaults to false (limiter active). */
   isAlphaLimiterDisabled(): boolean;
+  /** Moves the throttle lever (keyboard/gamepad schemes): the autothrottle drives it while engaged. */
+  setThrottle(frac: number): void;
   setAlphaLimiterDisabled(disabled: boolean): void;
 
   /** Subscribes to meta actions (camera cycle, menu toggle). Returns an unsubscribe function. Fires at most once per rising edge, regardless of source device. */
-  onMetaAction(handler: (action: MetaAction) => void): () => void;
+  /** `repeat` is true for the auto-repeat of a held autopilot adjust key (not the first press). */
+  onMetaAction(handler: (action: MetaAction, repeat?: boolean) => void): () => void;
 
   /** Enters rebind-listening mode for one action on one device kind. The next matching input event is captured as of the next update() call; see 09-input.md section 4.6 for capture thresholds. */
   startRebind(action: RebindableAction, deviceKind: RebindDeviceKind): void;

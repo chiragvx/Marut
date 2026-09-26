@@ -168,6 +168,16 @@ export const BindableAction = {
   RadarMode: 'radarMode',
   RadarRangeUp: 'radarRangeUp',
   RadarRangeDown: 'radarRangeDown',
+  ApToggle: 'apToggle',
+  AtToggle: 'atToggle',
+  ApHdgDown: 'apHdgDown',
+  ApHdgUp: 'apHdgUp',
+  ApAltDown: 'apAltDown',
+  ApAltUp: 'apAltUp',
+  ApVsDown: 'apVsDown',
+  ApVsUp: 'apVsUp',
+  ApSpdDown: 'apSpdDown',
+  ApSpdUp: 'apSpdUp',
 } as const;
 export type BindableAction = (typeof BindableAction)[keyof typeof BindableAction];
 

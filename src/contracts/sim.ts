@@ -28,6 +28,7 @@ import type {
   AiDifficulty,
   AircraftTelemetry,
   AirportNavDb,
+  AutopilotAction,
   CombatStatus,
   DamageState,
   EntityFlags,
@@ -373,6 +374,13 @@ export interface SnapshotHudView {
   trackCount: number;
   /** MAX_SNAPSHOT_TRACKS x SNAPSHOT_TRACK_STRIDE floats (SnapshotTrack layout), trackCount valid. */
   tracks: Float64Array;
+  /** SnapshotHud.AP_* (autopilot). Optional so older callers still type-check; missing = 0. */
+  apFlags?: number;
+  apHdgRad?: number;
+  apAltM?: number;
+  apVsMps?: number;
+  apSpdMps?: number;
+  apThrottle?: number;
 }
 
 export interface SnapshotHeaderView {
@@ -465,6 +473,8 @@ export interface World {
   /** Replaces the `Pilot` driving `entityId` (via `createAiPilot`) with one built for `difficulty`, keeping the same seed. No-op if `entityId` is not a live, AI-controlled aircraft. */
   setDifficulty(entityId: EntityId, difficulty: AiDifficulty): void;
   setPaused(paused: boolean): void;
+  /** A pilot command to the player's autopilot (see src/core/autopilot.ts). */
+  commandAutopilot(action: AutopilotAction): void;
 
   /** Advances the simulation by exactly one fixed tick. No-op (does not advance `tick`/`simTimeSec`) while `paused`. See 10-core-worker.md section 4.1 for the exact per-tick order. */
   stepOnce(): void;

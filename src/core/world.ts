@@ -78,6 +78,9 @@ import { subSeed } from './seed';
 import { writeSnapshot as writeSnapshotBuffer } from './snapshotWriter';
 import { computeIlsDeviation, forwardWorldInto, rightWorldInto } from './hudTelemetry';
 import type { CombatPortWithContacts, CombatPortWithRearm } from './combatContext';
+import { applyAutopilotAction, autopilotFlags, createAutopilotState, stepAutopilot, type AutopilotState } from './autopilot';
+import { getAircraftDefinition } from '../aircraft';
+import type { AutopilotAction } from '../contracts/core';
 
 const SIM_DT_SEC_LOCAL = 1 / 120; // avoid importing SIM_DT_SEC just to re-derive it; core.ts already fixes this at 1/120 (SIM_HZ)
 
@@ -254,6 +257,9 @@ class WorldImpl implements World {
     radarMode: 0, radarMaxRangeM: 0, radarScanAzRad: 0, trackCount: 0, tracks: new Float64Array(MAX_SNAPSHOT_TRACKS * SNAPSHOT_TRACK_STRIDE),
   };
   private readonly ilsScratch = { loc: 0, gs: 0 };
+  /** The player's autopilot, and the inputs it hands the flight model (the pilot's, with its overrides). */
+  private ap: AutopilotState = createAutopilotState();
+  private readonly apInputs: PilotInputs = defaultPilotInputs();
   private readonly trackOrderScratch: number[] = [];
   private readonly fwdScratch: Vec3Like = { x: 0, y: 0, z: 0 };
   private readonly rightScratch: Vec3Like = { x: 0, y: 0, z: 0 };
@@ -333,6 +339,7 @@ class WorldImpl implements World {
   loadMission(mission: Mission): void {
     this.internalReset();
     this.mission = mission;
+    this.ap = createAutopilotState();
     this.missionSeedInternal = mission.world.seed;
     this.windState = createWindState(subSeed(this.missionSeedInternal, 'wind'));
     this.serviceZones = buildServiceZones(mission);
@@ -640,6 +647,13 @@ class WorldImpl implements World {
     target.jettisonTanks = inputs.jettisonTanks ?? false;
     target.requestService = inputs.requestService ?? false;
     target.radarModeCycle = inputs.radarModeCycle ?? false;
+    target.throttleActive = inputs.throttleActive ?? false;
+  }
+
+  commandAutopilot(action: AutopilotAction): void {
+    const rec = this.aircraft.get(this.playerEntityIdInternal);
+    if (!rec) return;
+    applyAutopilotAction(this.ap, action, rec.telemetry, rec.inputs.throttle);
   }
 
   setDifficulty(entityId: EntityId, difficulty: AiDifficulty): void {
@@ -712,7 +726,17 @@ class WorldImpl implements World {
       rec.env.groundElevationM = this.deps.sampler.heightAt(state.pos.x, state.pos.z);
       this.deps.sampler.normalAt(state.pos.x, state.pos.z, rec.env.groundNormalWorld);
 
-      this.deps.flightModel.step(rec.aircraftDefId, state, damage, rec.inputs, rec.env, SIM_DT_SEC_LOCAL, state);
+      // The player's autopilot flies with a copy of the pilot's inputs (theirs stay untouched, so a
+      // stick input can be seen and disconnect it).
+      let inputs = rec.inputs;
+      if (state.id === this.playerEntityIdInternal && !pilot) {
+        Object.assign(this.apInputs, rec.inputs);
+        const lim = getAircraftDefinition(rec.aircraftDefId)?.fcsLimits;
+        if (stepAutopilot(this.ap, rec.telemetry, rec.inputs, lim?.maxRollRateRadS ?? 5.236, lim?.maxGLoadPos ?? 8, lim?.maxGLoadNeg ?? -3, SIM_DT_SEC_LOCAL, this.apInputs)) {
+          inputs = this.apInputs;
+        }
+      }
+      this.deps.flightModel.step(rec.aircraftDefId, state, damage, inputs, rec.env, SIM_DT_SEC_LOCAL, state);
       this.deps.flightModel.computeTelemetry(rec.aircraftDefId, state, damage, rec.env, rec.telemetry);
     }
 
@@ -1062,6 +1086,12 @@ class WorldImpl implements World {
       hud.radarMode = RadarModeCode[rec.combat.radarMode ?? 'rws'];
       hud.radarMaxRangeM = rec.combat.radarMaxRangeM ?? 0;
       hud.radarScanAzRad = rec.combat.radarScanAzRad ?? 0;
+      hud.apFlags = autopilotFlags(this.ap, t);
+      hud.apHdgRad = this.ap.hdgRad;
+      hud.apAltM = this.ap.altM;
+      hud.apVsMps = this.ap.vsMps;
+      hud.apSpdMps = this.ap.spdMps;
+      hud.apThrottle = this.ap.throttle;
       const contacts = (this.deps.combat as Partial<CombatPortWithContacts>).getContacts?.(playerId) ?? [];
       const order = this.trackOrderScratch;
       order.length = 0;

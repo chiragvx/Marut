@@ -66,6 +66,16 @@ const BINDABLE_ACTION_TARGETS: Readonly<Record<BindableAction, BindableActionTar
   [BA.RadarMode]: { rebindAction: LogicalButton.RadarMode },
   [BA.RadarRangeUp]: { rebindAction: MetaAction.RadarRangeUp },
   [BA.RadarRangeDown]: { rebindAction: MetaAction.RadarRangeDown },
+  [BA.ApToggle]: { rebindAction: MetaAction.ApToggle },
+  [BA.AtToggle]: { rebindAction: MetaAction.AtToggle },
+  [BA.ApHdgDown]: { rebindAction: MetaAction.ApHdgDown },
+  [BA.ApHdgUp]: { rebindAction: MetaAction.ApHdgUp },
+  [BA.ApAltDown]: { rebindAction: MetaAction.ApAltDown },
+  [BA.ApAltUp]: { rebindAction: MetaAction.ApAltUp },
+  [BA.ApVsDown]: { rebindAction: MetaAction.ApVsDown },
+  [BA.ApVsUp]: { rebindAction: MetaAction.ApVsUp },
+  [BA.ApSpdDown]: { rebindAction: MetaAction.ApSpdDown },
+  [BA.ApSpdUp]: { rebindAction: MetaAction.ApSpdUp },
 };
 
 /** The `RebindableAction` + axis direction (if any) a given settings-screen row corresponds to. */

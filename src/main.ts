@@ -7,7 +7,7 @@
  * exports of modules 04/08/09/11 rather than a contracts/*.ts file).
  */
 
-import { EntityFlag, HUD_BLOCK_START, NO_ENTITY_ID, ServiceStateCode, SnapshotHud, SpeedUnit, WeatherMode } from './contracts/core';
+import { AutopilotFlag, EntityFlag, HUD_BLOCK_START, NO_ENTITY_ID, ServiceStateCode, SnapshotHud, SpeedUnit, WeatherMode, type AutopilotAction } from './contracts/core';
 import type {
   AiDifficulty,
   EntityId,
@@ -471,6 +471,8 @@ async function initWorkersAndRenderer(qualityTier: QualityTier): Promise<void> {
       const service = view[HUD_BLOCK_START + SnapshotHud.SERVICE_STATE] ?? 0;
       if (service === ServiceStateCode.Complete && lastServiceState !== ServiceStateCode.Complete) setPlayerFullLoad();
       lastServiceState = service;
+      // The autothrottle drives the throttle lever (so taking over, or disengaging, never jumps).
+      if (((view[HUD_BLOCK_START + SnapshotHud.AP_FLAGS] ?? 0) & AutopilotFlag.Autothrottle) !== 0) inputSystem?.setThrottle(view[HUD_BLOCK_START + SnapshotHud.AP_THROTTLE] ?? 0);
       renderer.ingestSnapshot(view);
       hud.ingestSnapshot(view);
       simWorker.postMessage({ type: 'releaseBuffer', buffer: (msg as SimSnapshotMessage).buffer } satisfies SimReleaseBufferMessage, [(msg as SimSnapshotMessage).buffer]);
@@ -815,7 +817,7 @@ function wireMetaActionsOnce(): void {
     setTimeout(wireMetaActionsOnce, 50);
     return;
   }
-  inputSystem.onMetaAction((action) => {
+  inputSystem.onMetaAction((action, repeat) => {
     if (action === 'menuToggle') {
       if (appState === 'gameplay') showPauseMenu();
       else if (appState === 'paused') {
@@ -827,6 +829,8 @@ function wireMetaActionsOnce(): void {
       toggleTaxiGuide();
     } else if ((action === 'radarRangeUp' || action === 'radarRangeDown') && appState === 'gameplay') {
       hud.cycleRadarRange(action === 'radarRangeUp' ? 1 : -1);
+    } else if (AUTOPILOT_KEYS.has(action) && appState === 'gameplay') {
+      autopilotKey(action, repeat === true);
     } else if (action === 'cameraCycle' && appState === 'gameplay') {
       // SceneRenderer.setCameraMode cycling is a small local rotation this
       // shell owns directly (module 08 exposes the setter, not a cycle
@@ -859,6 +863,27 @@ function setPlayerFullLoad(): void {
   hud.setWeaponLoadout(f.gun, f.ir, f.radar, { ...(f.irName ? { ir: f.irName } : {}), ...(f.radarName ? { radar: f.radarName } : {}) });
 }
 let lastServiceState = 0;
+
+/**
+ * Autopilot keys -> sim commands. A tap steps a bug by the small amount; holding the key repeats
+ * it (every AP_REPEAT_INTERVAL_SEC) by the larger one: heading 1 / 5 deg, altitude 100 / 500 m,
+ * vertical speed 1 / 2.5 m/s, speed 5 / 10 kt (or 2 / 5 m/s).
+ */
+const AUTOPILOT_KEYS = new Set<string>(['apToggle', 'atToggle', 'apHdgDown', 'apHdgUp', 'apAltDown', 'apAltUp', 'apVsDown', 'apVsUp', 'apSpdDown', 'apSpdUp']);
+function autopilotKey(action: string, held: boolean): void {
+  const post = (a: AutopilotAction): void => {
+    simWorker.postMessage({ type: 'command', command: { kind: 'autopilot', action: a } } satisfies SimCommandMessage);
+  };
+  if (action === 'apToggle') return post({ type: 'toggleAp' });
+  if (action === 'atToggle') return post({ type: 'toggleAt' });
+  const sign = action.endsWith('Up') ? 1 : -1;
+  const kt = currentSpeedUnit === SpeedUnit.Knots;
+  if (action.startsWith('apHdg')) post({ type: 'adjust', target: 'hdg', delta: (sign * (held ? 5 : 1) * Math.PI) / 180 });
+  else if (action.startsWith('apAlt')) post({ type: 'adjust', target: 'alt', delta: sign * (held ? 500 : 100) });
+  else if (action.startsWith('apVs')) post({ type: 'adjust', target: 'vs', delta: sign * (held ? 2.5 : 1) });
+  else if (action.startsWith('apSpd')) post({ type: 'adjust', target: 'spd', delta: sign * (kt ? (held ? 10 : 5) * 0.514444 : held ? 5 : 2) });
+}
+
 /** The player as of the latest snapshot (for taxi guidance). */
 const lastPlayer = { x: 0, z: 0, speedMps: 0, onGround: false, valid: false };
 const taxiGraphs = new Map<string, TaxiGraph>();

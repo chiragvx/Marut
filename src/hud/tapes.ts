@@ -124,7 +124,8 @@ export function drawHeadingTape(ctx: CanvasRenderingContext2D, hud: Float64Array
   const lastTick = headingDeg + halfWidthPx / HEADING_TAPE_PX_PER_DEG;
   for (let h = firstTick; h <= lastTick; h += 10) {
     const wrapped = wrapHeadingDeg(h);
-    const x = centerX - (h - headingDeg) * HEADING_TAPE_PX_PER_DEG;
+    // Higher headings to the right, as on a real HUD (this was mirrored: 010 drew left of 360).
+    const x = centerX + (h - headingDeg) * HEADING_TAPE_PX_PER_DEG;
     if (x < centerX - halfWidthPx || x > centerX + halfWidthPx) continue;
     ctx.beginPath();
     ctx.moveTo(x, topY);

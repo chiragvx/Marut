@@ -123,6 +123,9 @@ self.onmessage = (e: MessageEvent<MainToSimMessage>): void => {
         case 'pause':
           world.setPaused(cmd.paused);
           break;
+        case 'autopilot':
+          world.commandAutopilot(cmd.action);
+          break;
       }
       break;
     }

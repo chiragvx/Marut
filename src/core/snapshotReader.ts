@@ -97,6 +97,12 @@ export const readSnapshotHud: ReadSnapshotHud = (buf: Float64Array, out: Snapsho
   out.radarMaxRangeM = buf[base + SnapshotHud.RADAR_MAX_RANGE_M] as number;
   out.radarScanAzRad = buf[base + SnapshotHud.RADAR_SCAN_AZ_RAD] as number;
   out.trackCount = buf[base + SnapshotHud.TRACK_COUNT] as number;
+  out.apFlags = buf[base + SnapshotHud.AP_FLAGS] as number;
+  out.apHdgRad = buf[base + SnapshotHud.AP_HDG_RAD] as number;
+  out.apAltM = buf[base + SnapshotHud.AP_ALT_M] as number;
+  out.apVsMps = buf[base + SnapshotHud.AP_VS_MPS] as number;
+  out.apSpdMps = buf[base + SnapshotHud.AP_SPD_MPS] as number;
+  out.apThrottle = buf[base + SnapshotHud.AP_THROTTLE] as number;
   if (out.tracks) for (let k = 0; k < out.tracks.length; k++) out.tracks[k] = buf[base + SnapshotHud.TRACKS_BASE + k] as number;
   return out;
 };

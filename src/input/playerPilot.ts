@@ -44,7 +44,18 @@ const KEYBOARD_REBIND_CANDIDATES: readonly KeyboardCode[] = [
   'KeyU', 'KeyV', 'KeyW', 'KeyX', 'KeyY', 'KeyZ',
   'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight',
   'Space', 'Enter', 'Escape', 'Tab', 'ShiftLeft', 'ShiftRight', 'PageUp', 'PageDown',
+  'Digit0', 'Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5', 'Digit6', 'Digit7', 'Digit8', 'Digit9',
+  'Minus', 'Equal', 'Comma', 'Period', 'BracketLeft', 'BracketRight',
 ];
+
+/** Autopilot meta actions; the bug adjusters repeat while held (after AP_REPEAT_DELAY_SEC, every AP_REPEAT_INTERVAL_SEC). */
+const AP_META_ACTIONS: readonly MetaActionType[] = [
+  MetaAction.ApToggle, MetaAction.AtToggle,
+  MetaAction.ApHdgDown, MetaAction.ApHdgUp, MetaAction.ApAltDown, MetaAction.ApAltUp,
+  MetaAction.ApVsDown, MetaAction.ApVsUp, MetaAction.ApSpdDown, MetaAction.ApSpdUp,
+];
+const AP_REPEAT_DELAY_SEC = 0.4;
+const AP_REPEAT_INTERVAL_SEC = 0.1;
 
 function cloneJson<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
@@ -122,11 +133,15 @@ export function createPlayerInputSystem(config: PlayerInputConfig): PlayerInputS
   const taxiGuideEdge = createEdgeDetector();
   const radarRangeUpEdge = createEdgeDetector();
   const radarRangeDownEdge = createEdgeDetector();
+  const apKeys = new Map<MetaActionType, { held: boolean; heldSec: number; acc: number }>();
+  for (const a of AP_META_ACTIONS) apKeys.set(a, { held: false, heldSec: 0, acc: 0 });
+  let prevTouchThrottle = -1;
+  let throttleActive = false;
 
   const rebindEdgeDetectors = new Map<KeyboardCode, ReturnType<typeof createEdgeDetector>>();
   for (const code of KEYBOARD_REBIND_CANDIDATES) rebindEdgeDetectors.set(code, createEdgeDetector());
 
-  const metaHandlers = new Set<(action: MetaActionType) => void>();
+  const metaHandlers = new Set<(action: MetaActionType, repeat?: boolean) => void>();
   const rebindCompleteHandlers = new Set<(result: RebindResult) => void>();
   let pendingRebind: PendingRebind | null = null;
 
@@ -345,6 +360,7 @@ export function createPlayerInputSystem(config: PlayerInputConfig): PlayerInputS
           0,
           dtSec
         );
+        throttleActive = rawKeyboardHeldFor(axes.throttle.negative) || rawKeyboardHeldFor(axes.throttle.positive);
         throttleAxis = updateKeyAxis(
           throttleAxis,
           rawKeyboardHeldFor(axes.throttle.negative),
@@ -382,12 +398,15 @@ export function createPlayerInputSystem(config: PlayerInputConfig): PlayerInputS
 
         const throttleUp = gamepadReader.buttonValue(g.throttleUpButtonIndex);
         const throttleDown = gamepadReader.buttonValue(g.throttleDownButtonIndex);
+        throttleActive = throttleUp > 0.5 || throttleDown > 0.5;
         throttleAxis = clamp(throttleAxis + (throttleUp - throttleDown) * KEYBOARD_THROTTLE_RAMP_RATE_PER_SEC * dtSec, 0, 1);
       } else if (scheme === InputControlScheme.Touch) {
         roll = touchReader.state.stickX;
         pitch = touchReader.state.stickY;
         yaw = touchReader.state.yawBar;
         throttleAxis = touchReader.state.throttle;
+        throttleActive = prevTouchThrottle >= 0 && Math.abs(throttleAxis - prevTouchThrottle) > 0.002;
+        prevTouchThrottle = throttleAxis;
       } else {
         // touchGyro
         deviceOrientationReader.sample(orientationScratch);
@@ -395,6 +414,8 @@ export function createPlayerInputSystem(config: PlayerInputConfig): PlayerInputS
         roll = orientationScratch.rollRad;
         yaw = touchReader.state.yawBar;
         throttleAxis = touchReader.state.throttle;
+        throttleActive = prevTouchThrottle >= 0 && Math.abs(throttleAxis - prevTouchThrottle) > 0.002;
+        prevTouchThrottle = throttleAxis;
       }
 
       // Passthrough booleans (raw held, unfiltered every update).
@@ -435,6 +456,28 @@ export function createPlayerInputSystem(config: PlayerInputConfig): PlayerInputS
       if (radarRangeDownEdge.risingEdge(rawButtonHeld(MetaAction.RadarRangeDown, scheme))) {
         for (const handler of metaHandlers) handler(MetaAction.RadarRangeDown);
       }
+      // Autopilot keys: once per press; the bug adjusters also repeat while held.
+      for (const a of AP_META_ACTIONS) {
+        const st = apKeys.get(a)!;
+        if (!rawButtonHeld(a, scheme)) {
+          st.held = false;
+          continue;
+        }
+        if (!st.held) {
+          st.held = true;
+          st.heldSec = 0;
+          st.acc = 0;
+          for (const handler of metaHandlers) handler(a);
+          continue;
+        }
+        st.heldSec += dtSec;
+        if (a === MetaAction.ApToggle || a === MetaAction.AtToggle || st.heldSec < AP_REPEAT_DELAY_SEC) continue;
+        st.acc += dtSec;
+        while (st.acc >= AP_REPEAT_INTERVAL_SEC) {
+          st.acc -= AP_REPEAT_INTERVAL_SEC;
+          for (const handler of metaHandlers) handler(a, true);
+        }
+      }
 
       out.pitch = pitch;
       out.roll = roll;
@@ -448,6 +491,7 @@ export function createPlayerInputSystem(config: PlayerInputConfig): PlayerInputS
       out.jettisonTanks = rawJettison;
       out.requestService = rawService;
       out.radarModeCycle = rawRadarMode;
+      out.throttleActive = throttleActive;
       out.trigger = rawTrigger;
       out.launch = rawLaunch;
       out.cycleWeapon = rawCycleWeapon;
@@ -473,7 +517,11 @@ export function createPlayerInputSystem(config: PlayerInputConfig): PlayerInputS
       alphaLimiterDisabledState = disabled;
     },
 
-    onMetaAction(handler: (action: MetaActionType) => void): () => void {
+    setThrottle(frac: number): void {
+      throttleAxis = clamp(frac, 0, 1);
+    },
+
+    onMetaAction(handler: (action: MetaActionType, repeat?: boolean) => void): () => void {
       metaHandlers.add(handler);
       return () => {
         metaHandlers.delete(handler);

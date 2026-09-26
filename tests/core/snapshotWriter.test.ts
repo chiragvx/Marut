@@ -93,6 +93,6 @@ describe('writeSnapshot', () => {
   });
 
   test('SNAPSHOT_FLOATS matches HEADER_FLOATS + MAX_ENTITIES*ENTITY_STRIDE + HUD_BLOCK_FLOATS', () => {
-    expect(SNAPSHOT_FLOATS).toBe(HEADER_FLOATS + 400 * ENTITY_STRIDE + 40 + 32 * 8); // HUD fields (to 40) + the player track list (32 x 8)
+    expect(SNAPSHOT_FLOATS).toBe(HEADER_FLOATS + 400 * ENTITY_STRIDE + 48 + 32 * 8); // HUD fields (to 48) + the player track list (32 x 8)
   });
 });

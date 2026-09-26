@@ -16,6 +16,7 @@
  * unaffected (none of them depended on camera mode per that same section).
  */
 
+import { drawAutopilotBugs, drawAutopilotStatus } from './autopilotHud';
 import { EntityFlag, NO_ENTITY_ID, SnapshotEntity, SnapshotHud, SpeedUnit, WarningBit, entityFieldOffset, type QualityTier } from '../contracts/core';
 import { RENDER_QUALITY_TABLE, type CameraState, type CreateHudRenderer, type HudRenderer } from '../contracts/render';
 
@@ -147,6 +148,8 @@ export const createHudRenderer: CreateHudRenderer = (canvas, initialTier) => {
       drawSpeedTape(ctx, hud, 50, heightPx * 0.5, heightPx * 0.32, speedUnit);
       drawAltitudeTape(ctx, hud, widthPx - 50, heightPx * 0.5, heightPx * 0.32);
       drawHeadingTape(ctx, hud, widthPx * 0.5, 16, widthPx * 0.28);
+      drawAutopilotBugs(ctx, hud, widthPx * 0.5, 16, widthPx * 0.28, 50, widthPx - 50, heightPx * 0.5, heightPx * 0.32);
+      drawAutopilotStatus(ctx, hud, widthPx * 0.5, 62, speedUnit, nowMs);
       drawAoaGReadout(ctx, hud, 16, heightPx - 44);
       drawPowerIndicator(ctx, playerThrottleFrac, playerAfterburnerOn, 100, heightPx - 44);
       drawGearIndicator(ctx, hud[SnapshotHud.GEAR_POS]!, 184, heightPx - 44);
