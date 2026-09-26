@@ -14,7 +14,7 @@
  * Everything is a pure function of (params, sampler): the same network in every thread.
  */
 import type { HeightSampler } from '../contracts/core';
-import { DecalClass, TreeKind, type CoastProfile, type NetworkSpec, type TerrainParams } from '../contracts/terrain';
+import { DecalClass, SETTLEMENT_SLOTS, TreeKind, type CoastProfile, type NetworkSpec, type SettlementLayer, type TerrainParams } from '../contracts/terrain';
 import { buildCoastProfile } from './terrainHeight';
 import { ESTUARY_FLOATS, packEstuary } from './coastMath';
 
@@ -123,6 +123,41 @@ function bentPath(ax: number, az: number, bx: number, bz: number, pieceM: number
   for (let i = includeStart ? 0 : 2; i < pts.length; i++) out.push(pts[i]!);
 }
 
+/** Villages are placed on a grid over +-this many metres in x and z. */
+export const VILLAGE_HALF_EXTENT_M = 98000;
+
+/** How far past its radius a settlement's ragged edge can reach, as a multiple of the radius (render/townLayer.ts). */
+export const SETTLEMENT_EDGE_REACH = 1.2;
+
+/**
+ * The network's settlements packed for the terrain shader (contracts SettlementLayer): each one in
+ * a slot of every grid cell its disc reaches, so a pixel reads only its own cell's few texels and
+ * never loops over the settlements. Towns go first (a cell short of slots drops a village edge).
+ */
+export function packSettlementLayer(net: RoadNetwork, spec: NetworkSpec): SettlementLayer {
+  const S = spec.villageSpacingM;
+  const n = Math.floor((2 * VILLAGE_HALF_EXTENT_M) / S);
+  const W = SETTLEMENT_SLOTS * n;
+  const grid = new Float32Array(W * n * 4);
+  const cellOf = (v: number): number => Math.floor((v + VILLAGE_HALF_EXTENT_M) / S);
+  const ordered = [...net.settlements.filter((s) => s.kind !== 'village'), ...net.settlements.filter((s) => s.kind === 'village')];
+  for (const s of ordered) {
+    const texel = [s.x, s.z, s.radiusM, s.rotRad];
+    const reach = s.radiusM * SETTLEMENT_EDGE_REACH;
+    for (let j = Math.max(0, cellOf(s.z - reach)); j <= Math.min(n - 1, cellOf(s.z + reach)); j++) {
+      for (let i = Math.max(0, cellOf(s.x - reach)); i <= Math.min(n - 1, cellOf(s.x + reach)); i++) {
+        for (let slot = 0; slot < SETTLEMENT_SLOTS; slot++) {
+          const o = (j * W + slot * n + i) * 4;
+          if (grid[o + 2]! > 0) continue;
+          grid.set(texel, o);
+          break;
+        }
+      }
+    }
+  }
+  return { originM: -VILLAGE_HALF_EXTENT_M, spacingM: S, nCells: n, grid };
+}
+
 export function buildRoadNetwork(params: TerrainParams, sampler: HeightSampler): RoadNetwork | undefined {
   const spec = params.network;
   if (!spec) return undefined;
@@ -179,7 +214,7 @@ export function buildRoadNetwork(params: TerrainParams, sampler: HeightSampler):
 
   // --- villages ---------------------------------------------------------------------------------
   const S = spec.villageSpacingM;
-  const half = 98000;
+  const half = VILLAGE_HALF_EXTENT_M;
   const nCells = Math.floor((2 * half) / S);
   const villageAt = new Map<number, number>();
   for (let j = 0; j < nCells; j++) {

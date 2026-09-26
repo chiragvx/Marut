@@ -5,7 +5,8 @@
 import { describe, expect, test } from 'vitest';
 import { DecalClass, THEATRE_TERRAIN_PARAMS } from '../../src/contracts/terrain';
 import { createHeightSampler } from '../../src/terrain';
-import { buildRoadNetwork } from '../../src/terrain/roadNetwork';
+import { buildRoadNetwork, packSettlementLayer, SETTLEMENT_EDGE_REACH } from '../../src/terrain/roadNetwork';
+import { SETTLEMENT_SLOTS } from '../../src/contracts/terrain';
 import { buildChunkGeometryAndSurface } from '../../src/terrain/chunkGeometryBuilder';
 import { airportClearZones, buildChunkFeatures } from '../../src/terrain/chunkFeatures';
 import adampur from '../../src/airport/layouts/adampur-afs.json';
@@ -100,5 +101,46 @@ describe('Punjab chunk scenery', () => {
     for (let i = 0; i < p.length; i += 3 * 97) {
       expect(p[i + 1]! - g.surface(p[i]!, p[i + 2]!)).toBeGreaterThanOrEqual(0);
     }
+  });
+});
+
+describe('settlement layer for the terrain shader', () => {
+  const layer = packSettlementLayer(net, params.network!);
+  const W = SETTLEMENT_SLOTS * layer.nCells;
+  const slotsAt = (i: number, j: number): number[][] => {
+    const out: number[][] = [];
+    for (let k = 0; k < SETTLEMENT_SLOTS; k++) {
+      const o = (j * W + k * layer.nCells + i) * 4;
+      if (layer.grid[o + 2]! <= 0) break;
+      out.push(Array.from(layer.grid.subarray(o, o + 4)));
+    }
+    return out;
+  };
+  const cellOf = (v: number): number => Math.floor((v - layer.originM) / layer.spacingM);
+
+  test('every settlement is found from any point of its disc (bar a few village edges)', () => {
+    let missed = 0;
+    let checked = 0;
+    for (const s of net.settlements) {
+      for (let a = 0; a < 8; a++) {
+        const r = s.radiusM * SETTLEMENT_EDGE_REACH * 0.999;
+        const x = s.x + Math.cos((a * Math.PI) / 4) * r;
+        const z = s.z + Math.sin((a * Math.PI) / 4) * r;
+        const i = cellOf(x);
+        const j = cellOf(z);
+        if (i < 0 || j < 0 || i >= layer.nCells || j >= layer.nCells) continue;
+        checked++;
+        if (!slotsAt(i, j).some((t) => t[0] === Math.fround(s.x) && t[1] === Math.fround(s.z))) {
+          missed++;
+          // Towns are packed first, so they are never the ones dropped.
+          expect(s.kind).toBe('village');
+        }
+      }
+    }
+    expect(missed / checked).toBeLessThan(0.001);
+  });
+
+  test('is small enough to upload once per mission', () => {
+    expect(layer.grid.byteLength).toBeLessThan(2_000_000);
   });
 });

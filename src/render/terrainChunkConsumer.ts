@@ -10,6 +10,8 @@ import * as THREE from 'three';
 import type { TerrainChunkReadyMessage, Vec3Like } from '../contracts/core';
 import type { SceneEnvironment } from '../contracts/render';
 import { applyTerrainEnvironment, createTerrainMaterial } from './terrainMaterial';
+import { applySettlementLayer } from './townLayer';
+import type { SettlementLayer } from '../contracts/terrain';
 import { CASTER_LAYER } from './sunShadows';
 
 function chunkKey(chunkX: number, chunkZ: number, lod: number): string {
@@ -29,6 +31,7 @@ export interface TerrainChunkConsumer {
   setFogColor(color: THREE.Color): void;
   setSunDirection(dirWorld: Readonly<Vec3Like>): void;
   setEnvironment(env: Readonly<SceneEnvironment>): void;
+  setSettlements(layer: SettlementLayer | null): void;
   /** Seconds, for animated water. */
   setTime(sec: number): void;
   /** Whether terrain chunks cast into the sun shadow map (sunShadows.ts; High/Ultra). */
@@ -97,6 +100,10 @@ export function createTerrainChunkConsumer(root: THREE.Object3D): TerrainChunkCo
 
     setEnvironment(env) {
       applyTerrainEnvironment(material, env);
+    },
+
+    setSettlements(layer) {
+      applySettlementLayer(material, layer);
     },
 
     setTime(sec) {

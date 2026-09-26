@@ -357,6 +357,10 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
       timeOfDayH = ((hours % 24) + 24) % 24;
     },
 
+    setSettlements(layer) {
+      terrainConsumer.setSettlements(layer);
+    },
+
     setWeather(m, seed) {
       weatherMode = m;
       weatherSeed = seed;

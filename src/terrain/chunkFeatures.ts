@@ -245,9 +245,7 @@ export function buildChunkFeatures(net: RoadNetwork, b: ChunkBounds, surface: Su
       if (opts.objects) buildGoanVillage(o, s, b, surface, opts, wet);
       continue;
     }
-    if (centreHere) {
-      pushFan(o, s.x, s.z, s.radiusM * 1.05, s.seed, DecalClass.VillageGround, surface, 1);
-    }
+    // (The built-up ground itself is drawn by the terrain shader: render/townLayer.ts.)
     // Every settlement is a village-style cluster (towns are just larger and a little denser).
     const pond = villagePond(s);
     if (centreHere) pushFan(o, pond.x, pond.z, pond.r, s.seed + 1, DecalClass.Canal, surface, 0.44);

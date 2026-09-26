@@ -28,6 +28,7 @@
 
 import type { AirportNavDb, QualityTier, SimEvent, SpeedUnit, TerrainChunkReadyMessage, Vec3Like, WeaponKind, WeatherMode } from './core';
 import { WarningBit } from './core';
+import type { SettlementLayer } from './terrain';
 
 // -----------------------------------------------------------------------------
 // 1. Quality tiers → render/HUD settings. RENDER_QUALITY_TABLE's six fields
@@ -382,6 +383,8 @@ export interface SceneRenderer {
   setTimeOfDay(hours: number): void;
   /** Visual weather: a preset, or 'dynamic' (random, changing every few minutes; seeded). */
   setWeather(mode: WeatherMode, seed: number): void;
+  /** The theatre's villages and towns for the terrain's distant town layer (null = none). */
+  setSettlements(layer: SettlementLayer | null): void;
   /**
    * Copies everything this frame's render needs out of `view` synchronously
    * before returning (per-entity pos/rot/kind/team/alive/elevonL/elevonR/

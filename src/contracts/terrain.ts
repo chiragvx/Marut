@@ -855,6 +855,24 @@ export interface TerrainInitMessage {
 }
 export interface TerrainReadyMessage {
   type: 'terrainReady';
+  /** The theatre's villages and towns, for the ground shader's town layer (absent = no road network). */
+  settlements?: SettlementLayer;
+}
+
+/**
+ * Every settlement of a theatre, packed for the terrain shader (render/terrainMaterial.ts), which
+ * draws them as flat built-up ground at any distance (the 3D houses only exist close in).
+ */
+export const SETTLEMENT_SLOTS = 3;
+export interface SettlementLayer {
+  /** A grid over the theatre: cell (i, j) spans originM + [i, i+1) * spacingM in x (j in z). The
+   *  texture is SETTLEMENT_SLOTS * nCells wide and nCells high, of (x, z, radiusM, rotRad) texels
+   *  (radiusM 0 = none): columns k * nCells + i (k < SETTLEMENT_SLOTS) hold the settlements whose
+   *  disc reaches into cell i, filled from k = 0 (an empty slot 0 = an empty cell). */
+  originM: number;
+  spacingM: number;
+  nCells: number;
+  grid: Float32Array;
 }
 /** Extends core.ts's MainToTerrainMessage for this module's own worker bootstrap. Call sites should type their postMessage as `MainToTerrainMessage | MainToTerrainMessageExt`. */
 export type MainToTerrainMessageExt = TerrainInitMessage;

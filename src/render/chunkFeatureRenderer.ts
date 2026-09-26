@@ -11,6 +11,7 @@
  * Everything uses absolute world positions under one group that carries the floating origin.
  */
 
+import { TOWN_3D_FADE_END_M, TOWN_3D_FADE_START_M } from './townLayer';
 import * as THREE from 'three';
 import type { Vec3Like } from '../contracts/core';
 import { TREE_KIND_COUNT, TreeKind, type ChunkFeatures } from '../contracts/terrain';
@@ -22,10 +23,11 @@ import { LIGHT_SPRITE_VS_GLSL, lightSpriteMaterial } from './nightLights';
 
 export const TREE_FADE_START_M = 3200;
 export const TREE_FADE_END_M = 4500;
-export const BUILDING_FADE_START_M = 9000;
-export const BUILDING_FADE_END_M = 11000;
+/** 3D buildings shrink away over this range; the terrain's town layer draws them flat beyond (townLayer.ts). */
+export const BUILDING_FADE_START_M = TOWN_3D_FADE_START_M;
+export const BUILDING_FADE_END_M = TOWN_3D_FADE_END_M;
 /** Town lights at night show out to here (further than the buildings: lights carry). */
-export const TOWN_LIGHT_RANGE_M = 11000;
+export const TOWN_LIGHT_RANGE_M = TOWN_3D_FADE_END_M;
 
 /**
  * Night lights of towns and villages: one light per building (about 70% lit; mostly warm
@@ -46,11 +48,17 @@ const TOWN_LIGHT_VS = /* glsl */ `
       vCol = vec3(0.0);
       return;
     }
+    float fade = 1.0 - smoothstep(${TOWN_3D_FADE_START_M.toFixed(1)}, ${TOWN_3D_FADE_END_M.toFixed(1)}, distance(uAtmCamPos, base));
+    if (fade <= 0.0) {
+      gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
+      vCol = vec3(0.0);
+      return;
+    }
     float hgt = length(instanceMatrix[1].xyz);
     float wid = length(instanceMatrix[0].xyz);
     vec2 toCam = normalize(uAtmCamPos.xz - base.xz + vec2(1e-3, 0.0));
     vec3 w = base + vec3(toCam.x * wid * 0.6, min(hgt * 0.45, 3.5), toCam.y * wid * 0.6);
-    vCol = (h < 0.55 ? vec3(1.0, 0.66, 0.3) : vec3(0.82, 0.88, 1.0)) * 1.7;
+    vCol = (h < 0.55 ? vec3(1.0, 0.66, 0.3) : vec3(0.82, 0.88, 1.0)) * 1.7 * fade;
     gl_Position = lightSprite(w, 1.2, 2.1);
   }
 `;
@@ -301,6 +309,8 @@ const TREE_SHADOW_FS = /* glsl */ `
 
 const BUILDING_VS = /* glsl */ `
   ${ATMOSPHERE_GLSL}
+  uniform float uFadeStart;
+  uniform float uFadeEnd;
   varying vec3 vNormalW;
   varying vec3 vTint;
   varying vec3 vLocal; // metres from the building's base corner, in its own axes
@@ -312,7 +322,10 @@ const BUILDING_VS = /* glsl */ `
     vec3 n = normal;
     vec3 scale = vec3(1.0);
     #ifdef USE_INSTANCING
-      wp = instanceMatrix * wp;
+      // Far buildings shrink into the ground (towards their base) rather than dithering out: a
+      // screen-door fade on few-pixel boxes shimmered. The terrain's town layer takes over.
+      float keep = 1.0 - smoothstep(uFadeStart, uFadeEnd, distance(uAtmCamPos, instanceMatrix[3].xyz));
+      wp = instanceMatrix * vec4(position * keep, 1.0);
       n = mat3(instanceMatrix) * n;
       scale = vec3(length(instanceMatrix[0].xyz), length(instanceMatrix[1].xyz), length(instanceMatrix[2].xyz));
     #endif
@@ -344,8 +357,6 @@ const BUILDING_FS = /* glsl */ `
   varying float vRoof;
   varying vec3 vWorld;
   void main() {
-    float fade = smoothstep(uFadeStart, uFadeEnd, vDist);
-    if (hash12(floor(gl_FragCoord.xy)) < fade) discard;
     vec3 n = normalize(vNormalW);
     vec3 col = vTint;
     if (vRoof > 0.5 && uTiled > 0.5) {

@@ -41,6 +41,7 @@ import { SUN_SHADOW_GLSL, getSunShadowUniforms } from './sunShadows';
 import { MAX_RIVERS, RIVER_FLOATS, RIVER_GLSL } from '../terrain/riverMath';
 import { ESTUARY_FLOATS, ESTUARY_GLSL, MAX_ESTUARIES } from '../terrain/coastMath';
 import { AIRFIELD_MASK_SIZE } from '../airport/airfieldMask';
+import { TOWN_GLSL, createTownUniforms } from './townLayer';
 
 export const MAX_AIRFIELDS = 4;
 
@@ -199,6 +200,7 @@ const FRAGMENT_SHADER = /* glsl */ `
   float gRaised = 0.0;
 
   ${NOISE_GLSL}
+  ${TOWN_GLSL}
   // Value noise and its analytic gradient (x = value, yz = d/dp), for detail normals.
   vec3 vnoised(vec2 p) {
     vec2 i = floor(p);
@@ -490,7 +492,9 @@ const FRAGMENT_SHADER = /* glsl */ `
     }
     float nl = length(vNormal);
     vec3 n = vNormal / max(nl, 1e-4);
-    float px = max(length(dFdx(vWorld.xz)), length(dFdy(vWorld.xz)));
+    vec2 gX = dFdx(vWorld.xz);
+    vec2 gY = dFdy(vWorld.xz);
+    float px = max(length(gX), length(gY));
     vec3 L = normalize(uSunDir);
     vec3 col;
     // Punjab rivers are analytic (riverMath), so their water is decided per pixel, not by the mesh.
@@ -550,6 +554,9 @@ const FRAGMENT_SHADER = /* glsl */ `
         col = mix(col, ground, af.x);
         shadow = mix(shadow, 1.0, af.x);
       }
+      // Villages and towns (townLayer.ts): built-up ground at any distance, flat roofs and lights
+      // where the 3D houses have faded out.
+      if (uTownGridInfo.w > 0.5) col = townLayer(col, vWorld.xz, px, length(vRel), gX, gY);
       // Rain-soaked ground is darker.
       col *= 1.0 - 0.3 * uAtmWet;
 
@@ -589,6 +596,7 @@ const FRAGMENT_SHADER = /* glsl */ `
       float diff = max(dot(n, L), 0.0) * shadow * sunVis;
       vec3 ambient = mix(uAtmAmbGround, uAtmAmbSky, 0.5 + 0.5 * n.y);
       col *= ambient * occ + uAtmSunCol * diff * mix(1.0, occ, 0.35);
+      col += gTownGlowCol * gTownGlow * uAtmLights;
       if (riverWater > 0.0) col = mix(col, waterShade(vWorld, vRel, px, clamp(rv.x * 0.03, 0.0, 6.0), 1e9, 0.0, sunVis), riverWater);
       if (coastWater > 0.0) {
         bool estuary = est > 0.0 && est > seaW;
@@ -639,6 +647,7 @@ export function createTerrainMaterial(): THREE.ShaderMaterial {
       ...getSunShadowUniforms(),
       uShore: { value: Array.from({ length: COAST_VEC4S }, () => new THREE.Vector4()) },
       uHead: { value: Array.from({ length: COAST_VEC4S }, () => new THREE.Vector4()) },
+      ...createTownUniforms(),
     },
     vertexShader: VERTEX_SHADER,
     fragmentShader: FRAGMENT_SHADER,

@@ -436,6 +436,7 @@ async function initWorkersAndRenderer(qualityTier: QualityTier): Promise<void> {
   terrainWorker.onmessage = (e: MessageEvent<TerrainToMainMessage | TerrainToMainMessageExt>): void => {
     if (e.data.type === 'terrainReady') {
       terrainReady = true;
+      renderer.setSettlements(e.data.settlements ?? null);
       for (const m of pendingTerrainMsgs.splice(0)) terrainWorker.postMessage(m);
       // Deliberately no `return` here (see this file's own git history for the bug this fixes):
       // this branch used to swallow the terrainReady message entirely, so ChunkManager's own

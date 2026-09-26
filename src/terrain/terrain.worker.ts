@@ -12,7 +12,7 @@ import { TERRAIN_QUALITY_PROFILES } from '../contracts/terrain';
 import { createHeightSampler } from './heightSampler';
 import { buildChunkGeometryAndSurface } from './chunkGeometryBuilder';
 import { airportClearZones, buildChunkFeatures, type ClearZone } from './chunkFeatures';
-import { buildRoadNetwork, type RoadNetwork } from './roadNetwork';
+import { buildRoadNetwork, packSettlementLayer, type RoadNetwork } from './roadNetwork';
 
 let sampler: HeightSampler | undefined;
 
@@ -43,8 +43,9 @@ self.onmessage = (ev: MessageEvent<MainToTerrainMessage | MainToTerrainMessageEx
     activeGridQuads = msg.chunkGridQuads;
     maxLodDepth = msg.maxLodDepth ?? maxLodDepth;
     network = buildRoadNetwork(msg.params, sampler);
-    const ready: TerrainReadyMessage = { type: 'terrainReady' };
-    self.postMessage(ready);
+    const settlements = network && msg.params.network ? packSettlementLayer(network, msg.params.network) : undefined;
+    const ready: TerrainReadyMessage = settlements ? { type: 'terrainReady', settlements } : { type: 'terrainReady' };
+    self.postMessage(ready, settlements ? [settlements.grid.buffer as ArrayBuffer] : []);
     return;
   }
 
