@@ -16,9 +16,10 @@
  * unaffected (none of them depended on camera mode per that same section).
  */
 
+import { drawAirbaseMarkers, drawAirbaseTape } from './airbaseMarkers';
 import { drawAutopilotBugs, drawAutopilotStatus } from './autopilotHud';
 import { EntityFlag, NO_ENTITY_ID, SnapshotEntity, SnapshotHud, SpeedUnit, WarningBit, entityFieldOffset, type QualityTier } from '../contracts/core';
-import { RENDER_QUALITY_TABLE, type CameraState, type CreateHudRenderer, type HudRenderer } from '../contracts/render';
+import { RENDER_QUALITY_TABLE, type CameraState, type CreateHudRenderer, type HudAirbase, type HudRenderer } from '../contracts/render';
 
 import { drawLadder } from './ladder';
 import { drawControlSurfaceDebug } from './controlSurfaceDebug';
@@ -71,6 +72,9 @@ export const createHudRenderer: CreateHudRenderer = (canvas, initialTier) => {
   let playerElevonRRad = 0;
   let playerRudderRad = 0;
   let debugSurfacesEnabled = false;
+  // Navigation markers (airbaseMarkers.ts): the mission's airbases, and whether the player is on the ground.
+  let airbases: readonly HudAirbase[] = [];
+  let playerOnGround = false;
 
   const api: HudRenderer = {
     resize(widthPxArg, heightPxArg, devicePixelRatio) {
@@ -107,6 +111,7 @@ export const createHudRenderer: CreateHudRenderer = (canvas, initialTier) => {
         playerElevonLRad = view[entityFieldOffset(pSlot, SnapshotEntity.ELEVON_L)] ?? 0;
         playerElevonRRad = view[entityFieldOffset(pSlot, SnapshotEntity.ELEVON_R)] ?? 0;
         playerRudderRad = view[entityFieldOffset(pSlot, SnapshotEntity.RUDDER)] ?? 0;
+        playerOnGround = ((view[entityFieldOffset(pSlot, SnapshotEntity.FLAGS)] ?? 0) & EntityFlag.OnGround) !== 0;
       }
     },
 
@@ -131,6 +136,10 @@ export const createHudRenderer: CreateHudRenderer = (canvas, initialTier) => {
       return taxiGuide.route !== undefined;
     },
 
+    setAirbases(bases) {
+      airbases = bases;
+    },
+
     setDebugSurfacesEnabled(enabled) {
       debugSurfacesEnabled = enabled;
     },
@@ -148,6 +157,8 @@ export const createHudRenderer: CreateHudRenderer = (canvas, initialTier) => {
       drawSpeedTape(ctx, hud, 50, heightPx * 0.5, heightPx * 0.32, speedUnit);
       drawAltitudeTape(ctx, hud, widthPx - 50, heightPx * 0.5, heightPx * 0.32);
       drawHeadingTape(ctx, hud, widthPx * 0.5, 16, widthPx * 0.28);
+      drawAirbaseTape(ctx, airbases, curr.posX[playerSlot]!, curr.posZ[playerSlot]!, hud[SnapshotHud.HEADING_RAD]!, widthPx * 0.5, 16, widthPx * 0.28);
+      drawAirbaseMarkers(ctx, airbases, camera, curr.posX[playerSlot]!, curr.posY[playerSlot]!, curr.posZ[playerSlot]!, playerOnGround, widthPx, heightPx);
       drawAutopilotBugs(ctx, hud, widthPx * 0.5, 16, widthPx * 0.28, 50, widthPx - 50, heightPx * 0.5, heightPx * 0.32);
       drawAutopilotStatus(ctx, hud, widthPx * 0.5, 62, speedUnit, nowMs);
       drawAoaGReadout(ctx, hud, 16, heightPx - 44);

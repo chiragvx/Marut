@@ -410,6 +410,28 @@ export interface SceneRenderer {
   dispose(): void;
 }
 
+/** A facility labelled on the HUD close to an airbase. World x, y (ground level), z. */
+export interface HudFacility {
+  kind: 'runway' | 'stand' | 'hangar' | 'tower' | 'fuel' | 'arms' | 'radar';
+  label: string;
+  x: number;
+  y: number;
+  z: number;
+}
+
+/** An airbase for the HUD's navigation markers. x, z = its reference point; y = field elevation. */
+export interface HudAirbase {
+  id: string;
+  name: string;
+  side: 'friendly' | 'hostile';
+  x: number;
+  y: number;
+  z: number;
+  /** Runway designators for the label, e.g. "08/26". */
+  runways: string;
+  facilities: readonly HudFacility[];
+}
+
 export interface HudRenderer {
   resize(widthPx: number, heightPx: number, devicePixelRatio: number): void;
   setQualityTier(tier: QualityTier): void;
@@ -427,6 +449,12 @@ export interface HudRenderer {
   setTaxiGuide(guide: { points: readonly (readonly [number, number])[]; groundY: number; holdIndex: number; runwayId: string; standNumber: number } | { message: string } | null): void;
   /** True while a taxi route is being shown. */
   hasTaxiGuide(): boolean;
+  /**
+   * The mission's airbases for the HUD's navigation markers (src/hud/airbaseMarkers.ts): every
+   * base on the heading tape, friendly ones as a marker over the field, and their facilities
+   * labelled when the player is on or low over the field. Empty = none.
+   */
+  setAirbases(bases: readonly HudAirbase[]): void;
   /** Steps the radar display's range scale up (+1) or down (-1). */
   cycleRadarRange(dir: 1 | -1): void;
   /** Sets/resets the ammo counters the weapon-status widget decrements locally; call at spawn and at any rearm.

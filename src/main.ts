@@ -44,6 +44,7 @@ import type { SnapshotEntityView } from './contracts/sim';
 
 import { createSceneRenderer } from './render';
 import { createHudRenderer } from './hud';
+import { buildHudAirbases } from './hud/airbaseMarkers';
 import { createPlayerInputSystem } from './input';
 import {
   createMainMenu,
@@ -684,6 +685,7 @@ function launchMission(missionIn: Mission): void {
   playerFullLoad = fullLoadFor(mission.playerStart.aircraftId, mission.playerStart.loadoutId);
   setPlayerFullLoad();
   hud.setTaxiGuide(null);
+  hud.setAirbases(buildHudAirbases(mission.world.airports as readonly AirportLayout[]));
   lastPlayer.valid = false;
 
   loading.setProgress(0.5, 'Starting simulation…');
