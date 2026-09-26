@@ -241,7 +241,7 @@ const FRAGMENT_SHADER = /* glsl */ `
     vec2 q = w.xz;
     float warp = px < 90.0 ? 1.3 * sin(dot(q, vec2(0.0137, 0.0071))) + 0.9 * sin(dot(q, vec2(-0.0063, 0.0191)) + 1.3) : 0.0;
     if (ampSwell > 0.0) g += waveSet(w.xz, t, 0.25, 110.0, 0.03 * ampSwell, warp);
-    float amp = 1.0 - smoothstep(1.5, 7.0, px);
+    float amp = (1.0 - smoothstep(1.5, 7.0, px)) * (1.0 + 0.8 * uAtmWet); // rain roughens the water
     if (amp > 0.0) {
       float warp2 = warp + 1.1 * sin(dot(q, vec2(0.0613, -0.0377)) + 0.4) + 0.8 * sin(dot(q, vec2(0.0291, 0.0719)) + 2.1);
       g += waveSet(w.xz, t, -0.6, 21.0, 0.032 * amp, warp2);
@@ -521,6 +521,8 @@ const FRAGMENT_SHADER = /* glsl */ `
       float shadow = 1.0;
       if (uStyle == 1) col = coastColor(vWorld, n, px, near, L, shadow, est, coastPx);
       else col = plainsColor(vWorld, px, L, shadow, rv);
+      // Rain-soaked ground is darker.
+      col *= 1.0 - 0.3 * uAtmWet;
 
       for (int i = 0; i < ${MAX_TERRAIN_RUNWAYS}; i++) {
         if (i >= uRunwayCount) break;

@@ -299,7 +299,7 @@ export function computeSkyLight(sun: Readonly<Dir3>, moon: Readonly<Dir3>, baseZ
   mix3(mix3(NIGHT_AMB_SKY, TWI_AMB_SKY, toTwi, tmp), DAY_AMB_SKY, toDay, out.ambSky);
   mix3(mix3(NIGHT_AMB_GROUND, TWI_AMB_GROUND, toTwi, tmp), DAY_AMB_GROUND, toDay, out.ambGround);
   greyed(out.ambSky, w.deck * 0.6);
-  scale3(out.ambSky, 1 - 0.28 * w.deck - 0.15 * w.rain);
+  scale3(out.ambSky, 1 - 0.25 * w.deck - 0.05 * w.rain);
   scale3(out.ambGround, 1 - 0.3 * w.deck);
   // Moonlight adds a little to the night ambient.
   scale3(out.ambSky, 1 + 0.5 * moonI * (1 - w.deck));
@@ -311,7 +311,7 @@ export function computeSkyLight(sun: Readonly<Dir3>, moon: Readonly<Dir3>, baseZ
   mix3(out.zenith, out.horizon, w.deck * 0.85, out.zenith);
   greyed(out.zenith, Math.max(w.grey, w.deck));
   greyed(out.horizon, w.grey);
-  const dim = 1 - 0.3 * w.deck - 0.25 * w.rain;
+  const dim = 1 - 0.3 * w.deck - 0.12 * w.rain;
   scale3(out.zenith, dim);
   scale3(out.horizon, dim * (1 + 0.08 * fog));
 

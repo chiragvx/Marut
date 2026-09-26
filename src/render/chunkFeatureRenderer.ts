@@ -56,7 +56,7 @@ const COMMON_GLSL = /* glsl */ `
     float ndl = dot(n, normalize(uSunDir));
     float diff = max(ndl, 0.0) * cloudShadow(w) * sunShadow(w, ndl);
     vec3 ambient = mix(uAtmAmbGround, uAtmAmbSky, 0.5 + 0.5 * n.y);
-    return col * (ambient + uAtmSunCol * diff);
+    return col * (1.0 - 0.25 * uAtmWet) * (ambient + uAtmSunCol * diff);
   }
 `;
 

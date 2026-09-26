@@ -41,6 +41,8 @@ import { createSkyFogSystem } from './skyFog';
 import { createTerrainChunkConsumer } from './terrainChunkConsumer';
 import { createChunkFeatureRenderer } from './chunkFeatureRenderer';
 import { createCloudSystem } from './clouds';
+import { createCloudDeck } from './cloudDeck';
+import { createRain } from './rain';
 import { createFarGround } from './farGround';
 import { getAtmosphereUniforms, setAtmosphereCamera, setAtmosphereHaze } from './atmosphere';
 import type { WeatherMode } from '../contracts/core';
@@ -136,6 +138,14 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
   const sunShadows = createSunShadows();
   const shadowFocus = new THREE.Vector3();
   const clouds = createCloudSystem(scene);
+  const deck = createCloudDeck(scene);
+  const rain = createRain(scene);
+  /** Overcast deck base/top per theatre, m MSL. */
+  const DECK_LEVELS: Readonly<Record<SceneEnvironment['surfaceStyle'], [number, number]>> = {
+    coastal: [1000, 1450],
+    farmland: [1150, 1600],
+    default: [1200, 1650],
+  };
 
   const snapshotBuf = createSnapshotDoubleBuffer();
   const floatingOrigin = createFloatingOriginState();
@@ -166,6 +176,10 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
   const moonDir: Dir3 = { x: 0, y: -1, z: 0 };
   const lastKey = { x: NaN, y: NaN, z: NaN };
   let wet = 0;
+  const skyAbove = createSkyLight();
+  const effWeather: WeatherState = { ...fixedWeather };
+  const camPrev = { x: NaN, y: NaN, z: NaN };
+  const camVel = { x: 0, y: 0, z: 0 };
   let lastCoverage = -1;
   let lastDark = -1;
 
@@ -178,8 +192,16 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
   }
 
   /** Per frame: advance the weather, then set the sky, haze, light, clouds and glare from it. */
-  function updateSky(dt: number): void {
-    const w = dynamicWeather ? dynamicWeather.update(dt) : fixedWeather;
+  function updateSky(dt: number, nowSec: number): void {
+    const w0 = dynamicWeather ? dynamicWeather.update(dt) : fixedWeather;
+    // Above the overcast deck the sky is clear and the sun full; below it, grey (and raining).
+    const [deckBase, deckTop] = DECK_LEVELS[style];
+    const camY = cameraPose.pos.y;
+    const below = 1 - Math.max(0, Math.min(1, (camY - deckBase) / (deckTop - deckBase)));
+    Object.assign(effWeather, w0);
+    effWeather.deck = w0.deck * below;
+    effWeather.grey = w0.grey * (0.3 + 0.7 * below);
+    const w = effWeather;
     // The ground takes a couple of minutes to get wet in rain, and longer to dry.
     wet += (w.rain - wet) * Math.min(1, dt / (w.rain > wet ? 90 : 300));
     if (timeOfDayH !== undefined) {
@@ -209,6 +231,33 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
       clouds.setWeather(w.cumulus, w.cloudDark);
     }
     grade.setGlare(skyLight.glare);
+
+    // Deck, lit from above by the unobstructed sun.
+    effWeather.deck = 0;
+    computeSkyLight(sunDir, moonDir, skyFog.baseZenith, skyFog.baseHorizon, effWeather, skyAbove);
+    effWeather.deck = w0.deck * below;
+    const origin = floatingOrigin.originWorld;
+    deck.setLevels(deckBase, deckTop);
+    deck.update(cameraPose.pos, origin, w0.deck, w0.cloudDark, skyAbove.keyCol, nowSec);
+
+    // Rain below the cloud base, streaking with the camera's own speed.
+    const p = cameraPose.pos;
+    if (Number.isFinite(camPrev.x) && dt > 0) {
+      const vx = (p.x - camPrev.x) / dt;
+      const vy = (p.y - camPrev.y) / dt;
+      const vz = (p.z - camPrev.z) / dt;
+      if (Math.hypot(vx, vy, vz) < 1500) {
+        const k = Math.min(1, dt * 10);
+        camVel.x += (vx - camVel.x) * k;
+        camVel.y += (vy - camVel.y) * k;
+        camVel.z += (vz - camVel.z) * k;
+      }
+    }
+    camPrev.x = p.x;
+    camPrev.y = p.y;
+    camPrev.z = p.z;
+    const rainBelow = 1 - Math.max(0, Math.min(1, (camY - (deckBase - 150)) / 150));
+    rain.update(w0.rain * rainBelow, p, camVel, origin, nowSec);
   }
 
   let shadowsOn = false;
@@ -403,7 +452,7 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
       }
 
       camera.updateMatrixWorld(true);
-      updateSky(frameDtSec);
+      updateSky(frameDtSec, nowMs / 1000);
       grade.update(nowMs, camera, getAtmosphereUniforms().uAtmSunDir.value);
       // Wrapped so float precision in the water animation never degrades over a long session.
       terrainConsumer.setTime((nowMs / 1000) % 3600);
@@ -429,6 +478,8 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
       terrainConsumer.dispose();
       features.dispose();
       clouds.dispose();
+      deck.dispose();
+      rain.dispose();
       farGround.dispose();
       sunShadows.dispose();
       effects.dispose();
