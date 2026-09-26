@@ -15,10 +15,11 @@ import type {
   ParseAirportLayout,
   RunwayDef,
   RunwayLightsDef,
+  StructureDef,
   TaxiwayDef,
   WorldPoint2,
 } from '../contracts/airport';
-import { ParkingSpotType, RunwaySurface } from '../contracts/airport';
+import { AirbaseSide, ParkingSpotType, PavedKind, RunwaySurface, StructureKind } from '../contracts/airport';
 
 type ErrList = AirportParseError[];
 
@@ -280,8 +281,31 @@ function parseApron(item: unknown, path: string, errors: ErrList): ApronDef | un
   }
   const id = readString(item, 'id', path, errors);
   const points = readObjectArray(item, 'points', path, errors, parseWorldPoint2);
-  if (id === undefined || points === undefined) return undefined;
-  return { id, points };
+  const kind = item['kind'] === undefined ? undefined : readEnum(item, 'kind', path, errors, Object.values(PavedKind));
+  if (id === undefined || points === undefined || (item['kind'] !== undefined && kind === undefined)) return undefined;
+  return kind === undefined ? { id, points } : { id, points, kind };
+}
+
+function parseStructure(item: unknown, path: string, errors: ErrList): StructureDef | undefined {
+  if (!isPlainObject(item)) {
+    pushErr(errors, 'not_an_object', path, 'expected an object');
+    return undefined;
+  }
+  const id = readString(item, 'id', path, errors);
+  const kind = readEnum(item, 'kind', path, errors, Object.values(StructureKind));
+  const worldX = readNumber(item, 'worldX', path, errors);
+  const worldZ = readNumber(item, 'worldZ', path, errors);
+  const headingRad = readNumber(item, 'headingRad', path, errors);
+  const widthM = readNumber(item, 'widthM', path, errors);
+  const lengthM = readNumber(item, 'lengthM', path, errors);
+  const heightM = readNumber(item, 'heightM', path, errors);
+  const group = readOptionalString(item, 'group', path, errors);
+  if (id === undefined || kind === undefined || worldX === undefined || worldZ === undefined || headingRad === undefined || widthM === undefined || lengthM === undefined || heightM === undefined) {
+    return undefined;
+  }
+  const s: StructureDef = { id, kind, worldX, worldZ, headingRad, widthM, lengthM, heightM };
+  if (group !== undefined) s.group = group;
+  return s;
 }
 
 function parseParkingSpot(item: unknown, path: string, errors: ErrList): ParkingSpotDef | undefined {
@@ -322,6 +346,9 @@ export const parseAirportLayout: ParseAirportLayout = (json) => {
   const taxiways = readObjectArray(json, 'taxiways', '', errors, parseTaxiway);
   const aprons = readObjectArray(json, 'aprons', '', errors, parseApron);
   const parkingSpots = readObjectArray(json, 'parkingSpots', '', errors, parseParkingSpot);
+  const side = json['side'] === undefined ? undefined : readEnum(json, 'side', '', errors, Object.values(AirbaseSide));
+  const structures = json['structures'] === undefined ? undefined : readObjectArray(json, 'structures', '', errors, parseStructure);
+  const attribution = readOptionalString(json, 'attribution', '', errors);
 
   if (errors.length > 0) return { ok: false, error: errors };
 
@@ -336,6 +363,9 @@ export const parseAirportLayout: ParseAirportLayout = (json) => {
     taxiways: taxiways!,
     aprons: aprons!,
     parkingSpots: parkingSpots!,
+    ...(side !== undefined ? { side } : {}),
+    ...(structures !== undefined ? { structures } : {}),
+    ...(attribution !== undefined ? { attribution } : {}),
   };
   return { ok: true, value: layout };
 };

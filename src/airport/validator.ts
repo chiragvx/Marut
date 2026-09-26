@@ -207,6 +207,34 @@ export const validateAirportLayout: ValidateAirportLayout = (layout) => {
     }
   }
 
+  // Rules 17-19: structures — sane sizes, clear of runways, on flattened ground.
+  const structures = layout.structures ?? [];
+  checkDuplicateIds(structures, 'structures', errors);
+  for (let i = 0; i < structures.length; i++) {
+    const s = structures[i]!;
+    const path = `structures[${i}]`;
+    if (!(s.widthM > 0 && s.lengthM > 0 && s.heightM > 0) || ![s.worldX, s.worldZ, s.headingRad].every(Number.isFinite)) {
+      err(errors, 'structure_invalid', 'error', path, `structure '${s.id}' has a non-positive size or a non-finite position`);
+      continue;
+    }
+    for (const r of layout.runways) {
+      const fx = Math.sin(r.headingRad);
+      const fz = -Math.cos(r.headingRad);
+      const dx = s.worldX - r.thresholdWorldX;
+      const dz = s.worldZ - r.thresholdWorldZ;
+      const along = dx * fx + dz * fz;
+      const across = Math.abs(dx * -fz + dz * fx);
+      const reach = Math.max(s.widthM, s.lengthM) / 2;
+      if (along > -reach && along < r.lengthM + reach && across < r.widthM / 2 + reach) {
+        err(errors, 'structure_on_runway', 'error', path, `structure '${s.id}' stands on runway '${r.id}'`);
+        break;
+      }
+    }
+    if (coveringZonesAt(layout, s.worldX, s.worldZ).length === 0) {
+      err(errors, 'structure_not_flattened', 'warning', path, `structure '${s.id}' is outside every flatten zone`);
+    }
+  }
+
   // Rule 16: parking_spot_outside_apron (warning).
   for (let i = 0; i < layout.parkingSpots.length; i++) {
     const p = layout.parkingSpots[i]!;

@@ -82,6 +82,62 @@ export interface RunwayDef {
   lights?: RunwayLightsDef;
 }
 
+/** Which side an airbase belongs to (optional; absent = neutral/civil). */
+export const AirbaseSide = {
+  Friendly: 'friendly',
+  Hostile: 'hostile',
+  Neutral: 'neutral',
+} as const;
+export type AirbaseSide = (typeof AirbaseSide)[keyof typeof AirbaseSide];
+
+/** What a paved polygon is (drawn and marked differently). */
+export const PavedKind = {
+  Apron: 'apron',
+  /** The concrete pad in front of (and under) a hardened aircraft shelter. */
+  ShelterPad: 'shelter_pad',
+  /** Paved area beyond a runway end: not for landing (yellow chevrons). */
+  BlastPad: 'blast_pad',
+  Stopway: 'stopway',
+} as const;
+export type PavedKind = (typeof PavedKind)[keyof typeof PavedKind];
+
+/** Kinds of airbase structure, each drawn from one generic, instanced model scaled to widthM x lengthM x heightM. */
+export const StructureKind = {
+  /** Hardened aircraft shelter: an arched concrete shelter with a blast door (facing headingRad) and earth-covered sides. */
+  Shelter: 'shelter',
+  /** Maintenance hangar: a big shed with doors on the side facing headingRad. */
+  Hangar: 'hangar',
+  /** Flat-roofed building (offices, crew rooms, barracks, stores, terminal). */
+  Building: 'building',
+  /** Air traffic control tower: a shaft with a glazed cab. */
+  ControlTower: 'control_tower',
+  /** Vertical fuel storage tank (widthM = diameter). */
+  FuelTank: 'fuel_tank',
+  /** Earth wall around a fuel depot (a rectangle, heightM tall). */
+  FuelBund: 'fuel_bund',
+  /** Earth-covered munitions magazine (an igloo), door facing headingRad. */
+  Magazine: 'magazine',
+  WaterTower: 'water_tower',
+  /** Surveillance radar: a rotating antenna on a mast. */
+  Radar: 'radar',
+} as const;
+export type StructureKind = (typeof StructureKind)[keyof typeof StructureKind];
+
+export interface StructureDef {
+  id: string;
+  kind: StructureKind;
+  /** Footprint centre, world metres. */
+  worldX: number;
+  worldZ: number;
+  /** Direction the front faces (a shelter's or hangar's doors), rad, world heading convention. lengthM runs along it. */
+  headingRad: number;
+  widthM: number;
+  lengthM: number;
+  heightM: number;
+  /** Free-form grouping for later features, e.g. "dispersal-north", "fuel-depot", "munitions". */
+  group?: string;
+}
+
 export interface TaxiwayDef {
   id: string;
   widthM: number;
@@ -91,6 +147,8 @@ export interface TaxiwayDef {
 
 export interface ApronDef {
   id: string;
+  /** Absent = 'apron'. */
+  kind?: PavedKind;
   /** Closed polygon, world (x,z), >= 3 points, winding order irrelevant, do NOT repeat the first point at the end. */
   points: readonly WorldPoint2[];
 }
@@ -130,6 +188,12 @@ export interface AirportLayout {
   taxiways: readonly TaxiwayDef[];
   aprons: readonly ApronDef[];
   parkingSpots: readonly ParkingSpotDef[];
+  /** Friendly or hostile airbase (absent = neutral). */
+  side?: AirbaseSide;
+  /** Hangars, shelters, fuel depot, tower, buildings... (absent = none). */
+  structures?: readonly StructureDef[];
+  /** Data source credit, e.g. "© OpenStreetMap contributors (ODbL)". */
+  attribution?: string;
 }
 
 // -----------------------------------------------------------------------------
@@ -170,6 +234,9 @@ export const AirportValidationErrorCode = {
   TaxiwayTooFewPoints: 'taxiway_too_few_points',
   ApronTooFewPoints: 'apron_too_few_points',
   ParkingSpotOutsideApron: 'parking_spot_outside_apron',
+  StructureInvalid: 'structure_invalid',
+  StructureOnRunway: 'structure_on_runway',
+  StructureNotFlattened: 'structure_not_flattened',
 } as const;
 export type AirportValidationErrorCode = (typeof AirportValidationErrorCode)[keyof typeof AirportValidationErrorCode];
 
