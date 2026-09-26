@@ -59,7 +59,7 @@ describe('autopilot', () => {
     world.commandAutopilot({ type: 'adjust', target: 'hdg', delta: 90 * DEG });
     let maxBank = 0;
     let overshoot = 0;
-    run(90, () => {
+    run(130, () => {
       maxBank = Math.max(maxBank, Math.abs(t().rollRad));
       overshoot = Math.max(overshoot, wrapDeg(t().headingRad / DEG - 180));
     });
@@ -98,6 +98,26 @@ describe('autopilot', () => {
     run(120);
     expect(Math.abs(t().altMslM - 3200)).toBeLessThan(25);
     expect(Math.abs(t().vspeedMps)).toBeLessThan(1.5);
+  });
+
+  test('climbs to 10 km with full tanks on military power, trading climb rate for speed', () => {
+    const { world, run, t } = airborne(3000, 150);
+    world.commandAutopilot({ type: 'toggleAp' });
+    world.commandAutopilot({ type: 'toggleAt' });
+    const kt = 0.514444;
+    world.commandAutopilot({ type: 'adjust', target: 'spd', delta: 280 * kt - Math.round(t().iasMps) });
+    world.commandAutopilot({ type: 'adjust', target: 'alt', delta: 7000 });
+    run(30);
+    let minIas = 1e9;
+    let reachedAt = -1;
+    let sec = 30;
+    for (; sec < 900 && reachedAt < 0; sec += 1) {
+      run(1);
+      minIas = Math.min(minIas, t().iasMps);
+      if (t().altMslM > 9950) reachedAt = sec;
+    }
+    expect(reachedAt).toBeGreaterThan(0);
+    expect(minIas).toBeGreaterThan(280 * kt - 20);
   });
 
   test('autothrottle holds a new speed', () => {

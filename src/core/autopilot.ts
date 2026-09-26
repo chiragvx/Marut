@@ -8,7 +8,8 @@
  *   vertical-speed bug's rate and levels off smoothly. VS — holds the vertical-speed bug, and
  *   captures the altitude bug (switching to ALT) if the aircraft is heading towards it.
  * - A/T: holds the speed bug (IAS) with the throttle (military power at most; afterburner stays the
- *   pilot's). The HUD's throttle lever follows it (main.ts), like motorised throttles.
+ *   pilot's). The HUD's throttle lever follows it (main.ts), like motorised throttles. With the A/T
+ *   on, climbs are speed-protected (the climb rate gives way before the speed does).
  *
  * It flies through the fly-by-wire system like a pilot would: the FCS already holds the flight path
  * with the stick centred (fcs.ts neutralGReference), so the vertical channel commands a small load
@@ -42,6 +43,9 @@ export const AP_DEFAULT_VS_MPS = 10;
 export const AP_MAX_VS_MPS = 60;
 /** Below this IAS (m/s) the AP stops climbing; below AP_MIN_IAS - 10 it descends to regain speed. */
 const AP_MIN_IAS_MPS = 85;
+/** A/T climb speed protection: the climb starts to give way this far below the speed bug, and is gone this much further below it (m/s). */
+const AP_CLIMB_SPEED_MARGIN_MPS = 3;
+const AP_CLIMB_SPEED_RANGE_MPS = 12;
 /** Stick deflection that counts as the pilot taking over. */
 const AP_OVERRIDE_STICK = 0.3;
 /** A/T: velocity-form PI on IAS (throttle per second per m/s of error, and per m/s^2 of acceleration). */
@@ -228,6 +232,10 @@ export function stepAutopilot(
       const rate = Math.max(Math.abs(ap.vsMps), AP_MIN_ALT_CHANGE_RATE_MPS);
       vsCmd = clamp(altLawVs, -rate, rate);
     }
+    // With the A/T on, climbs are speed-protected: when the engine cannot hold the speed bug at
+    // this climb rate, the climb gives way (level flight by 15 m/s below the bug), so the jet climbs
+    // as fast as its power allows instead of bleeding off its speed.
+    if (ap.autothrottle && vsCmd > 0) vsCmd *= clamp(1 - (ap.spdMps - t.iasMps - AP_CLIMB_SPEED_MARGIN_MPS) / AP_CLIMB_SPEED_RANGE_MPS, 0, 1);
     // Speed protection: never climb away the last of the airspeed.
     if (t.iasMps < AP_MIN_IAS_MPS) vsCmd = Math.min(vsCmd, ((t.iasMps - AP_MIN_IAS_MPS) / 10) * AP_MIN_ALT_CHANGE_RATE_MPS);
     const gammaCmd = Math.asin(clamp(vsCmd / V, -Math.sin(AP_MAX_FPA_RAD), Math.sin(AP_MAX_FPA_RAD)));
@@ -243,8 +251,10 @@ export function stepAutopilot(
     const err = ap.spdMps - t.iasMps;
     const accel = dt > 0 ? (t.iasMps - ap.lastIasMps) / dt : 0;
     const rate = clamp(AT_KI * err - AT_KP * accel, -AT_MAX_RATE_PER_SEC, AT_MAX_RATE_PER_SEC);
-    ap.throttle = clamp(ap.throttle + rate * dt, 0, 1);
-    out.throttle = ap.throttle;
+    // The pilot selecting afterburner (e.g. for a fast climb) overrides the A/T: full throttle, so
+    // the burner lights (it only works at full throttle), and the A/T lever waits where it was.
+    if (!pilot.afterburner) ap.throttle = clamp(ap.throttle + rate * dt, 0, 1);
+    out.throttle = pilot.afterburner ? 1 : ap.throttle;
   }
   ap.lastIasMps = t.iasMps;
   return ap.engaged || ap.autothrottle;
