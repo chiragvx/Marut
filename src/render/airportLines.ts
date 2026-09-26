@@ -61,6 +61,8 @@ function buildRunway(runway: RunwayInfo, verts: number[]): void {
 export interface AirportLinesSystem {
   setNavDb(navDb: AirportNavDb): void;
   updateOrigin(originWorld: Readonly<Vec3Like>): void;
+  /** Dims the (unlit) runway outline with the daylight, 0..1. */
+  setBrightness(b: number): void;
   dispose(): void;
 }
 
@@ -92,6 +94,10 @@ export function createAirportLinesSystem(root: THREE.Object3D): AirportLinesSyst
       group = new THREE.Group();
       group.add(lineSegments);
       root.add(group);
+    },
+
+    setBrightness(b) {
+      material.color.setScalar(b);
     },
 
     updateOrigin(originWorld) {

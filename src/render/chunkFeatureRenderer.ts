@@ -18,11 +18,42 @@ import { DETAIL_GLSL, getDetailTexture } from './detailTextures';
 import { CLOUD_SHADOW_GLSL, getCloudShadowUniforms } from './clouds';
 import { ATMOSPHERE_GLSL, getAtmosphereUniforms } from './atmosphere';
 import { CASTER_LAYER, SUN_SHADOW_GLSL, getSunShadowUniforms } from './sunShadows';
+import { LIGHT_SPRITE_VS_GLSL, lightSpriteMaterial } from './nightLights';
 
 export const TREE_FADE_START_M = 3200;
 export const TREE_FADE_END_M = 4500;
 export const BUILDING_FADE_START_M = 9000;
 export const BUILDING_FADE_END_M = 11000;
+/** Town lights at night show out to here (further than the buildings: lights carry). */
+export const TOWN_LIGHT_RANGE_M = 11000;
+
+/**
+ * Night lights of towns and villages: one light per building (about 70% lit; mostly warm
+ * incandescent/sodium, some cool white), on the side facing the camera, at window height. Shares
+ * the buildings' instance matrices.
+ */
+const TOWN_LIGHT_VS = /* glsl */ `
+  ${ATMOSPHERE_GLSL}
+  ${LIGHT_SPRITE_VS_GLSL}
+  varying vec3 vCol;
+  void main() {
+    vec3 base = instanceMatrix[3].xyz;
+    vec3 p3 = fract(floor(base.xzx * 0.5) * 0.1031);
+    p3 += dot(p3, p3.yzx + 33.33);
+    float h = fract((p3.x + p3.y) * p3.z);
+    if (h > 0.7) {
+      gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
+      vCol = vec3(0.0);
+      return;
+    }
+    float hgt = length(instanceMatrix[1].xyz);
+    float wid = length(instanceMatrix[0].xyz);
+    vec2 toCam = normalize(uAtmCamPos.xz - base.xz + vec2(1e-3, 0.0));
+    vec3 w = base + vec3(toCam.x * wid * 0.6, min(hgt * 0.45, 3.5), toCam.y * wid * 0.6);
+    vCol = (h < 0.55 ? vec3(1.0, 0.66, 0.3) : vec3(0.82, 0.88, 1.0)) * 1.7;
+    gl_Position = lightSprite(w, 1.2, 2.1);
+  }
+`;
 
 /** Uniforms shared by every feature material (fog, sun). */
 export interface FeatureUniforms {
@@ -554,6 +585,7 @@ interface ChunkEntry {
   group: THREE.Group;
   objects: THREE.Object3D[];
   treeObjects: THREE.Object3D[];
+  lightObjects: THREE.Object3D[];
   cx: number;
   cz: number;
   half: number;
@@ -570,6 +602,8 @@ export interface ChunkFeatureRenderer {
    * trees cast, their painted shadows step aside inside that radius.
    */
   setRealShadowRadius(m: number, treesCast: boolean): void;
+  /** Town lights: brightness 0..1 (0 = daytime, off). */
+  setNightLights(level: number): void;
   readonly uniforms: FeatureUniforms;
   dispose(): void;
 }
@@ -620,6 +654,9 @@ export function createChunkFeatureRenderer(root: THREE.Object3D): ChunkFeatureRe
   const houseMat = new THREE.ShaderMaterial({ uniforms: { ...uniforms, ...shadowU, ...bFade, uTiled: { value: 1 } }, vertexShader: BUILDING_VS, fragmentShader: BUILDING_FS });
 
   const chunks = new Map<string, ChunkEntry>();
+  const lightQuad = new THREE.PlaneGeometry(2, 2);
+  const townLightMat = lightSpriteMaterial(TOWN_LIGHT_VS, {});
+  let lightsOn = false;
   let treesCast = false;
   const setCast = (o: THREE.Object3D, on: boolean): void => {
     if (on) o.layers.enable(CASTER_LAYER);
@@ -647,7 +684,7 @@ export function createChunkFeatureRenderer(root: THREE.Object3D): ChunkFeatureRe
       this.evict(key);
       const group = new THREE.Group();
       group.matrixAutoUpdate = false;
-      const entry: ChunkEntry = { group, objects: [], treeObjects: [], cx: centreX, cz: centreZ, half: halfSizeM, disposables: [] };
+      const entry: ChunkEntry = { group, objects: [], treeObjects: [], lightObjects: [], cx: centreX, cz: centreZ, half: halfSizeM, disposables: [] };
       const y0 = f.decalPositions.length > 1 ? f.decalPositions[1]! : 0;
       const bound = new THREE.Sphere(new THREE.Vector3(centreX, y0, centreZ), halfSizeM * 1.42 + 600);
 
@@ -696,6 +733,17 @@ export function createChunkFeatureRenderer(root: THREE.Object3D): ChunkFeatureRe
         group.add(houses);
         entry.objects.push(houses);
       }
+      for (const b of [bld, houses]) {
+        if (!b) continue;
+        const lights = new THREE.InstancedMesh(lightQuad, townLightMat, b.count);
+        lights.instanceMatrix = b.instanceMatrix;
+        lights.frustumCulled = false;
+        lights.matrixAutoUpdate = false;
+        lights.renderOrder = 15;
+        lights.visible = false;
+        group.add(lights);
+        entry.lightObjects.push(lights);
+      }
       root.add(group);
       chunks.set(key, entry);
     },
@@ -705,8 +753,13 @@ export function createChunkFeatureRenderer(root: THREE.Object3D): ChunkFeatureRe
       if (!e) return;
       root.remove(e.group);
       for (const g of e.disposables) g.dispose();
-      for (const o of [...e.objects, ...e.treeObjects]) (o as THREE.InstancedMesh).dispose?.();
+      for (const o of [...e.objects, ...e.treeObjects, ...e.lightObjects]) (o as THREE.InstancedMesh).dispose?.();
       chunks.delete(key);
+    },
+
+    setNightLights(level) {
+      townLightMat.uniforms['uIntensity']!.value = level;
+      lightsOn = level > 0.01;
     },
 
     setRealShadowRadius(m, cast) {
@@ -718,6 +771,7 @@ export function createChunkFeatureRenderer(root: THREE.Object3D): ChunkFeatureRe
     },
 
     update(origin, cam) {
+      (townLightMat.uniforms['uOrigin']!.value as THREE.Vector3).set(origin.x, origin.y, origin.z);
       for (const e of chunks.values()) {
         e.group.position.set(-origin.x, -origin.y, -origin.z);
         e.group.updateMatrix();
@@ -729,6 +783,7 @@ export function createChunkFeatureRenderer(root: THREE.Object3D): ChunkFeatureRe
         const d = Math.hypot(scratch.length(), Math.max(cam.y - 300, 0));
         for (const o of e.treeObjects) o.visible = d < TREE_FADE_END_M;
         for (const o of e.objects) o.visible = d < BUILDING_FADE_END_M;
+        for (const o of e.lightObjects) o.visible = lightsOn && d < TOWN_LIGHT_RANGE_M;
       }
     },
 
@@ -742,6 +797,8 @@ export function createChunkFeatureRenderer(root: THREE.Object3D): ChunkFeatureRe
       boxGeom.dispose();
       houseGeom.dispose();
       houseMat.dispose();
+      lightQuad.dispose();
+      townLightMat.dispose();
       domeGeom.dispose();
       buildingMat.dispose();
     },

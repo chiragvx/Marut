@@ -43,6 +43,7 @@ import { createChunkFeatureRenderer } from './chunkFeatureRenderer';
 import { createCloudSystem } from './clouds';
 import { createCloudDeck } from './cloudDeck';
 import { createRain } from './rain';
+import { createRunwayLights, setLightViewport } from './nightLights';
 import { createFarGround } from './farGround';
 import { getAtmosphereUniforms, setAtmosphereCamera, setAtmosphereHaze } from './atmosphere';
 import type { WeatherMode } from '../contracts/core';
@@ -140,6 +141,7 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
   const clouds = createCloudSystem(scene);
   const deck = createCloudDeck(scene);
   const rain = createRain(scene);
+  const runwayLights = createRunwayLights(scene);
   /** Overcast deck base/top per theatre, m MSL. */
   const DECK_LEVELS: Readonly<Record<SceneEnvironment['surfaceStyle'], [number, number]>> = {
     coastal: [1000, 1450],
@@ -258,6 +260,13 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
     camPrev.z = p.z;
     const rainBelow = 1 - Math.max(0, Math.min(1, (camY - (deckBase - 150)) / 150));
     rain.update(w0.rain * rainBelow, p, camVel, origin, nowSec);
+
+    // Lights: towns at night; runways at night and in poor visibility.
+    const murk = 1 - Math.max(0, Math.min(1, (w.visKm - 3) / 7));
+    features.setNightLights(skyLight.lights);
+    runwayLights.update(Math.max(skyLight.lights, murk * 0.8, w0.deck * 0.5), origin);
+    const day = (0.2126 * (skyLight.ambSky[0] + skyLight.keyCol[0] * 0.8) + 0.7152 * (skyLight.ambSky[1] + skyLight.keyCol[1] * 0.8) + 0.0722 * (skyLight.ambSky[2] + skyLight.keyCol[2] * 0.8)) / 0.95;
+    airportLines.setBrightness(Math.max(0.12, Math.min(1, day)));
   }
 
   let shadowsOn = false;
@@ -303,6 +312,7 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
       sizeW = Math.round(widthPx * ratio);
       sizeH = Math.round(heightPx * ratio);
       grade.setSize(sizeW, sizeH);
+      setLightViewport(sizeW, sizeH);
     },
 
     setQualityTier(t) {
@@ -324,6 +334,7 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
 
     setNavDb(navDb) {
       airportLines.setNavDb(navDb);
+      runwayLights.setNavDb(navDb);
     },
 
     setTimeOfDay(hours) {
@@ -478,6 +489,7 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
       terrainConsumer.dispose();
       features.dispose();
       clouds.dispose();
+      runwayLights.dispose();
       deck.dispose();
       rain.dispose();
       farGround.dispose();
