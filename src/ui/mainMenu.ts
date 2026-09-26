@@ -11,14 +11,12 @@ export const createMainMenu: CreateMainMenu = (container, callbacks) => {
 
   const nav = el('div', { className: 'tj-main-menu-nav' });
   const playBtn = actionButton('play', 'Play');
-  const editorBtn = actionButton('airport-editor', 'Airport Editor');
   const settingsBtn = actionButton('settings', 'Settings');
-  nav.append(playBtn, editorBtn, settingsBtn);
+  nav.append(playBtn, settingsBtn);
 
   root.append(title, nav);
 
   playBtn.addEventListener('click', () => callbacks.onPlay());
-  editorBtn.addEventListener('click', () => callbacks.onAirportEditor());
   settingsBtn.addEventListener('click', () => callbacks.onSettings());
 
   return mountScreen(container, root);

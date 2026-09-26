@@ -19,7 +19,7 @@ const noop = (): void => {};
 describe('screen factories: mount / destroy contract', () => {
   it('createMainMenu appends one root element and destroy() is idempotent', () => {
     const container = makeContainer();
-    const handle = createMainMenu(container, { onPlay: noop, onAirportEditor: noop, onSettings: noop });
+    const handle = createMainMenu(container, { onPlay: noop, onSettings: noop });
     expect(container.children.length).toBe(1);
     handle.destroy();
     handle.destroy();
@@ -105,7 +105,7 @@ describe('createMainMenu interaction', () => {
   it('clicking [data-action="play"] calls onPlay exactly once', () => {
     const container = makeContainer();
     const onPlay = vi.fn();
-    createMainMenu(container, { onPlay, onAirportEditor: noop, onSettings: noop });
+    createMainMenu(container, { onPlay, onSettings: noop });
     const btn = container.querySelector('[data-action="play"]') as HTMLElement;
     btn.dispatchEvent(new Event('click', { bubbles: true }));
     expect(onPlay).toHaveBeenCalledTimes(1);

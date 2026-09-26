@@ -7,7 +7,7 @@
  * exports of modules 04/08/09/11 rather than a contracts/*.ts file).
  */
 
-import { NO_ENTITY_ID, MissionObjectiveKind, SpeedUnit, WeatherMode } from './contracts/core';
+import { NO_ENTITY_ID, SpeedUnit, WeatherMode } from './contracts/core';
 import type {
   AiDifficulty,
   EntityId,
@@ -24,17 +24,13 @@ import type {
 } from './contracts/core';
 import type { MainToTerrainMessage, TerrainToMainMessage } from './contracts/core';
 import type { MainToTerrainMessageExt, TerrainToMainMessageExt, AirportFlattenZone, TerrainParams } from './contracts/terrain';
-import { DEFAULT_TERRAIN_PARAMS } from './contracts/terrain';
-import { RunwaySurface } from './contracts/airport';
-import type { AirportLayout, RunwayDef, TaxiwayDef, ApronDef } from './contracts/airport';
+import type { AirportLayout } from './contracts/airport';
 import type { CameraState, HudRenderer, SceneEnvironment, SceneRenderer } from './contracts/render';
 import type { PlayerInputSystem } from './contracts/input';
 import { RebindDeviceKind } from './contracts/input';
 import type {
   BindableAction,
   DebriefStats,
-  EditorAirportLayout,
-  EditorRunway,
   MissionSelectOptions,
   MissionSummary,
   OrientationPromptHandle,
@@ -58,18 +54,15 @@ import {
   createLoadingScreen,
   mountOrientationPrompt,
   detectQualityTier,
-  runwayDesignator,
-  computeFlattenZones,
 } from './ui';
 import { createChunkManager } from './terrain';
 import { buildCoastProfile, createHeightSampler } from './terrain';
 import { RIVER_FLOATS, packRiver } from './terrain/riverMath';
 import { ESTUARY_FLOATS, packEstuary } from './terrain/coastMath';
-import { createAirportNavDb, validateAirportLayout } from './airport';
+import { createAirportNavDb } from './airport';
 import { tejasDefinition } from './aircraft';
 import { isBuiltinMissionId, resolveBuiltinMission } from './core/missions/index';
 import { readSnapshotEntity, readSnapshotHeader } from './core/snapshotReader';
-import { subSeed } from './core/seed';
 import { buildKeyBindingsFromInputMap, isAxisRebindMiscapturePositive, targetForBindableAction } from './core/inputBindingsAdapter';
 
 // -----------------------------------------------------------------------------
@@ -141,7 +134,7 @@ function savePersistedSettings(s: PersistedSettings): void {
 // App state machine (10-core-worker.md section 4.10.1).
 // -----------------------------------------------------------------------------
 
-type AppState = 'boot' | 'mainMenu' | 'missionSelect' | 'loading' | 'gameplay' | 'paused' | 'debrief' | 'airportEditor';
+type AppState = 'boot' | 'mainMenu' | 'missionSelect' | 'loading' | 'gameplay' | 'paused' | 'debrief';
 
 let appState: AppState = 'boot';
 let currentScreen: ScreenHandle | undefined;
@@ -201,123 +194,6 @@ const entityViewScratch: SnapshotEntityView = {
   flags: 0,
 };
 
-// -----------------------------------------------------------------------------
-// Airport editor "Test Fly" — converts an EditorAirportLayout (module 11,
-// contracts/ui.ts) into a real AirportLayout (module 05, contracts/airport.ts)
-// and synthesizes a one-off free-flight Mission from it, per 10-core-worker.md
-// section 4.10.1's 'airportEditor -> onLaunchMission(layout) -> loading (a
-// synthesized single-runway free-flight Mission using the edited layout)'.
-// No such converter exists anywhere else in the codebase (contracts/ui.ts's
-// own header explains why: it is drafted blind to contracts/airport.ts's real
-// field names), so this module — the one place allowed to import every leaf
-// module's real code — owns it.
-// -----------------------------------------------------------------------------
-
-function wrapTwoPi(rad: number): number {
-  const twoPi = Math.PI * 2;
-  return ((rad % twoPi) + twoPi) % twoPi;
-}
-
-/** One EditorRunway (a single centerline + primary landing heading) becomes TWO reciprocal RunwayDef entries, matching module 05's schema (00-architecture.md section 9.1-adjacent; see contracts/airport.ts's own RunwayDef doc comment). */
-function editorRunwayToAirportRunways(r: EditorRunway): RunwayDef[] {
-  const primaryDesignator = runwayDesignator(r.headingRad);
-  const reciprocalHeadingRad = wrapTwoPi(r.headingRad + Math.PI);
-  const reciprocalDesignator = runwayDesignator(reciprocalHeadingRad);
-  const halfLenM = r.lengthM / 2;
-  // forwardWorld(heading) per 00-architecture.md section 3.1.
-  const fwdX = Math.sin(r.headingRad);
-  const fwdZ = -Math.cos(r.headingRad);
-  const primary: RunwayDef = {
-    id: primaryDesignator,
-    thresholdWorldX: r.centerXM - fwdX * halfLenM,
-    thresholdWorldZ: r.centerZM - fwdZ * halfLenM,
-    elevationM: r.elevationM,
-    headingRad: r.headingRad,
-    lengthM: r.lengthM,
-    widthM: r.widthM,
-    surface: RunwaySurface.Asphalt,
-    reciprocalId: reciprocalDesignator,
-  };
-  const reciprocal: RunwayDef = {
-    id: reciprocalDesignator,
-    thresholdWorldX: r.centerXM + fwdX * halfLenM,
-    thresholdWorldZ: r.centerZM + fwdZ * halfLenM,
-    elevationM: r.elevationM,
-    headingRad: reciprocalHeadingRad,
-    lengthM: r.lengthM,
-    widthM: r.widthM,
-    surface: RunwaySurface.Asphalt,
-    reciprocalId: primaryDesignator,
-  };
-  if (r.ilsPrimary) primary.ils = { frequencyMhz: r.ilsPrimary.frequencyMhz, glideslopeAngleRad: r.ilsPrimary.glideslopeAngleRad };
-  if (r.ilsReciprocal) reciprocal.ils = { frequencyMhz: r.ilsReciprocal.frequencyMhz, glideslopeAngleRad: r.ilsReciprocal.glideslopeAngleRad };
-  return [primary, reciprocal];
-}
-
-function editorLayoutToAirportLayout(editor: EditorAirportLayout): AirportLayout {
-  const flattenZones: AirportFlattenZone[] = computeFlattenZones(editor).map((z) => ({ ...z }));
-  const runways: RunwayDef[] = [];
-  for (const r of editor.runways) runways.push(...editorRunwayToAirportRunways(r));
-  const taxiways: TaxiwayDef[] = editor.taxiways.map((t) => ({
-    id: t.id,
-    widthM: t.widthM,
-    points: t.points.map((p) => ({ worldX: p.xM, worldZ: p.zM })),
-  }));
-  const aprons: ApronDef[] = editor.aprons.map((a) => ({
-    id: a.id,
-    elevationM: editor.elevationM,
-    points: a.points.map((p) => ({ worldX: p.xM, worldZ: p.zM })),
-  }));
-  return {
-    id: editor.id,
-    name: editor.name,
-    referenceWorldX: editor.referenceXM,
-    referenceWorldZ: editor.referenceZM,
-    elevationM: editor.elevationM,
-    flattenZones,
-    runways,
-    taxiways,
-    aprons,
-    parkingSpots: [],
-  };
-}
-
-/** Builds a one-off free-flight Mission from an edited airport layout, or `undefined` (logging why, never throwing — this project's standard bad-data convention) if the layout has no runway to spawn the player on. */
-function buildTestFlightMission(editorLayout: EditorAirportLayout): Mission | undefined {
-  const rawLayout = editorLayoutToAirportLayout(editorLayout);
-  const validated = validateAirportLayout(rawLayout);
-  const layout = validated.ok ? validated.value.layout : rawLayout;
-  if (!validated.ok) {
-    console.warn('Airport editor Test Fly: edited layout has validation errors, launching best-effort anyway', validated.error);
-  }
-  const firstRunway = layout.runways[0];
-  if (!firstRunway) {
-    console.warn('Airport editor Test Fly: edited layout has no runways — cannot spawn the player.');
-    return undefined;
-  }
-  const missionSeed = subSeed(1, 'editor:' + layout.id);
-  return {
-    id: 'editor-test-fly',
-    name: `Test Fly — ${layout.name}`,
-    world: {
-      seed: missionSeed,
-      terrain: { ...DEFAULT_TERRAIN_PARAMS, seed: missionSeed } as TerrainParams,
-      airports: [layout],
-    },
-    playerStart: { airportId: layout.id, runwayId: firstRunway.id, speedMps: 0 },
-    aiFlights: [],
-    weather: { windWorldMps: { x: 0, y: 0, z: 0 }, gustMps: 1, turbulence: 0.05 },
-    objectives: [
-      {
-        id: 'obj-test-fly',
-        kind: MissionObjectiveKind.SurviveTime,
-        description: 'Test flight — fly the edited layout.',
-        params: { seconds: 3600 },
-      },
-    ],
-  };
-}
-
 function destroyCurrentScreen(): void {
   currentScreen?.destroy();
   currentScreen = undefined;
@@ -328,31 +204,6 @@ function showMainMenu(): void {
   appState = 'mainMenu';
   currentScreen = createMainMenu(uiRoot, {
     onPlay: showMissionSelect,
-    onAirportEditor: () => {
-      // Lazily imported so the editor's own code/deps are not part of the
-      // main-menu-critical bundle. onLaunchMission ('Test Fly') builds a
-      // real AirportLayout from the edited layout and boots a mission from
-      // it — see buildTestFlightMission above.
-      destroyCurrentScreen();
-      appState = 'airportEditor';
-      void import('./ui').then(({ createAirportEditor }) => {
-        currentScreen = createAirportEditor(
-          uiRoot,
-          {},
-          {
-            onExit: showMainMenu,
-            onLaunchMission: (layout) => {
-              const mission = buildTestFlightMission(layout);
-              if (!mission) {
-                showMainMenu();
-                return;
-              }
-              launchMission(mission);
-            },
-          }
-        );
-      });
-    },
     onSettings: showSettingsOverlay,
   });
 }
