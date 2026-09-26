@@ -5,12 +5,6 @@
  */
 import { LockState, NO_ENTITY_ID, WeaponKind, type CombatStatus, type EntityId } from '../contracts/core';
 import {
-  GUN_ROUND_INTERVAL_SEC,
-  GUN_DISPERSION_MRAD,
-  GUN_MUZZLE_VELOCITY_MPS,
-  IR_MIN_LAUNCH_RANGE_M,
-  IR_EJECTION_SPEED_MPS,
-  RADAR_MISSILE_EJECTION_SPEED_MPS,
   MAX_SPAWN_REQUESTS_PER_TICK,
   ProjectileKind,
   type CreateWeaponsState,
@@ -22,15 +16,7 @@ import {
   type WeaponsLoadout,
 } from '../contracts/combat';
 import { Vec3, Quat, nextRange, type PrngState } from '../math';
-
-/**
- * Carried-stores mass per round/missile, kg, and drag area per loaded missile (CD*S, m^2, incl.
- * its launch rail). R-73-class IR missile ~105 kg; Derby-class radar missile ~118 kg; one GSh-23
- * 23x115 round ~0.34 kg. Drag areas are typical for rail-mounted AAMs: a few percent of the clean
- * airframe's ~1.5 m^2 each. Gun ammunition is internal (mass only, no drag).
- */
-export const STORE_MASS_KG: Readonly<Record<WeaponKind, number>> = { gun: 0.34, ir_missile: 105, radar_missile: 118 };
-export const STORE_DRAG_AREA_M2: Readonly<Record<WeaponKind, number>> = { gun: 0, ir_missile: 0.03, radar_missile: 0.04 };
+import { GENERIC_RADAR_PROFILE, defaultWeaponProfile } from './weaponProfiles';
 
 /**
  * Current mass (kg) and drag area (m^2) of everything still loaded on `state`'s stations. src/core
@@ -42,8 +28,8 @@ export function computeStoresLoad(state: Pick<WeaponsState, 'stations'>, out: { 
   let dragAreaM2 = 0;
   for (let i = 0; i < state.stations.length; i++) {
     const st = state.stations[i]!;
-    massKg += st.count * STORE_MASS_KG[st.weapon];
-    dragAreaM2 += st.count * STORE_DRAG_AREA_M2[st.weapon];
+    massKg += st.count * st.profile.carriageMassKg;
+    dragAreaM2 += st.count * st.profile.carriageDragAreaM2;
   }
   out.massKg = massKg;
   out.dragAreaM2 = dragAreaM2;
@@ -57,10 +43,13 @@ export const createWeaponsState: CreateWeaponsState = (loadout: WeaponsLoadout, 
     posBodyM: { x: spec.posBodyM.x, y: spec.posBodyM.y, z: spec.posBodyM.z },
     weapon: spec.weapon,
     count: spec.maxCount,
+    maxCount: spec.maxCount,
+    profile: spec.profile ?? defaultWeaponProfile(spec.weapon),
   }));
 
   return {
     stations,
+    radar: loadout.radar ?? GENERIC_RADAR_PROFILE,
     selectedWeapon: stations.length > 0 ? stations[0]!.weapon : WeaponKind.Gun,
     gunCooldownSec: 0,
     prevLaunch: false,
@@ -141,7 +130,8 @@ export const fireWeapons: FireWeapons = (
     if (gunStation) {
       Quat.rotate(shooterState.rot, gunStation.posBodyM, _muzzleOffsetW);
 
-      const dispersionRad = (GUN_DISPERSION_MRAD / 1000) * 2; // convert 1-sigma mrad -> a symmetric jitter bound in rad
+      const gun = gunStation.profile;
+      const dispersionRad = (gun.dispersionMrad / 1000) * 2; // convert 1-sigma mrad -> a symmetric jitter bound in rad
       const jitterY = rngRange(state.rng, -dispersionRad, dispersionRad);
       const jitterZ = rngRange(state.rng, -dispersionRad, dispersionRad);
       _dirBody.x = 1; _dirBody.y = jitterY; _dirBody.z = jitterZ;
@@ -149,13 +139,13 @@ export const fireWeapons: FireWeapons = (
       Quat.rotate(shooterState.rot, _dirBody, _dirWorld);
 
       gunStation.count -= 1;
-      state.gunCooldownSec += GUN_ROUND_INTERVAL_SEC;
+      state.gunCooldownSec += gun.roundIntervalSec;
 
       const posWorld = { x: shooterState.pos.x + _muzzleOffsetW.x, y: shooterState.pos.y + _muzzleOffsetW.y, z: shooterState.pos.z + _muzzleOffsetW.z };
       const velWorld = {
-        x: shooterState.vel.x + _dirWorld.x * GUN_MUZZLE_VELOCITY_MPS,
-        y: shooterState.vel.y + _dirWorld.y * GUN_MUZZLE_VELOCITY_MPS,
-        z: shooterState.vel.z + _dirWorld.z * GUN_MUZZLE_VELOCITY_MPS,
+        x: shooterState.vel.x + _dirWorld.x * gun.launchSpeedMps,
+        y: shooterState.vel.y + _dirWorld.y * gun.launchSpeedMps,
+        z: shooterState.vel.z + _dirWorld.z * gun.launchSpeedMps,
       };
 
       outRequests.push({
@@ -165,6 +155,7 @@ export const fireWeapons: FireWeapons = (
         posWorld,
         rotWorld: { x: shooterState.rot.x, y: shooterState.rot.y, z: shooterState.rot.z, w: shooterState.rot.w },
         velWorld,
+        profile: gun,
       });
       outEvents.push({ type: 'gunFire', shooterId, pos: posWorld, dir: { x: _dirWorld.x, y: _dirWorld.y, z: _dirWorld.z } });
     }
@@ -179,16 +170,17 @@ export const fireWeapons: FireWeapons = (
 
     if (state.selectedWeapon === WeaponKind.RadarMissile) {
       station = findStationWithAmmo(state.stations, WeaponKind.RadarMissile);
-      ejectionSpeed = RADAR_MISSILE_EJECTION_SPEED_MPS;
+      ejectionSpeed = station ? station.profile.launchSpeedMps : 0;
       projectileKind = ProjectileKind.RadarMissile;
     } else if (state.selectedWeapon === WeaponKind.IrMissile) {
       const dx = lockedTarget.pos.x - shooterState.pos.x;
       const dy = lockedTarget.pos.y - shooterState.pos.y;
       const dz = lockedTarget.pos.z - shooterState.pos.z;
       const rangeM = Math.sqrt(dx * dx + dy * dy + dz * dz);
-      if (rangeM >= IR_MIN_LAUNCH_RANGE_M) {
-        station = findStationWithAmmo(state.stations, WeaponKind.IrMissile);
-        ejectionSpeed = IR_EJECTION_SPEED_MPS;
+      const irStation = findStationWithAmmo(state.stations, WeaponKind.IrMissile);
+      if (irStation && rangeM >= irStation.profile.minLaunchRangeM) {
+        station = irStation;
+        ejectionSpeed = irStation.profile.launchSpeedMps;
         projectileKind = ProjectileKind.IrMissile;
       }
     }
@@ -213,6 +205,7 @@ export const fireWeapons: FireWeapons = (
         rotWorld: { x: shooterState.rot.x, y: shooterState.rot.y, z: shooterState.rot.z, w: shooterState.rot.w },
         velWorld,
         targetId: state.lockedTargetId as EntityId,
+        profile: station.profile,
       });
       // missileId is not yet known here: src/core allocates the EntityId for
       // this spawn request AFTER fireWeapons returns (see 07-combat.md

@@ -213,14 +213,14 @@ function showMainMenu(): void {
 }
 
 const MISSION_SUMMARIES: readonly MissionSummary[] = [
-  { id: 'border-free', name: 'Free Flight — India-Pakistan Border', description: 'Bhisiana AFS (Bathinda) with its shelters and dispersal loops; PAF Base Shahbaz 65 km west-south-west across the border and the Indus. Bases from OpenStreetMap data (c) OpenStreetMap contributors.', aircraftLabel: 'HAL Tejas Mk1' },
-  { id: 'border-intercept', name: 'Intercept — Aggressors from Shahbaz', description: 'Two aggressors inbound from PAF Base Shahbaz. Take off from Bhisiana and intercept them.', aircraftLabel: 'HAL Tejas Mk1' },
-  { id: 'konkan-free', name: 'Free Flight — Goa Coast', description: 'INS Hansa, on a laterite plateau above the Zuari estuary. Beaches and headlands, three estuaries, the Western Ghats inland. Dry season. Water is not a runway.', aircraftLabel: 'HAL Tejas Mk1' },
-  { id: 'konkan-dogfight', name: '1v1 Dogfight — Arabian Sea', description: 'One hostile Tejas off the Goa coast.', aircraftLabel: 'HAL Tejas Mk1' },
-  { id: 'punjab-free', name: 'Free Flight — Punjab Plains', description: 'Adampur, late winter. A hazy, flat plain of wheat green with tree-lined roads and canals, villages, and the braided Sutlej and Beas in wide sandy floodplains.', aircraftLabel: 'HAL Tejas Mk1' },
-  { id: 'punjab-dogfight', name: '1v1 Dogfight — Punjab Plains', description: 'One hostile Tejas low over the plains.', aircraftLabel: 'HAL Tejas Mk1' },
-  { id: 'free-flight', name: 'Free Flight — Konarak Coastal', description: 'Unopposed circuit and landing practice (original test terrain).', aircraftLabel: 'HAL Tejas Mk1' },
-  { id: 'dogfight-1v1', name: '1v1 Dogfight — Rangpur Highlands', description: 'One hostile Tejas over mountainous terrain (original test terrain).', aircraftLabel: 'HAL Tejas Mk1' },
+  { id: 'border-free', name: 'Free Flight — India-Pakistan Border', description: 'Bhisiana AFS (Bathinda) with its shelters and dispersal loops; PAF Base Shahbaz 65 km west-south-west across the border and the Indus. Bases from OpenStreetMap data (c) OpenStreetMap contributors.', aircraftLabel: 'HAL Tejas Mk1A' },
+  { id: 'border-intercept', name: 'Intercept — Aggressors from Shahbaz', description: 'Two aggressors inbound from PAF Base Shahbaz. Take off from Bhisiana and intercept them.', aircraftLabel: 'HAL Tejas Mk1A' },
+  { id: 'konkan-free', name: 'Free Flight — Goa Coast', description: 'INS Hansa, on a laterite plateau above the Zuari estuary. Beaches and headlands, three estuaries, the Western Ghats inland. Dry season. Water is not a runway.', aircraftLabel: 'HAL Tejas Mk1A' },
+  { id: 'konkan-dogfight', name: '1v1 Dogfight — Arabian Sea', description: 'One hostile Tejas off the Goa coast.', aircraftLabel: 'HAL Tejas Mk1A' },
+  { id: 'punjab-free', name: 'Free Flight — Punjab Plains', description: 'Adampur, late winter. A hazy, flat plain of wheat green with tree-lined roads and canals, villages, and the braided Sutlej and Beas in wide sandy floodplains.', aircraftLabel: 'HAL Tejas Mk1A' },
+  { id: 'punjab-dogfight', name: '1v1 Dogfight — Punjab Plains', description: 'One hostile Tejas low over the plains.', aircraftLabel: 'HAL Tejas Mk1A' },
+  { id: 'free-flight', name: 'Free Flight — Konarak Coastal', description: 'Unopposed circuit and landing practice (original test terrain).', aircraftLabel: 'HAL Tejas Mk1A' },
+  { id: 'dogfight-1v1', name: '1v1 Dogfight — Rangpur Highlands', description: 'One hostile Tejas over mountainous terrain (original test terrain).', aircraftLabel: 'HAL Tejas Mk1A' },
 ];
 
 function showMissionSelect(): void {

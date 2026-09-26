@@ -4,3 +4,4 @@
  * docs/spec/03-tejas-data.md section 2).
  */
 export { tejasDefinition } from './tejasDefinition';
+export { getAircraftDefinition, listAircraftDefinitions, getLoadout } from './registry';

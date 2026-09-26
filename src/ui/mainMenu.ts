@@ -7,7 +7,7 @@ import { el, actionButton } from './domHelpers';
 
 export const createMainMenu: CreateMainMenu = (container, callbacks) => {
   const root = el('div', { className: 'tj-main-menu' });
-  const title = el('h1', { className: 'tj-main-menu-title', text: 'HAL Tejas Mk1 — Flight Simulator' });
+  const title = el('h1', { className: 'tj-main-menu-title', text: 'HAL Tejas Mk1A — Flight Simulator' });
 
   const nav = el('div', { className: 'tj-main-menu-nav' });
   const playBtn = actionButton('play', 'Play');

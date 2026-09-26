@@ -21,6 +21,10 @@ export interface WorldCombatTickContext extends CombatTickContext {
   getInputs(id: EntityId): PilotInputs | undefined;
   /** `AircraftTelemetry.altAglM` for a live aircraft entity, computed this tick's step 3 (10-core-worker.md section 4.1) — `UpdateSensors` (contracts/combat.ts) needs it and `CombatTickContext` alone does not expose telemetry. 0 if `id` is not a live aircraft. */
   getAltAglM(id: EntityId): number;
+  /** The aircraft type id of a live aircraft entity (AircraftDefinition.id), or undefined. */
+  getAircraftDefId(id: EntityId): string | undefined;
+  /** The loadout id chosen for a live aircraft (the player's, from the mission), or undefined = its default. */
+  getLoadoutId?(id: EntityId): string | undefined;
 }
 
 /**

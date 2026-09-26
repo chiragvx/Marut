@@ -18,7 +18,7 @@
   "aiFlights": [
     {
       "id": "bandit-1",
-      "aircraftId": "tejas-mk1",
+      "aircraftId": "tejas-mk1a",
       "team": 1,
       "difficulty": "veteran",
       "startPos": {

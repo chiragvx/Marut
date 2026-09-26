@@ -106,6 +106,9 @@ const SIM_DT_SEC_LOCAL = 1 / 120; // avoid importing SIM_DT_SEC just to re-deriv
  */
 const RUNWAY_SPAWN_CLEARANCE_M = 1.1;
 
+/** The aircraft the player flies unless the mission names another (MissionPlayerStart.aircraftId). */
+const PLAYER_DEFAULT_AIRCRAFT_ID = 'tejas-mk1a';
+
 /** Ground service: empty-to-full refuelling time and full re-arming time, s (compressed from real life). */
 const REFUEL_FULL_SEC = 40;
 const REARM_SEC = 20;
@@ -294,6 +297,12 @@ class WorldImpl implements World {
       getAltAglM(id: EntityId): number {
         return self.aircraft.get(id)?.telemetry.altAglM ?? 0;
       },
+      getAircraftDefId(id: EntityId): string | undefined {
+        return self.aircraft.get(id)?.aircraftDefId;
+      },
+      getLoadoutId(id: EntityId): string | undefined {
+        return id === self.playerEntityIdInternal ? self.mission?.playerStart.loadoutId : undefined;
+      },
     };
   }
 
@@ -356,7 +365,7 @@ class WorldImpl implements World {
     // playerStartOnGround through — see spawnAircraftOnly's doc comment for why a runway spawn
     // must start with gear down. Player-specific bookkeeping (IsPlayer flag, playerEntityIdInternal)
     // below mirrors exactly what spawnEntity's aircraft branch would otherwise have done.
-    const playerId = this.spawnAircraftOnly(0, playerPos, playerHeadingRad, playerSpeedMps, 'tejas-mk1', playerStartOnGround, true);
+    const playerId = this.spawnAircraftOnly(0, playerPos, playerHeadingRad, playerSpeedMps, ps.aircraftId ?? PLAYER_DEFAULT_AIRCRAFT_ID, playerStartOnGround, true);
     if (playerId !== NO_ENTITY_ID) {
       const state = this.pool.get(playerId);
       if (state) state.flags |= EntityFlag.IsPlayer;

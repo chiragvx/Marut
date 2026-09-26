@@ -25,8 +25,6 @@ import {
   RADAR_SCAN_AZ_HALF_ANGLE_RAD,
   RADAR_SCAN_EL_HALF_ANGLE_RAD,
   RADAR_TRACK_HALF_ANGLE_RAD,
-  RADAR_LOCK_TIME_SEC,
-  RADAR_LOCK_BREAK_GRACE_SEC,
   RADAR_NOTCH_CLOSURE_MPS,
   RADAR_NOTCH_MAX_RANGE_M,
   TERRAIN_LOS_MASK_MARGIN_M,
@@ -38,22 +36,20 @@ import {
   THREAT_SCORE_WEIGHTS,
   RWR_MISSILE_THREAT_TIME_SEC,
   RWR_MISSILE_THREAT_RADIUS_M,
-  IR_LOCK_TIME_SEC,
-  IR_SEEKER_ACQUIRE_HALF_ANGLE_RAD,
-  IR_SEEKER_TRACK_HALF_ANGLE_RAD,
-  GUN_MUZZLE_VELOCITY_MPS,
   type UpdateSensors,
   type RadarDetectionRangeM,
   type DetectableEntity,
   type WeaponsState,
+  type RadarProfile,
 } from '../contracts/combat';
 import { Vec3, Quat, clamp, lerp } from '../math';
 import { computeLeadSolution } from './leadComputingSight';
 import { irDetectionRangeM } from './irMissileSeeker';
+import { GENERIC_GUN_PROFILE, GENERIC_IR_MISSILE_PROFILE } from './weaponProfiles';
 
-export const radarDetectionRangeM: RadarDetectionRangeM = (rcsM2) => {
-  const raw = RADAR_REFERENCE_RANGE_M * Math.pow(rcsM2 / RADAR_REFERENCE_RCS_M2, 0.25);
-  return clamp(raw, 0, RADAR_MAX_RANGE_M);
+export const radarDetectionRangeM: RadarDetectionRangeM = (rcsM2, radar) => {
+  const raw = (radar?.referenceRangeM ?? RADAR_REFERENCE_RANGE_M) * Math.pow(rcsM2 / (radar?.referenceRcsM2 ?? RADAR_REFERENCE_RCS_M2), 0.25);
+  return clamp(raw, 0, radar?.maxRangeM ?? RADAR_MAX_RANGE_M);
 };
 
 const WORLD_FORWARD_BODY: Vec3Like = { x: 1, y: 0, z: 0 };
@@ -94,7 +90,7 @@ export interface Geometry {
  * to call standalone, e.g. from unit tests reproducing 07-combat.md's
  * section 4.4 worked example, as well as from `updateSensors` itself.
  */
-export function computeGeometry(observer: DetectableEntity, target: DetectableEntity, sampler: HeightSampler): Geometry {
+export function computeGeometry(observer: DetectableEntity, target: DetectableEntity, sampler: HeightSampler, radar?: RadarProfile): Geometry {
   Quat.rotate(observer.rot, WORLD_FORWARD_BODY, _forwardW);
   Quat.rotate(observer.rot, WORLD_RIGHT_BODY, _rightW);
   Quat.rotate(observer.rot, WORLD_UP_BODY, _upW);
@@ -112,8 +108,11 @@ export function computeGeometry(observer: DetectableEntity, target: DetectableEn
   const azRad = Math.atan2(rightDot, fwdDot);
   const elRad = Math.atan2(upDot, Math.sqrt(fwdDot * fwdDot + rightDot * rightDot));
 
-  const inScanCone = Math.abs(azRad) <= RADAR_SCAN_AZ_HALF_ANGLE_RAD && Math.abs(elRad) <= RADAR_SCAN_EL_HALF_ANGLE_RAD;
-  const inTrackCone = Math.abs(azRad) <= RADAR_TRACK_HALF_ANGLE_RAD && Math.abs(elRad) <= RADAR_TRACK_HALF_ANGLE_RAD;
+  const scanAz = radar?.scanAzHalfAngleRad ?? RADAR_SCAN_AZ_HALF_ANGLE_RAD;
+  const scanEl = radar?.scanElHalfAngleRad ?? RADAR_SCAN_EL_HALF_ANGLE_RAD;
+  const track = radar?.trackHalfAngleRad ?? RADAR_TRACK_HALF_ANGLE_RAD;
+  const inScanCone = Math.abs(azRad) <= scanAz && Math.abs(elRad) <= scanEl;
+  const inTrackCone = Math.abs(azRad) <= track && Math.abs(elRad) <= track;
 
   _relVel.x = target.vel.x - observer.vel.x;
   _relVel.y = target.vel.y - observer.vel.y;
@@ -126,7 +125,7 @@ export function computeGeometry(observer: DetectableEntity, target: DetectableEn
   // target beaming across the nose (closure = the observer's own speed) was not.
   const targetRadialMps = Vec3.dot(target.vel, _bearing);
   const lookingDown = _bearing.y < 0;
-  const isNotched = lookingDown && Math.abs(targetRadialMps) < RADAR_NOTCH_CLOSURE_MPS && rangeM <= RADAR_NOTCH_MAX_RANGE_M;
+  const isNotched = lookingDown && Math.abs(targetRadialMps) < (radar?.notchClosureMps ?? RADAR_NOTCH_CLOSURE_MPS) && rangeM <= (radar?.notchMaxRangeM ?? RADAR_NOTCH_MAX_RANGE_M);
 
   let terrainMasked = false;
   for (let i = 0; i < LOS_SAMPLE_FRACTIONS.length; i++) {
@@ -204,6 +203,24 @@ export const updateSensors: UpdateSensors = (
   Quat.rotate(observer.rot, WORLD_FORWARD_BODY, _forwardW);
   Quat.rotate(observer.rot, WORLD_RIGHT_BODY, _rightW);
   Quat.rotate(observer.rot, WORLD_UP_BODY, _upW);
+  // This aircraft's radar, IR seeker (the first IR station's missile) and gun muzzle velocity.
+  const radar = state.radar;
+  let irSeeker = GENERIC_IR_MISSILE_PROFILE.ir!;
+  let gunMuzzleMps = GENERIC_GUN_PROFILE.launchSpeedMps;
+  for (let i = 0; i < state.stations.length; i++) {
+    const st = state.stations[i]!;
+    if (st.weapon === 'ir_missile' && st.profile.ir) {
+      irSeeker = st.profile.ir;
+      if (st.count > 0) break;
+    }
+  }
+  for (let i = 0; i < state.stations.length; i++) {
+    const st = state.stations[i]!;
+    if (st.weapon === 'gun') {
+      gunMuzzleMps = st.profile.launchSpeedMps;
+      break;
+    }
+  }
 
   // ---- 1. Build contacts (radar + visual, terrain-LOS-masked, threat-sorted) ----
   let candCount = 0;
@@ -211,10 +228,10 @@ export const updateSensors: UpdateSensors = (
     const e = allEntities[i]!;
     if (e.id === observerId || !e.alive || e.kind !== 'aircraft') continue;
 
-    const geom = computeGeometry(observer, e, sampler);
+    const geom = computeGeometry(observer, e, sampler, radar);
     if (geom.terrainMasked) continue;
 
-    const radarDetected = geom.inScanCone && geom.rangeM <= radarDetectionRangeM(geom.rcsM2);
+    const radarDetected = geom.inScanCone && geom.rangeM <= radarDetectionRangeM(geom.rcsM2, radar);
     const angleFromNoseObs = Math.acos(clamp(Vec3.dot(_bearing, _forwardW), -1, 1));
     const visualDetected = geom.rangeM <= VISUAL_DETECT_RANGE_M && angleFromNoseObs <= VISUAL_FOV_HALF_ANGLE_RAD;
     if (!radarDetected && !visualDetected) continue;
@@ -230,7 +247,7 @@ export const updateSensors: UpdateSensors = (
     }
 
     const targetingMeTerm = e.radarEmission?.lockedTargetId === observerId ? 1 : e.radarEmission?.trackedTargetId === observerId ? 0.5 : 0;
-    const score = THREAT_SCORE_WEIGHTS.range * (1 - clamp(geom.rangeM / RADAR_MAX_RANGE_M, 0, 1))
+    const score = THREAT_SCORE_WEIGHTS.range * (1 - clamp(geom.rangeM / radar.maxRangeM, 0, 1))
       + THREAT_SCORE_WEIGHTS.aspect * ((1 + Math.cos(geom.aspectFromNoseRad)) / 2)
       + THREAT_SCORE_WEIGHTS.targetingMe * targetingMeTerm
       + THREAT_SCORE_WEIGHTS.closure * clamp(geom.closureMps / 500, 0, 1);
@@ -318,12 +335,12 @@ export const updateSensors: UpdateSensors = (
     state.lockProgressSec = 0;
     state.lockBreakGraceRemainingSec = 0;
   } else {
-    const geom = computeGeometry(observer, lockedEntity, sampler);
+    const geom = computeGeometry(observer, lockedEntity, sampler, radar);
     let satisfied: boolean;
     let grace: number;
     if (state.selectedWeapon === 'radar_missile') {
-      satisfied = geom.inTrackCone && !geom.isNotched && !geom.terrainMasked && geom.rangeM <= radarDetectionRangeM(geom.rcsM2);
-      grace = RADAR_LOCK_BREAK_GRACE_SEC;
+      satisfied = geom.inTrackCone && !geom.isNotched && !geom.terrainMasked && geom.rangeM <= radarDetectionRangeM(geom.rcsM2, radar);
+      grace = radar.lockBreakGraceSec;
     } else {
       // ir_missile — recompute bearing to the locked target explicitly (the
       // scratch `_bearing` above was last written by the candidate loop and
@@ -334,9 +351,9 @@ export const updateSensors: UpdateSensors = (
       const rng = Math.sqrt(dx * dx + dy * dy + dz * dz);
       const bx = rng > 1e-9 ? dx / rng : 0, by = rng > 1e-9 ? dy / rng : 0, bz = rng > 1e-9 ? dz / rng : 1;
       const angleFromForward = Math.acos(clamp(bx * _forwardW.x + by * _forwardW.y + bz * _forwardW.z, -1, 1));
-      const threshold = state.lockState === LockState.Locked ? IR_SEEKER_TRACK_HALF_ANGLE_RAD : IR_SEEKER_ACQUIRE_HALF_ANGLE_RAD;
-      satisfied = angleFromForward <= threshold && geom.rangeM <= irDetectionRangeM(geom.aspectFromNoseRad, false);
-      grace = RADAR_LOCK_BREAK_GRACE_SEC;
+      const threshold = state.lockState === LockState.Locked ? irSeeker.trackHalfAngleRad : irSeeker.acquireHalfAngleRad;
+      satisfied = angleFromForward <= threshold && geom.rangeM <= irDetectionRangeM(geom.aspectFromNoseRad, false, irSeeker);
+      grace = radar.lockBreakGraceSec;
     }
 
     if (satisfied) {
@@ -350,7 +367,7 @@ export const updateSensors: UpdateSensors = (
       }
     }
 
-    const lockTime = state.selectedWeapon === 'radar_missile' ? RADAR_LOCK_TIME_SEC : IR_LOCK_TIME_SEC;
+    const lockTime = state.selectedWeapon === 'radar_missile' ? radar.lockTimeSec : irSeeker.lockTimeSec;
     if (state.lockProgressSec >= lockTime) state.lockState = LockState.Locked;
     else if (state.lockProgressSec >= lockTime * 0.3) state.lockState = LockState.Tracking;
     else state.lockState = LockState.Searching;
@@ -402,7 +419,7 @@ export const updateSensors: UpdateSensors = (
   }
 
   if (aimEntity) {
-    const result = computeLeadSolution(observer.pos, observer.vel, aimEntity.pos, aimEntity.vel, GUN_MUZZLE_VELOCITY_MPS, GRAVITY_MPS2, _aimPoint);
+    const result = computeLeadSolution(observer.pos, observer.vel, aimEntity.pos, aimEntity.vel, gunMuzzleMps, GRAVITY_MPS2, _aimPoint);
     state.aimPointWorld.x = _aimPoint.x;
     state.aimPointWorld.y = _aimPoint.y;
     state.aimPointWorld.z = _aimPoint.z;

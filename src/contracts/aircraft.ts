@@ -208,8 +208,59 @@ export interface DropTankSpec {
   dragAreaM2: number;
 }
 
+/** A weapon station (hardpoint): where it is and which catalogue stores it can carry. */
+export interface StationDef {
+  id: string;
+  /** Body-frame mounting position, m. */
+  posBodyM: Vec3Like;
+  /** Catalogue store ids (src/catalog) this station can carry. */
+  accepts: readonly string[];
+  /** Most of one store carried at once (twin/triple racks; rounds for the gun). */
+  maxCount: number;
+}
+
+/** A named store fit: station id -> store id and count. Stations left out are empty. */
+export interface LoadoutPreset {
+  id: string;
+  name: string;
+  fit: Readonly<Record<string, { store: string; count: number }>>;
+}
+
+/** Sensors and self-protection systems carried (catalogue ids where the system has data). */
+export interface AircraftSensors {
+  /** Fire-control radar (src/catalog/sensors.ts RADARS). */
+  radar?: string;
+  /** IFF interrogator fitted. */
+  iff?: boolean;
+  /** Radar-warning receiver / EW suite id. */
+  rwr?: string;
+  /** Missile-approach warner fitted. */
+  maws?: boolean;
+  /** Self-protection jammer id. */
+  jammer?: string;
+  /** Countermeasure dispensers: chaff and flare cartridges. */
+  countermeasures?: { chaff: number; flares: number };
+}
+
+/** How the aircraft looks to sensors and weapons. */
+export interface AircraftSignature {
+  /** Radar cross-section nose-on and beam-on, m^2. */
+  rcsNoseOnM2: number;
+  rcsBroadsideM2: number;
+  /** Hit-test ellipsoid semi-axes, body frame, m. */
+  hitEllipsoidBodyM: Vec3Like;
+}
+
 export interface AircraftDefinition {
   id: string;
+  /** e.g. "HAL Tejas Mk1A". */
+  displayName?: string;
+  /** Weapon stations (the hardpoints, with what each can carry). When present, `hardpoints` is the default loadout's view of them. */
+  stations?: readonly StationDef[];
+  loadouts?: readonly LoadoutPreset[];
+  defaultLoadoutId?: string;
+  sensors?: AircraftSensors;
+  signature?: AircraftSignature;
   massKg: number;
   emptyMassKg: number;
   maxFuelKg: number;

@@ -3,7 +3,7 @@ import { tejasDefinition } from '../../src/aircraft';
 
 describe('tejasDefinition', () => {
   it('has the exact fixed id', () => {
-    expect(tejasDefinition.id).toBe('tejas-mk1');
+    expect(tejasDefinition.id).toBe('tejas-mk1a');
   });
 
   it('combat weight exceeds empty weight', () => {

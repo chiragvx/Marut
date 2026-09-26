@@ -10,6 +10,7 @@ import {
   ProjectileGuidanceMode,
   type ProjectileState,
   type DetectableEntity,
+  type WeaponProfile,
 } from '../contracts/combat';
 import { Vec3, Quat, clamp } from '../math';
 
@@ -29,6 +30,7 @@ export function updateRadarMissileGuidance(
   missileRot: Readonly<QuatLike>,
   missilePos: Readonly<Vec3Like>,
   target: DetectableEntity | undefined,
+  profile?: WeaponProfile,
 ): void {
   if (projectile.guidance === ProjectileGuidanceMode.Lost) return;
 
@@ -42,7 +44,9 @@ export function updateRadarMissileGuidance(
   const dz = target.pos.z - missilePos.z;
   const rangeToTarget = Math.sqrt(dx * dx + dy * dy + dz * dz);
 
-  if (rangeToTarget > RADAR_MISSILE_ACTIVE_SEEKER_RANGE_M) {
+  const seekerRange = profile?.radar?.activeSeekerRangeM ?? RADAR_MISSILE_ACTIVE_SEEKER_RANGE_M;
+  const seekerHalfAngle = profile?.radar?.activeSeekerHalfAngleRad ?? RADAR_MISSILE_ACTIVE_SEEKER_HALF_ANGLE_RAD;
+  if (rangeToTarget > seekerRange) {
     projectile.guidance = ProjectileGuidanceMode.RadarDatalink;
   } else if (rangeToTarget < 1e-6) {
     projectile.guidance = ProjectileGuidanceMode.RadarActive;
@@ -52,7 +56,7 @@ export function updateRadarMissileGuidance(
     _dirToTarget.y = dy / rangeToTarget;
     _dirToTarget.z = dz / rangeToTarget;
     const angle = Math.acos(clamp(Vec3.dot(_dirToTarget, _missileForwardW), -1, 1));
-    projectile.guidance = angle <= RADAR_MISSILE_ACTIVE_SEEKER_HALF_ANGLE_RAD ? ProjectileGuidanceMode.RadarActive : ProjectileGuidanceMode.Lost;
+    projectile.guidance = angle <= seekerHalfAngle ? ProjectileGuidanceMode.RadarActive : ProjectileGuidanceMode.Lost;
   }
 
   projectile.lastKnownTargetPos.x = target.pos.x;

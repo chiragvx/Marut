@@ -6,11 +6,6 @@
  */
 import { WeaponKind, type Vec3Like } from '../contracts/core';
 import {
-  GUN_HIT_DAMAGE_FRAC,
-  IR_WARHEAD_DAMAGE_FRAC,
-  RADAR_MISSILE_WARHEAD_DAMAGE_FRAC,
-  IR_PROXIMITY_FUSE_RADIUS_M,
-  RADAR_MISSILE_PROXIMITY_FUSE_RADIUS_M,
   PROXIMITY_DAMAGE_FALLOFF_MIN_FRAC,
   EXPLOSION_RADIUS_MISSILE_M,
   ProjectileKind,
@@ -18,6 +13,7 @@ import {
   type PushExplosionEvent,
   type ResolveProjectileHit,
 } from '../contracts/combat';
+import { projectileProfile } from './weaponProfiles';
 import { clamp, lerp } from '../math';
 import { applyHit } from './subsystemDamage';
 
@@ -31,14 +27,6 @@ export const pushExplosionEvent: PushExplosionEvent = (kind, pos: Vec3Like, caus
   });
 };
 
-function warheadFrac(kind: (typeof ProjectileKind)[keyof typeof ProjectileKind]): number {
-  return kind === ProjectileKind.IrMissile ? IR_WARHEAD_DAMAGE_FRAC : RADAR_MISSILE_WARHEAD_DAMAGE_FRAC;
-}
-
-function fuseRadius(kind: (typeof ProjectileKind)[keyof typeof ProjectileKind]): number {
-  return kind === ProjectileKind.IrMissile ? IR_PROXIMITY_FUSE_RADIUS_M : RADAR_MISSILE_PROXIMITY_FUSE_RADIUS_M;
-}
-
 export const resolveProjectileHit: ResolveProjectileHit = (
   result,
   ownerId,
@@ -47,16 +35,18 @@ export const resolveProjectileHit: ResolveProjectileHit = (
   targetDamage,
   rng,
   outEvents,
+  profile,
 ) => {
+  const prof = projectileProfile({ kind, profile });
   let damageFrac: number;
   if (kind === ProjectileKind.Bullet) {
-    damageFrac = GUN_HIT_DAMAGE_FRAC;
+    damageFrac = prof.damageFrac;
   } else if (result.outcome === ProjectileOutcome.DirectHit) {
-    damageFrac = warheadFrac(kind);
+    damageFrac = prof.damageFrac;
   } else {
     // proximity_detonation
-    const falloff = lerp(1.0, PROXIMITY_DAMAGE_FALLOFF_MIN_FRAC, clamp(result.missDistanceM / fuseRadius(kind), 0, 1));
-    damageFrac = warheadFrac(kind) * falloff;
+    const falloff = lerp(1.0, PROXIMITY_DAMAGE_FALLOFF_MIN_FRAC, clamp(result.missDistanceM / prof.proximityFuseRadiusM, 0, 1));
+    damageFrac = prof.damageFrac * falloff;
   }
 
   const weapon = kind === ProjectileKind.Bullet ? WeaponKind.Gun : kind === ProjectileKind.IrMissile ? WeaponKind.IrMissile : WeaponKind.RadarMissile;

@@ -8,32 +8,6 @@
 import type { EntityState, QuatLike, Vec3Like } from '../contracts/core';
 import { EntityKind, NO_ENTITY_ID } from '../contracts/core';
 import {
-  GUN_ROUND_DRAG_COEFF,
-  GUN_ROUND_CROSS_SECTION_M2,
-  GUN_ROUND_MASS_KG,
-  GUN_BULLET_MAX_LIFETIME_SEC,
-  GUN_ARM_DISTANCE_M,
-  IR_MISSILE_DRAG_COEFF,
-  IR_MISSILE_CROSS_SECTION_M2,
-  IR_MISSILE_MASS_KG,
-  IR_MOTOR_BURN_TIME_SEC,
-  IR_MOTOR_THRUST_N,
-  IR_MAX_FLIGHT_TIME_SEC,
-  IR_ARM_DISTANCE_M,
-  IR_PROXIMITY_FUSE_RADIUS_M,
-  IR_PN_GAIN,
-  IR_MAX_G,
-  RADAR_MISSILE_DRAG_COEFF,
-  RADAR_MISSILE_CROSS_SECTION_M2,
-  RADAR_MISSILE_MASS_KG,
-  RADAR_MISSILE_MOTOR_BURN_TIME_SEC,
-  RADAR_MISSILE_MOTOR_THRUST_N,
-  RADAR_MISSILE_MAX_FLIGHT_TIME_SEC,
-  RADAR_MISSILE_ARM_DISTANCE_M,
-  RADAR_MISSILE_PROXIMITY_FUSE_RADIUS_M,
-  RADAR_MISSILE_PN_GAIN,
-  RADAR_MISSILE_MAX_G,
-  RADAR_MISSILE_G_SATURATION_LOST_SEC,
   DEFAULT_AIRCRAFT_HIT_ELLIPSOID_M,
   ProjectileKind,
   ProjectileGuidanceMode,
@@ -51,6 +25,7 @@ import { computePnAccel } from './proportionalNavigation';
 import { updateIrGuidance } from './irMissileSeeker';
 import { updateRadarMissileGuidance } from './radarMissile';
 import { segmentHitsEllipsoid, closestApproachOnSegment } from './hitDetection';
+import { projectileProfile } from './weaponProfiles';
 
 // -----------------------------------------------------------------------------
 // Pool factories (init-time only; allocation is expected/allowed here).
@@ -70,6 +45,7 @@ function freshProjectileState(): ProjectileState {
     lastKnownTargetPos: { x: 0, y: 0, z: 0 },
     lastKnownTargetVel: { x: 0, y: 0, z: 0 },
     gSaturatedSec: 0,
+    profile: undefined,
   };
 }
 
@@ -98,6 +74,7 @@ export const resetProjectile: ResetProjectile = (slot) => {
   slot.lastKnownTargetVel.y = 0;
   slot.lastKnownTargetVel.z = 0;
   slot.gSaturatedSec = 0;
+  slot.profile = undefined;
 };
 
 export const initProjectile: InitProjectile = (slot, spec, _simTimeSec) => {
@@ -121,23 +98,13 @@ export const initProjectile: InitProjectile = (slot, spec, _simTimeSec) => {
   slot.lastKnownTargetVel.y = 0;
   slot.lastKnownTargetVel.z = 0;
   slot.gSaturatedSec = 0;
+  slot.profile = spec.profile;
 };
 
 // -----------------------------------------------------------------------------
 // stepProjectile — per-tick physics + guidance + hit/fuse resolution.
 // -----------------------------------------------------------------------------
 
-function kindPhysics(kind: (typeof ProjectileKind)[keyof typeof ProjectileKind]): {
-  dragCoeff: number; crossSectionM2: number; massKg: number; maxLifetimeSec: number; armDistanceM: number;
-} {
-  if (kind === ProjectileKind.Bullet) {
-    return { dragCoeff: GUN_ROUND_DRAG_COEFF, crossSectionM2: GUN_ROUND_CROSS_SECTION_M2, massKg: GUN_ROUND_MASS_KG, maxLifetimeSec: GUN_BULLET_MAX_LIFETIME_SEC, armDistanceM: GUN_ARM_DISTANCE_M };
-  }
-  if (kind === ProjectileKind.IrMissile) {
-    return { dragCoeff: IR_MISSILE_DRAG_COEFF, crossSectionM2: IR_MISSILE_CROSS_SECTION_M2, massKg: IR_MISSILE_MASS_KG, maxLifetimeSec: IR_MAX_FLIGHT_TIME_SEC, armDistanceM: IR_ARM_DISTANCE_M };
-  }
-  return { dragCoeff: RADAR_MISSILE_DRAG_COEFF, crossSectionM2: RADAR_MISSILE_CROSS_SECTION_M2, massKg: RADAR_MISSILE_MASS_KG, maxLifetimeSec: RADAR_MISSILE_MAX_FLIGHT_TIME_SEC, armDistanceM: RADAR_MISSILE_ARM_DISTANCE_M };
-}
 
 function copyEntityState(src: EntityState, dst: EntityState): void {
   dst.id = src.id;
@@ -237,7 +204,8 @@ function velocityAlignQuat(velX: number, velY: number, velZ: number, out: QuatLi
 
 export const stepProjectile: StepProjectile = (state, projectile, candidates, sampler, env, dtSec, out) => {
   const kind = projectile.kind;
-  const phys = kindPhysics(kind);
+  const prof = projectileProfile(projectile);
+  const phys = { dragCoeff: prof.dragCoeff, crossSectionM2: prof.crossSectionM2, massKg: prof.projectileMassKg, maxLifetimeSec: prof.maxLifetimeSec, armDistanceM: prof.armDistanceM };
 
   const posX = state.pos.x, posY = state.pos.y, posZ = state.pos.z;
   const velX = state.vel.x, velY = state.vel.y, velZ = state.vel.z;
@@ -261,9 +229,9 @@ export const stepProjectile: StepProjectile = (state, projectile, candidates, sa
 
   // 2. Guidance-mode transition (sense).
   if (kind === ProjectileKind.IrMissile) {
-    updateIrGuidance(projectile, state.rot, state.pos, targetEntity, dtSec);
+    updateIrGuidance(projectile, state.rot, state.pos, targetEntity, dtSec, prof);
   } else if (kind === ProjectileKind.RadarMissile) {
-    updateRadarMissileGuidance(projectile, state.rot, state.pos, targetEntity);
+    updateRadarMissileGuidance(projectile, state.rot, state.pos, targetEntity, prof);
   }
 
   // 3. Drag + gravity.
@@ -278,8 +246,8 @@ export const stepProjectile: StepProjectile = (state, projectile, candidates, sa
 
   // 4. Motor thrust (missiles only, while within burn time).
   if (kind !== ProjectileKind.Bullet) {
-    const burnTime = kind === ProjectileKind.IrMissile ? IR_MOTOR_BURN_TIME_SEC : RADAR_MISSILE_MOTOR_BURN_TIME_SEC;
-    const thrustN = kind === ProjectileKind.IrMissile ? IR_MOTOR_THRUST_N : RADAR_MISSILE_MOTOR_THRUST_N;
+    const burnTime = prof.motorBurnSec;
+    const thrustN = prof.motorThrustN;
     if (projectile.ageSec < burnTime) {
       projectile.fuelFracRemaining = 1;
       if (speed > 1e-6) {
@@ -301,8 +269,8 @@ export const stepProjectile: StepProjectile = (state, projectile, candidates, sa
   if (guidanceActive) {
     const tPos = targetEntity ? targetEntity.pos : projectile.lastKnownTargetPos;
     const tVel = targetEntity ? targetEntity.vel : projectile.lastKnownTargetVel;
-    const gain = kind === ProjectileKind.IrMissile ? IR_PN_GAIN : RADAR_MISSILE_PN_GAIN;
-    const maxG = kind === ProjectileKind.IrMissile ? IR_MAX_G : RADAR_MISSILE_MAX_G;
+    const gain = prof.pnGain;
+    const maxG = prof.maxG;
     const maxAccel = maxG * env.gravityMps2;
 
     _missilePosScratch.x = posX; _missilePosScratch.y = posY; _missilePosScratch.z = posZ;
@@ -316,7 +284,7 @@ export const stepProjectile: StepProjectile = (state, projectile, candidates, sa
     } else {
       projectile.gSaturatedSec = 0;
     }
-    if (kind === ProjectileKind.RadarMissile && projectile.gSaturatedSec >= RADAR_MISSILE_G_SATURATION_LOST_SEC) {
+    if (kind === ProjectileKind.RadarMissile && projectile.gSaturatedSec >= (prof.radar?.gSaturationLostSec ?? Infinity)) {
       projectile.guidance = ProjectileGuidanceMode.Lost;
     } else {
       computePnAccel(_missilePosScratch, _missileVelScratch, tPos, tVel, gain, maxAccel, _pnAccel);
@@ -377,7 +345,7 @@ export const stepProjectile: StepProjectile = (state, projectile, candidates, sa
     }
 
     if (kind !== ProjectileKind.Bullet) {
-      const fuseRadius = kind === ProjectileKind.IrMissile ? IR_PROXIMITY_FUSE_RADIUS_M : RADAR_MISSILE_PROXIMITY_FUSE_RADIUS_M;
+      const fuseRadius = prof.proximityFuseRadiusM;
       let bestProx: DetectableEntity | undefined;
       let bestProxDist = Infinity;
       for (let i = 0; i < candidates.length; i++) {

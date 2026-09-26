@@ -244,6 +244,92 @@ export const THREAT_SCORE_WEIGHTS = {
 } as const;
 
 // -----------------------------------------------------------------------------
+// 6b. Weapon and radar profiles (data-driven weapons: one profile per store type,
+//     from src/catalog; the *_ constants above are the defaults the generic
+//     profiles in src/combat/weaponProfiles.ts are built from).
+// -----------------------------------------------------------------------------
+
+/** IR seeker performance (heat-seeking missiles). */
+export interface IrSeekerProfile {
+  /** Seeker must be within this of the target to start a lock, rad. */
+  acquireHalfAngleRad: number;
+  /** Seeker gimbal limit once tracking, rad. */
+  trackHalfAngleRad: number;
+  gimbalRateRadS: number;
+  lockTimeSec: number;
+  /** Lock-on range against a non-afterburning fighter, tail-on and head-on, m. */
+  detectRangeTailOnM: number;
+  detectRangeHeadOnM: number;
+  afterburnerRangeMult: number;
+}
+
+/** Active-radar seeker / datalink performance (radar-guided missiles). */
+export interface RadarSeekerProfile {
+  maxRangeM: number;
+  /** The missile's own seeker takes over inside this range, m. */
+  activeSeekerRangeM: number;
+  activeSeekerHalfAngleRad: number;
+  /** Seconds of saturated guidance before the shot is judged lost. */
+  gSaturationLostSec: number;
+}
+
+/**
+ * One weapon type (a store): carriage, projectile physics, guidance, fuzing and damage. Guns and
+ * missiles share the shape; guns ignore the motor/guidance fields, missiles the gun ones.
+ */
+export interface WeaponProfile {
+  /** Catalogue id, e.g. 'gsh-23', 'r-73', 'derby'. */
+  id: string;
+  /** Display name, e.g. 'R-73'. */
+  name: string;
+  kind: WeaponKind;
+  /** Mass and drag area added to the aircraft per round/missile loaded (drag 0 for internal gun ammo). */
+  carriageMassKg: number;
+  carriageDragAreaM2: number;
+  /** In-flight projectile. */
+  projectileMassKg: number;
+  dragCoeff: number;
+  crossSectionM2: number;
+  maxLifetimeSec: number;
+  armDistanceM: number;
+  /** Gun: muzzle velocity. Missile: ejection speed off the rail. m/s. */
+  launchSpeedMps: number;
+  /** Gun only: seconds between rounds, and 1-sigma dispersion (mrad). */
+  roundIntervalSec: number;
+  dispersionMrad: number;
+  /** Missiles only. */
+  motorBurnSec: number;
+  motorThrustN: number;
+  pnGain: number;
+  maxG: number;
+  proximityFuseRadiusM: number;
+  /** Structure fraction removed by a hit (gun: per round; missile: warhead, before proximity falloff). */
+  damageFrac: number;
+  minLaunchRangeM: number;
+  ir?: IrSeekerProfile;
+  radar?: RadarSeekerProfile;
+}
+
+/** An aircraft's fire-control radar. */
+export interface RadarProfile {
+  id: string;
+  name: string;
+  /** Detection range against a target of referenceRcsM2, m (range scales with RCS^(1/4)). */
+  referenceRangeM: number;
+  referenceRcsM2: number;
+  maxRangeM: number;
+  scanAzHalfAngleRad: number;
+  scanElHalfAngleRad: number;
+  trackHalfAngleRad: number;
+  lockTimeSec: number;
+  lockBreakGraceSec: number;
+  notchClosureMps: number;
+  notchMaxRangeM: number;
+  /** Simultaneous tracks. */
+  maxTracks: number;
+}
+
+// -----------------------------------------------------------------------------
 // 7. Weapon stations & loadout
 // -----------------------------------------------------------------------------
 
@@ -255,10 +341,14 @@ export interface WeaponStationSpec {
   weapon: WeaponKind;
   /** Rounds (gun) or missiles (ir_missile/radar_missile) carried at this station at mission start. */
   maxCount: number;
+  /** The store's profile. Absent = the generic profile for `weapon` (src/combat/weaponProfiles.ts). */
+  profile?: WeaponProfile;
 }
 
 export interface WeaponsLoadout {
   stations: readonly WeaponStationSpec[];
+  /** The aircraft's radar. Absent = the generic radar (the RADAR_* constants). */
+  radar?: RadarProfile;
 }
 
 export interface WeaponStationRuntime {
@@ -267,6 +357,9 @@ export interface WeaponStationRuntime {
   weapon: WeaponKind;
   /** Rounds/missiles remaining at this station right now. */
   count: number;
+  /** Rounds/missiles this station holds when full (re-arming refills to this). */
+  maxCount: number;
+  profile: WeaponProfile;
 }
 
 /** Mutable holder for one mulberry32 PRNG stream's state (a uint32, per 00-architecture.md's determinism rule — src/combat's real implementation advances it via src/math's `mulberry32`; this contract only needs the storage shape). */
@@ -278,6 +371,8 @@ export type CreateCombatRngState = (subSeed: number) => CombatRngState;
 
 export interface WeaponsState {
   stations: WeaponStationRuntime[];
+  /** This aircraft's radar. */
+  radar: RadarProfile;
   selectedWeapon: WeaponKind;
   /** Seconds until the gun may fire its next round; counts down, reset to GUN_ROUND_INTERVAL_SEC on every round fired. */
   gunCooldownSec: number;
@@ -456,7 +551,7 @@ export type UpdateSensors = (
 ) => void;
 
 /** Pure radar-range-equation formula (r^4 law), exposed standalone for unit testing: `RADAR_REFERENCE_RANGE_M * (rcsM2 / RADAR_REFERENCE_RCS_M2) ** 0.25`, clamped to `[0, RADAR_MAX_RANGE_M]`. */
-export type RadarDetectionRangeM = (rcsM2: number) => number;
+export type RadarDetectionRangeM = (rcsM2: number, radar?: RadarProfile) => number;
 
 /**
  * Pure IR heat-signature detection-range formula, exposed standalone for unit
@@ -465,7 +560,7 @@ export type RadarDetectionRangeM = (rcsM2: number) => number;
  * directly away / tail-on-hot, PI = target approaching head-on/cold) — see
  * 07-combat.md §4.6 for the exact lerp and the afterburner multiplier.
  */
-export type IrDetectionRangeM = (aspectRad: number, targetAfterburnerOn: boolean) => number;
+export type IrDetectionRangeM = (aspectRad: number, targetAfterburnerOn: boolean, seeker?: IrSeekerProfile) => number;
 
 // -----------------------------------------------------------------------------
 // 10. Weapon firing
@@ -489,6 +584,8 @@ export interface ProjectileSpawnRequest {
   velWorld: Vec3Like;
   /** Missiles only; `undefined` for a bullet. */
   targetId?: EntityId;
+  /** The fired store's profile. Absent = the generic profile for `kind`. */
+  profile?: WeaponProfile;
 }
 
 /**
@@ -560,6 +657,8 @@ export interface ProjectileState {
   lastKnownTargetVel: Vec3Like;
   /** Continuous seconds the PN command has been saturated at the kind's max-G limit; drives the `RadarActive`/`IrHoming` -> `Lost` transition alongside the seeker-FOV check. */
   gSaturatedSec: number;
+  /** The fired store's profile (set by initProjectile). Absent = the generic profile for `kind`. */
+  profile?: WeaponProfile;
 }
 
 export type CreateProjectilePool = (size: number) => ProjectileState[];
@@ -754,4 +853,6 @@ export type ResolveProjectileHit = (
   targetDamage: DamageState,
   rng: CombatRngState,
   outEvents: SimEvent[],
+  /** The projectile's profile (damage, fuse radius). Absent = the generic profile for `kind`. */
+  profile?: WeaponProfile,
 ) => ResolveProjectileHitResult;

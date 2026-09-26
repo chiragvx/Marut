@@ -4,7 +4,7 @@
  */
 
 // 3.2 Weapon stations & loadout
-export { createWeaponsState, writeCombatStatus, createCombatRngState, fireWeapons, computeStoresLoad, STORE_MASS_KG, STORE_DRAG_AREA_M2 } from './weaponStation';
+export { createWeaponsState, writeCombatStatus, createCombatRngState, fireWeapons, computeStoresLoad } from './weaponStation';
 
 // 3.3 Damage
 export { createDamageState, applyHit, rollSubsystemHit, subsystemHitFromU01 } from './subsystemDamage';
@@ -29,3 +29,4 @@ export { pushExplosionEvent, resolveProjectileHit } from './effectsEvents';
 
 // Re-export every constant/type from contracts/combat so consumers need only this barrel.
 export * from '../contracts/combat';
+export { GENERIC_GUN_PROFILE, GENERIC_IR_MISSILE_PROFILE, GENERIC_RADAR_MISSILE_PROFILE, GENERIC_RADAR_PROFILE, defaultWeaponProfile, projectileProfile } from './weaponProfiles';

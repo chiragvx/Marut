@@ -51,7 +51,7 @@ function zeroTelemetry(): AircraftTelemetry {
 /** Deterministic fake: integrates pos += vel*dt, leaves everything else untouched. */
 function makeIntegratingFlightModel(): FlightModelPort {
   return {
-    hasDefinition: (id: string) => id === 'tejas-mk1',
+    hasDefinition: (id: string) => id === 'tejas-mk1a',
     step(_defId: string, state: EntityState, _damage: DamageState, _inputs: PilotInputs, _env: SimEnvironment, dtSec: number, out: EntityState): void {
       out.pos.x = state.pos.x + state.vel.x * dtSec;
       out.pos.y = state.pos.y + state.vel.y * dtSec;
@@ -139,7 +139,7 @@ describe('World', () => {
   it('warning edge behaviour: exactly one Stall warning event fires, on the tick it becomes active', () => {
     let telemetryCalls = 0;
     const flightModel: FlightModelPort = {
-      hasDefinition: (id) => id === 'tejas-mk1',
+      hasDefinition: (id) => id === 'tejas-mk1a',
       step: (_defId, state, _damage, _inputs, _env, dtSec, out) => {
         out.pos.x = state.pos.x + state.vel.x * dtSec;
       },
@@ -207,7 +207,7 @@ describe('World', () => {
       aiFlights: [
         {
           id: 'bandit-flight',
-          aircraftId: 'tejas-mk1',
+          aircraftId: 'tejas-mk1a',
           team: 1,
           difficulty: 'veteran',
           startPos: { x: 2000, y: 1000, z: 0 },
@@ -231,7 +231,7 @@ describe('World', () => {
     let lastId: EntityId = NO_ENTITY_ID;
     expect(() => {
       for (let i = 0; i < 33; i++) {
-        lastId = world.spawnEntity({ kind: 'aircraft', team: 0, pos: { x: 0, y: 1000, z: 0 }, headingRad: 0, aircraftDefId: 'tejas-mk1' });
+        lastId = world.spawnEntity({ kind: 'aircraft', team: 0, pos: { x: 0, y: 1000, z: 0 }, headingRad: 0, aircraftDefId: 'tejas-mk1a' });
       }
     }).not.toThrow();
     expect(lastId).toBe(NO_ENTITY_ID);
@@ -309,7 +309,7 @@ describe('World', () => {
       const mission: Mission = {
         ...minimalMission(),
         aiFlights: [
-          { id: 'bandit-1', aircraftId: 'tejas-mk1', team: 1, difficulty: 'veteran', startAirportId: 'rangpur-afb', startRunwayId: '06', startSpeedMps: 0, count: 1 },
+          { id: 'bandit-1', aircraftId: 'tejas-mk1a', team: 1, difficulty: 'veteran', startAirportId: 'rangpur-afb', startRunwayId: '06', startSpeedMps: 0, count: 1 },
         ],
       };
       world.loadMission(mission);
@@ -353,7 +353,7 @@ describe('World', () => {
     /** Unlike makeIntegratingFlightModel, exposes state.pos.y as telemetry.altAglM so tests can drive it directly via velocity. */
     function makeFallingFlightModel(): FlightModelPort {
       return {
-        hasDefinition: (id: string) => id === 'tejas-mk1',
+        hasDefinition: (id: string) => id === 'tejas-mk1a',
         step(_defId: string, state: EntityState, _damage: DamageState, _inputs: PilotInputs, _env: SimEnvironment, dtSec: number, out: EntityState): void {
           out.pos.x = state.pos.x + state.vel.x * dtSec;
           out.pos.y = state.pos.y + state.vel.y * dtSec;

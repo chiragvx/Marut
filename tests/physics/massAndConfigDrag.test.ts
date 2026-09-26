@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { tejasDefinition } from '../../src/aircraft';
 import { stepAircraft } from '../../src/physics';
 import { aircraftMassKg } from '../../src/physics/integrator';
-import { computeStoresLoad, STORE_MASS_KG } from '../../src/combat';
+import { computeStoresLoad, GENERIC_GUN_PROFILE, GENERIC_IR_MISSILE_PROFILE, GENERIC_RADAR_MISSILE_PROFILE } from '../../src/combat';
 import { makeTrimSeedState, makeFullHealthDamageState, buildTrimEnvironment } from '../../tools/lib/trimSolver';
 import { SIM_DT_SEC, type PilotInputs, type EntityState } from '../../src/contracts/core';
 
@@ -50,18 +50,18 @@ describe('computeStoresLoad', () => {
   it('sums mass and drag of what is still loaded, and drops as weapons are used', () => {
     const state = {
       stations: [
-        { hardpointId: 'gun', posBodyM: { x: 0, y: 0, z: 0 }, weapon: 'gun' as const, count: 100 },
-        { hardpointId: 'l', posBodyM: { x: 0, y: 0, z: 0 }, weapon: 'ir_missile' as const, count: 2 },
-        { hardpointId: 'r', posBodyM: { x: 0, y: 0, z: 0 }, weapon: 'radar_missile' as const, count: 1 },
+        { hardpointId: 'gun', posBodyM: { x: 0, y: 0, z: 0 }, weapon: 'gun' as const, count: 100, maxCount: 100, profile: GENERIC_GUN_PROFILE },
+        { hardpointId: 'l', posBodyM: { x: 0, y: 0, z: 0 }, weapon: 'ir_missile' as const, count: 2, maxCount: 2, profile: GENERIC_IR_MISSILE_PROFILE },
+        { hardpointId: 'r', posBodyM: { x: 0, y: 0, z: 0 }, weapon: 'radar_missile' as const, count: 1, maxCount: 1, profile: GENERIC_RADAR_MISSILE_PROFILE },
       ],
     };
     const out = { massKg: 0, dragAreaM2: 0 };
     computeStoresLoad(state, out);
-    expect(out.massKg).toBeCloseTo(100 * STORE_MASS_KG.gun + 2 * STORE_MASS_KG.ir_missile + STORE_MASS_KG.radar_missile, 6);
+    expect(out.massKg).toBeCloseTo(100 * GENERIC_GUN_PROFILE.carriageMassKg + 2 * GENERIC_IR_MISSILE_PROFILE.carriageMassKg + GENERIC_RADAR_MISSILE_PROFILE.carriageMassKg, 6);
     const full = { ...out };
     state.stations[1]!.count = 1; // one IR missile launched
     computeStoresLoad(state, out);
-    expect(out.massKg).toBeCloseTo(full.massKg - STORE_MASS_KG.ir_missile, 6);
+    expect(out.massKg).toBeCloseTo(full.massKg - GENERIC_IR_MISSILE_PROFILE.carriageMassKg, 6);
     expect(out.dragAreaM2).toBeLessThan(full.dragAreaM2);
   });
 });

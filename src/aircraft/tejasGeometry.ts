@@ -6,7 +6,8 @@
  * `meanChordM = wingAreaM2 / wingSpanM` (the exact formula the spec cites).
  */
 import type { Vec3Like } from '../contracts/core';
-import type { Hardpoint, GearDefinition, FcsLimits } from '../contracts/aircraft';
+import type { Hardpoint, GearDefinition, FcsLimits, StationDef, LoadoutPreset, AircraftSensors, AircraftSignature } from '../contracts/aircraft';
+import { FUEL_TANKS, storeKind } from '../catalog/weapons';
 
 // --- Mass / fuel (section 5.1) ---
 export const emptyMassKg = 6560;
@@ -19,7 +20,7 @@ export const massKg = 8500;
  * 1200 L tank. 1200 L of Jet A-1/JP-5 at ~0.80 kg/L = 960 kg; ~140 kg empty; drag area ~0.12 m^2,
  * typical of a large fighter centreline/wing tank with pylon. Two full tanks add ~2200 kg.
  */
-export const dropTank = { capacityKg: 960, emptyMassKg: 140, dragAreaM2: 0.12 } as const;
+export const dropTank = { capacityKg: FUEL_TANKS['tank-1200l']!.capacityKg, emptyMassKg: FUEL_TANKS['tank-1200l']!.emptyMassKg, dragAreaM2: FUEL_TANKS['tank-1200l']!.dragAreaM2 } as const;
 
 // --- Inertia tensor, body-frame about CG, kg*m^2 (section 5.1) ---
 export const inertiaBodyKgM2 = {
@@ -40,16 +41,69 @@ export const wingSpanM = 8.2;
 /** wingAreaM2 / wingSpanM, per section 5.1's simplified rectangular-reference MAC approximation. */
 export const meanChordM = wingAreaM2 / wingSpanM;
 
-// --- Hardpoints (section 5.1): seven total, all four Hardpoint.type values represented. ---
-export const hardpoints: readonly Hardpoint[] = [
-  { id: 'gun-1', posBodyM: { x: 3.5, y: -0.2, z: 0.3 }, type: 'gun' },
-  { id: 'wingtip-l', posBodyM: { x: -0.5, y: 0, z: -4.0 }, type: 'ir_missile' },
-  { id: 'wingtip-r', posBodyM: { x: -0.5, y: 0, z: 4.0 }, type: 'ir_missile' },
-  { id: 'pylon-outer-l', posBodyM: { x: -0.3, y: -0.3, z: -3.0 }, type: 'radar_missile' },
-  { id: 'pylon-outer-r', posBodyM: { x: -0.3, y: -0.3, z: 3.0 }, type: 'radar_missile' },
-  { id: 'pylon-inner-l', posBodyM: { x: -0.1, y: -0.3, z: -1.8 }, type: 'fuel_tank' },
-  { id: 'pylon-inner-r', posBodyM: { x: -0.1, y: -0.3, z: 1.8 }, type: 'fuel_tank' },
+// --- Weapon stations: the Tejas's eight hardpoints (three under each wing, the centreline, one
+// under the port intake for a pod) and the internal GSh-23. The Tejas has no wingtip rails: close-
+// combat missiles go on the outboard pylons, BVR missiles on the middle ones, wing tanks on the wet
+// inboard pylons, a 725 L tank on the (wet) centreline.
+export const stations: readonly StationDef[] = [
+  { id: 'gun', posBodyM: { x: 3.5, y: -0.2, z: 0.3 }, accepts: ['gsh-23'], maxCount: 220 },
+  { id: 'wing-outer-l', posBodyM: { x: -0.9, y: -0.3, z: -3.3 }, accepts: ['r-73', 'derby'], maxCount: 2 },
+  { id: 'wing-outer-r', posBodyM: { x: -0.9, y: -0.3, z: 3.3 }, accepts: ['r-73', 'derby'], maxCount: 2 },
+  { id: 'wing-mid-l', posBodyM: { x: -0.5, y: -0.35, z: -2.5 }, accepts: ['derby', 'r-73'], maxCount: 2 },
+  { id: 'wing-mid-r', posBodyM: { x: -0.5, y: -0.35, z: 2.5 }, accepts: ['derby', 'r-73'], maxCount: 2 },
+  { id: 'wing-inner-l', posBodyM: { x: -0.1, y: -0.35, z: -1.8 }, accepts: ['tank-1200l', 'derby'], maxCount: 1 },
+  { id: 'wing-inner-r', posBodyM: { x: -0.1, y: -0.35, z: 1.8 }, accepts: ['tank-1200l', 'derby'], maxCount: 1 },
+  { id: 'centreline', posBodyM: { x: 0.2, y: -0.9, z: 0 }, accepts: ['tank-725l'], maxCount: 1 },
+  { id: 'intake-pod', posBodyM: { x: 1.2, y: -0.8, z: -0.5 }, accepts: [], maxCount: 1 },
 ];
+
+/**
+ * Store fits. "CAP (legacy)" is the load the sim has always flown (R-73 and Derby on twin rails,
+ * two wing tanks); realistic Mk1A fits (twin ASRAAM + Astra) arrive with the weapons work.
+ */
+export const loadouts: readonly LoadoutPreset[] = [
+  {
+    id: 'cap-legacy',
+    name: 'CAP (legacy): 4x R-73, 4x Derby, 2x 1200 L',
+    fit: {
+      gun: { store: 'gsh-23', count: 220 },
+      'wing-outer-l': { store: 'r-73', count: 2 },
+      'wing-outer-r': { store: 'r-73', count: 2 },
+      'wing-mid-l': { store: 'derby', count: 2 },
+      'wing-mid-r': { store: 'derby', count: 2 },
+      'wing-inner-l': { store: 'tank-1200l', count: 1 },
+      'wing-inner-r': { store: 'tank-1200l', count: 1 },
+    },
+  },
+];
+export const defaultLoadoutId = 'cap-legacy';
+
+/** The default loadout as the flight model's Hardpoint list (stores' kinds from the catalogue). */
+export const hardpoints: readonly Hardpoint[] = hardpointsFor(stations, loadouts.find((l) => l.id === defaultLoadoutId)!);
+
+export function hardpointsFor(st: readonly StationDef[], loadout: LoadoutPreset): Hardpoint[] {
+  const out: Hardpoint[] = [];
+  for (const s of st) {
+    const fit = loadout.fit[s.id];
+    if (!fit || fit.count <= 0) continue;
+    const kind = storeKind(fit.store);
+    if (kind) out.push({ id: s.id, posBodyM: s.posBodyM, type: kind });
+  }
+  return out;
+}
+
+/** Sensors and self-protection (public data: EL/M-2052 AESA, IFF, DARE Unified EW Suite). */
+export const sensors: AircraftSensors = {
+  radar: 'elm-2052',
+  iff: true,
+  rwr: 'dare-uews',
+  maws: true,
+  jammer: 'dare-uews-spj',
+  countermeasures: { chaff: 60, flares: 30 },
+};
+
+/** Small single-engine delta: low frontal RCS; hit ellipsoid ~13.2 m long, 4.4 m tall, 8.2 m span. */
+export const signature: AircraftSignature = { rcsNoseOnM2: 2.0, rcsBroadsideM2: 6.0, hitEllipsoidBodyM: { x: 6.6, y: 2.2, z: 4.1 } };
 
 // --- Landing gear, three legs (section 5.4). ---
 export const gear: readonly GearDefinition[] = [

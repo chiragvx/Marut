@@ -15,6 +15,8 @@ import {
   type IrDetectionRangeM,
   type ProjectileState,
   type DetectableEntity,
+  type IrSeekerProfile,
+  type WeaponProfile,
 } from '../contracts/combat';
 import { Vec3, Quat, clamp, lerp } from '../math';
 
@@ -24,10 +26,10 @@ import { Vec3, Quat, clamp, lerp } from '../math';
  * observer: 0 = target flying directly away (tail-on/hot, longest range),
  * PI = target approaching head-on (cold, shortest range).
  */
-export const irDetectionRangeM: IrDetectionRangeM = (aspectRad, targetAfterburnerOn) => {
+export const irDetectionRangeM: IrDetectionRangeM = (aspectRad, targetAfterburnerOn, seeker?: IrSeekerProfile) => {
   const t = clamp(aspectRad / Math.PI, 0, 1);
-  const base = lerp(IR_BASE_DETECT_RANGE_TAIL_ON_M, IR_BASE_DETECT_RANGE_HEAD_ON_M, t);
-  return targetAfterburnerOn ? base * IR_AFTERBURNER_RANGE_MULT : base;
+  const base = lerp(seeker?.detectRangeTailOnM ?? IR_BASE_DETECT_RANGE_TAIL_ON_M, seeker?.detectRangeHeadOnM ?? IR_BASE_DETECT_RANGE_HEAD_ON_M, t);
+  return targetAfterburnerOn ? base * (seeker?.afterburnerRangeMult ?? IR_AFTERBURNER_RANGE_MULT) : base;
 };
 
 // Scratch (allocation-free).
@@ -79,6 +81,7 @@ export function updateIrGuidance(
   missilePos: Readonly<Vec3Like>,
   target: DetectableEntity | undefined,
   dtSec: number,
+  profile?: WeaponProfile,
 ): void {
   if (projectile.guidance === ProjectileGuidanceMode.Lost) return;
 
@@ -91,11 +94,11 @@ export function updateIrGuidance(
   Vec3.normalize(_relPos, _relPos);
   Quat.rotateInverse(missileRot, _relPos, _trueLosBody);
 
-  const maxStepRad = IR_SEEKER_GIMBAL_RATE_MAX_RAD_S * dtSec;
+  const maxStepRad = (profile?.ir?.gimbalRateRadS ?? IR_SEEKER_GIMBAL_RATE_MAX_RAD_S) * dtSec;
   rotateTowards(projectile.seekerLosDirBody, _trueLosBody, maxStepRad, projectile.seekerLosDirBody);
 
   const gimbalAngle = Math.acos(clamp(projectile.seekerLosDirBody.x, -1, 1));
-  projectile.guidance = gimbalAngle > IR_SEEKER_TRACK_HALF_ANGLE_RAD ? ProjectileGuidanceMode.Lost : ProjectileGuidanceMode.IrHoming;
+  projectile.guidance = gimbalAngle > (profile?.ir?.trackHalfAngleRad ?? IR_SEEKER_TRACK_HALF_ANGLE_RAD) ? ProjectileGuidanceMode.Lost : ProjectileGuidanceMode.IrHoming;
 
   projectile.lastKnownTargetPos.x = target.pos.x;
   projectile.lastKnownTargetPos.y = target.pos.y;

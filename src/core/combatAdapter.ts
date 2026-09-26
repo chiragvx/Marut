@@ -14,11 +14,12 @@
  */
 
 import { EntityKind, NO_ENTITY_ID } from '../contracts/core';
-import type { Contact, EntityId, EntityState, SimEvent } from '../contracts/core';
+import type { Contact, EntityId, EntityState, SimEvent, Vec3Like } from '../contracts/core';
 import type { CombatPort, CombatTickContext, EventQueue } from '../contracts/sim';
 import type { CombatPortWithContacts, CombatPortWithRearm, WorldCombatTickContext } from './combatContext';
 import { subSeed } from './seed';
-import { tejasDefinition } from '../aircraft';
+import { getAircraftDefinition, getLoadout } from '../aircraft';
+import { RADARS, WEAPONS } from '../catalog';
 import {
   createWeaponsState,
   updateSensors,
@@ -42,6 +43,7 @@ import type {
   CombatEnvironment,
   DetectableEntity,
   ProjectileSpawnRequest,
+  RadarSignature,
   ProjectileState,
   WeaponsLoadout,
   WeaponsState,
@@ -49,30 +51,34 @@ import type {
 } from '../contracts/combat';
 import type { WeaponKind } from '../contracts/core';
 
-/** Built once from `tejasDefinition.hardpoints` (10-core-worker.md section 9 item 11's exact per-type maxCount division rule). This project has exactly one AircraftDefinition, so one static loadout suffices. */
-function buildTejasLoadout(): WeaponsLoadout {
-  const hardpoints = tejasDefinition.hardpoints.filter((h) => h.type !== 'fuel_tank');
-  const countByType = new Map<string, number>();
-  for (const h of hardpoints) countByType.set(h.type, (countByType.get(h.type) ?? 0) + 1);
-  const maxAmmoByType: Record<string, number> = {
-    gun: GUN_MAX_AMMO_ROUNDS,
-    ir_missile: IR_MAX_AMMO_MISSILES,
-    radar_missile: RADAR_MISSILE_MAX_AMMO,
-  };
-  const stations: WeaponStationSpec[] = hardpoints.map((h) => {
-    const typeCount = countByType.get(h.type) ?? 1;
-    const totalAmmo = maxAmmoByType[h.type] ?? 0;
-    return {
-      hardpointId: h.id,
-      posBodyM: h.posBodyM,
-      weapon: h.type as WeaponKind,
-      maxCount: Math.floor(totalAmmo / typeCount),
-    };
-  });
-  return { stations };
+/**
+ * An aircraft type's weapons: its default loadout's weapon stations (stores and counts from the
+ * catalogue), and its radar. Cached per type id. Unknown types / types without stations fall back
+ * to the generic profiles (one gun station).
+ */
+const loadoutCache = new Map<string, WeaponsLoadout>();
+function loadoutFor(defId: string | undefined, loadoutId?: string): WeaponsLoadout {
+  const key = `${defId ?? ''}|${loadoutId ?? ''}`;
+  const cached = loadoutCache.get(key);
+  if (cached) return cached;
+  const def = defId ? getAircraftDefinition(defId) : undefined;
+  const preset = def ? getLoadout(def, loadoutId) : undefined;
+  const stations: WeaponStationSpec[] = [];
+  if (def?.stations && preset) {
+    for (const st of def.stations) {
+      const fit = preset.fit[st.id];
+      const profile = fit ? WEAPONS[fit.store] : undefined;
+      if (!fit || !profile || fit.count <= 0) continue;
+      stations.push({ hardpointId: st.id, posBodyM: st.posBodyM, weapon: profile.kind, maxCount: fit.count, profile });
+    }
+  } else {
+    stations.push({ hardpointId: 'gun', posBodyM: { x: 3.5, y: -0.2, z: 0.3 }, weapon: 'gun', maxCount: GUN_MAX_AMMO_ROUNDS });
+  }
+  const radar = def?.sensors?.radar ? RADARS[def.sensors.radar] : undefined;
+  const out: WeaponsLoadout = radar ? { stations, radar } : { stations };
+  loadoutCache.set(key, out);
+  return out;
 }
-
-const TEJAS_LOADOUT = buildTejasLoadout();
 
 /** Fixed default combat environment (module 10 does not currently thread per-projectile atmosphere sampling through — see the class-level note below); acceptable simplification given no aircraft/module needs projectile-altitude-varying air density for gameplay purposes yet. */
 function defaultCombatEnvironment(): CombatEnvironment {
@@ -80,6 +86,19 @@ function defaultCombatEnvironment(): CombatEnvironment {
 }
 
 const EMPTY_CONTACTS: readonly Contact[] = [];
+
+/** An aircraft type's radar signature and hit ellipsoid (cached). */
+const signatureCache = new Map<string, { radar: RadarSignature; hitEllipsoidBodyM: Vec3Like } | null>();
+function signatureFor(defId: string | undefined): { radar: RadarSignature; hitEllipsoidBodyM: Vec3Like } | undefined {
+  if (!defId) return undefined;
+  let sig = signatureCache.get(defId);
+  if (sig === undefined) {
+    const s = getAircraftDefinition(defId)?.signature;
+    sig = s ? { radar: { noseOnRcsM2: s.rcsNoseOnM2, broadsideRcsM2: s.rcsBroadsideM2 }, hitEllipsoidBodyM: s.hitEllipsoidBodyM } : null;
+    signatureCache.set(defId, sig);
+  }
+  return sig ?? undefined;
+}
 
 export function createCombatAdapter(): CombatPort & CombatPortWithContacts & CombatPortWithRearm {
   const weaponsStates = new Map<EntityId, WeaponsState>();
@@ -120,10 +139,9 @@ export function createCombatAdapter(): CombatPort & CombatPortWithContacts & Com
       if (!w) return;
       const f = Math.max(0, Math.min(1, frac));
       for (let i = 0; i < w.stations.length; i++) {
-        const spec = TEJAS_LOADOUT.stations[i];
-        if (!spec) continue;
-        const target = f >= 1 ? spec.maxCount : Math.floor(spec.maxCount * f);
-        if (w.stations[i]!.count < target) w.stations[i]!.count = target;
+        const st = w.stations[i]!;
+        const target = f >= 1 ? st.maxCount : Math.floor(st.maxCount * f);
+        if (st.count < target) st.count = target;
       }
     },
 
@@ -132,8 +150,8 @@ export function createCombatAdapter(): CombatPort & CombatPortWithContacts & Com
       if (!w) return 1;
       let f = 1;
       for (let i = 0; i < w.stations.length; i++) {
-        const spec = TEJAS_LOADOUT.stations[i];
-        if (spec && spec.maxCount > 0) f = Math.min(f, w.stations[i]!.count / spec.maxCount);
+        const st = w.stations[i]!;
+        if (st.maxCount > 0) f = Math.min(f, st.count / st.maxCount);
       }
       return f;
     },
@@ -165,6 +183,14 @@ export function createCombatAdapter(): CombatPort & CombatPortWithContacts & Com
         d.rot.z = e.rot.z;
         d.rot.w = e.rot.w;
         d.alive = e.alive;
+        const sig = e.kind === EntityKind.Aircraft ? signatureFor(ctx.getAircraftDefId(e.id)) : undefined;
+        if (sig) {
+          d.radarSignature = sig.radar;
+          d.hitEllipsoidBodyM = sig.hitEllipsoidBodyM;
+        } else {
+          d.radarSignature = undefined;
+          d.hitEllipsoidBodyM = undefined;
+        }
         allEntitiesScratch[i] = d;
       }
       const allEntities = allEntitiesScratch;
@@ -174,7 +200,7 @@ export function createCombatAdapter(): CombatPort & CombatPortWithContacts & Com
         const e = ctx.liveAt(i);
         if (e.kind !== EntityKind.Aircraft) continue;
         if (weaponsStates.has(e.id)) continue;
-        weaponsStates.set(e.id, createWeaponsState(TEJAS_LOADOUT, subSeed(ctx.missionSeed, 'combat:' + e.id)));
+        weaponsStates.set(e.id, createWeaponsState(loadoutFor(ctx.getAircraftDefId(e.id), ctx.getLoadoutId?.(e.id)), subSeed(ctx.missionSeed, 'combat:' + e.id)));
       }
       // Drop WeaponsState for aircraft no longer live (reused Set, cleared
       // and refilled each tick rather than `new Set()` + `Array.from()`).
@@ -293,7 +319,7 @@ export function createCombatAdapter(): CombatPort & CombatPortWithContacts & Com
               const wstate = weaponsStates.get(projectile.ownerId);
               const rng = wstate ? wstate.rng : { seedState: subSeed(ctx.missionSeed, 'combat:hit:' + state.id) };
               hitEventsScratch.length = 0;
-              resolveProjectileHit(result, projectile.ownerId, projectile.kind, targetState, targetDamage, rng, hitEventsScratch);
+              resolveProjectileHit(result, projectile.ownerId, projectile.kind, targetState, targetDamage, rng, hitEventsScratch, projectile.profile);
               for (const ev of hitEventsScratch) eventsOut.push(ev);
             }
           }

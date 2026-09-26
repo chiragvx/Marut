@@ -674,6 +674,10 @@ export interface MissionPlayerStart {
   runwayId?: string;
   /** Start parked on this parking spot of `airportId` (e.g. inside a hardened shelter), nose out, stationary. Takes precedence over runwayId. */
   parkingSpotId?: string;
+  /** The player's aircraft type (AircraftDefinition.id). Absent = the Tejas Mk1A. */
+  aircraftId?: string;
+  /** The player's store fit (LoadoutPreset.id of that aircraft). Absent = its default loadout. */
+  loadoutId?: string;
   pos?: Vec3Like;
   headingRad?: number;
   speedMps?: number;
