@@ -42,6 +42,7 @@ import { MAX_RIVERS, RIVER_FLOATS, RIVER_GLSL } from '../terrain/riverMath';
 import { ESTUARY_FLOATS, ESTUARY_GLSL, MAX_ESTUARIES } from '../terrain/coastMath';
 import { AIRFIELD_MASK_SIZE } from '../airport/airfieldMask';
 import { TOWN_GLSL, createTownUniforms } from './townLayer';
+import { URBAN_GLSL, createUrbanUniforms } from './urbanLayer';
 
 export const MAX_AIRFIELDS = 4;
 
@@ -201,6 +202,7 @@ const FRAGMENT_SHADER = /* glsl */ `
 
   ${NOISE_GLSL}
   ${TOWN_GLSL}
+  ${URBAN_GLSL}
   // Value noise and its analytic gradient (x = value, yz = d/dp), for detail normals.
   vec3 vnoised(vec2 p) {
     vec2 i = floor(p);
@@ -557,6 +559,8 @@ const FRAGMENT_SHADER = /* glsl */ `
       // Villages and towns (townLayer.ts): built-up ground at any distance, flat roofs and lights
       // where the 3D houses have faded out.
       if (uTownGridInfo.w > 0.5) col = townLayer(col, vWorld.xz, px, length(vRel), gX, gY);
+      // Continuous urban sprawl with its street network (urbanLayer.ts; Goa).
+      if (uUrbanInfo.w > 0.5) col = urbanLayer(col, vWorld.xz, gX, gY, px, length(vRel), shadow);
       // Rain-soaked ground is darker.
       col *= 1.0 - 0.3 * uAtmWet;
 
@@ -648,6 +652,7 @@ export function createTerrainMaterial(): THREE.ShaderMaterial {
       uShore: { value: Array.from({ length: COAST_VEC4S }, () => new THREE.Vector4()) },
       uHead: { value: Array.from({ length: COAST_VEC4S }, () => new THREE.Vector4()) },
       ...createTownUniforms(),
+      ...createUrbanUniforms(),
     },
     vertexShader: VERTEX_SHADER,
     fragmentShader: FRAGMENT_SHADER,

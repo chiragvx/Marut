@@ -220,6 +220,44 @@ export interface NetworkSpec {
   style?: 'punjab' | 'goa';
   /** Villages only below this elevation (m MSL). Absent = no limit. */
   maxVillageElevM?: number;
+  /**
+   * Continuous urban sprawl instead of village discs (src/terrain/urbanField.ts, urbanMath.ts):
+   * towns grow from these cores, along the named roads and in scattered hamlets, with a
+   * procedural street network, lots and buildings. When set, no village grid is built.
+   */
+  urban?: UrbanSpec;
+}
+
+/** One centre of urban sprawl: an elliptical density kernel. */
+export interface UrbanCoreSpec {
+  x: number;
+  z: number;
+  /** Radius (m) where the density has fallen to about a third of `peak`. */
+  radiusM: number;
+  /** Peak urbanity (0..1; about 0.8+ = dense town centre). */
+  peak: number;
+  /** Elongation: the radius is radiusM * stretch along axisRad and radiusM / stretch across. */
+  stretch?: number;
+  /** Long axis and street-grid direction, rad from +X towards +Z. */
+  axisRad?: number;
+}
+
+export interface UrbanSpec {
+  /** Baked area [x0, z0, x1, z1] (m); no urban development outside it. */
+  extent: readonly [number, number, number, number];
+  cores: readonly UrbanCoreSpec[];
+  /** Ribbon development along the named roads: peak urbanity and half-width (m). */
+  ribbonU: number;
+  ribbonM: number;
+  /** Scattered hamlets over the lowland: patch urbanity and patch scale (m), plus a thin base everywhere. */
+  hamletU: number;
+  hamletScaleM: number;
+  baseU: number;
+  /** No development above this elevation (m MSL), or on slopes steeper than maxSlope (m/m). */
+  maxElevM: number;
+  maxSlope: number;
+  /** Cleared rectangles (airfields): centre, half length along axisRad, half width across. */
+  clear: readonly { x: number; z: number; halfLenM: number; halfWidM: number; axisRad: number }[];
 }
 
 // -----------------------------------------------------------------------------
@@ -465,6 +503,51 @@ export const THEATRE_TERRAIN_PARAMS: Readonly<Record<TheatreId, TerrainParams>> 
       villageKeep: 0.5,
       exclusions: [{ x: 48350, z: -900, radiusM: 2600 }],
       maxVillageElevM: 260,
+      // Continuous sprawl instead of village discs (after the Vasco/Dabolim and Benaulim/Varca map
+      // views): dense towns filling their headlands and river banks, ribbons along the roads,
+      // and hamlets scattered through green country. Axes in rad from +X (east) towards +Z (south).
+      urban: {
+        extent: [34000, -98000, 84000, 98000],
+        cores: [
+          // Vasco da Gama: Baina, Vaddem and Mangor on the headland between the Zuari mouth and the airfield.
+          { x: 45300, z: -4300, radiusM: 1700, peak: 1.0, stretch: 1.3, axisRad: 0.3 },
+          // Chicalim, Sancoale and Dabolim along the Zuari's south bank; Cortalim at the bridge.
+          { x: 48900, z: -4000, radiusM: 1300, peak: 0.72, stretch: 1.7, axisRad: 0.05 },
+          { x: 50900, z: -2600, radiusM: 900, peak: 0.55 },
+          { x: 52600, z: -3100, radiusM: 850, peak: 0.6 },
+          // Bogmalo, on the coast south-west of the airfield.
+          { x: 45200, z: 900, radiusM: 650, peak: 0.45 },
+          // Verna industrial estate.
+          { x: 55000, z: 3500, radiusM: 1100, peak: 0.55, stretch: 1.3, axisRad: 0.4 },
+          // Panaji along the Mandovi's south bank; Taleigao/Miramar; Porvorim across the river; Old Goa.
+          { x: 51000, z: -18300, radiusM: 1600, peak: 0.95, stretch: 1.4, axisRad: -0.09 },
+          { x: 48600, z: -16900, radiusM: 1000, peak: 0.6 },
+          { x: 50600, z: -22600, radiusM: 1150, peak: 0.62, stretch: 1.3, axisRad: 1.4 },
+          { x: 55000, z: -18500, radiusM: 650, peak: 0.42 },
+          // Mapusa, and the Calangute-Candolim beach strip.
+          { x: 47500, z: -26500, radiusM: 1300, peak: 0.8 },
+          { x: 46300, z: -29300, radiusM: 1100, peak: 0.62, stretch: 2.0, axisRad: 1.6 },
+          { x: 46700, z: -33000, radiusM: 950, peak: 0.55, stretch: 2.0, axisRad: 1.6 },
+          // Margao with Fatorda and Navelim; Colva and Benaulim behind their beach.
+          { x: 64950, z: 10000, radiusM: 1900, peak: 0.95, stretch: 1.25, axisRad: 1.3 },
+          { x: 63200, z: 7600, radiusM: 900, peak: 0.6 },
+          { x: 47300, z: 12500, radiusM: 950, peak: 0.55, stretch: 1.8, axisRad: 1.55 },
+          { x: 48400, z: 16000, radiusM: 850, peak: 0.48, stretch: 1.6, axisRad: 1.45 },
+          // Ponda, Bicholim, Canacona.
+          { x: 66000, z: -3300, radiusM: 1200, peak: 0.72 },
+          { x: 60000, z: -34000, radiusM: 900, peak: 0.55 },
+          { x: 46700, z: 38000, radiusM: 900, peak: 0.5, stretch: 1.4, axisRad: 1.5 },
+        ],
+        ribbonU: 0.32,
+        ribbonM: 300,
+        hamletU: 0.38,
+        hamletScaleM: 1400,
+        baseU: 0.035,
+        maxElevM: 200,
+        maxSlope: 0.2,
+        // INS Hansa / Dabolim: the runway (heading 080) with its taxiways and aprons to the south.
+        clear: [{ x: 48371, z: -777, halfLenM: 2100, halfWidM: 600, axisRad: -0.1745 }],
+      },
     },
   },
   // Punjab: flat alluvial plain at ~234 m, cut by two braided rivers (Sutlej- and Beas-like) in
@@ -768,6 +851,9 @@ export interface ChunkGeometry {
  * Per-chunk scenery, built in the terrain worker from the road network (src/terrain/chunkFeatures.ts).
  * All positions are absolute world coordinates, like the terrain mesh.
  */
+/** Building instances (ChunkFeatures building/house matrices) come grouped by square tiles this size, so the renderer can cull each tile on its own. */
+export const BUILDING_TILE_M = 2000;
+
 export interface ChunkFeatures {
   /** Ground decals (roads, canals, village and town ground): x,y,z per vertex. */
   decalPositions: Float32Array;
@@ -873,6 +959,25 @@ export interface SettlementLayer {
   spacingM: number;
   nCells: number;
   grid: Float32Array;
+  /** Continuous urban sprawl (NetworkSpec.urban), drawn by the ground shader's urban layer. */
+  urban?: UrbanLayer;
+}
+
+/**
+ * The baked urban field (src/terrain/urbanField.ts) read by the ground shader and the terrain
+ * worker alike (src/terrain/urbanMath.ts): nx * nz RGBA8 texels, texel (i, j) centred at
+ * (originX + (i + 0.5) * resM, originZ + (j + 0.5) * resM). R = urbanity 0..1; G, B = the street
+ * grid's orientation as a double-angle unit vector (0.5 + 0.5 cos 2a, 0.5 + 0.5 sin 2a); A = signed
+ * distance to the nearest main road, 128 + d * 127 / URBAN_SDF_RANGE_M.
+ */
+export interface UrbanLayer {
+  originX: number;
+  originZ: number;
+  resM: number;
+  nx: number;
+  nz: number;
+  seed: number;
+  data: Uint8Array;
 }
 /** Extends core.ts's MainToTerrainMessage for this module's own worker bootstrap. Call sites should type their postMessage as `MainToTerrainMessage | MainToTerrainMessageExt`. */
 export type MainToTerrainMessageExt = TerrainInitMessage;

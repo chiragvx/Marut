@@ -14,7 +14,7 @@
 import { TOWN_3D_FADE_END_M, TOWN_3D_FADE_START_M } from './townLayer';
 import * as THREE from 'three';
 import type { Vec3Like } from '../contracts/core';
-import { TREE_KIND_COUNT, TreeKind, type ChunkFeatures } from '../contracts/terrain';
+import { BUILDING_TILE_M, TREE_KIND_COUNT, TreeKind, type ChunkFeatures } from '../contracts/terrain';
 import { DETAIL_GLSL, getDetailTexture } from './detailTextures';
 import { CLOUD_SHADOW_GLSL, getCloudShadowUniforms } from './clouds';
 import { ATMOSPHERE_GLSL, getAtmosphereUniforms } from './atmosphere';
@@ -184,6 +184,18 @@ const DECAL_FS = /* glsl */ `
       alpha = 1.0 - smoothstep(0.7, 1.0, rim + 0.2 * (vnoise(vWorld.xz / 60.0) - 0.5));
     }
     col = lightGround(col, vec3(0.0, 1.0, 0.0), vWorld);
+    // Street lights on the main roads at night: a lamp every 35 m (on the median of divided
+    // highways, on alternating kerbs elsewhere), a bright head and a pool of sodium light on the
+    // road, each widened by the pixel's footprint so distant lamps average out instead of sparkling.
+    if (uAtmLights > 0.01 && cls <= 2) {
+      float k = floor(along / 35.0 + 0.5);
+      float side = cls == 0 ? 0.0 : (mod(k, 2.0) < 0.5 ? 1.0 : -1.0) * (hw - 2.2);
+      vec2 d = vec2(m - side, along - k * 35.0);
+      float wb = pw * pw / 12.0;
+      float r2 = dot(d, d);
+      float g = 0.35 * 36.0 / (36.0 + wb) * exp(-0.5 * r2 / (36.0 + wb)) + 1.6 * 0.36 / (0.36 + wb) * exp(-0.5 * r2 / (0.36 + wb));
+      col += vec3(1.0, 0.58, 0.24) * (0.9 * g * uAtmLights);
+    }
     gl_FragColor = vec4(atmApply(col, vWorld), alpha);
   }
 `;
@@ -505,12 +517,54 @@ function makeHouseGeometry(): THREE.BufferGeometry {
   nor.set(w.getAttribute('normal').array as Float32Array, 0);
   pos.set(roof.getAttribute('position').array as Float32Array, w.getAttribute('position').count * 3);
   nor.set(roof.getAttribute('normal').array as Float32Array, w.getAttribute('position').count * 3);
-  const g = new THREE.BufferGeometry();
-  g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-  g.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
   walls.dispose();
   roof.dispose();
   w.dispose();
+  // The walls' top (under the roof) and bottom (in the ground) never show: drop them.
+  return weld(pos, nor, (ny) => Math.abs(ny) < 0.5, w.getAttribute('position').count);
+}
+
+/**
+ * Indexed geometry from a triangle soup, sharing vertices with equal position and normal (tens of
+ * thousands of instanced buildings are vertex-bound). Wall-part triangles (index < wallVerts) are
+ * kept only where keepWall(normal y) holds.
+ */
+function weld(pos: Float32Array, nor: Float32Array, keepWall: (ny: number) => boolean, wallVerts: number): THREE.BufferGeometry {
+  const map = new Map<string, number>();
+  const P: number[] = [];
+  const N: number[] = [];
+  const idx: number[] = [];
+  for (let t = 0; t < pos.length / 9; t++) {
+    const v0 = t * 3;
+    if (v0 < wallVerts && !keepWall(nor[v0 * 3 + 1]!)) continue;
+    for (let k = 0; k < 3; k++) {
+      const v = v0 + k;
+      const key = [0, 1, 2, 3, 4, 5].map((c) => (c < 3 ? pos[v * 3 + c]! : nor[v * 3 + c - 3]!).toFixed(4)).join(',');
+      let i = map.get(key);
+      if (i === undefined) {
+        i = P.length / 3;
+        map.set(key, i);
+        P.push(pos[v * 3]!, pos[v * 3 + 1]!, pos[v * 3 + 2]!);
+        N.push(nor[v * 3]!, nor[v * 3 + 1]!, nor[v * 3 + 2]!);
+      }
+      idx.push(i);
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(P, 3));
+  g.setAttribute('normal', new THREE.Float32BufferAttribute(N, 3));
+  g.setIndex(idx);
+  return g;
+}
+
+/** A unit box standing on y = 0, without its (never seen) bottom face. */
+function makeBlockGeometry(): THREE.BufferGeometry {
+  const b = new THREE.BoxGeometry(1, 1, 1);
+  b.translate(0, 0.5, 0);
+  const s = b.toNonIndexed();
+  b.dispose();
+  const g = weld(s.getAttribute('position').array as Float32Array, s.getAttribute('normal').array as Float32Array, (ny) => ny > -0.5, s.getAttribute('position').count);
+  s.dispose();
   return g;
 }
 
@@ -597,10 +651,23 @@ interface ChunkEntry {
   objects: THREE.Object3D[];
   treeObjects: THREE.Object3D[];
   lightObjects: THREE.Object3D[];
+  /** Buildings per tile (kind 0 flat-roofed boxes, 1 gabled houses); the meshes exist only while the tile is in range. */
+  tiles: BuildingTile[];
   cx: number;
   cz: number;
   half: number;
   disposables: THREE.BufferGeometry[];
+}
+
+interface BuildingTile {
+  kind: 0 | 1;
+  M: Float32Array;
+  C: Float32Array | undefined;
+  cx: number;
+  cz: number;
+  y: number;
+  mesh?: THREE.InstancedMesh;
+  lights?: THREE.InstancedMesh;
 }
 
 export interface ChunkFeatureRenderer {
@@ -628,6 +695,8 @@ export function createChunkFeatureRenderer(root: THREE.Object3D): ChunkFeatureRe
   };
   const shadowU = { ...getCloudShadowUniforms(), ...getAtmosphereUniforms(), ...getSunShadowUniforms() };
   const realShadowR = { value: 0 };
+  /** Radius of real sun shadows (0 = none): only building tiles inside it cast. */
+  let shadowR = 0;
   const decalMat = new THREE.ShaderMaterial({
     uniforms: { ...uniforms, ...shadowU, uDetail: { value: getDetailTexture() } },
     vertexShader: DECAL_VS,
@@ -657,8 +726,7 @@ export function createChunkFeatureRenderer(root: THREE.Object3D): ChunkFeatureRe
     polygonOffsetUnits: -8,
   });
   const houseGeom = makeHouseGeometry();
-  const boxGeom = new THREE.BoxGeometry(1, 1, 1);
-  boxGeom.translate(0, 0.5, 0);
+  const boxGeom = makeBlockGeometry();
   const domeGeom = new THREE.SphereGeometry(1, 12, 6, 0, Math.PI * 2, 0, Math.PI / 2);
   const bFade = { uFadeStart: { value: BUILDING_FADE_START_M }, uFadeEnd: { value: BUILDING_FADE_END_M } };
   const buildingMat = new THREE.ShaderMaterial({ uniforms: { ...uniforms, ...shadowU, ...bFade, uTiled: { value: 0 } }, vertexShader: BUILDING_VS, fragmentShader: BUILDING_FS });
@@ -674,6 +742,27 @@ export function createChunkFeatureRenderer(root: THREE.Object3D): ChunkFeatureRe
     else o.layers.disable(CASTER_LAYER);
   };
   const scratch = new THREE.Vector3();
+
+  function makeTile(e: ChunkEntry, t: BuildingTile): void {
+    const sphere = new THREE.Sphere(new THREE.Vector3(t.cx, t.y, t.cz), BUILDING_TILE_M * 0.75 + 250);
+    const mesh = instanced(t.kind === 0 ? boxGeom : houseGeom, t.kind === 0 ? buildingMat : houseMat, t.M, sphere, t.C)!;
+    mesh.updateMatrixWorld();
+    e.group.add(mesh);
+    t.mesh = mesh;
+  }
+
+  function dropTile(e: ChunkEntry, t: BuildingTile): void {
+    if (t.lights) {
+      e.group.remove(t.lights);
+      t.lights.dispose();
+      t.lights = undefined;
+    }
+    if (t.mesh) {
+      e.group.remove(t.mesh);
+      t.mesh.dispose();
+      t.mesh = undefined;
+    }
+  }
 
   function instanced(geom: THREE.BufferGeometry, mat: THREE.Material, matrices: Float32Array, bound: THREE.Sphere, colors?: Float32Array): THREE.InstancedMesh | undefined {
     const count = matrices.length / 16;
@@ -695,7 +784,7 @@ export function createChunkFeatureRenderer(root: THREE.Object3D): ChunkFeatureRe
       this.evict(key);
       const group = new THREE.Group();
       group.matrixAutoUpdate = false;
-      const entry: ChunkEntry = { group, objects: [], treeObjects: [], lightObjects: [], cx: centreX, cz: centreZ, half: halfSizeM, disposables: [] };
+      const entry: ChunkEntry = { group, objects: [], treeObjects: [], lightObjects: [], tiles: [], cx: centreX, cz: centreZ, half: halfSizeM, disposables: [] };
       const y0 = f.decalPositions.length > 1 ? f.decalPositions[1]! : 0;
       const bound = new THREE.Sphere(new THREE.Vector3(centreX, y0, centreZ), halfSizeM * 1.42 + 600);
 
@@ -726,34 +815,36 @@ export function createChunkFeatureRenderer(root: THREE.Object3D): ChunkFeatureRe
         group.add(trees, shadows);
         entry.treeObjects.push(trees, shadows);
       }
-      const bld = instanced(boxGeom, buildingMat, f.buildingMatrices, bound, f.buildingColors);
-      if (bld) {
-        bld.layers.enable(CASTER_LAYER);
-        group.add(bld);
-        entry.objects.push(bld);
-      }
       const domes = instanced(domeGeom, buildingMat, f.domeMatrices, bound);
       if (domes) {
         domes.layers.enable(CASTER_LAYER);
         group.add(domes);
         entry.objects.push(domes);
       }
-      const houses = instanced(houseGeom, houseMat, f.houseMatrices, bound, f.houseColors);
-      if (houses) {
-        houses.layers.enable(CASTER_LAYER);
-        group.add(houses);
-        entry.objects.push(houses);
-      }
-      for (const b of [bld, houses]) {
-        if (!b) continue;
-        const lights = new THREE.InstancedMesh(lightQuad, townLightMat, b.count);
-        lights.instanceMatrix = b.instanceMatrix;
-        lights.frustumCulled = false;
-        lights.matrixAutoUpdate = false;
-        lights.renderOrder = 15;
-        lights.visible = false;
-        group.add(lights);
-        entry.lightObjects.push(lights);
+      // Buildings come sorted by BUILDING_TILE_M tile (the worker groups them). A tile is only data
+      // here: its instanced mesh is made when the tile comes within building range and dropped when
+      // it leaves (update), so the scene holds a few dozen building meshes, not one per tile of every
+      // chunk out to 25 km (thousands of objects to walk, update and draw per pass).
+      const tileOf = (M: Float32Array, i: number): number => Math.floor(M[i * 16 + 12]! / BUILDING_TILE_M) * 100003 + Math.floor(M[i * 16 + 14]! / BUILDING_TILE_M);
+      for (const [kind, M, C] of [
+        [0, f.buildingMatrices, f.buildingColors],
+        [1, f.houseMatrices, f.houseColors],
+      ] as const) {
+        const n = M.length / 16;
+        for (let a = 0; a < n; ) {
+          const t = tileOf(M, a);
+          let b = a + 1;
+          while (b < n && tileOf(M, b) === t) b++;
+          entry.tiles.push({
+            kind,
+            M: M.subarray(a * 16, b * 16),
+            C: C.length === n * 3 ? C.subarray(a * 3, b * 3) : undefined,
+            cx: (Math.floor(M[a * 16 + 12]! / BUILDING_TILE_M) + 0.5) * BUILDING_TILE_M,
+            cz: (Math.floor(M[a * 16 + 14]! / BUILDING_TILE_M) + 0.5) * BUILDING_TILE_M,
+            y: y0,
+          });
+          a = b;
+        }
       }
       root.add(group);
       chunks.set(key, entry);
@@ -765,6 +856,7 @@ export function createChunkFeatureRenderer(root: THREE.Object3D): ChunkFeatureRe
       root.remove(e.group);
       for (const g of e.disposables) g.dispose();
       for (const o of [...e.objects, ...e.treeObjects, ...e.lightObjects]) (o as THREE.InstancedMesh).dispose?.();
+      for (const t of e.tiles) dropTile(e, t);
       chunks.delete(key);
     },
 
@@ -775,6 +867,7 @@ export function createChunkFeatureRenderer(root: THREE.Object3D): ChunkFeatureRe
 
     setRealShadowRadius(m, cast) {
       realShadowR.value = cast ? m : 0;
+      shadowR = m;
       treesCast = cast;
       for (const e of chunks.values()) {
         for (const o of e.treeObjects) if ((o as THREE.InstancedMesh).material !== shadowMat) setCast(o, cast);
@@ -795,6 +888,32 @@ export function createChunkFeatureRenderer(root: THREE.Object3D): ChunkFeatureRe
         for (const o of e.treeObjects) o.visible = d < TREE_FADE_END_M;
         for (const o of e.objects) o.visible = d < BUILDING_FADE_END_M;
         for (const o of e.lightObjects) o.visible = lightsOn && d < TOWN_LIGHT_RANGE_M;
+        for (const t of e.tiles) {
+          const tdx = Math.max(Math.abs(cam.x - t.cx) - 0.5 * BUILDING_TILE_M, 0);
+          const tdz = Math.max(Math.abs(cam.z - t.cz) - 0.5 * BUILDING_TILE_M, 0);
+          const td = Math.hypot(tdx, tdz, Math.max(cam.y - 300, 0));
+          // Made on entering range, dropped a little further out (hysteresis: no churn at the edge).
+          if (td < BUILDING_FADE_END_M) {
+            if (!t.mesh) makeTile(e, t);
+            t.mesh!.visible = true;
+            setCast(t.mesh!, td < shadowR);
+          } else if (t.mesh) {
+            if (td > BUILDING_FADE_END_M + 800) dropTile(e, t);
+            else t.mesh.visible = false;
+          }
+          if (t.mesh) {
+            const lit = lightsOn && td < TOWN_LIGHT_RANGE_M;
+            if (lit && !t.lights) {
+              t.lights = new THREE.InstancedMesh(lightQuad, townLightMat, t.mesh.count);
+              t.lights.instanceMatrix = t.mesh.instanceMatrix;
+              t.lights.frustumCulled = false;
+              t.lights.matrixAutoUpdate = false;
+              t.lights.renderOrder = 15;
+              e.group.add(t.lights);
+            }
+            if (t.lights) t.lights.visible = lit;
+          }
+        }
       }
     },
 

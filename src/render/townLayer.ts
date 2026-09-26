@@ -17,8 +17,8 @@ import { SETTLEMENT_SLOTS, type SettlementLayer } from '../contracts/terrain';
 import { SETTLEMENT_EDGE_REACH } from '../terrain/roadNetwork';
 
 /** 3D houses (and their night lights) shrink away between these distances; the flat layer's roofs and lights take over. */
-export const TOWN_3D_FADE_START_M = 3000;
-export const TOWN_3D_FADE_END_M = 4500;
+export const TOWN_3D_FADE_START_M = 2000;
+export const TOWN_3D_FADE_END_M = 3000;
 
 /** Needs hash12/vnoise (NOISE_GLSL), detailAt (DETAIL_GLSL) and `uStyle` (1 = Goa, 2 = Punjab). */
 export const TOWN_GLSL = /* glsl */ `

@@ -11,6 +11,7 @@ import type { TerrainChunkReadyMessage, Vec3Like } from '../contracts/core';
 import type { SceneEnvironment } from '../contracts/render';
 import { applyTerrainEnvironment, createTerrainMaterial } from './terrainMaterial';
 import { applySettlementLayer } from './townLayer';
+import { applyUrbanLayer, setUrbanQuality } from './urbanLayer';
 import type { SettlementLayer } from '../contracts/terrain';
 import { CASTER_LAYER } from './sunShadows';
 
@@ -32,6 +33,8 @@ export interface TerrainChunkConsumer {
   setSunDirection(dirWorld: Readonly<Vec3Like>): void;
   setEnvironment(env: Readonly<SceneEnvironment>): void;
   setSettlements(layer: SettlementLayer | null): void;
+  /** Urban layer: whether 3D buildings stand near the camera (else footprints are drawn as roofs there too). */
+  setUrbanQuality(has3dBuildings: boolean): void;
   /** Seconds, for animated water. */
   setTime(sec: number): void;
   /** Whether terrain chunks cast into the sun shadow map (sunShadows.ts; High/Ultra). */
@@ -104,6 +107,11 @@ export function createTerrainChunkConsumer(root: THREE.Object3D): TerrainChunkCo
 
     setSettlements(layer) {
       applySettlementLayer(material, layer);
+      applyUrbanLayer(material, layer?.urban);
+    },
+
+    setUrbanQuality(has3dBuildings) {
+      setUrbanQuality(material, has3dBuildings);
     },
 
     setTime(sec) {

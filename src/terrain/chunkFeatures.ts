@@ -12,9 +12,12 @@
  * Every item is generated from global, deterministic hashes and kept only if it falls in this
  * chunk, so neighbouring chunks (and the same area at another LOD) agree with each other.
  */
-import { DecalClass, TREE_KIND_COUNT, TreeKind, type ChunkBounds, type ChunkFeatures } from '../contracts/terrain';
+import { BUILDING_TILE_M, DecalClass, TREE_KIND_COUNT, TreeKind, type ChunkBounds, type ChunkFeatures } from '../contracts/terrain';
 import { hash3, queryNetwork, type RoadNetwork, type Settlement } from './roadNetwork';
 import { ESTUARY_FLOATS, estuaryField, shoreAt } from './coastMath';
+import type { UrbanLayer } from '../contracts/terrain';
+import { newUrbanPixel, sampleUrban, urbanPixel } from './urbanMath';
+import { forEachUrbanBuilding } from './urbanBuildings';
 
 export type SurfaceFn = (x: number, z: number) => number;
 
@@ -125,7 +128,8 @@ export function buildChunkFeatures(net: RoadNetwork, b: ChunkBounds, surface: Su
   const margin = 450;
   queryNetwork(net, b.minX - margin, b.minZ - margin, b.maxX + margin, b.maxZ + margin, roadSet, setSet);
   const nearSettlements: Settlement[] = [];
-  for (const i of setSet) nearSettlements.push(net.settlements[i]!);
+  // (Urban theatres have no disc settlements: the urban layer places everything.)
+  if (!net.urban) for (const i of setSet) nearSettlements.push(net.settlements[i]!);
   const inSettlement = (x: number, z: number, scale: number): boolean => {
     for (const s of nearSettlements) {
       const dx = x - s.x;
@@ -136,6 +140,13 @@ export function buildChunkFeatures(net: RoadNetwork, b: ChunkBounds, surface: Su
     return false;
   };
   const goa = net.style === 'goa';
+  const upx = newUrbanPixel();
+  /** Urban theatres: on a street or (within 2 m of) a building? */
+  const urbanBlocked = (x: number, z: number): boolean => {
+    if (!net.urban) return false;
+    urbanPixel(net.urban, x, z, 2, upx);
+    return upx.street || upx.building;
+  };
   const shoreScratch = { x: 0, headland: 0 };
   /** Goa: distance inland from the shoreline (m, < 0 at sea) and into the nearest estuary (m, > 0 in water). */
   const coastDist = (x: number, z: number): number => {
@@ -228,7 +239,7 @@ export function buildChunkFeatures(net: RoadNetwork, b: ChunkBounds, surface: Su
           const off = hw + 2 + (canal ? 3 : 12) * Math.pow(hash3(ri, m, side, 79), 1.5);
           const tx = cx + nx * off * side;
           const tz = cz + nz * off * side;
-          if (inSettlement(tx, tz, 0.9) || wet(tx, tz)) continue;
+          if (inSettlement(tx, tz, 0.9) || wet(tx, tz) || urbanBlocked(tx, tz)) continue;
           const hk = hash3(ri, m, side, 80);
           const mixKind = goa ? (hk < 0.55 ? TreeKind.Palm : TreeKind.Broadleaf) : hk < (canal ? 0.2 : 0.35) ? TreeKind.Broadleaf : kind;
           pushTree(o, mixKind, tx, surface(tx, tz), tz, hash3(ri, m, side, 81), hash3(ri, m, side, 82));
@@ -253,7 +264,10 @@ export function buildChunkFeatures(net: RoadNetwork, b: ChunkBounds, surface: Su
   }
 
   if (goa) {
-    if (opts.objects) goaVegetation(o, b, surface, opts, coastDist, estDist, inSettlement);
+    if (opts.objects) {
+      if (net.urban) buildUrbanBuildings(o, net.urban, b, surface, wet);
+      goaVegetation(o, b, surface, opts, coastDist, estDist, inSettlement, net.urban);
+    }
     return finish(o);
   }
 
@@ -332,7 +346,36 @@ export function buildChunkFeatures(net: RoadNetwork, b: ChunkBounds, surface: Su
   return finish(o);
 }
 
+/** Reorders instances (16-float matrices, 3-float colours) so each BUILDING_TILE_M tile's are contiguous. */
+function sortByTile(M: number[], C: number[]): void {
+  const n = M.length / 16;
+  if (n < 2) return;
+  const key = (i: number): string => `${Math.floor(M[i * 16 + 12]! / BUILDING_TILE_M)},${Math.floor(M[i * 16 + 14]! / BUILDING_TILE_M)}`;
+  const groups = new Map<string, number[]>();
+  for (let i = 0; i < n; i++) {
+    const k = key(i);
+    let g = groups.get(k);
+    if (!g) groups.set(k, (g = []));
+    g.push(i);
+  }
+  if (groups.size < 2) return;
+  const m2: number[] = [];
+  const c2: number[] = [];
+  for (const g of groups.values()) {
+    for (const i of g) {
+      for (let k = 0; k < 16; k++) m2.push(M[i * 16 + k]!);
+      for (let k = 0; k < 3; k++) c2.push(C[i * 3 + k]!);
+    }
+  }
+  M.length = 0;
+  C.length = 0;
+  for (let i = 0; i < m2.length; i++) M.push(m2[i]!);
+  for (let i = 0; i < c2.length; i++) C.push(c2[i]!);
+}
+
 function finish(o: Out): ChunkFeatures {
+  sortByTile(o.bldM, o.bldC);
+  sortByTile(o.houseM, o.houseC);
   return {
     decalPositions: Float32Array.from(o.decalPos),
     decalAttribs: Float32Array.from(o.decalAttr),
@@ -427,9 +470,12 @@ function goaVegetation(
   opts: FeatureOptions,
   coastDist: (x: number, z: number) => number,
   estDist: (x: number, z: number) => number,
-  inSettlement: (x: number, z: number, scale: number) => boolean
+  inSettlement: (x: number, z: number, scale: number) => boolean,
+  urban: UrbanLayer | undefined
 ): void {
   const C = 26;
+  const upx = newUrbanPixel();
+  const smp = new Float64Array(5);
   const ss = (e0: number, e1: number, x: number): number => {
     const t = Math.max(0, Math.min(1, (x - e0) / (e1 - e0)));
     return t * t * (3 - 2 * t);
@@ -452,13 +498,55 @@ function goaVegetation(
       const broad = 0.05 + 0.2 * ghats + (h > 800 ? 0.02 : 0);
       const cl = 0.25 + 1.5 * clump(x, z, 133);
       const r = hash3(ix, iz, 1, 131);
-      const pPalm = palm * cl * opts.treeDensity;
-      const pBroad = broad * cl * opts.treeDensity;
+      let pPalm = palm * cl * opts.treeDensity;
+      let pBroad = broad * cl * opts.treeDensity;
+      if (urban) {
+        // Built-up ground: palms (and the odd mango tree) in the yards and gardens, fewer in the
+        // dense centres, none on the streets or the houses.
+        if (r > pPalm + pBroad + 0.07 * opts.treeDensity) continue;
+        sampleUrban(urban, x, z, smp);
+        if (smp[0]! > 0.004 || smp[4]! < 72) {
+          urbanPixel(urban, x, z, 2, upx);
+          if (upx.street || upx.building) continue;
+          const yard = upx.region >= 1 ? 0.07 * (1 - 0.5 * upx.core) * sstep(0.05, 0.3, upx.U) : 0;
+          const thin = 1 - 0.5 * upx.core;
+          pPalm = (pPalm + yard * 0.8 * opts.treeDensity) * thin;
+          pBroad = (pBroad + yard * 0.2 * opts.treeDensity) * thin;
+        }
+      }
       if (r > pPalm + pBroad) continue;
       if (inSettlement(x, z, 1.05)) continue;
       pushTree(o, r < pPalm ? TreeKind.Palm : TreeKind.Broadleaf, x, h, z, hash3(ix, iz, 4, 131), hash3(ix, iz, 5, 131));
     }
   }
+}
+
+/** Flat-roofed buildings' wall tints (the ground shader's uFlatRoof picks the same by hash). */
+function flatTint(h: number): readonly [number, number, number] {
+  return h < 0.3 ? [0.9, 0.89, 0.85] : h < 0.55 ? [0.88, 0.84, 0.72] : h < 0.7 ? [0.72, 0.78, 0.82] : h < 0.85 ? [0.86, 0.72, 0.66] : [0.7, 0.69, 0.66];
+}
+
+/** The urban layer's 3D buildings in this chunk: flat-roofed blocks and red-tiled Goan houses. */
+function buildUrbanBuildings(o: Out, L: UrbanLayer, b: ChunkBounds, surface: SurfaceFn, wet: (x: number, z: number) => boolean): void {
+  forEachUrbanBuilding(L, b.minX, b.minZ, b.maxX, b.maxZ, wet, (u) => {
+    // Stand on the lowest of the centre and two opposite corners, so no corner floats on a slope.
+    const r = 0.45 * Math.hypot(u.sx, u.sz);
+    const y = Math.min(surface(u.x, u.z), surface(u.x + r, u.z + r), surface(u.x - r, u.z - r)) - 0.3;
+    if (u.flat) {
+      pushMatrix(o.bldM, u.x, y, u.z, u.rotRad, u.sx, u.heightM + 0.3, u.sz);
+      const c = flatTint(u.colourHash);
+      o.bldC.push(c[0], c[1], c[2]);
+    } else {
+      pushMatrix(o.houseM, u.x, y, u.z, u.rotRad, u.sx, u.heightM + 0.3, u.sz);
+      const c = GOA_WALLS[Math.floor(u.colourHash * GOA_WALLS.length)]!;
+      o.houseC.push(c[0], c[1], c[2]);
+    }
+  });
+}
+
+function sstep(e0: number, e1: number, x: number): number {
+  const t = Math.max(0, Math.min(1, (x - e0) / (e1 - e0)));
+  return t * t * (3 - 2 * t);
 }
 
 /** One tree: size and colour vary per kind; h1/h2 are per-tree random numbers. */

@@ -45,7 +45,9 @@ self.onmessage = (ev: MessageEvent<MainToTerrainMessage | MainToTerrainMessageEx
     network = buildRoadNetwork(msg.params, sampler);
     const settlements = network && msg.params.network ? packSettlementLayer(network, msg.params.network) : undefined;
     const ready: TerrainReadyMessage = settlements ? { type: 'terrainReady', settlements } : { type: 'terrainReady' };
-    self.postMessage(ready, settlements ? [settlements.grid.buffer as ArrayBuffer] : []);
+    const transfer: ArrayBuffer[] = settlements ? [settlements.grid.buffer as ArrayBuffer] : [];
+    if (settlements?.urban) transfer.push(settlements.urban.data.buffer as ArrayBuffer);
+    self.postMessage(ready, transfer);
     return;
   }
 

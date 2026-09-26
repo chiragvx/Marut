@@ -39,6 +39,7 @@ import {
 } from './snapshotInterpolation';
 import { createSkyFogSystem } from './skyFog';
 import { createTerrainChunkConsumer } from './terrainChunkConsumer';
+import { createUrbanCache } from './urbanCache';
 import { createChunkFeatureRenderer } from './chunkFeatureRenderer';
 import { createCloudSystem } from './clouds';
 import { createCloudDeck } from './cloudDeck';
@@ -65,7 +66,7 @@ import {
 } from './skyState';
 import { createGrade } from './postGrade';
 import { createSunShadows } from './sunShadows';
-import { TERRAIN_WORLD_EXTENT_M } from '../contracts/terrain';
+import { TERRAIN_QUALITY_PROFILES, TERRAIN_WORLD_EXTENT_M } from '../contracts/terrain';
 import { createWireframeAircraftRenderer } from './wireframeAircraftRenderer';
 
 const FOV_BY_MODE: Readonly<Record<CameraMode, number>> = {
@@ -123,6 +124,8 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
   const terrainRoot = new THREE.Group();
   scene.add(terrainRoot);
   const terrainConsumer = createTerrainChunkConsumer(terrainRoot);
+  // Street and lot detail of the urban layer, baked around the camera (urbanCache.ts).
+  const urbanCache = createUrbanCache();
 
   const featureRoot = new THREE.Group();
   scene.add(featureRoot);
@@ -304,6 +307,8 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
     skyFog.setShadowsEnabled(false, 0);
     sunShadows.setTier(t);
     terrainConsumer.setShadowsEnabled(settings.shadowsEnabled && sunShadows.terrainCasts() && hillyTheatre);
+    // Urban layer: the terrain worker builds 3D buildings only on chunks of depth >= 4.
+    terrainConsumer.setUrbanQuality(TERRAIN_QUALITY_PROFILES[t].maxLodDepth >= 4);
     features.setRealShadowRadius(settings.shadowsEnabled ? sunShadows.radiusM() : 0, settings.shadowsEnabled && sunShadows.treesCast());
     effects.setBudget(settings.effectBudget);
     renderer.shadowMap.enabled = false;
@@ -359,6 +364,7 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
 
     setSettlements(layer) {
       terrainConsumer.setSettlements(layer);
+      urbanCache.setLayer(layer?.urban);
     },
 
     setWeather(m, seed) {
@@ -519,6 +525,7 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
       cameraState.worldPos.z = cameraPose.pos.z;
 
       if (!contextLost) {
+        urbanCache.update(renderer, cameraPose.pos.x, cameraPose.pos.z);
         sunShadows.render(renderer, scene, shadowFocus, floatingOrigin.originWorld, getAtmosphereUniforms().uAtmSunDir.value, shadowsOn);
         composer.render();
       }
@@ -529,6 +536,7 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
     dispose() {
       wireframeRenderer.dispose();
       terrainConsumer.dispose();
+      urbanCache.dispose();
       features.dispose();
       clouds.dispose();
       runwayLights.dispose();

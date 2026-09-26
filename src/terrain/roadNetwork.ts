@@ -14,9 +14,10 @@
  * Everything is a pure function of (params, sampler): the same network in every thread.
  */
 import type { HeightSampler } from '../contracts/core';
-import { DecalClass, SETTLEMENT_SLOTS, TreeKind, type CoastProfile, type NetworkSpec, type SettlementLayer, type TerrainParams } from '../contracts/terrain';
+import { DecalClass, SETTLEMENT_SLOTS, TreeKind, type CoastProfile, type NetworkSpec, type SettlementLayer, type TerrainParams, type UrbanLayer } from '../contracts/terrain';
 import { buildCoastProfile } from './terrainHeight';
 import { ESTUARY_FLOATS, packEstuary } from './coastMath';
+import { buildUrbanField } from './urbanField';
 
 export interface RoadPolyline {
   cls: DecalClass;
@@ -55,6 +56,8 @@ export interface RoadNetwork {
   style: 'punjab' | 'goa';
   /** Coast theatres: the shoreline table and packed estuaries (coastMath.ts), for vegetation. */
   coast?: { table: CoastProfile; estuaries: Float32Array; count: number };
+  /** Continuous urban sprawl (NetworkSpec.urban): replaces the villages; see urbanMath.ts. */
+  urban?: UrbanLayer;
 }
 
 const CELL_M = 1000;
@@ -135,6 +138,9 @@ export const SETTLEMENT_EDGE_REACH = 1.2;
  * never loops over the settlements. Towns go first (a cell short of slots drops a village edge).
  */
 export function packSettlementLayer(net: RoadNetwork, spec: NetworkSpec): SettlementLayer {
+  // Urban theatres draw their towns with the urban layer instead (no disc settlements).
+  // (A copy of the field: the worker keeps its own for the buildings and trees.)
+  if (net.urban) return { originM: 0, spacingM: 1, nCells: 0, grid: new Float32Array(4), urban: { ...net.urban, data: net.urban.data.slice() } };
   const S = spec.villageSpacingM;
   const n = Math.floor((2 * VILLAGE_HALF_EXTENT_M) / S);
   const W = SETTLEMENT_SLOTS * n;
@@ -212,12 +218,16 @@ export function buildRoadNetwork(params: TerrainParams, sampler: HeightSampler):
     roads.push(makePolyline(cls, WIDTH[r.cls], pts, treeKind, treeProb, r.cls !== 'district'));
   });
 
+  // Urban theatres: the towns, hamlets and their streets come from the urban field instead of
+  // village discs, link roads and lanes (only the named routes stay as road geometry).
+  const urban = spec.urban ? buildUrbanField(params, sampler, spec.urban, roads, seed) : undefined;
+
   // --- villages ---------------------------------------------------------------------------------
   const S = spec.villageSpacingM;
   const half = VILLAGE_HALF_EXTENT_M;
   const nCells = Math.floor((2 * half) / S);
   const villageAt = new Map<number, number>();
-  for (let j = 0; j < nCells; j++) {
+  for (let j = 0; j < (urban ? 0 : nCells); j++) {
     for (let i = 0; i < nCells; i++) {
       if (hash3(i, j, 1, seed) > spec.villageKeep) continue;
       const x = -half + (i + 0.5 + 0.7 * (hash3(i, j, 2, seed) - 0.5)) * S;
@@ -266,7 +276,7 @@ export function buildRoadNetwork(params: TerrainParams, sampler: HeightSampler):
     if (diag !== undefined && hash3(i, j, 13, seed) < 0.2) link(a, settlements[diag]!, (seed + k * 3 + 2) | 0, DecalClass.Link, 7.5);
   }
   // Villages near a town get a district road into it (the nearest few).
-  towns.forEach((t, ti) => {
+  if (!urban) towns.forEach((t, ti) => {
     const near = settlements
       .filter((s) => s.kind === 'village' && Math.hypot(s.x - t.x, s.z - t.z) < t.radiusM + 3200)
       .sort((p, q) => Math.hypot(p.x - t.x, p.z - t.z) - Math.hypot(q.x - t.x, q.z - t.z))
@@ -293,7 +303,7 @@ export function buildRoadNetwork(params: TerrainParams, sampler: HeightSampler):
   }
 
   // --- lanes: every settlement is a village-style cluster (towns just larger), with a few narrow lanes
-  for (const s of settlements) {
+  for (const s of urban ? [] : settlements) {
     const lanes = s.kind === 'village' ? 2 : 4;
     for (let a = 0; a < lanes; a++) {
       const ang = s.rotRad + (a * Math.PI) / lanes + (a > 1 ? 0.3 * (hash3(a, 0, 41, s.seed) - 0.5) : 0);
@@ -335,7 +345,7 @@ export function buildRoadNetwork(params: TerrainParams, sampler: HeightSampler):
     params.shape.estuaries.forEach((e, i) => packEstuary(e, i, params.seed, est, i * ESTUARY_FLOATS));
     coast = { table, estuaries: est, count: params.shape.estuaries.length };
   }
-  return { settlements, roads, cellSizeM: CELL_M, roadCells, settlementCells, waterLevelM: wl, style: spec.style ?? 'punjab', ...(coast ? { coast } : {}) };
+  return { settlements, roads, cellSizeM: CELL_M, roadCells, settlementCells, waterLevelM: wl, style: spec.style ?? 'punjab', ...(coast ? { coast } : {}), ...(urban ? { urban } : {}) };
 }
 
 function segmentsNear(xz: number[], cx: number, cz: number, r: number): boolean {

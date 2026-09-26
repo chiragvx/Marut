@@ -1,6 +1,7 @@
 /**
  * tests/terrain/goaScenery.test.ts — the Goa (Konkan) towns, roads and per-chunk scenery: gabled
- * houses, churches, coconut palms and forest, kept out of the sea and the estuaries.
+ * houses, coconut palms and forest, kept out of the sea and the estuaries. (The urban layer's own
+ * maths is tested in urbanLayer.test.ts.)
  */
 import { describe, expect, test } from 'vitest';
 import { THEATRE_TERRAIN_PARAMS, TreeKind } from '../../src/contracts/terrain';
@@ -15,12 +16,13 @@ const sampler = createHeightSampler(params, []);
 const net = buildRoadNetwork(params, sampler)!;
 
 describe('Goa network', () => {
-  test('is Goa-styled, with the coast data, named towns and villages', () => {
+  test('is Goa-styled, with the coast data, named towns and the urban field instead of villages', () => {
     expect(net.style).toBe('goa');
     expect(net.coast).toBeDefined();
     expect(net.coast!.count).toBeGreaterThan(0);
     expect(net.settlements.filter((s) => s.kind !== 'village').length).toBeGreaterThanOrEqual(10);
-    expect(net.settlements.filter((s) => s.kind === 'village').length).toBeGreaterThan(50);
+    expect(net.settlements.filter((s) => s.kind === 'village').length).toBe(0);
+    expect(net.urban).toBeDefined();
   });
 });
 
