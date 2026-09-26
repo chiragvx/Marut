@@ -31,6 +31,7 @@ import {
   ingestSnapshotIntoHudBuffer,
   interpolateHudEntity,
 } from './snapshotView';
+import { createTaxiGuideState, drawTaxiGuide, setTaxiGuide as applyTaxiGuide } from './taxiGuide';
 import { drawAirbrakeIndicator, drawAltitudeTape, drawAoaGReadout, drawFuelIndicator, drawGearIndicator, drawHeadingTape, drawPowerIndicator, drawServiceStatus, drawSpeedTape } from './tapes';
 import { createScreenProjection, drawLeadSight, drawTargetBox, hasTarget } from './targetBox';
 import { createWeaponStatusState, drawWeaponStatus, ingestWeaponEvents, setWeaponLoadout as applyWeaponLoadout } from './weaponStatus';
@@ -48,6 +49,8 @@ export const createHudRenderer: CreateHudRenderer = (canvas, initialTier) => {
   const buf = createHudSnapshotDoubleBuffer();
   const interpTarget = createInterpolatedHudEntity();
   const weaponState = createWeaponStatusState();
+  const taxiGuide = createTaxiGuideState();
+  let lastNowMs = 0;
   const scratchProjection = createScreenProjection();
 
   // Player's own throttle/afterburner state, read straight off the per-entity snapshot block
@@ -114,6 +117,14 @@ export const createHudRenderer: CreateHudRenderer = (canvas, initialTier) => {
       applyWeaponLoadout(weaponState, ammoGun, missilesIr, missilesRadar);
     },
 
+    setTaxiGuide(guide) {
+      applyTaxiGuide(taxiGuide, guide, lastNowMs);
+    },
+
+    hasTaxiGuide() {
+      return taxiGuide.route !== undefined;
+    },
+
     setDebugSurfacesEnabled(enabled) {
       debugSurfacesEnabled = enabled;
     },
@@ -138,6 +149,11 @@ export const createHudRenderer: CreateHudRenderer = (canvas, initialTier) => {
       drawFuelIndicator(ctx, hud[SnapshotHud.FUEL_KG]!, (hud[SnapshotHud.WARNING_BITS]! & WarningBit.LowFuel) !== 0, hud[SnapshotHud.TANK_FUEL_KG]!, 184, heightPx - 28);
       drawIlsNeedles(ctx, hud, widthPx, heightPx);
       drawServiceStatus(ctx, hud, widthPx * 0.5, heightPx * 0.78);
+      lastNowMs = nowMs;
+      if (taxiGuide.route || taxiGuide.message) {
+        const p = { x: curr.posX[playerSlot]!, z: curr.posZ[playerSlot]! };
+        if (!drawTaxiGuide(ctx, taxiGuide, p, hud[SnapshotHud.TAS_MPS]!, camera, widthPx, heightPx, nowMs)) applyTaxiGuide(taxiGuide, null, nowMs);
+      }
 
       const tierSettings = RENDER_QUALITY_TABLE[tier];
       const headingRad = hud[SnapshotHud.HEADING_RAD]!;

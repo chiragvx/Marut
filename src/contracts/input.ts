@@ -169,6 +169,8 @@ export type LogicalButton = (typeof LogicalButton)[keyof typeof LogicalButton];
 export const MetaAction = {
   CameraCycle: 'cameraCycle',
   MenuToggle: 'menuToggle',
+  /** Taxi guidance on/off (HUD follow-me route to the runway or back to a stand). */
+  TaxiGuide: 'taxiGuide',
 } as const;
 export type MetaAction = (typeof MetaAction)[keyof typeof MetaAction];
 

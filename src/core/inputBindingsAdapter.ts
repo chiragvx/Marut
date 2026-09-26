@@ -62,6 +62,7 @@ const BINDABLE_ACTION_TARGETS: Readonly<Record<BindableAction, BindableActionTar
   [BA.NoseWheelSteer]: { rebindAction: LogicalButton.NwsToggle },
   [BA.PauseToggle]: { rebindAction: MetaAction.MenuToggle },
   [BA.CameraCycle]: { rebindAction: MetaAction.CameraCycle },
+  [BA.TaxiGuide]: { rebindAction: MetaAction.TaxiGuide },
 };
 
 /** The `RebindableAction` + axis direction (if any) a given settings-screen row corresponds to. */

@@ -62,7 +62,7 @@ function isLogicalAxis(action: RebindableAction): action is 'pitch' | 'roll' | '
   return action === LogicalAxis.Pitch || action === LogicalAxis.Roll || action === LogicalAxis.Yaw || action === LogicalAxis.Throttle;
 }
 function isMetaAction(action: RebindableAction): action is MetaActionType {
-  return action === MetaAction.CameraCycle || action === MetaAction.MenuToggle;
+  return (Object.values(MetaAction) as string[]).includes(action);
 }
 
 interface PendingRebind {
@@ -119,6 +119,7 @@ export function createPlayerInputSystem(config: PlayerInputConfig): PlayerInputS
   const nwsEdge = createEdgeDetector();
   const cameraCycleEdge = createEdgeDetector();
   const menuToggleEdge = createEdgeDetector();
+  const taxiGuideEdge = createEdgeDetector();
 
   const rebindEdgeDetectors = new Map<KeyboardCode, ReturnType<typeof createEdgeDetector>>();
   for (const code of KEYBOARD_REBIND_CANDIDATES) rebindEdgeDetectors.set(code, createEdgeDetector());
@@ -420,6 +421,10 @@ export function createPlayerInputSystem(config: PlayerInputConfig): PlayerInputS
       const rawMenuToggle = rawButtonHeld(MetaAction.MenuToggle, scheme);
       if (menuToggleEdge.risingEdge(rawMenuToggle)) {
         for (const handler of metaHandlers) handler(MetaAction.MenuToggle);
+      }
+      const rawTaxiGuide = rawButtonHeld(MetaAction.TaxiGuide, scheme);
+      if (taxiGuideEdge.risingEdge(rawTaxiGuide)) {
+        for (const handler of metaHandlers) handler(MetaAction.TaxiGuide);
       }
 
       out.pitch = pitch;

@@ -7,7 +7,7 @@
  * exports of modules 04/08/09/11 rather than a contracts/*.ts file).
  */
 
-import { NO_ENTITY_ID, SpeedUnit, WeatherMode } from './contracts/core';
+import { EntityFlag, HUD_BLOCK_START, NO_ENTITY_ID, ServiceStateCode, SnapshotHud, SpeedUnit, WeatherMode } from './contracts/core';
 import type {
   AiDifficulty,
   EntityId,
@@ -62,6 +62,7 @@ import { ESTUARY_FLOATS, packEstuary } from './terrain/coastMath';
 import { createAirportNavDb } from './airport';
 import { buildPavementGeometry } from './airport/pavementGeometry';
 import { buildAirfieldMask } from './airport/airfieldMask';
+import { activeRunway, buildTaxiGraph, routeToRunway, routeToStand, type TaxiGraph } from './airport/taxiGraph';
 import { tejasDefinition } from './aircraft';
 import { isBuiltinMissionId, resolveBuiltinMission } from './core/missions/index';
 import { readSnapshotEntity, readSnapshotHeader } from './core/snapshotReader';
@@ -453,10 +454,19 @@ async function initWorkersAndRenderer(qualityTier: QualityTier): Promise<void> {
       const view = new Float64Array((msg as SimSnapshotMessage).buffer);
       const header = readSnapshotHeader(view);
       latestSimTimeSec = header.simTimeSec;
-      if (playerEntityId === NO_ENTITY_ID && header.playerIndex >= 0) {
+      if (header.playerIndex >= 0) {
         const ev = readSnapshotEntity(view, header.playerIndex, entityViewScratch);
-        playerEntityId = ev.id;
+        if (playerEntityId === NO_ENTITY_ID) playerEntityId = ev.id;
+        lastPlayer.x = ev.pos.x;
+        lastPlayer.z = ev.pos.z;
+        lastPlayer.speedMps = Math.hypot(ev.vel.x, ev.vel.y, ev.vel.z);
+        lastPlayer.onGround = (ev.flags & EntityFlag.OnGround) !== 0;
+        lastPlayer.valid = true;
       }
+      // A completed ground service re-arms: reset the HUD's locally counted ammunition.
+      const service = view[HUD_BLOCK_START + SnapshotHud.SERVICE_STATE] ?? 0;
+      if (service === ServiceStateCode.Complete && lastServiceState !== ServiceStateCode.Complete) hud.setWeaponLoadout(FULL_GUN_ROUNDS, FULL_IR_MISSILES, FULL_RADAR_MISSILES);
+      lastServiceState = service;
       renderer.ingestSnapshot(view);
       hud.ingestSnapshot(view);
       simWorker.postMessage({ type: 'releaseBuffer', buffer: (msg as SimSnapshotMessage).buffer } satisfies SimReleaseBufferMessage, [(msg as SimSnapshotMessage).buffer]);
@@ -654,7 +664,9 @@ function launchMission(missionIn: Mission): void {
   );
   chunkManager.onChunkEvicted((key) => renderer.evictTerrainChunk(key.cx, key.cz, key.depth));
 
-  hud.setWeaponLoadout(220, 4, 4);
+  hud.setWeaponLoadout(FULL_GUN_ROUNDS, FULL_IR_MISSILES, FULL_RADAR_MISSILES);
+  hud.setTaxiGuide(null);
+  lastPlayer.valid = false;
 
   loading.setProgress(0.5, 'Starting simulation…');
   simWorker.postMessage({ type: 'init', mission, qualityTier: currentQualityTier } satisfies SimInitMessage);
@@ -795,6 +807,8 @@ function wireMetaActionsOnce(): void {
         appState = 'gameplay';
         simWorker.postMessage({ type: 'command', command: { kind: 'pause', paused: false } } satisfies SimCommandMessage);
       }
+    } else if (action === 'taxiGuide' && appState === 'gameplay') {
+      toggleTaxiGuide();
     } else if (action === 'cameraCycle' && appState === 'gameplay') {
       // SceneRenderer.setCameraMode cycling is a small local rotation this
       // shell owns directly (module 08 exposes the setter, not a cycle
@@ -804,6 +818,59 @@ function wireMetaActionsOnce(): void {
   });
 }
 wireMetaActionsOnce();
+
+/** Full weapon load (the Tejas loadout in src/core/combatAdapter.ts), for the HUD's ammunition counters. */
+const FULL_GUN_ROUNDS = 220;
+const FULL_IR_MISSILES = 4;
+const FULL_RADAR_MISSILES = 4;
+let lastServiceState = 0;
+/** The player as of the latest snapshot (for taxi guidance). */
+const lastPlayer = { x: 0, z: 0, speedMps: 0, onGround: false, valid: false };
+const taxiGraphs = new Map<string, TaxiGraph>();
+
+/**
+ * Taxi guidance (H): on the ground near a stand, a route to the runway in use (into the wind,
+ * full length); elsewhere on the ground (after landing), a route to the nearest stand. H again clears.
+ */
+function toggleTaxiGuide(): void {
+  if (hud.hasTaxiGuide()) {
+    hud.setTaxiGuide(null);
+    return;
+  }
+  if (!lastPlayer.valid || !currentMission) return;
+  if (!lastPlayer.onGround || lastPlayer.speedMps > 40) {
+    hud.setTaxiGuide({ message: 'TAXI GUIDE: ON THE GROUND ONLY' });
+    return;
+  }
+  let best: AirportLayout | undefined;
+  let bd = 6000;
+  for (const a of currentMission.world.airports as readonly AirportLayout[]) {
+    if (a.side === 'hostile') continue;
+    const d = Math.hypot(a.referenceWorldX - lastPlayer.x, a.referenceWorldZ - lastPlayer.z);
+    if (d < bd) {
+      bd = d;
+      best = a;
+    }
+  }
+  if (!best) {
+    hud.setTaxiGuide({ message: 'NO FRIENDLY AIRBASE HERE' });
+    return;
+  }
+  let g = taxiGraphs.get(best.id);
+  if (!g) {
+    g = buildTaxiGraph(best);
+    taxiGraphs.set(best.id, g);
+  }
+  const nearStand = g.stands.some((s) => Math.hypot(g!.nodes[s.node]![0] - lastPlayer.x, g!.nodes[s.node]![1] - lastPlayer.z) < 40);
+  const wind = currentMission.weather.windWorldMps;
+  const rwy = activeRunway(best, { x: wind.x, z: wind.z });
+  const route = nearStand && rwy ? routeToRunway(g, best, lastPlayer.x, lastPlayer.z, rwy) : routeToStand(g, lastPlayer.x, lastPlayer.z);
+  if (!route || route.points.length < 2) {
+    hud.setTaxiGuide({ message: 'NO TAXI ROUTE FROM HERE' });
+    return;
+  }
+  hud.setTaxiGuide({ points: route.points, groundY: best.elevationM, holdIndex: route.holdIndex, runwayId: route.runwayId, standNumber: route.standNumber });
+}
 
 const CAMERA_MODE_CYCLE = ['cockpit', 'chase', 'external', 'flyby'] as const;
 let cameraModeIndex = 1;

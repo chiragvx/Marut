@@ -164,6 +164,7 @@ export const BindableAction = {
   NoseWheelSteer: 'noseWheelSteer',
   PauseToggle: 'pauseToggle',
   CameraCycle: 'cameraCycle',
+  TaxiGuide: 'taxiGuide',
 } as const;
 export type BindableAction = (typeof BindableAction)[keyof typeof BindableAction];
 
