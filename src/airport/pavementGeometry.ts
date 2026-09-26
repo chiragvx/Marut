@@ -16,7 +16,8 @@
  *      shelter pad: u = metres out from the door (negative inside), v = across
  *      apron:       u = world x, v = world z (slab joints)
  *  - extra: runway (length, width, designator code of the first end, of the other end); taxiway
- *    (direction x, z of the centreline, 0, 0);
+ *    (direction x, z of the centreline, 0, 0); shelter pad (stand number, metres inside the door the
+ *    aircraft parks, 0, 0);
  *    blast pad (runway length, runway width, 0, 0). Designator code = number * 10 + letter
  *    (0 none, 1 L, 2 R, 3 C), e.g. 15R -> 152.
  */
@@ -235,7 +236,11 @@ export function buildPavementGeometry(layouts: readonly AirportLayout[]): Paveme
       const mz = (p0.worldZ + p3.worldZ) / 2;
       const shelter = (L.structures ?? []).find((s) => s.kind === 'shelter' && Math.abs((s.worldX - mx) * -uz + (s.worldZ - mz) * ux) < 3 && (s.worldX - mx) * ux + (s.worldZ - mz) * uz > 0 && (s.worldX - mx) * ux + (s.worldZ - mz) * uz < len);
       const doorU = shelter ? (shelter.worldX - mx) * ux + (shelter.worldZ - mz) * uz + shelter.lengthM / 2 : len - 30;
-      polygon(a.points, PavementKind.ShelterPad, (x, z) => [(x - mx) * ux + (z - mz) * uz - doorU, (x - mx) * -uz + (z - mz) * ux]);
+      // Stand number (the pad's own number, matching its parking spot "HAS-n") and how far inside
+      // the door the aircraft parks (the shelter's middle), for the stop bar.
+      const stand = parseInt(a.id.replace(/\D/g, ''), 10) || 0;
+      const parkU = shelter ? shelter.lengthM / 2 : 15;
+      polygon(a.points, PavementKind.ShelterPad, (x, z) => [(x - mx) * ux + (z - mz) * uz - doorU, (x - mx) * -uz + (z - mz) * ux], [stand, parkU, 0, 0]);
     }
 
     for (const a of blast) {

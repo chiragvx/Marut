@@ -239,9 +239,25 @@ const FS = /* glsl */ `
       float m = span(c, 0.0, 0.1, pc) * step(3.0, e);
       col = mix(col, yellow, m * 0.9);
     } else if (kind == 1) {
-      // Shelter pad: concrete, a yellow lead-in line out of the door.
+      // Shelter pad: concrete; a yellow lead-in line into the shelter, a stop bar where the nose
+      // wheel stops, and the stand number outside the door (reading for a pilot taxiing in).
       col = concrete * 0.96;
-      float m = span(p.y, -0.15, 0.15, pw.y) * step(-2.0, p.x);
+      float park = vExtra.y;
+      float m = span(p.y, -0.2, 0.2, pw.y) * step(-park + 4.0, p.x);
+      m = max(m, span(p.x, -park + 4.0, -park + 4.6, pw.x) * span(p.y, -2.5, 2.5, pw.y));
+      float stand = vExtra.x;
+      if (stand > 0.5 && p.x > 5.0 && p.x < 11.0) {
+        // Reading for a pilot taxiing in (facing the door): along -u, right = -v; to the left of the line.
+        vec2 q = vec2(-p.x, -p.y);
+        float d1 = floor(stand / 10.0);
+        float d2 = stand - d1 * 10.0;
+        if (d1 > 0.5) {
+          m = max(m, glyph(int(d1), q, -10.5, -6.6, 4.5, 2.4));
+          m = max(m, glyph(int(d2), q, -10.5, -3.8, 4.5, 2.4));
+        } else {
+          m = max(m, glyph(int(d2), q, -10.5, -3.8, 4.5, 2.4));
+        }
+      }
       col = mix(col, yellow, m);
     } else {
       // Apron: concrete in 5 m slabs.

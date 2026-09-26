@@ -143,7 +143,8 @@ export function drawAoaGReadout(ctx: CanvasRenderingContext2D, hud: Float64Array
   ctx.save();
   ctx.fillStyle = '#40ff60';
   ctx.font = '12px monospace';
-  ctx.fillText(`AOA ${aoaDeg.toFixed(1)}`, xPx, yPx);
+  // Below ~40 kt (parked, taxiing) the angle of attack is meaningless: show dashes.
+  ctx.fillText(hud[SnapshotHud.IAS_MPS]! < 20 ? 'AOA --' : `AOA ${aoaDeg.toFixed(1)}`, xPx, yPx);
   ctx.fillText(`G ${g.toFixed(1)}`, xPx, yPx + 16);
   ctx.restore();
 }

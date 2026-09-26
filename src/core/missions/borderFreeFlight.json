@@ -12,7 +12,7 @@
   ],
   "playerStart": {
     "airportId": "bhisiana-afs",
-    "runwayId": "31",
+    "parkingSpotId": "HAS-7",
     "speedMps": 0
   },
   "aiFlights": [],

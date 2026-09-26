@@ -670,6 +670,8 @@ export interface MissionAiFlight {
 export interface MissionPlayerStart {
   airportId?: string;
   runwayId?: string;
+  /** Start parked on this parking spot of `airportId` (e.g. inside a hardened shelter), nose out, stationary. Takes precedence over runwayId. */
+  parkingSpotId?: string;
   pos?: Vec3Like;
   headingRad?: number;
   speedMps?: number;

@@ -109,9 +109,26 @@ function vault(g: Builder, hw: number, y0: number, rise: number, z0: number, z1:
     const nb = [nxb, nyb, 0];
     tri(g, [xa, ya, z0], [xa, ya, z1], [xb, yb, z1], part, na, na, nb);
     tri(g, [xa, ya, z0], [xb, yb, z1], [xb, yb, z0], part, na, nb, nb);
-    // End caps as fans from the middle of the base.
-    tri(g, [0, y0, z0], [xb, yb, z0], [xa, ya, z0], frontPart, [0, 0, -1], [0, 0, -1], [0, 0, -1]);
-    tri(g, [0, y0, z1], [xa, ya, z1], [xb, yb, z1], backPart, [0, 0, 1], [0, 0, 1], [0, 0, 1]);
+    // End caps as fans from the middle of the base (a negative part leaves that end open).
+    if (frontPart >= 0) tri(g, [0, y0, z0], [xb, yb, z0], [xa, ya, z0], frontPart, [0, 0, -1], [0, 0, -1], [0, 0, -1]);
+    if (backPart >= 0) tri(g, [0, y0, z1], [xa, ya, z1], [xb, yb, z1], backPart, [0, 0, 1], [0, 0, 1], [0, 0, 1]);
+  }
+}
+
+/** The flat ring between two concentric arches (outer hw/rise, inner scaled by k), front z0 to z1: a portal frame. */
+function vaultRing(g: Builder, hw: number, innerHw: number, y0: number, rise: number, k: number, z0: number, z1: number, segs: number, part: number): void {
+  const at = (h: number, r: number, t: number): [number, number] => [-h * Math.cos(t), y0 + r * Math.sin(t)];
+  for (let i = 0; i < segs; i++) {
+    const t0 = (i / segs) * Math.PI;
+    const t1 = ((i + 1) / segs) * Math.PI;
+    const [ox0, oy0] = at(hw, rise, t0);
+    const [ox1, oy1] = at(hw, rise, t1);
+    const [ix0, iy0] = at(innerHw, rise * k, t0);
+    const [ix1, iy1] = at(innerHw, rise * k, t1);
+    // Front face.
+    quad(g, [ox1, oy1, z0], [ox0, oy0, z0], [ix0, iy0, z0], [ix1, iy1, z0], part);
+    // Soffit of the opening.
+    quad(g, [ix0, iy0, z0], [ix0, iy0, z1], [ix1, iy1, z1], [ix1, iy1, z0], part);
   }
 }
 
@@ -135,9 +152,13 @@ export function makeAirbaseAssets(): Record<string, THREE.BufferGeometry> {
     // Hardened aircraft shelter: a concrete vault, the blast door filling the front arch, a
     // concrete apron lip in front of the door.
     shelter: make((g) => {
-      vault(g, 0.5, 0, 1, -0.47, 0.5, 12, Part.Concrete, Part.Door, Part.Concrete);
-      // Door frame: a thick concrete portal ring around the door.
-      vault(g, 0.5, 0, 1, -0.5, -0.47, 12, Part.Concrete, Part.Concrete, Part.Concrete);
+      // The vault, open at the front (doors open), closed at the back.
+      vault(g, 0.5, 0, 1, -0.47, 0.5, 12, Part.Concrete, -1, Part.Concrete);
+      // A thick concrete portal ring around the opening.
+      vaultRing(g, 0.5, 0.44, 0, 1, 0.9, -0.5, -0.47, 12, Part.Concrete);
+      // The two steel door leaves, slid open to either side on their tracks.
+      box(g, -1.0, -0.5, 0, 0.72, -0.53, -0.49, Part.Door);
+      box(g, 0.5, 1.0, 0, 0.72, -0.53, -0.49, Part.Door);
     }),
     // Maintenance hangar: walls, a full-width door in the front, a shallow barrel roof.
     hangar: make((g) => {

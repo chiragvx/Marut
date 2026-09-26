@@ -138,9 +138,12 @@ const FS = /* glsl */ `
     }
     col *= 1.0 - 0.25 * uAtmWet;
     vec3 L = normalize(uSunDir);
+    // Seen from behind (from inside a shelter): an interior, lit only dimly by bounced light.
+    bool inside = dot(n, vWorld - uAtmCamPos) > 0.0;
+    if (inside) n = -n;
     float ndl = dot(n, L);
-    float diff = max(ndl, 0.0) * cloudShadow(vWorld) * sunShadow(vWorld, ndl);
-    vec3 ambient = mix(uAtmAmbGround, uAtmAmbSky, 0.5 + 0.5 * n.y);
+    float diff = inside ? 0.0 : max(ndl, 0.0) * cloudShadow(vWorld) * sunShadow(vWorld, ndl);
+    vec3 ambient = mix(uAtmAmbGround, uAtmAmbSky, 0.5 + 0.5 * n.y) * (inside ? 0.8 : 1.0);
     col = col * (ambient + uAtmSunCol * diff) + glow;
     gl_FragColor = vec4(atmApply(col, vWorld), 1.0);
   }

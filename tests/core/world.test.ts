@@ -146,6 +146,7 @@ describe('World', () => {
       computeTelemetry: (_defId, _state, _damage, _env, out) => {
         telemetryCalls += 1;
         Object.assign(out, zeroTelemetry());
+        out.iasMps = 100; // flying (no stall warning at taxi speeds)
         out.stalled = telemetryCalls >= 5;
       },
       maxFuelKg: () => 1000,

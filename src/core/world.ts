@@ -58,6 +58,7 @@ import type {
   WorldDependencies,
 } from '../contracts/sim';
 import { createEntityPoolInternal, unpackEntityId } from './entityPool';
+import type { AirportLayout } from '../contracts/airport';
 import type { WorldEntityPool } from './entityPool';
 import { resetFcsTrimState } from '../physics';
 import type { WorldCombatTickContext } from './combatContext';
@@ -103,6 +104,15 @@ const SIM_DT_SEC_LOCAL = 1 / 120; // avoid importing SIM_DT_SEC just to re-deriv
  * with different gear geometry is added.
  */
 const RUNWAY_SPAWN_CLEARANCE_M = 1.1;
+
+/** A parking spot of one of the mission's airports (layouts as loaded by src/core/missions), or undefined. */
+function findParkingSpot(mission: Mission, airportId: string, spotId: string): { x: number; z: number; headingRad: number; elevationM: number } | undefined {
+  const airports = (mission.world.airports ?? []) as readonly Partial<AirportLayout>[];
+  const a = airports.find((x) => x.id === airportId);
+  const p = a?.parkingSpots?.find((x) => x.id === spotId);
+  if (!a || !p || a.elevationM === undefined) return undefined;
+  return { x: p.worldX, z: p.worldZ, headingRad: p.headingRad, elevationM: a.elevationM };
+}
 
 function defaultPilotInputs(): PilotInputs {
   return {
@@ -292,7 +302,13 @@ class WorldImpl implements World {
     let playerHeadingRad: number;
     let playerSpeedMps: number;
     let playerStartOnGround: boolean;
-    if (ps.airportId !== undefined && ps.runwayId !== undefined) {
+    const spot = ps.airportId !== undefined && ps.parkingSpotId !== undefined ? findParkingSpot(mission, ps.airportId, ps.parkingSpotId) : undefined;
+    if (spot) {
+      playerPos = { x: spot.x, y: spot.elevationM + RUNWAY_SPAWN_CLEARANCE_M, z: spot.z };
+      playerHeadingRad = spot.headingRad;
+      playerSpeedMps = 0;
+      playerStartOnGround = true;
+    } else if (ps.airportId !== undefined && ps.runwayId !== undefined) {
       const runway = this.deps.navDb.getRunway(ps.airportId, ps.runwayId);
       if (runway) {
         const fwd = forwardWorldInto(runway.headingRad, this.fwdScratch);
@@ -659,7 +675,8 @@ class WorldImpl implements World {
       if (!rec || !state.alive) continue;
       const t = rec.telemetry;
       let bits = 0;
-      if (t.stalled) bits |= WarningBit.Stall;
+      // No stall warning parked or taxiing: at a standstill the angle of attack is meaningless.
+      if (t.stalled && !(state.flags & EntityFlag.OnGround) && t.iasMps > 25) bits |= WarningBit.Stall;
       if (t.fuelFrac < WARNING_LOW_FUEL_FRAC) bits |= WarningBit.LowFuel;
       if (t.gLoad > WARNING_OVER_G_POS || t.gLoad < WARNING_OVER_G_NEG) bits |= WarningBit.OverG;
       if (t.altAglM < WARNING_TERRAIN_PULLUP_AGL_M && t.vspeedMps < -WARNING_TERRAIN_PULLUP_SINK_MPS) bits |= WarningBit.TerrainPullUp;
