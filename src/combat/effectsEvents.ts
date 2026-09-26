@@ -14,8 +14,16 @@ import {
   type ResolveProjectileHit,
 } from '../contracts/combat';
 import { projectileProfile } from './weaponProfiles';
-import { clamp, lerp } from '../math';
+import { clamp, lerp, nextFloat01, type PrngState } from '../math';
 import { applyHit } from './subsystemDamage';
+import type { MissileLethality } from '../contracts/combat';
+
+const _prngBridge: PrngState = { s: 0 };
+
+/** A warhead's kill probability at a miss distance: pkDirect at 0 m, pkAtLethalRadius at the lethal radius, 0 beyond. */
+export function missileKillProbability(L: MissileLethality, missM: number): number {
+  return missM > L.lethalRadiusM ? 0 : lerp(L.pkDirect, L.pkAtLethalRadius, clamp(missM / L.lethalRadiusM, 0, 1));
+}
 
 export const pushExplosionEvent: PushExplosionEvent = (kind, pos: Vec3Like, causedBy, outEvents) => {
   void kind; // radius is fixed regardless of missile kind (EXPLOSION_RADIUS_MISSILE_M); kept for signature symmetry.
@@ -47,6 +55,17 @@ export const resolveProjectileHit: ResolveProjectileHit = (
     // proximity_detonation
     const falloff = lerp(1.0, PROXIMITY_DAMAGE_FALLOFF_MIN_FRAC, clamp(result.missDistanceM / prof.proximityFuseRadiusM, 0, 1));
     damageFrac = prof.damageFrac * falloff;
+  }
+
+  // Realism profiles: roll the warhead's kill probability for this miss distance; a kill destroys
+  // the aircraft outright, otherwise it takes the (falloff-reduced) damage.
+  if (kind !== ProjectileKind.Bullet && prof.lethality) {
+    const d = result.outcome === ProjectileOutcome.DirectHit ? 0 : result.missDistanceM;
+    const pk = missileKillProbability(prof.lethality, d);
+    _prngBridge.s = rng.seedState >>> 0;
+    const u = nextFloat01(_prngBridge);
+    rng.seedState = _prngBridge.s;
+    if (u < pk) damageFrac = 1;
   }
 
   const weapon = kind === ProjectileKind.Bullet ? WeaponKind.Gun : kind === ProjectileKind.IrMissile ? WeaponKind.IrMissile : WeaponKind.RadarMissile;

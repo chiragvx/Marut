@@ -114,8 +114,8 @@ export const createHudRenderer: CreateHudRenderer = (canvas, initialTier) => {
       ingestWeaponEvents(weaponState, events, playerId);
     },
 
-    setWeaponLoadout(ammoGun, missilesIr, missilesRadar) {
-      applyWeaponLoadout(weaponState, ammoGun, missilesIr, missilesRadar);
+    setWeaponLoadout(ammoGun, missilesIr, missilesRadar, names) {
+      applyWeaponLoadout(weaponState, ammoGun, missilesIr, missilesRadar, names);
     },
 
     cycleRadarRange(dir) {

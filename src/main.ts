@@ -65,6 +65,8 @@ import { buildAirfieldMask } from './airport/airfieldMask';
 import { buildAirfieldAids } from './airport/airfieldAids';
 import { activeRunway, buildTaxiGraph, routeToRunway, routeToStand, type TaxiGraph } from './airport/taxiGraph';
 import { tejasDefinition } from './aircraft';
+import { getAircraftDefinition, getLoadout } from './aircraft/registry';
+import { WEAPONS } from './catalog';
 import { isBuiltinMissionId, resolveBuiltinMission } from './core/missions/index';
 import { readSnapshotEntity, readSnapshotHeader } from './core/snapshotReader';
 import { buildKeyBindingsFromInputMap, isAxisRebindMiscapturePositive, targetForBindableAction } from './core/inputBindingsAdapter';
@@ -466,7 +468,7 @@ async function initWorkersAndRenderer(qualityTier: QualityTier): Promise<void> {
       }
       // A completed ground service re-arms: reset the HUD's locally counted ammunition.
       const service = view[HUD_BLOCK_START + SnapshotHud.SERVICE_STATE] ?? 0;
-      if (service === ServiceStateCode.Complete && lastServiceState !== ServiceStateCode.Complete) hud.setWeaponLoadout(FULL_GUN_ROUNDS, FULL_IR_MISSILES, FULL_RADAR_MISSILES);
+      if (service === ServiceStateCode.Complete && lastServiceState !== ServiceStateCode.Complete) setPlayerFullLoad();
       lastServiceState = service;
       renderer.ingestSnapshot(view);
       hud.ingestSnapshot(view);
@@ -676,7 +678,8 @@ function launchMission(missionIn: Mission): void {
   );
   chunkManager.onChunkEvicted((key) => renderer.evictTerrainChunk(key.cx, key.cz, key.depth));
 
-  hud.setWeaponLoadout(FULL_GUN_ROUNDS, FULL_IR_MISSILES, FULL_RADAR_MISSILES);
+  playerFullLoad = fullLoadFor(mission.playerStart.aircraftId, mission.playerStart.loadoutId);
+  setPlayerFullLoad();
   hud.setTaxiGuide(null);
   lastPlayer.valid = false;
 
@@ -833,10 +836,27 @@ function wireMetaActionsOnce(): void {
 }
 wireMetaActionsOnce();
 
-/** Full weapon load (the Tejas loadout in src/core/combatAdapter.ts), for the HUD's ammunition counters. */
-const FULL_GUN_ROUNDS = 220;
-const FULL_IR_MISSILES = 4;
-const FULL_RADAR_MISSILES = 4;
+/** The player's full weapon load (their aircraft's loadout preset), for the HUD's ammunition counters. */
+interface FullLoad { gun: number; ir: number; radar: number; irName?: string; radarName?: string }
+let playerFullLoad: FullLoad = { gun: 0, ir: 0, radar: 0 };
+function fullLoadFor(aircraftId: string | undefined, loadoutId: string | undefined): FullLoad {
+  const out: FullLoad = { gun: 0, ir: 0, radar: 0 };
+  const def = getAircraftDefinition(aircraftId ?? 'tejas-mk1a');
+  const preset = def ? getLoadout(def, loadoutId) : undefined;
+  if (!preset) return out;
+  for (const fit of Object.values(preset.fit)) {
+    const w = fit ? WEAPONS[fit.store] : undefined;
+    if (!w || !fit) continue;
+    if (w.kind === 'gun') out.gun += fit.count;
+    else if (w.kind === 'ir_missile') { out.ir += fit.count; out.irName ??= w.name.toUpperCase(); }
+    else if (w.kind === 'radar_missile') { out.radar += fit.count; out.radarName ??= w.name.toUpperCase().replace(' MK1', ''); }
+  }
+  return out;
+}
+function setPlayerFullLoad(): void {
+  const f = playerFullLoad;
+  hud.setWeaponLoadout(f.gun, f.ir, f.radar, { ...(f.irName ? { ir: f.irName } : {}), ...(f.radarName ? { radar: f.radarName } : {}) });
+}
 let lastServiceState = 0;
 /** The player as of the latest snapshot (for taxi guidance). */
 const lastPlayer = { x: 0, z: 0, speedMps: 0, onGround: false, valid: false };

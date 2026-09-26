@@ -426,8 +426,9 @@ export interface HudRenderer {
   hasTaxiGuide(): boolean;
   /** Steps the radar display's range scale up (+1) or down (-1). */
   cycleRadarRange(dir: 1 | -1): void;
-  /** Sets/resets the ammo counters the weapon-status widget decrements locally; call at spawn and at any rearm. */
-  setWeaponLoadout(ammoGun: number, missilesIr: number, missilesRadar: number): void;
+  /** Sets/resets the ammo counters the weapon-status widget decrements locally; call at spawn and at any rearm.
+   *  `names` labels the missile types (e.g. 'ASRAAM', 'ASTRA') in place of the generic IR/RDR. */
+  setWeaponLoadout(ammoGun: number, missilesIr: number, missilesRadar: number, names?: { ir?: string; radar?: string }): void;
   /** Debug-only overlay (src/hud/controlSurfaceDebug.ts): live elevonL/elevonR/rudder as text + bar gauges. Off by default; not a player-facing Settings option — src/main.ts toggles it on a raw F9 keydown for FCS debug testing. */
   setDebugSurfacesEnabled(enabled: boolean): void;
   /** camera must be the SAME-FRAME value SceneRenderer.renderFrame just returned (or a previous frame's if in a HUD-only/no-3D debug mode — target box + lead sight are simply not drawn while camera is stale beyond one frame; see 08-render.md 4.6). */

@@ -13,16 +13,21 @@ export interface WeaponStatusState {
   ammoGun: number;
   missilesIr: number;
   missilesRadar: number;
+  /** Missile type labels (undefined = the generic IR / RDR). */
+  irName: string | undefined;
+  radarName: string | undefined;
 }
 
 export function createWeaponStatusState(): WeaponStatusState {
-  return { ammoGun: 0, missilesIr: 0, missilesRadar: 0 };
+  return { ammoGun: 0, missilesIr: 0, missilesRadar: 0, irName: undefined, radarName: undefined };
 }
 
-export function setWeaponLoadout(state: WeaponStatusState, ammoGun: number, missilesIr: number, missilesRadar: number): void {
+export function setWeaponLoadout(state: WeaponStatusState, ammoGun: number, missilesIr: number, missilesRadar: number, names?: { ir?: string; radar?: string }): void {
   state.ammoGun = ammoGun;
   state.missilesIr = missilesIr;
   state.missilesRadar = missilesRadar;
+  state.irName = names?.ir;
+  state.radarName = names?.radar;
 }
 
 /** Only events whose shooter id matches the player's own EntityId decrement the player's ammo display. */
@@ -41,7 +46,7 @@ export function ingestWeaponEvents(state: WeaponStatusState, events: readonly Si
 export function drawWeaponStatus(ctx: CanvasRenderingContext2D, hud: Float64Array, state: WeaponStatusState, xPx: number, yPx: number): void {
   const weaponIdx = hud[SnapshotHud.WEAPON_IDX]!;
   const kind = WeaponKindByCode[weaponIdx] ?? WeaponKind.Gun;
-  const label = WEAPON_DISPLAY_LABEL[kind];
+  const label = (kind === WeaponKind.IrMissile ? state.irName : kind === WeaponKind.RadarMissile ? state.radarName : undefined) ?? WEAPON_DISPLAY_LABEL[kind];
   const ammoText = kind === WeaponKind.Gun ? `${state.ammoGun}` : kind === WeaponKind.IrMissile ? `${state.missilesIr}` : `${state.missilesRadar}`;
 
   ctx.save();

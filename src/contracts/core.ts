@@ -460,6 +460,9 @@ export interface CombatStatus {
   radarMode?: RadarMode;
   radarMaxRangeM?: number;
   radarScanAzRad?: number;
+  /** The loaded missiles' head-on maximum range at altitude (their profile envelope), m; 0 if none. For AI shot decisions and HUD cues. */
+  irMissileRangeM?: number;
+  radarMissileRangeM?: number;
   ammoGun: number;
   missilesIr: number;
   missilesRadar: number;

@@ -59,6 +59,8 @@ export function updateRadarMissileGuidance(
     projectile.guidance = angle <= seekerHalfAngle ? ProjectileGuidanceMode.RadarActive : ProjectileGuidanceMode.Lost;
   }
 
+  // With a realism profile, mid-course knowledge comes from the datalink (stepProjectile).
+  if (profile?.flight && projectile.guidance === ProjectileGuidanceMode.RadarDatalink) return;
   projectile.lastKnownTargetPos.x = target.pos.x;
   projectile.lastKnownTargetPos.y = target.pos.y;
   projectile.lastKnownTargetPos.z = target.pos.z;

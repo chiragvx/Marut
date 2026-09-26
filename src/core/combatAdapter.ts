@@ -20,6 +20,7 @@ import type { CombatPortWithContacts, CombatPortWithRearm, WorldCombatTickContex
 import { subSeed } from './seed';
 import { getAircraftDefinition, getLoadout } from '../aircraft';
 import { RADARS, WEAPONS } from '../catalog';
+import { isaDensityKgM3 } from '../combat/isaDensity';
 import {
   createWeaponsState,
   updateSensors,
@@ -80,9 +81,11 @@ function loadoutFor(defId: string | undefined, loadoutId?: string): WeaponsLoado
   return out;
 }
 
-/** Fixed default combat environment (module 10 does not currently thread per-projectile atmosphere sampling through — see the class-level note below); acceptable simplification given no aircraft/module needs projectile-altitude-varying air density for gameplay purposes yet. */
+/** Default combat environment: still air, standard gravity, ISA density at each projectile's altitude. */
 function defaultCombatEnvironment(): CombatEnvironment {
-  return { airDensityKgM3: 1.225, windWorldMps: { x: 0, y: 0, z: 0 }, gravityMps2: 9.80665 };
+  // Density by each projectile's own altitude (was sea level for everything, which cut missile
+  // ranges at altitude by a factor of two or more).
+  return { airDensityKgM3: 1.225, windWorldMps: { x: 0, y: 0, z: 0 }, gravityMps2: 9.80665, densityAtAltitude: isaDensityKgM3 };
 }
 
 const EMPTY_CONTACTS: readonly Contact[] = [];
@@ -298,6 +301,8 @@ export function createCombatAdapter(): CombatPort & CombatPortWithContacts & Com
           }
           const poolIndex = freeProjectileIndices.pop() as number;
           const slot = projectilePool[poolIndex] as ProjectileState;
+          // Each projectile's own random stream (seeker noise, datalink error, fuze), reproducible per mission.
+          req.rngSeed = subSeed(ctx.missionSeed, 'proj:' + spawnedId);
           initProjectile(slot, req, ctx.simTimeSec);
           projectileIndexByEntityId.set(spawnedId, poolIndex);
           if (req.kind !== 'bullet') patchNextMissileLaunchId(fireEventsScratch, spawnedId);
@@ -320,6 +325,13 @@ export function createCombatAdapter(): CombatPort & CombatPortWithContacts & Com
         const poolIndex = projectileIndexByEntityId.get(state.id);
         if (poolIndex === undefined) continue;
         const projectile = projectilePool[poolIndex] as ProjectileState;
+        if (projectile.kind === 'radar_missile') {
+          // Mid-course datalink: only while the launcher is alive and its radar still holds the
+          // target in active track (not coasting on memory). Otherwise the missile flies on its last update.
+          const owner = weaponsStates.get(projectile.ownerId);
+          const track = owner && projectile.targetId !== undefined ? owner.tracks.get(projectile.targetId) : undefined;
+          projectile.datalinkOk = track !== undefined && track.source === 'radar' && !track.memory;
+        }
         const result = stepProjectile(state, projectile, allEntities, ctx.sampler, combatEnv, dtSec, state);
         if (result.outcome === ProjectileOutcome.Flying) continue;
 

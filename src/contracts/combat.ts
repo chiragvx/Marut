@@ -308,6 +308,50 @@ export interface WeaponProfile {
   minLaunchRangeM: number;
   ir?: IrSeekerProfile;
   radar?: RadarSeekerProfile;
+  /** Realism (missiles). Every field is optional; absent = the simple model (constant mass, one
+   *  motor phase, the flat maxG limit, perfect instantaneous guidance, a fixed damage fraction). */
+  flight?: MissileFlightProfile;
+  lethality?: MissileLethality;
+  /** Published/validated launch envelope at ~10 km, launcher at Mach 0.9, non-manoeuvring target (m). For the AI and HUD cues. */
+  envelope?: { rMaxHeadOnM: number; rMaxTailM: number; rNoEscapeM: number };
+}
+
+/** A missile's propulsion, aerodynamics and guidance imperfections. */
+export interface MissileFlightProfile {
+  /** Sustain phase after the boost (motorBurnSec / motorThrustN). */
+  sustainBurnSec: number;
+  sustainThrustN: number;
+  /** Propellant burnt over boost + sustain (the missile gets lighter), kg. */
+  propellantMassKg: number;
+  /** Lifting reference area and maximum lift coefficient: the g available at dynamic pressure q is
+   *  min(maxG, clMax * q * liftAreaM2 / (mass * g)). */
+  liftAreaM2: number;
+  clMax: number;
+  /** Induced drag: D_i = inducedDragK * (m a_lat)^2 / (q * liftAreaM2). */
+  inducedDragK: number;
+  /** Supersonic wave-drag rise: Cd is multiplied by (1 + waveDragRise) around Mach 1 and by (1 + waveDragRise/2) above. */
+  waveDragRise: number;
+  /** Autopilot/airframe first-order lag on the lateral acceleration command, s. */
+  autopilotTauSec: number;
+  /** Seeker line-of-sight noise, 1-sigma, mrad (resampled every seekerUpdateSec). */
+  seekerNoiseMrad: number;
+  seekerUpdateSec: number;
+  /** Radar missiles: datalink updates from the launcher's radar track, and that track's angular error. */
+  datalinkIntervalSec?: number;
+  datalinkErrMrad?: number;
+  /** Radar missiles: lofted mid-course climb, rad above the line to the target (0 = none). */
+  loftRad?: number;
+  /** After burnout, below this speed the missile can no longer manoeuvre to intercept and self-destructs, m/s. */
+  minSpeedMps?: number;
+}
+
+/** What the warhead does: fuze reliability and kill probability by miss distance. */
+export interface MissileLethality {
+  fuzeReliability: number;
+  /** Kill probability for a direct hit, and at lethalRadiusM (linear between; 0 beyond). */
+  pkDirect: number;
+  pkAtLethalRadius: number;
+  lethalRadiusM: number;
 }
 
 /** An aircraft's fire-control radar. */
@@ -624,6 +668,8 @@ export interface ProjectileSpawnRequest {
   targetId?: EntityId;
   /** The fired store's profile. Absent = the generic profile for `kind`. */
   profile?: WeaponProfile;
+  /** Seed for this projectile's own random stream (guidance noise, fuze). */
+  rngSeed?: number;
 }
 
 /**
@@ -697,6 +743,16 @@ export interface ProjectileState {
   gSaturatedSec: number;
   /** The fired store's profile (set by initProjectile). Absent = the generic profile for `kind`. */
   profile?: WeaponProfile;
+  /** Realism state (used when profile.flight is present). */
+  rngState?: number;
+  /** Achieved lateral acceleration (after the autopilot lag), m/s^2. */
+  accelLat?: Vec3Like;
+  /** Seeker noise offset applied to the target position, and seconds until it is resampled. */
+  noiseOffset?: Vec3Like;
+  noiseAgeSec?: number;
+  /** Datalink: set by the caller each tick (the launcher still holds the target in track), and the time since the last update. */
+  datalinkOk?: boolean;
+  datalinkAgeSec?: number;
 }
 
 export type CreateProjectilePool = (size: number) => ProjectileState[];
@@ -712,6 +768,8 @@ export interface CombatEnvironment {
   airDensityKgM3: number;
   windWorldMps: Vec3Like;
   gravityMps2: number;
+  /** Air density at an altitude, kg/m^3. When present it replaces airDensityKgM3 (per projectile, per tick). */
+  densityAtAltitude?: (altM: number) => number;
 }
 
 export const ProjectileOutcome = {

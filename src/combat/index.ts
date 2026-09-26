@@ -25,8 +25,9 @@ export { segmentHitsEllipsoid, closestApproachOnSegment } from './hitDetection';
 export { computeLeadSolution } from './leadComputingSight';
 
 // 3.8 Events
-export { pushExplosionEvent, resolveProjectileHit } from './effectsEvents';
+export { missileKillProbability, pushExplosionEvent, resolveProjectileHit } from './effectsEvents';
 
 // Re-export every constant/type from contracts/combat so consumers need only this barrel.
 export * from '../contracts/combat';
 export { GENERIC_GUN_PROFILE, GENERIC_IR_MISSILE_PROFILE, GENERIC_RADAR_MISSILE_PROFILE, GENERIC_RADAR_PROFILE, defaultWeaponProfile, projectileProfile } from './weaponProfiles';
+export { isaDensityKgM3 } from './isaDensity';

@@ -15,6 +15,7 @@
  */
 import type { Contact, PilotContext } from '../contracts/core';
 import type { AiDifficultyProfile, EvaluateTacticalTransition, FlightGoal } from '../contracts/ai';
+import { aiRadarMaxRangeM } from './weaponEmployment';
 import { AiWeaponEnvelope, BfmThresholds, ControlGains, PitchMode, TacticalState } from '../contracts/ai';
 import { clamp } from '../math';
 import { computeAspectAngleRad, headingFromVelocity } from './formation';
@@ -83,7 +84,7 @@ function evaluateTacticalTransitionImpl(
 
   // Rule 8.
   if (
-    best.rangeM <= AiWeaponEnvelope.RADAR_MAX_RANGE_M &&
+    best.rangeM <= aiRadarMaxRangeM(ctx.combat) &&
     ctx.combat.lockState === AiWeaponEnvelope.RADAR_REQUIRED_LOCK &&
     ctx.combat.missilesRadar > 0
   ) {

@@ -402,6 +402,11 @@ export const AiWeaponEnvelope = {
   RADAR_MAX_RANGE_M: 18000,
   /** ctx.combat.lockState value required before a radar missile launch is considered. */
   RADAR_REQUIRED_LOCK: 'locked' as LockState,
+  /** When ctx.combat reports the loaded missile's head-on maximum range (its catalogue envelope),
+   *  the AI commits at this fraction of it instead of the fixed IR/RADAR_MAX_RANGE_M above: well
+   *  inside Rmax so the shot keeps energy against a turning target. */
+  IR_COMMIT_FRAC_OF_RMAX: 0.3,
+  RADAR_COMMIT_FRAC_OF_RMAX: 0.45,
   /** Minimum seconds between two launches (of any weapon) at the same targetId, regardless of ammo/envelope, so the AI does not empty a magazine into one target in one salvo. */
   LAUNCH_COOLDOWN_SEC: 3.0,
 } as const;

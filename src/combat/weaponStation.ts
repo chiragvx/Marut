@@ -72,13 +72,16 @@ export const createWeaponsState: CreateWeaponsState = (loadout: WeaponsLoadout, 
 };
 
 export const writeCombatStatus: WriteCombatStatus = (state, out: CombatStatus) => {
-  let ammoGun = 0, missilesIr = 0, missilesRadar = 0;
+  let ammoGun = 0, missilesIr = 0, missilesRadar = 0, irRangeM = 0, radarRangeM = 0;
   for (let i = 0; i < state.stations.length; i++) {
     const st = state.stations[i]!;
+    const reach = st.count > 0 ? (st.profile.envelope?.rMaxHeadOnM ?? 0) : 0;
     if (st.weapon === WeaponKind.Gun) ammoGun += st.count;
-    else if (st.weapon === WeaponKind.IrMissile) missilesIr += st.count;
-    else if (st.weapon === WeaponKind.RadarMissile) missilesRadar += st.count;
+    else if (st.weapon === WeaponKind.IrMissile) { missilesIr += st.count; irRangeM = Math.max(irRangeM, reach); }
+    else if (st.weapon === WeaponKind.RadarMissile) { missilesRadar += st.count; radarRangeM = Math.max(radarRangeM, reach); }
   }
+  out.irMissileRangeM = irRangeM;
+  out.radarMissileRangeM = radarRangeM;
   out.selectedWeapon = state.selectedWeapon;
   out.radarMode = state.radarMode;
   out.radarMaxRangeM = state.radar.maxRangeM;

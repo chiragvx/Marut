@@ -47,7 +47,7 @@ test('the Tejas Mk1A: id, alias, stations, sensors', () => {
   expect(WEAPONS['derby']!.kind).toBe('radar_missile');
 });
 
-test('the player spawns as the Mk1A with its default loadout (220 rounds, 4 IR, 4 radar missiles)', () => {
+test('the player spawns as the Mk1A with its default CAP loadout (220 rounds, 4 ASRAAM, 2 Astra Mk1)', () => {
   const mission = resolveBuiltinMission('border-free');
   const world = createWorld(buildWorldDependencies(mission));
   world.loadMission(mission);
@@ -55,5 +55,8 @@ test('the player spawns as the Mk1A with its default loadout (220 rounds, 4 IR, 
   const cs = world.getCombatStatus(world.getPlayerEntityId())!;
   expect(cs.ammoGun).toBe(220);
   expect(cs.missilesIr).toBe(4);
-  expect(cs.missilesRadar).toBe(4);
+  expect(cs.missilesRadar).toBe(2);
+  // The loaded missiles' envelopes reach the AI and HUD.
+  expect(cs.irMissileRangeM).toBe(35000);
+  expect(cs.radarMissileRangeM).toBe(160000);
 });

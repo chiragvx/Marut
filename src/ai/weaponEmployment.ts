@@ -52,7 +52,7 @@ export const estimateWeaponEnvelope: EstimateWeaponEnvelope = (
     const maxOffRad = degToRad(AiWeaponEnvelope.IR_MAX_OFF_BORESIGHT_DEG);
     const inEnvelope =
       target.rangeM >= AiWeaponEnvelope.IR_MIN_RANGE_M &&
-      target.rangeM <= AiWeaponEnvelope.IR_MAX_RANGE_M &&
+      target.rangeM <= aiIrMaxRangeM(ctx.combat) &&
       Math.abs(target.bearingRad) <= maxOffRad;
     est.inEnvelope = inEnvelope;
     est.quality = inEnvelope ? 1 - Math.abs(target.bearingRad) / maxOffRad : 0;
@@ -62,12 +62,22 @@ export const estimateWeaponEnvelope: EstimateWeaponEnvelope = (
   // radar_missile
   const inEnvelope =
     target.rangeM >= AiWeaponEnvelope.RADAR_MIN_RANGE_M &&
-    target.rangeM <= AiWeaponEnvelope.RADAR_MAX_RANGE_M &&
+    target.rangeM <= aiRadarMaxRangeM(ctx.combat) &&
     ctx.combat.lockState === AiWeaponEnvelope.RADAR_REQUIRED_LOCK;
   est.inEnvelope = inEnvelope;
   est.quality = inEnvelope ? 1 : 0;
   return est;
 };
+
+/** The AI's IR/radar missile commit range: a fraction of the loaded missile's envelope, or the fixed default. */
+export function aiIrMaxRangeM(combat: { irMissileRangeM?: number }): number {
+  const r = combat.irMissileRangeM ?? 0;
+  return r > 0 ? r * AiWeaponEnvelope.IR_COMMIT_FRAC_OF_RMAX : AiWeaponEnvelope.IR_MAX_RANGE_M;
+}
+export function aiRadarMaxRangeM(combat: { radarMissileRangeM?: number }): number {
+  const r = combat.radarMissileRangeM ?? 0;
+  return r > 0 ? r * AiWeaponEnvelope.RADAR_COMMIT_FRAC_OF_RMAX : AiWeaponEnvelope.RADAR_MAX_RANGE_M;
+}
 
 export interface WeaponEmploymentState {
   lastLaunchSimTimeSec: number;

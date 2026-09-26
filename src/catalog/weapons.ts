@@ -171,11 +171,198 @@ export const GENERIC_RADAR_PROFILE: RadarProfile = {
   trackMemorySec: 4,
 };
 
+const D2R = Math.PI / 180;
+
+/**
+ * MBDA ASRAAM (AIM-132), the Tejas Mk1A's close-combat missile (twin rails on the outboard
+ * pylons). Public data: 88 kg, 166 mm, 2.9 m; a large 166 mm motor for Mach 3+; 128x128 imaging IR
+ * seeker with lock-on-after-launch and very high off-boresight; blast-fragmentation warhead with a
+ * laser proximity fuze; "25+ km" operational range. Motor, lift and noise values are estimates
+ * tuned so the modelled envelope matches (see tests/combat/missileEnvelope.test.ts).
+ */
+export const ASRAAM: WeaponProfile = {
+  id: 'asraam',
+  name: 'ASRAAM',
+  kind: 'ir_missile',
+  carriageMassKg: 88,
+  carriageDragAreaM2: 0.025,
+  projectileMassKg: 88,
+  dragCoeff: 0.45,
+  crossSectionM2: 0.02164,
+  maxLifetimeSec: 45,
+  armDistanceM: 150,
+  launchSpeedMps: 20,
+  roundIntervalSec: 0,
+  dispersionMrad: 0,
+  motorBurnSec: 3.0,
+  motorThrustN: 29000,
+  pnGain: 4,
+  maxG: 50,
+  proximityFuseRadiusM: 9,
+  damageFrac: 0.6,
+  minLaunchRangeM: 300,
+  ir: {
+    // Seeker cued by the radar/helmet sight: acquires +-40 deg off the nose, tracks to +-90 deg.
+    acquireHalfAngleRad: 40 * D2R,
+    trackHalfAngleRad: 90 * D2R,
+    gimbalRateRadS: 15,
+    lockTimeSec: 0.5,
+    detectRangeTailOnM: 20000,
+    detectRangeHeadOnM: 9000,
+    afterburnerRangeMult: 1.3,
+  },
+  flight: {
+    sustainBurnSec: 0,
+    sustainThrustN: 0,
+    propellantMassKg: 36,
+    liftAreaM2: 0.2,
+    clMax: 3,
+    inducedDragK: 0.25,
+    waveDragRise: 0.6,
+    autopilotTauSec: 0.12,
+    seekerNoiseMrad: 0.3,
+    seekerUpdateSec: 0.02,
+    minSpeedMps: 400,
+  },
+  lethality: { fuzeReliability: 0.96, pkDirect: 0.95, pkAtLethalRadius: 0.4, lethalRadiusM: 9 },
+  // Measured (.scratch/tune.ts): 35 km head-on / 16 km tail at 10 km; 14 / 6.5 km at 1 km.
+  envelope: { rMaxHeadOnM: 35000, rMaxTailM: 16000, rNoEscapeM: 14000 },
+};
+
+/**
+ * Vympel R-73 (AA-11), the legacy close-combat missile. Public data: 105 kg, 170 mm, 2.9 m; a
+ * 2.5 s motor; cooled IR seeker +-45 deg (cued by radar/helmet sight); 30 km head-on (R-73E).
+ */
+export const R73: WeaponProfile = {
+  ...GENERIC_IR_MISSILE_PROFILE,
+  id: 'r-73',
+  name: 'R-73',
+  dragCoeff: 0.5,
+  maxLifetimeSec: 35,
+  motorBurnSec: 2.5,
+  motorThrustN: 28000,
+  maxG: 40,
+  proximityFuseRadiusM: 8,
+  ir: {
+    acquireHalfAngleRad: 15 * D2R,
+    trackHalfAngleRad: 45 * D2R,
+    gimbalRateRadS: 10,
+    lockTimeSec: 1.0,
+    detectRangeTailOnM: 12000,
+    detectRangeHeadOnM: 4500,
+    afterburnerRangeMult: 1.5,
+  },
+  flight: {
+    sustainBurnSec: 0,
+    sustainThrustN: 0,
+    propellantMassKg: 30,
+    liftAreaM2: 0.22,
+    clMax: 2.8,
+    inducedDragK: 0.3,
+    waveDragRise: 0.6,
+    autopilotTauSec: 0.15,
+    seekerNoiseMrad: 0.6,
+    seekerUpdateSec: 0.02,
+    minSpeedMps: 400,
+  },
+  lethality: { fuzeReliability: 0.93, pkDirect: 0.9, pkAtLethalRadius: 0.3, lethalRadiusM: 8 },
+  // Measured: 30 km head-on / 12 km tail at 10 km; 12 / 4.8 km at 1 km.
+  envelope: { rMaxHeadOnM: 30000, rMaxTailM: 12000, rNoEscapeM: 10000 },
+};
+
+/**
+ * DRDO Astra Mk1, the Tejas Mk1A's beyond-visual-range missile. Public data: 154 kg, 178 mm,
+ * 3.6 m; smokeless solid motor to Mach 4.5; mid-course inertial with a two-way datalink from the
+ * launcher's radar, then a Ku-band active radar seeker; 15 kg pre-fragmented warhead with an RF
+ * proximity fuze. Range: 110 km originally, extended to ~160 km in 2026 (same airframe, better
+ * propulsion and energy management, i.e. a lofted profile). Motor/lift/noise are estimates tuned to
+ * that envelope (tests/combat/missileEnvelope.test.ts).
+ */
+export const ASTRA_MK1: WeaponProfile = {
+  id: 'astra-mk1',
+  name: 'Astra Mk1',
+  kind: 'radar_missile',
+  carriageMassKg: 154,
+  carriageDragAreaM2: 0.045,
+  projectileMassKg: 154,
+  dragCoeff: 0.25,
+  crossSectionM2: 0.0249,
+  maxLifetimeSec: 180,
+  armDistanceM: 300,
+  launchSpeedMps: 25,
+  roundIntervalSec: 0,
+  dispersionMrad: 0,
+  motorBurnSec: 4.5,
+  motorThrustN: 25000,
+  pnGain: 4,
+  maxG: 40,
+  proximityFuseRadiusM: 12,
+  damageFrac: 0.65,
+  minLaunchRangeM: 1000,
+  radar: { maxRangeM: 160000, activeSeekerRangeM: 20000, activeSeekerHalfAngleRad: 20 * D2R, gSaturationLostSec: 2.5 },
+  flight: {
+    // Long low-thrust sustain (dual-pulse-like energy management): ~250 kN s total, Isp ~300 s.
+    sustainBurnSec: 32,
+    sustainThrustN: 4200,
+    propellantMassKg: 84,
+    liftAreaM2: 0.3,
+    clMax: 2.5,
+    inducedDragK: 0.25,
+    waveDragRise: 0.45,
+    autopilotTauSec: 0.2,
+    seekerNoiseMrad: 1.0,
+    seekerUpdateSec: 0.05,
+    datalinkIntervalSec: 1.0,
+    datalinkErrMrad: 2,
+    // Climbs ~37 deg above the sight line into thin air, capped at 22 km above the target.
+    loftRad: 0.65,
+    minSpeedMps: 350,
+  },
+  lethality: { fuzeReliability: 0.95, pkDirect: 0.95, pkAtLethalRadius: 0.35, lethalRadiusM: 12 },
+  // Measured: 157 km head-on / 82 km tail at 10 km; 92 / 33 km at 1 km (both lofted).
+  envelope: { rMaxHeadOnM: 160000, rMaxTailM: 80000, rNoEscapeM: 70000 },
+};
+
+/** Rafael Derby, the legacy BVR missile: 118 kg, 160 mm, active radar seeker, ~50 km. */
+export const DERBY: WeaponProfile = {
+  ...GENERIC_RADAR_MISSILE_PROFILE,
+  id: 'derby',
+  name: 'Derby',
+  crossSectionM2: 0.0201,
+  dragCoeff: 0.4,
+  maxLifetimeSec: 80,
+  motorBurnSec: 5,
+  motorThrustN: 18000,
+  maxG: 40,
+  radar: { maxRangeM: 50000, activeSeekerRangeM: 12000, activeSeekerHalfAngleRad: 20 * D2R, gSaturationLostSec: 2 },
+  flight: {
+    sustainBurnSec: 0,
+    sustainThrustN: 0,
+    propellantMassKg: 44,
+    liftAreaM2: 0.25,
+    clMax: 2.5,
+    inducedDragK: 0.3,
+    waveDragRise: 0.6,
+    autopilotTauSec: 0.2,
+    seekerNoiseMrad: 1.0,
+    seekerUpdateSec: 0.05,
+    datalinkIntervalSec: 1.0,
+    datalinkErrMrad: 3,
+    loftRad: 0.15,
+    minSpeedMps: 420,
+  },
+  lethality: { fuzeReliability: 0.94, pkDirect: 0.93, pkAtLethalRadius: 0.3, lethalRadiusM: 10 },
+  // Measured: 50 km head-on / 20 km tail at 10 km; 20 / 8 km at 1 km.
+  envelope: { rMaxHeadOnM: 50000, rMaxTailM: 20000, rNoEscapeM: 17000 },
+};
+
 /** Every weapon store by catalogue id. */
 export const WEAPONS: Readonly<Record<string, WeaponProfile>> = {
   [GENERIC_GUN_PROFILE.id]: GENERIC_GUN_PROFILE,
-  [GENERIC_IR_MISSILE_PROFILE.id]: GENERIC_IR_MISSILE_PROFILE,
-  [GENERIC_RADAR_MISSILE_PROFILE.id]: GENERIC_RADAR_MISSILE_PROFILE,
+  [ASRAAM.id]: ASRAAM,
+  [R73.id]: R73,
+  [ASTRA_MK1.id]: ASTRA_MK1,
+  [DERBY.id]: DERBY,
 };
 
 /** External fuel tanks: capacity, empty mass, drag area. */

@@ -47,21 +47,35 @@ export const meanChordM = wingAreaM2 / wingSpanM;
 // inboard pylons, a 725 L tank on the (wet) centreline.
 export const stations: readonly StationDef[] = [
   { id: 'gun', posBodyM: { x: 3.5, y: -0.2, z: 0.3 }, accepts: ['gsh-23'], maxCount: 220 },
-  { id: 'wing-outer-l', posBodyM: { x: -0.9, y: -0.3, z: -3.3 }, accepts: ['r-73', 'derby'], maxCount: 2 },
-  { id: 'wing-outer-r', posBodyM: { x: -0.9, y: -0.3, z: 3.3 }, accepts: ['r-73', 'derby'], maxCount: 2 },
-  { id: 'wing-mid-l', posBodyM: { x: -0.5, y: -0.35, z: -2.5 }, accepts: ['derby', 'r-73'], maxCount: 2 },
-  { id: 'wing-mid-r', posBodyM: { x: -0.5, y: -0.35, z: 2.5 }, accepts: ['derby', 'r-73'], maxCount: 2 },
-  { id: 'wing-inner-l', posBodyM: { x: -0.1, y: -0.35, z: -1.8 }, accepts: ['tank-1200l', 'derby'], maxCount: 1 },
-  { id: 'wing-inner-r', posBodyM: { x: -0.1, y: -0.35, z: 1.8 }, accepts: ['tank-1200l', 'derby'], maxCount: 1 },
+  { id: 'wing-outer-l', posBodyM: { x: -0.9, y: -0.3, z: -3.3 }, accepts: ['asraam', 'r-73', 'derby'], maxCount: 2 },
+  { id: 'wing-outer-r', posBodyM: { x: -0.9, y: -0.3, z: 3.3 }, accepts: ['asraam', 'r-73', 'derby'], maxCount: 2 },
+  { id: 'wing-mid-l', posBodyM: { x: -0.5, y: -0.35, z: -2.5 }, accepts: ['astra-mk1', 'derby', 'r-73', 'asraam'], maxCount: 2 },
+  { id: 'wing-mid-r', posBodyM: { x: -0.5, y: -0.35, z: 2.5 }, accepts: ['astra-mk1', 'derby', 'r-73', 'asraam'], maxCount: 2 },
+  { id: 'wing-inner-l', posBodyM: { x: -0.1, y: -0.35, z: -1.8 }, accepts: ['tank-1200l', 'astra-mk1', 'derby'], maxCount: 1 },
+  { id: 'wing-inner-r', posBodyM: { x: -0.1, y: -0.35, z: 1.8 }, accepts: ['tank-1200l', 'astra-mk1', 'derby'], maxCount: 1 },
   { id: 'centreline', posBodyM: { x: 0.2, y: -0.9, z: 0 }, accepts: ['tank-725l'], maxCount: 1 },
   { id: 'intake-pod', posBodyM: { x: 1.2, y: -0.8, z: -0.5 }, accepts: [], maxCount: 1 },
 ];
 
 /**
- * Store fits. "CAP (legacy)" is the load the sim has always flown (R-73 and Derby on twin rails,
- * two wing tanks); realistic Mk1A fits (twin ASRAAM + Astra) arrive with the weapons work.
+ * Store fits. "CAP" is the Mk1A's air-defence fit: twin ASRAAM on the outboard pylons, one Astra Mk1
+ * on each middle pylon, two 1200 L wing tanks. "CAP (legacy)" is the load the sim flew before
+ * (R-73 and Derby on twin rails).
  */
 export const loadouts: readonly LoadoutPreset[] = [
+  {
+    id: 'cap',
+    name: 'CAP: 4x ASRAAM, 2x Astra Mk1, 2x 1200 L',
+    fit: {
+      gun: { store: 'gsh-23', count: 220 },
+      'wing-outer-l': { store: 'asraam', count: 2 },
+      'wing-outer-r': { store: 'asraam', count: 2 },
+      'wing-mid-l': { store: 'astra-mk1', count: 1 },
+      'wing-mid-r': { store: 'astra-mk1', count: 1 },
+      'wing-inner-l': { store: 'tank-1200l', count: 1 },
+      'wing-inner-r': { store: 'tank-1200l', count: 1 },
+    },
+  },
   {
     id: 'cap-legacy',
     name: 'CAP (legacy): 4x R-73, 4x Derby, 2x 1200 L',
@@ -76,7 +90,7 @@ export const loadouts: readonly LoadoutPreset[] = [
     },
   },
 ];
-export const defaultLoadoutId = 'cap-legacy';
+export const defaultLoadoutId = 'cap';
 
 /** The default loadout as the flight model's Hardpoint list (stores' kinds from the catalogue). */
 export const hardpoints: readonly Hardpoint[] = hardpointsFor(stations, loadouts.find((l) => l.id === defaultLoadoutId)!);

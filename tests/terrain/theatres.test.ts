@@ -149,13 +149,14 @@ describe('water is a crash surface', () => {
     world.loadMission(mission);
     const id = world.getPlayerEntityId();
     const s = world.getEntityState(id)!;
-    // 45 km offshore, heading east, gear down, sinking at 1 m/s from 6 m.
+    // 45 km offshore, heading east, gear down, sinking at 2 m/s from 6 m (a gentle touchdown for
+    // any store fit: at 1 m/s a light fit floated and never touched).
     Quat.fromYawPitchRoll(Math.PI / 2, 0.08, 0, s.rot);
     s.pos.x = 0;
     s.pos.z = 0;
     s.pos.y = 6;
     s.vel.x = 75;
-    s.vel.y = -1;
+    s.vel.y = -2;
     s.vel.z = 0;
     s.gearPos = 1;
     s.flags = (s.flags | EntityFlag.GearDownCommanded) & ~EntityFlag.OnGround;

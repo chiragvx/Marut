@@ -75,6 +75,10 @@ export const resetProjectile: ResetProjectile = (slot) => {
   slot.lastKnownTargetVel.z = 0;
   slot.gSaturatedSec = 0;
   slot.profile = undefined;
+  slot.rngState = 0;
+  slot.datalinkOk = false;
+  slot.datalinkAgeSec = 0;
+  slot.noiseAgeSec = 0;
 };
 
 export const initProjectile: InitProjectile = (slot, spec, _simTimeSec) => {
@@ -99,6 +103,15 @@ export const initProjectile: InitProjectile = (slot, spec, _simTimeSec) => {
   slot.lastKnownTargetVel.z = 0;
   slot.gSaturatedSec = 0;
   slot.profile = spec.profile;
+  // Realism state: own random stream, autopilot, seeker noise, datalink (updates at once).
+  slot.rngState = (spec.rngSeed ?? (spec.ownerId * 2654435761 + 12345)) >>> 0;
+  if (!slot.accelLat) slot.accelLat = { x: 0, y: 0, z: 0 };
+  slot.accelLat.x = 0; slot.accelLat.y = 0; slot.accelLat.z = 0;
+  if (!slot.noiseOffset) slot.noiseOffset = { x: 0, y: 0, z: 0 };
+  slot.noiseOffset.x = 0; slot.noiseOffset.y = 0; slot.noiseOffset.z = 0;
+  slot.noiseAgeSec = 1e9;
+  slot.datalinkOk = true;
+  slot.datalinkAgeSec = 1e9;
 };
 
 // -----------------------------------------------------------------------------
@@ -202,6 +215,23 @@ function velocityAlignQuat(velX: number, velY: number, velZ: number, out: QuatLi
   quatFromBasis(_forward, _up, _right, out);
 }
 
+const _noisyTarget: Vec3Like = { x: 0, y: 0, z: 0 };
+const _loftTarget: Vec3Like = { x: 0, y: 0, z: 0 };
+
+/** The projectile's own random stream (mulberry32), [0, 1). */
+function rand01(p: ProjectileState): number {
+  let t = ((p.rngState ?? 0) + 0x6d2b79f5) >>> 0;
+  p.rngState = t;
+  t = Math.imul(t ^ (t >>> 15), t | 1);
+  t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+  return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+}
+/** A standard normal draw from the projectile's stream (Box-Muller). */
+function gauss(p: ProjectileState): number {
+  const u = Math.max(1e-9, rand01(p));
+  return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * rand01(p));
+}
+
 export const stepProjectile: StepProjectile = (state, projectile, candidates, sampler, env, dtSec, out) => {
   const kind = projectile.kind;
   const prof = projectileProfile(projectile);
@@ -234,24 +264,47 @@ export const stepProjectile: StepProjectile = (state, projectile, candidates, sa
     updateRadarMissileGuidance(projectile, state.rot, state.pos, targetEntity, prof);
   }
 
-  // 3. Drag + gravity.
+  // 3. Drag + gravity. Air density at this altitude when the environment provides it; with a
+  //    realism profile, the missile gets lighter as it burns, drag rises through the sound
+  //    barrier, and manoeuvring costs induced drag (added in step 5).
+  const fl = kind !== ProjectileKind.Bullet ? prof.flight : undefined;
+  const rho = env.densityAtAltitude ? env.densityAtAltitude(posY) : env.airDensityKgM3;
   const speed = Math.sqrt(velX * velX + velY * velY + velZ * velZ);
+  let mass = phys.massKg;
+  const boostT = prof.motorBurnSec;
+  const sustT = fl ? fl.sustainBurnSec : 0;
+  if (fl && fl.propellantMassKg > 0) {
+    const totalI = prof.motorThrustN * boostT + fl.sustainThrustN * sustT;
+    const usedI = prof.motorThrustN * Math.min(projectile.ageSec, boostT) + fl.sustainThrustN * Math.max(0, Math.min(projectile.ageSec - boostT, sustT));
+    mass = phys.massKg - fl.propellantMassKg * (totalI > 0 ? usedI / totalI : 0);
+  }
+  let cd = phys.dragCoeff;
+  if (fl && fl.waveDragRise > 0) {
+    const mach = speed / Math.max(295, 340.3 - 0.0041 * posY);
+    cd *= mach < 0.85 ? 1 : mach < 1.1 ? 1 + (fl.waveDragRise * (mach - 0.85)) / 0.25 : 1 + fl.waveDragRise * Math.max(0.4, 1 - (mach - 1.1) * 0.3);
+  }
+  const q = 0.5 * rho * speed * speed;
   let accelX = 0, accelY = -env.gravityMps2, accelZ = 0;
   if (speed > 1e-9) {
-    const dragAccelMag = 0.5 * env.airDensityKgM3 * speed * speed * phys.dragCoeff * phys.crossSectionM2 / phys.massKg;
+    const dragAccelMag = q * cd * phys.crossSectionM2 / mass;
     accelX -= (velX / speed) * dragAccelMag;
     accelY -= (velY / speed) * dragAccelMag;
     accelZ -= (velZ / speed) * dragAccelMag;
   }
 
-  // 4. Motor thrust (missiles only, while within burn time).
+  // Out of energy: after burnout, too slow to manoeuvre -> self-destruct.
+  if (fl?.minSpeedMps && projectile.ageSec > boostT + sustT && speed < fl.minSpeedMps) {
+    out.alive = false;
+    return { outcome: ProjectileOutcome.Expired, missDistanceM: NaN };
+  }
+
+  // 4. Motor thrust (missiles only): boost, then sustain.
   if (kind !== ProjectileKind.Bullet) {
-    const burnTime = prof.motorBurnSec;
-    const thrustN = prof.motorThrustN;
-    if (projectile.ageSec < burnTime) {
+    const thrustN = projectile.ageSec < boostT ? prof.motorThrustN : projectile.ageSec < boostT + sustT && fl ? fl.sustainThrustN : 0;
+    if (thrustN > 0) {
       projectile.fuelFracRemaining = 1;
       if (speed > 1e-6) {
-        const thrustAccel = thrustN / phys.massKg;
+        const thrustAccel = thrustN / mass;
         accelX += (velX / speed) * thrustAccel;
         accelY += (velY / speed) * thrustAccel;
         accelZ += (velZ / speed) * thrustAccel;
@@ -267,11 +320,64 @@ export const stepProjectile: StepProjectile = (state, projectile, candidates, sa
     || projectile.guidance === ProjectileGuidanceMode.RadarActive;
 
   if (guidanceActive) {
-    const tPos = targetEntity ? targetEntity.pos : projectile.lastKnownTargetPos;
-    const tVel = targetEntity ? targetEntity.vel : projectile.lastKnownTargetVel;
+    let tPos: Vec3Like = targetEntity ? targetEntity.pos : projectile.lastKnownTargetPos;
+    let tVel: Vec3Like = targetEntity ? targetEntity.vel : projectile.lastKnownTargetVel;
+    if (fl) {
+      // What the missile actually knows. Mid-course (radar datalink): the launcher's radar track,
+      // sent every datalinkIntervalSec with an angular error that grows with range, and
+      // extrapolated in between (inertial flight if the launcher drops the track). Terminal
+      // (IR seeker / active radar seeker): the target seen through seeker noise.
+      if (projectile.guidance === ProjectileGuidanceMode.RadarDatalink) {
+        projectile.datalinkAgeSec = (projectile.datalinkAgeSec ?? 0) + dtSec;
+        if (targetEntity && projectile.datalinkOk && projectile.datalinkAgeSec >= (fl.datalinkIntervalSec ?? 1)) {
+          projectile.datalinkAgeSec = 0;
+          const rng = Math.hypot(targetEntity.pos.x - posX, targetEntity.pos.y - posY, targetEntity.pos.z - posZ);
+          const sigma = ((fl.datalinkErrMrad ?? 3) / 1000) * (rng + projectile.distanceTravelledM) + 20;
+          projectile.lastKnownTargetPos.x = targetEntity.pos.x + gauss(projectile) * sigma;
+          projectile.lastKnownTargetPos.y = targetEntity.pos.y + gauss(projectile) * sigma * 0.5;
+          projectile.lastKnownTargetPos.z = targetEntity.pos.z + gauss(projectile) * sigma;
+          projectile.lastKnownTargetVel.x = targetEntity.vel.x;
+          projectile.lastKnownTargetVel.y = targetEntity.vel.y;
+          projectile.lastKnownTargetVel.z = targetEntity.vel.z;
+        } else {
+          projectile.lastKnownTargetPos.x += projectile.lastKnownTargetVel.x * dtSec;
+          projectile.lastKnownTargetPos.y += projectile.lastKnownTargetVel.y * dtSec;
+          projectile.lastKnownTargetPos.z += projectile.lastKnownTargetVel.z * dtSec;
+        }
+        tPos = projectile.lastKnownTargetPos;
+        tVel = projectile.lastKnownTargetVel;
+      } else if (targetEntity) {
+        const n = projectile.noiseOffset!;
+        projectile.noiseAgeSec = (projectile.noiseAgeSec ?? 0) + dtSec;
+        if (projectile.noiseAgeSec >= fl.seekerUpdateSec) {
+          projectile.noiseAgeSec = 0;
+          const rng = Math.hypot(targetEntity.pos.x - posX, targetEntity.pos.y - posY, targetEntity.pos.z - posZ);
+          const sigma = (fl.seekerNoiseMrad / 1000) * rng;
+          n.x = gauss(projectile) * sigma;
+          n.y = gauss(projectile) * sigma;
+          n.z = gauss(projectile) * sigma;
+        }
+        _noisyTarget.x = targetEntity.pos.x + n.x;
+        _noisyTarget.y = targetEntity.pos.y + n.y;
+        _noisyTarget.z = targetEntity.pos.z + n.z;
+        tPos = _noisyTarget;
+      }
+      // Loft: climb towards a point above the target while far out (thin air carries further).
+      if (fl.loftRad && projectile.guidance === ProjectileGuidanceMode.RadarDatalink) {
+        const togo = Math.hypot(tPos.x - posX, tPos.z - posZ);
+        const fade = Math.max(0, Math.min(1, (togo - 18000) / 20000));
+        if (fade > 0) {
+          _loftTarget.x = tPos.x;
+          _loftTarget.y = tPos.y + Math.min(togo * Math.tan(fl.loftRad), 22000) * fade;
+          _loftTarget.z = tPos.z;
+          tPos = _loftTarget;
+        }
+      }
+    }
     const gain = prof.pnGain;
-    const maxG = prof.maxG;
-    const maxAccel = maxG * env.gravityMps2;
+    // Available g: the airframe's limit, or what the wings can make at this dynamic pressure.
+    let maxAccel = prof.maxG * env.gravityMps2;
+    if (fl) maxAccel = Math.min(maxAccel, (fl.clMax * q * fl.liftAreaM2) / mass);
 
     _missilePosScratch.x = posX; _missilePosScratch.y = posY; _missilePosScratch.z = posZ;
     _missileVelScratch.x = velX; _missileVelScratch.y = velY; _missileVelScratch.z = velZ;
@@ -288,10 +394,28 @@ export const stepProjectile: StepProjectile = (state, projectile, candidates, sa
       projectile.guidance = ProjectileGuidanceMode.Lost;
     } else {
       computePnAccel(_missilePosScratch, _missileVelScratch, tPos, tVel, gain, maxAccel, _pnAccel);
-      accelX += _pnAccel.x; accelY += _pnAccel.y; accelZ += _pnAccel.z;
+      if (fl && projectile.accelLat) {
+        // Autopilot/airframe lag, then induced drag for the lift being pulled.
+        const a = projectile.accelLat;
+        const k = Math.min(1, dtSec / Math.max(1e-3, fl.autopilotTauSec));
+        a.x += (_pnAccel.x - a.x) * k;
+        a.y += (_pnAccel.y - a.y) * k;
+        a.z += (_pnAccel.z - a.z) * k;
+        accelX += a.x; accelY += a.y; accelZ += a.z;
+        const aLat2 = a.x * a.x + a.y * a.y + a.z * a.z;
+        if (speed > 1e-6 && q > 1) {
+          const induced = (fl.inducedDragK * mass * aLat2) / (q * fl.liftAreaM2);
+          accelX -= (velX / speed) * induced;
+          accelY -= (velY / speed) * induced;
+          accelZ -= (velZ / speed) * induced;
+        }
+      } else {
+        accelX += _pnAccel.x; accelY += _pnAccel.y; accelZ += _pnAccel.z;
+      }
     }
   } else {
     projectile.gSaturatedSec = 0;
+    if (projectile.accelLat) { projectile.accelLat.x = 0; projectile.accelLat.y = 0; projectile.accelLat.z = 0; }
   }
 
   // 6. Semi-implicit Euler integration.
@@ -330,6 +454,13 @@ export const stepProjectile: StepProjectile = (state, projectile, candidates, sa
       }
     }
 
+    // Fuze reliability (realism profiles): a dud passes through harmlessly.
+    const lethality = kind !== ProjectileKind.Bullet ? prof.lethality : undefined;
+    if (bestHit && lethality && rand01(projectile) > lethality.fuzeReliability) {
+      out.pos.x = newPosX; out.pos.y = newPosY; out.pos.z = newPosZ;
+      out.alive = false;
+      return { outcome: ProjectileOutcome.Expired, missDistanceM: NaN };
+    }
     if (bestHit) {
       _impactPos.x = _segStart.x + stepDx * bestHitT;
       _impactPos.y = _segStart.y + stepDy * bestHitT;
@@ -356,6 +487,11 @@ export const stepProjectile: StepProjectile = (state, projectile, candidates, sa
           bestProxDist = dist;
           bestProx = c;
         }
+      }
+      if (bestProx && lethality && rand01(projectile) > lethality.fuzeReliability) {
+        out.pos.x = newPosX; out.pos.y = newPosY; out.pos.z = newPosZ;
+        out.alive = false;
+        return { outcome: ProjectileOutcome.Expired, missDistanceM: NaN };
       }
       if (bestProx) {
         // Closest point on the segment to bestProx.pos, matching closestApproachOnSegment's own computation.
