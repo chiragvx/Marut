@@ -68,8 +68,8 @@ function makeAircraft(): ShowcaseAircraft {
 const deg = Math.PI / 180;
 /** Where the subject sits across the screen (fraction of the width right of centre), clear of the menu on the left. */
 const SUBJECT_OFFSET_X = 0.2;
-/** Height of the aircraft's origin above its wheels. */
-const GEAR_HEIGHT_M = 1.05;
+/** Height of the aircraft's origin above its wheels (the gear legs' contact points, tejasGeometry.ts). */
+const GEAR_HEIGHT_M = 1.1;
 
 const lerp = (a: number, b: number, t: number): number => a + (b - a) * t;
 const ease = (t: number): number => t * t * (3 - 2 * t);
@@ -101,18 +101,21 @@ const clamp01 = (x: number): number => Math.min(1, Math.max(0, x));
  * scene opens wide on the airbase and ends on the aircraft.
  */
 function baseCamera(f: RunwayFrame, hub: Hub, jet: ShowcaseAircraft, t: number, durationSec: number, alongFrom: number, alongTo: number, frame: ShowcaseFrame, look: Vec3Like): void {
+  // Climbs with a departing jet, so the view stays on it without tilting up into empty sky.
+  const climb = Math.max(0, jet.pos.y - GEAR_HEIGHT_M - f.elev - 20) * 0.85;
   const u = ease(clamp01(t / durationSec));
   // Beyond the buildings, on their side of the runway, drifting in over them towards the runway.
   const side = hub.right < 0 ? -1 : 1;
   const lateral = side * lerp(Math.max(150, Math.abs(hub.right)) + 700, 320, u);
-  at(f, lerp(alongFrom, alongTo, u), lateral, lerp(320, 110, u), frame.camPos);
+  at(f, lerp(alongFrom, alongTo, u), lateral, lerp(320, 110, u) + climb, frame.camPos);
   // Looking at the buildings first, then at the jet.
   at(f, hub.along, hub.right, 0, look);
-  const w = ease(clamp01((t - 3) / (durationSec * 0.45)));
+  // A slow turn (~15 s) so the jet drifts into the frame rather than being swung to.
+  const w = ease(clamp01((t - 2) / (durationSec * 0.6)));
   frame.lookAt.x = lerp(look.x, jet.pos.x, w);
   frame.lookAt.y = lerp(look.y, jet.pos.y, w);
   frame.lookAt.z = lerp(look.z, jet.pos.z, w);
-  frame.fovDeg = lerp(44, 13, ease(clamp01((t - 4) / (durationSec * 0.6))));
+  frame.fovDeg = lerp(44, 13, ease(clamp01((t - 6) / (durationSec * 0.6))));
 }
 
 function setRot(jet: ShowcaseAircraft, q: QuatLike): void {

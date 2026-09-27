@@ -37,7 +37,10 @@ describe.each([
         expect(Number.isFinite(v.x) && Number.isFinite(v.y) && Number.isFinite(v.z)).toBe(true);
       }
       expect(fr.camPos.y - layout.elevationM).toBeGreaterThan(80);
-      expect(fr.aircraft[0]!.pos.y - layout.elevationM).toBeGreaterThanOrEqual(1);
+      // On the ground the wheels touch the runway (the gear legs' contact points are 1.1 m below the origin).
+      expect(fr.aircraft[0]!.pos.y - layout.elevationM).toBeGreaterThanOrEqual(1.1 - 1e-9);
+      // Never tilted up into empty sky.
+      expect(fr.lookAt.y).toBeLessThanOrEqual(fr.camPos.y);
     }
     // Opens wide on the base; by the end the jet fills a useful part of the frame.
     expect(scene.frame(0).fovDeg).toBeGreaterThan(35);

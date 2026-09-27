@@ -26,7 +26,7 @@ import type {
 import type { MainToTerrainMessage, TerrainToMainMessage } from './contracts/core';
 import type { MainToTerrainMessageExt, TerrainToMainMessageExt, AirportFlattenZone, TerrainParams } from './contracts/terrain';
 import type { AirportLayout } from './contracts/airport';
-import type { CameraState, HudRenderer, SceneEnvironment, SceneRenderer } from './contracts/render';
+import type { CameraState, HudRenderer, SceneEnvironment, SceneRenderer, ShowcaseFrame } from './contracts/render';
 import type { PlayerInputSystem } from './contracts/input';
 import { RebindDeviceKind } from './contracts/input';
 import type { BindableAction, DebriefStats, LoadingScreenHandle, OrientationPromptHandle, ScreenHandle, SettingsScreenHandle, SettingsState } from './contracts/ui';
@@ -1144,11 +1144,39 @@ function enterShowcaseScene(index: number): void {
 }
 
 /** Plays the cinematic behind the menus (no-op if already playing). */
+/**
+ * Dev aid: ?showcase=<scene>,<t>[,near] holds the cinematic at scene 0 (Bathinda) or 1 (Hansa), t s
+ * in; `near` moves the camera to 25 m beside the jet (for checking it against the ground).
+ */
+const devShowcase = ((): { index: number; t: number; near: boolean } | undefined => {
+  const v = new URLSearchParams(location.search).get('showcase')?.split(',');
+  if (!v || v.length < 2) return undefined;
+  const index = Number(v[0]);
+  const t = Number(v[1]);
+  return Number.isFinite(index) && Number.isFinite(t) ? { index, t, near: v[2] === 'near' } : undefined;
+})();
+
+function devShowcaseFrame(sc: ShowcaseScene, t: number): ShowcaseFrame {
+  const fr = sc.frame(t);
+  const jet = fr.aircraft[0];
+  if (!devShowcase?.near || !jet) return fr;
+  const vh = Math.hypot(jet.vel.x, jet.vel.z) || 1;
+  fr.camPos.x = jet.pos.x - (jet.vel.z / vh) * 25;
+  fr.camPos.y = jet.pos.y + 1.5;
+  fr.camPos.z = jet.pos.z + (jet.vel.x / vh) * 25;
+  fr.lookAt.x = jet.pos.x;
+  fr.lookAt.y = jet.pos.y;
+  fr.lookAt.z = jet.pos.z;
+  fr.fovDeg = 35;
+  fr.offsetX = 0;
+  return fr;
+}
+
 function startShowcase(): void {
   if (showcaseActive || !renderer) return;
   showcaseActive = true;
   hudCanvas.style.visibility = 'hidden';
-  enterShowcaseScene(0);
+  enterShowcaseScene(devShowcase?.index ?? 0);
 }
 
 function stopShowcase(): void {
@@ -1173,6 +1201,10 @@ function tickShowcase(dtSec: number): void {
       showcaseT = 0;
       setFade(false);
     }
+    return;
+  }
+  if (devShowcase) {
+    renderer.setShowcase(devShowcaseFrame(sc, devShowcase.t));
     return;
   }
   showcaseT += dtSec;
