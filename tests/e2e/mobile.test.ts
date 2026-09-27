@@ -117,7 +117,7 @@ describe.skipIf(playwright === undefined)('mobile device-emulation smoke', () =>
             page.on('console', (msg) => {
               if (msg.type() === 'error') consoleErrors.push(msg.text());
             });
-            await page.goto(PREVIEW_URL, { waitUntil: 'load' });
+            await page.goto(`${PREVIEW_URL}/play/`, { waitUntil: 'load' });
             await page.waitForFunction(
               "() => { const c = document.getElementById('render-canvas'); return !!c && c.getBoundingClientRect().width > 0 && c.getBoundingClientRect().height > 0; }",
               undefined,

@@ -83,7 +83,7 @@ describe.skipIf(playwright === undefined)('app smoke (playwright)', () => {
           page.on('console', (msg) => {
             if (msg.type() === 'error') errors.push(msg.text());
           });
-          await page.goto('http://localhost:4173', { waitUntil: 'load' });
+          await page.goto('http://localhost:4173/play/', { waitUntil: 'load' });
           await page.waitForTimeout(3000); // let the first sim/render frames run
           const canvas = await page.$('canvas');
           expect(canvas).not.toBeNull();

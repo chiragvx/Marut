@@ -79,7 +79,7 @@ import { tejasDefinition } from './aircraft';
 import { getAircraftDefinition } from './aircraft/registry';
 import { resolveLoadout, type LoadoutFit } from './aircraft/loadout';
 import { WEAPONS } from './catalog';
-import { resolveBuiltinMission, type BuiltinMissionId } from './core/missions/index';
+import { isBuiltinMissionId, resolveBuiltinMission, type BuiltinMissionId } from './core/missions/index';
 import { readSnapshotEntity, readSnapshotHeader } from './core/snapshotReader';
 import { buildKeyBindingsFromInputMap, isAxisRebindMiscapturePositive, targetForBindableAction } from './core/inputBindingsAdapter';
 
@@ -1001,6 +1001,13 @@ function missionStartKind(id: BuiltinMissionId): 'parked' | 'runway' {
   return resolveBuiltinMission(id).playerStart.parkingSpotId ? 'parked' : 'runway';
 }
 
+/** Dev aid: ?mission=<built-in mission id>. */
+function devMissionId(): BuiltinMissionId | undefined {
+  const id = new URLSearchParams(location.search).get('mission');
+  return id && isBuiltinMissionId(id) ? id : undefined;
+}
+let devAutoStart = false;
+
 /** A flight being loaded: waits for the terrain around the aircraft, then for Start. */
 let pendingStart: { loading: LoadingScreenHandle; simReady: boolean; t0: number; shown: boolean } | undefined;
 
@@ -1013,6 +1020,11 @@ function tickPendingStart(nowMs: number): void {
   p.loading.setProgress(0.2 + 0.8 * frac, 'Loading terrain…');
   if ((playerEntityId !== NO_ENTITY_ID && frac >= 0.9 && elapsed > 800) || elapsed > 20000) {
     p.shown = true;
+    if (devAutoStart) {
+      pendingStart = undefined;
+      resumeFlight();
+      return;
+    }
     p.loading.setReady('Start  (Space)', () => {
       if (pendingStart !== p) return;
       pendingStart = undefined;
@@ -1165,7 +1177,7 @@ async function boot(): Promise<void> {
   hintsEnabled = persisted?.hintsEnabled ?? true;
   document.title = GAME_NAME;
   // Offline play and install: production builds only (a cached dev server would serve stale code).
-  if (import.meta.env.PROD) void registerServiceWorker('./service-worker.js');
+  if (import.meta.env.PROD) void registerServiceWorker('../service-worker.js');
   loading.setProgress(1, 'Ready');
   destroyCurrentScreen();
   if (isTouchFirstDevice() && sessionStorageGet('tejas.deviceNotice') === null) {
@@ -1175,7 +1187,17 @@ async function boot(): Promise<void> {
         showMainMenu();
       },
     });
-  } else showMainMenu();
+  } else if (devMissionId()) {
+    // Dev aid (?mission=<id>, with ?start= / ?cam=): straight into a mission, starting as soon as it loads.
+    devAutoStart = true;
+    const id = devMissionId()!;
+    launchMission(resolveBuiltinMission(id), { title: id, airStart: (new URLSearchParams(location.search).get('start') ?? '') !== '' });
+  } else {
+    showMainMenu();
+    // Links from the landing page: /play/#free and /play/#missions.
+    if (location.hash === '#free') showFreeFlight();
+    else if (location.hash === '#missions') showMissions();
+  }
 }
 
 function sessionStorageGet(key: string): string | null {
@@ -1244,6 +1266,12 @@ function wireGlobalListeners(): void {
   document.addEventListener('visibilitychange', () => {
     // Leaving the tab in flight opens the pause menu (the flight then waits for Resume).
     if (document.visibilityState === 'hidden' && appState === 'gameplay') showPauseMenu();
+  });
+  // /play/#free and /play/#missions, also when the hash changes on an open game page (menus only).
+  window.addEventListener('hashchange', () => {
+    if (appState !== 'mainMenu' && appState !== 'missionSelect') return;
+    if (location.hash === '#free') showFreeFlight();
+    else if (location.hash === '#missions') showMissions();
   });
   window.addEventListener('keydown', (e: KeyboardEvent) => {
     if (e.code !== 'F1') return;

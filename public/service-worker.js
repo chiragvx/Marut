@@ -2,7 +2,7 @@
 // the next visit, falling back to the cached copy offline. Everything else (the build's hashed
 // scripts and styles, icons) comes from the cache first and is cached as it is fetched.
 const CACHE_NAME = 'flight-sim-v2';
-const PRECACHE_URLS = ['./', './index.html', './manifest.webmanifest'];
+const PRECACHE_URLS = ['./', './index.html', './play/', './play/index.html', './manifest.webmanifest'];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
@@ -36,7 +36,7 @@ self.addEventListener('fetch', (event) => {
     event.respondWith(
       fetch(req)
         .then((res) => cachePut(req, res))
-        .catch(() => caches.match(req).then((cached) => cached || caches.match('./index.html')))
+        .catch(() => caches.match(req).then((cached) => cached || caches.match(url.pathname.includes('/play') ? './play/index.html' : './index.html')))
     );
     return;
   }

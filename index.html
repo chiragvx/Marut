@@ -2,24 +2,127 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
-    <title>Tejas Sim</title>
-    <link rel="manifest" href="/manifest.webmanifest" />
-    <meta name="theme-color" content="#0a0e14" />
-    <style>
-      html, body { margin: 0; padding: 0; width: 100%; height: 100%; background: #0a0e14; overflow: hidden; overscroll-behavior: none; }
-      #app { position: fixed; inset: 0; }
-      #render-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
-      #hud-canvas { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
-      #ui-root { position: absolute; inset: 0; overflow-y: auto; }
-    </style>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>[Game name]: combat flight over India, in your browser</title>
+    <meta name="description" content="A free combat flight simulator that runs in your browser. Fly the Tejas Mk1A from INS Hansa in Goa or Bathinda in Punjab. No download, no sign-up." />
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <meta name="theme-color" content="#e8ebed" />
+    <script type="module" src="/src/site/landing.ts"></script>
   </head>
-  <body>
-    <div id="app">
-      <canvas id="render-canvas"></canvas>
-      <canvas id="hud-canvas"></canvas>
-      <div id="ui-root"></div>
-    </div>
-    <script type="module" src="/src/main.ts"></script>
+  <body class="site">
+    <!-- WIREFRAME: layout and words only. Grey boxes mark where footage, renders and maps go. -->
+    <header class="site-nav">
+      <a class="site-brand" href="./" data-site="name">[Game name]</a>
+      <nav aria-label="Sections">
+        <a href="#modes">Modes</a>
+        <a href="#aircraft">Aircraft</a>
+        <a href="#bases">Bases</a>
+        <a href="#controls">Controls</a>
+        <span data-site="feedback-nav"></span>
+      </nav>
+      <a class="tj-btn tj-btn--primary site-play" href="./play/" data-site="play">Play now</a>
+    </header>
+
+    <main>
+      <section class="site-hero">
+        <div class="site-hero-copy">
+          <p class="tj-eyebrow" data-site="version">Early access</p>
+          <h1>Fly the Tejas over India. In your browser.</h1>
+          <p class="site-lede">A free combat flight simulator. Take off from INS Hansa in Goa or Bathinda in Punjab, fly where you like, or take on another fighter. No download, no sign-up.</p>
+          <div class="site-actions" data-site="actions">
+            <a class="tj-btn tj-btn--primary tj-btn--big" href="./play/" data-site="play">Play now, free</a>
+            <button class="tj-btn tj-btn--big" type="button" data-site="install" hidden>Install app</button>
+          </div>
+          <p class="site-desktop-note tj-hidden" data-site="desktop-note">Best on a desktop with a keyboard. <a href="./play/">Try anyway</a></p>
+          <p class="tj-note">Desktop · keyboard · Chrome, Edge or Firefox</p>
+        </div>
+        <div class="site-media" role="img" aria-label="Gameplay footage">Gameplay loop (muted video)</div>
+      </section>
+
+      <section id="modes" class="site-section">
+        <h2>Two ways to fly</h2>
+        <div class="site-grid-2">
+          <a class="site-card" href="./play/#free">
+            <span class="tj-label">Mode</span>
+            <h3>Free Flight</h3>
+            <p>Start parked, on the runway or in the air. Pick the time of day, the weather and what hangs under the wings, then fly for as long as you like.</p>
+            <div class="site-media site-media--small">Screenshot</div>
+          </a>
+          <a class="site-card" href="./play/#missions">
+            <span class="tj-label">Mode</span>
+            <h3>Missions</h3>
+            <p>Air-to-air: find the enemy on radar, lock on and shoot it down. Three missions to start, from a single duel over the sea to a two-ship intercept.</p>
+            <div class="site-media site-media--small">Screenshot</div>
+          </a>
+        </div>
+      </section>
+
+      <section id="aircraft" class="site-section site-grid-2">
+        <div class="site-media">Tejas Mk1A render</div>
+        <div>
+          <span class="tj-label">The aircraft</span>
+          <h2>HAL Tejas Mk1A</h2>
+          <p>India's single-engine delta-wing fighter, flown with a physics flight model and fly-by-wire limits.</p>
+          <dl class="site-specs">
+            <dt>Length</dt><dd>13.2 m</dd>
+            <dt>Wingspan</dt><dd>8.2 m</dd>
+            <dt>Engine</dt><dd>GE F404-IN20, 84 kN with afterburner</dd>
+            <dt>Weapons in the game</dt><dd>ASRAAM, R-73, Derby, Astra Mk1, 23 mm gun</dd>
+            <dt>Loadouts</dt><dd>Choose what goes on each of the seven pylons, including drop tanks</dd>
+          </dl>
+        </div>
+      </section>
+
+      <section id="bases" class="site-section">
+        <h2>Where you fly</h2>
+        <div class="site-grid-2">
+          <div class="site-card">
+            <h3>INS Hansa, Goa</h3>
+            <p>Coast, estuaries and headlands, with the Western Ghats inland.</p>
+            <div class="site-media site-media--small">Map</div>
+          </div>
+          <div class="site-card">
+            <h3>Bhisiana AFS, Bathinda</h3>
+            <p>The Punjab plains near the border, with hardened aircraft shelters.</p>
+            <div class="site-media site-media--small">Map</div>
+          </div>
+        </div>
+      </section>
+
+      <section id="controls" class="site-section site-grid-2">
+        <div>
+          <h2>Controls at a glance</h2>
+          <div class="tj-keylist site-keys">
+            <div class="tj-keyrow"><span>Nose down / up</span><span><span class="tj-key">W</span> <span class="tj-key">S</span></span></div>
+            <div class="tj-keyrow"><span>Roll left / right</span><span><span class="tj-key">A</span> <span class="tj-key">D</span></span></div>
+            <div class="tj-keyrow"><span>Throttle up / down</span><span><span class="tj-key">Z</span> <span class="tj-key">X</span></span></div>
+            <div class="tj-keyrow"><span>Afterburner</span><span class="tj-key">Shift</span></div>
+            <div class="tj-keyrow"><span>Next target, fire missile</span><span><span class="tj-key">T</span> <span class="tj-key">Enter</span></span></div>
+            <div class="tj-keyrow"><span>Gun, landing gear</span><span><span class="tj-key">Space</span> <span class="tj-key">G</span></span></div>
+            <div class="tj-keyrow"><span>Pause, all controls</span><span><span class="tj-key">Esc</span> <span class="tj-key">F1</span></span></div>
+          </div>
+        </div>
+        <div>
+          <h2>Runs on</h2>
+          <ul class="site-list">
+            <li>A desktop or laptop browser with WebGL 2 (Chrome, Edge, Firefox)</li>
+            <li>A keyboard; a mouse or gamepad is optional</li>
+            <li>Works offline once installed</li>
+            <li>Settings and progress stay on your device. No account.</li>
+          </ul>
+        </div>
+      </section>
+
+      <section class="site-band">
+        <div><h2>Tell us what you think</h2><p>This is an early version. Your feedback decides what comes next.</p></div>
+        <span data-site="feedback-band"></span>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <p>Unofficial fan project. Not affiliated with HAL, ADA, the Indian Air Force or the Indian Navy.</p>
+      <p>Airbase layouts from OpenStreetMap data, © OpenStreetMap contributors, available under the Open Database Licence (ODbL).</p>
+      <p><span data-site="version-footer"></span> · <span data-site="feedback-footer"></span> · <a href="./play/">Play</a></p>
+    </footer>
   </body>
 </html>
