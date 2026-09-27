@@ -63,7 +63,7 @@ import {
   type ControlGroup,
 } from './ui';
 import './ui/ui.css';
-import { approachScene, departureScene, type ShowcaseScene } from './ui/showcase';
+import { approachScene, nightDepartureScene, taxiScene, type ShowcaseScene } from './ui/showcase';
 import { createFlightOverlay, hintText, pickHint, type FlightOverlay, type HintId, type HintKeys } from './ui/flightOverlay';
 import { DEFAULT_INPUT_MAP_DATA } from './input/inputMap';
 import { BASES, MISSIONS, baseInfo, freeFlightMission, missionEntry, type BaseId } from './core/missions/catalogue';
@@ -1092,9 +1092,9 @@ function tickPendingStart(nowMs: number): void {
 }
 
 // -----------------------------------------------------------------------------
-// The menu's cinematic (src/ui/showcase.ts): Bathinda at dusk, then INS Hansa at sunrise, looping
-// behind the menus. Each base's world is loaded on its own (capped at High quality), the scene
-// waits for its terrain before fading in, and fades to black before the next base.
+// The menu's cinematic (src/ui/showcase.ts): three shots of Bhisiana (Bathinda), looping behind the
+// menus. The base's world loads once (capped at High quality); each shot waits for the terrain
+// around its camera before fading in, and fades to black before the next.
 // -----------------------------------------------------------------------------
 
 const SHOWCASE_FADE_SEC = 1.6;
@@ -1116,8 +1116,13 @@ function setFade(black: boolean): void {
   fadeEl.classList.toggle('tj-fade--black', black);
 }
 
+/** The cinematic's shots, in order (all at Bhisiana: INS Hansa is left out until it is tested). */
+const SHOWCASE_SHOTS = [approachScene, taxiScene, nightDepartureScene] as const;
+/** The world the cinematic has loaded (a new one only when the base changes). */
+let showcaseWorldBase: string | undefined;
+
 function showcaseSceneFor(index: number): ShowcaseScene | undefined {
-  const base = index % 2 === 0 ? baseInfo('bathinda') : baseInfo('hansa');
+  const base = baseInfo('bathinda');
   const mission = resolveBuiltinMission(base.freeMissionId);
   const layout = (mission.world.airports as readonly AirportLayout[]).find((a) => a.id === base.airportId);
   if (!layout) return undefined;
@@ -1125,10 +1130,14 @@ function showcaseSceneFor(index: number): ShowcaseScene | undefined {
   const rwyId = activeRunway(layout, { x: wind.x, z: wind.z });
   const runway = layout.runways.find((r) => r.id === rwyId) ?? layout.runways[0];
   if (!runway) return undefined;
-  const scene = index % 2 === 0 ? approachScene(layout, runway) : departureScene(layout, runway);
+  const shot = SHOWCASE_SHOTS[((index % SHOWCASE_SHOTS.length) + SHOWCASE_SHOTS.length) % SHOWCASE_SHOTS.length]!;
+  const scene = shot(layout, runway);
   weatherMode = 'clear';
   renderer.setWeather(weatherMode, 7);
-  setupWorldView(mission, currentQualityTier === 'ultra' ? 'high' : currentQualityTier);
+  if (showcaseWorldBase !== base.id) {
+    setupWorldView(mission, currentQualityTier === 'ultra' ? 'high' : currentQualityTier);
+    showcaseWorldBase = base.id;
+  }
   timeOfDayH = scene.timeOfDayH;
   renderer.setTimeOfDay(timeOfDayH);
   return scene;
@@ -1145,7 +1154,7 @@ function enterShowcaseScene(index: number): void {
 
 /** Plays the cinematic behind the menus (no-op if already playing). */
 /**
- * Dev aid: ?showcase=<scene>,<t>[,near] holds the cinematic at scene 0 (Bathinda) or 1 (Hansa), t s
+ * Dev aid: ?showcase=<shot>,<t>[,near] holds the cinematic at shot 0 (approach), 1 (taxi) or 2 (night take-off), t s
  * in; `near` moves the camera to 25 m beside the jet (for checking it against the ground).
  */
 const devShowcase = ((): { index: number; t: number; near: boolean } | undefined => {
@@ -1183,6 +1192,8 @@ function stopShowcase(): void {
   if (!showcaseActive) return;
   showcaseActive = false;
   showcaseScene = undefined;
+  // A flight loads its own world; the cinematic reloads the base's when it starts again.
+  showcaseWorldBase = undefined;
   renderer.setShowcase(null);
   hudCanvas.style.visibility = 'visible';
   setFade(false);
