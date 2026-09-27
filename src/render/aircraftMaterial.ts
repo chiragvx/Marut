@@ -49,9 +49,16 @@ const VS = /* glsl */ `
       vec2 c = vec2(uNozzleY, 0.0);
       p.yz = c + (p.yz - c) * (1.0 + uNozzle * 0.3 * aNoz);
     }
-    vec4 wr = modelMatrix * vec4(p, 1.0);
+    vec4 lp = vec4(p, 1.0);
+    vec3 nl = normal;
+    #ifdef USE_INSTANCING
+      // Stores: one instanced mesh per store type (rigid transforms).
+      lp = instanceMatrix * lp;
+      nl = mat3(instanceMatrix) * nl;
+    #endif
+    vec4 wr = modelMatrix * lp;
     vWorld = wr.xyz + uOrigin;
-    vNormalW = normalize(mat3(modelMatrix) * normal);
+    vNormalW = normalize(mat3(modelMatrix) * nl);
     vPos = position;
     vPart = aPart;
     vNoz = aNoz;
@@ -182,6 +189,24 @@ const FS = /* glsl */ `
       ks = 0.05;
       shin = 8.0;
       refl = 0.0;
+    } else if (part == 14) {
+      // Missile body.
+      col = vec3(0.8, 0.81, 0.8);
+      ks = 0.22;
+    } else if (part == 15) {
+      // IR seeker dome: dark glass.
+      col = vec3(0.05, 0.06, 0.07);
+      ks = 1.0;
+      shin = 120.0;
+      refl = 0.3;
+    } else if (part == 16) {
+      col = vec3(0.85, 0.66, 0.1);
+    } else if (part == 17) {
+      col = vec3(0.45, 0.3, 0.16);
+    } else if (part == 18) {
+      // Radar missile radome.
+      col = vec3(0.5, 0.51, 0.5);
+      ks = 0.12;
     } else if (part >= 10 && part <= 12) {
       vec3 lc = part == 10 ? vec3(1.0, 0.12, 0.08) : part == 11 ? vec3(0.1, 1.0, 0.3) : vec3(1.0);
       col = lc * 0.4;

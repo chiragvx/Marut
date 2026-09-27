@@ -243,6 +243,11 @@ export interface EntityState {
    */
   dropTankCount?: number;
   dropTankFuelKg?: number;
+  /**
+   * What the renderer should draw: an aircraft's packed stores (SnapshotEntity.STORES), refreshed by
+   * src/core each snapshot; a missile's store code, set at launch. Optional: absent means 0.
+   */
+  stores?: number;
 
   /** Bitmask of EntityFlag. */
   flags: EntityFlags;
@@ -793,9 +798,31 @@ export const SnapshotEntity = {
   THROTTLE: 23,
   AFTERBURNER_ON: 24, // 0 or 1
   FLAGS: 25, // EntityFlags bitmask
+  /** Aircraft: its carried stores, packed per station (packStoreSlot); missile: its store code (STORE_IDS). */
+  STORES: 26,
 } as const;
-/** Floats per entity block. Keep in sync with the field count above (26). */
-export const ENTITY_STRIDE = 26;
+/** Floats per entity block. Keep in sync with the field count above (27). */
+export const ENTITY_STRIDE = 27;
+
+/**
+ * Store ids (src/catalog) by code: the codes the snapshot's STORES field carries. 0 = nothing.
+ * Append only (codes are positions).
+ */
+export const STORE_IDS: readonly string[] = ['', 'asraam', 'r-73', 'derby', 'astra-mk1', 'tank-1200l', 'tank-725l'];
+
+/**
+ * An aircraft's STORES value holds up to MAX_STORE_SLOTS stations, in the order of its
+ * AircraftDefinition.stations with the gun skipped; slot k is `packed / 64^k mod 64`: store code
+ * (bits 0-2), stores left (bits 3-4, 0..3), twin-rail launcher (bit 5).
+ */
+export const MAX_STORE_SLOTS = 8;
+export const STORE_SLOT_RADIX = 64;
+export const packStoreSlot = (code: number, count: number, twin: boolean): number => code + 8 * Math.min(3, Math.max(0, count)) + (twin ? 32 : 0);
+/** Slot k's 6 bits from a packed STORES value. */
+export const storeSlotAt = (packed: number, k: number): number => Math.floor(packed / Math.pow(STORE_SLOT_RADIX, k)) % STORE_SLOT_RADIX;
+export const storeSlotCode = (slot: number): number => slot & 7;
+export const storeSlotCount = (slot: number): number => (slot >> 3) & 3;
+export const storeSlotTwin = (slot: number): boolean => (slot & 32) !== 0;
 
 /** Float index (from the start of the WHOLE buffer) of entity block `i`'s field `field`. `field` is one of the SnapshotEntity.* offsets above. */
 export const entityFieldOffset = (entityIndex: number, field: number): number =>

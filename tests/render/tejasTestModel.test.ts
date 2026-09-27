@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
 import { buildTejasTestModel, LAYOUT_TO_BODY_X, PYLONS, wingAreaM2, type ArticulatedPart } from '../../src/render/aircraftModels/tejasTestModel';
 import { nozzleTarget, slatDroopTarget } from '../../src/render/meshAircraftRenderer';
+import { buildStoreModels, storeDimensions } from '../../src/render/aircraftModels/stores';
+import { STORE_IDS } from '../../src/contracts/core';
 import { gear, stations, wingAreaM2 as dataWingArea, wingSpanM } from '../../src/aircraft/tejasGeometry';
 
 const model = buildTejasTestModel();
@@ -81,6 +83,11 @@ describe('tejasTestModel: matches src/aircraft', () => {
     }
   });
 
+  it('lists its pylons in store-slot order: the stations without the gun', () => {
+    const slots = stations.filter((s) => s.id !== 'gun').map((s) => s.id);
+    expect(model.pylons.map((p) => p.stationId)).toEqual(slots.slice(0, model.pylons.length));
+  });
+
   it('has a pylon under every wing and centreline station', () => {
     const pylonStations = stations.filter((s) => s.id.startsWith('wing-') || s.id === 'centreline');
     expect(pylonStations.length).toBe(PYLONS.length);
@@ -150,5 +157,30 @@ describe('meshAircraftRenderer: slat and nozzle schedules', () => {
     expect(nozzleTarget(0.1, false)).toBeCloseTo(0.5, 5);
     expect(nozzleTarget(0.85, false)).toBe(0);
     expect(nozzleTarget(1, true)).toBe(1);
+  });
+});
+
+describe('stores: public dimensions', () => {
+  const models = buildStoreModels();
+  it('draws every store in the catalogue to its length and diameter', () => {
+    for (let code = 1; code < STORE_IDS.length; code++) {
+      const id = STORE_IDS[code]!;
+      const dims = storeDimensions(id)!;
+      const b = bbox(models.byCode[code]!.geometry);
+      expect(b.max.x - b.min.x, id).toBeCloseTo(dims.len, 1);
+      // The body's diameter; fins reach further out.
+      expect(b.max.y - b.min.y, id).toBeGreaterThanOrEqual(dims.dia - 0.005);
+    }
+  });
+
+  it('hangs each tank clear of the ground, gear down, on the stations that take it', () => {
+    for (const p of model.pylons) {
+      const accepts = stations.find((s) => s.id === p.stationId)!.accepts;
+      for (const id of ['tank-1200l', 'tank-725l'].filter((t) => accepts.includes(t))) {
+        const m = models.byCode[STORE_IDS.indexOf(id)]!;
+        const bottom = p.attachY + new THREE.Vector3().setFromMatrixPosition(m.mount).y - storeDimensions(id)!.dia / 2;
+        expect(bottom, `${id} on ${p.stationId}`).toBeGreaterThan(gear[0]!.posBodyM.y);
+      }
+    }
   });
 });

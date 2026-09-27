@@ -70,6 +70,7 @@ export const writeSnapshot: WriteSnapshot = (
     out[entityFieldOffset(i, SnapshotEntity.THROTTLE)] = e.throttle;
     out[entityFieldOffset(i, SnapshotEntity.AFTERBURNER_ON)] = e.afterburnerOn ? 1 : 0;
     out[entityFieldOffset(i, SnapshotEntity.FLAGS)] = e.flags;
+    out[entityFieldOffset(i, SnapshotEntity.STORES)] = e.stores ?? 0;
   }
   // Zero any stale trailing entity blocks beyond entityCount is not required
   // (readers must only read [0, entityCount)), so no further writes needed.

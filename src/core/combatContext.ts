@@ -47,6 +47,11 @@ export interface CombatPortWithRearm {
   armedFrac(id: EntityId): number;
 }
 
+/** Stores still on aircraft `id`'s station `hardpointId` (undefined until combat has seen the aircraft, or no such weapon station). */
+export interface CombatPortWithStores {
+  stationCount(id: EntityId, hardpointId: string): number | undefined;
+}
+
 export interface CombatPortWithContacts {
   /** Sensor contacts visible to aircraft `id` as of the most recent `CombatPort.step` call, most-threatening first (whatever order `updateSensors` produced), or an empty array if `id` has never been observed as a live aircraft by combat. Never allocates when `id` has no entry. */
   getContacts(id: EntityId): readonly Contact[];

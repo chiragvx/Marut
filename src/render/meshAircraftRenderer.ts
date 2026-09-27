@@ -10,12 +10,17 @@
  * - airbrakes run out/in with the entity's AirbrakeOut flag (~1.2 s out, ~1.0 s in, as the sim's panels);
  * - leading-edge slats droop with angle of attack (from the velocity in body axes), 4-16 deg alpha;
  * - nozzle petals open at idle and in afterburner, close at military power; afterburner flame.
+ * Stores (aircraftModels/stores.ts) hang on the pylons as the snapshot's STORES field says: missiles
+ * on single or twin rails (a twin rail's outboard missile stays when one has gone), drop tanks while
+ * attached. Missiles in flight are drawn along their velocity. One instanced mesh per store type
+ * for every aircraft, so they cost a few draw calls in all.
  * Every mesh also draws into the aircraft sun-shadow cascade (AIRCRAFT_SHADOW_LAYER).
  */
 import * as THREE from 'three';
-import type { QuatLike, Vec3Like } from '../contracts/core';
+import { storeSlotAt, storeSlotCode, storeSlotCount, storeSlotTwin, type QuatLike, type Vec3Like } from '../contracts/core';
 import { AIRCRAFT_SHADOW_LAYER } from './sunShadows';
 import type { AircraftModelTemplate, ArticulatedPart } from './aircraftModels/tejasTestModel';
+import { buildStoreModels, TWIN_RAIL_FRAMES, type StoreModel } from './aircraftModels/stores';
 import { createAircraftBodyMaterial, createAircraftFlameMaterial, createAircraftSharedUniforms, type AircraftBodyUniforms, type AircraftFlameUniforms } from './aircraftMaterial';
 
 export const MAX_MESH_AIRCRAFT = 64;
@@ -35,6 +40,8 @@ export interface MeshAircraftState {
   team: number;
   /** World velocity, m/s. */
   vel: Readonly<Vec3Like>;
+  /** Packed stores (contracts/core.ts STORES layout). */
+  stores: number;
 }
 
 /** Slat droop, 0..1, for the velocity in world axes and orientation `rot`. */
@@ -80,7 +87,9 @@ export interface MeshAircraftRenderer {
   /** Once per frame before updateEntity: frame time, floating origin, camera (absolute world), clock. */
   beginFrame(dtSec: number, originWorld: Readonly<Vec3Like>, cameraWorld: Readonly<Vec3Like>, timeSec: number): void;
   updateEntity(entityId: number, pos: Readonly<Vec3Like>, rot: Readonly<QuatLike>, state: Readonly<MeshAircraftState>, originWorld: Readonly<Vec3Like>): void;
-  /** Hides instances not updated this frame. */
+  /** A missile in flight: store code (STORE_IDS), pointing along its velocity (else `rot`). */
+  updateMissile(code: number, pos: Readonly<Vec3Like>, vel: Readonly<Vec3Like>, rot: Readonly<QuatLike>, originWorld: Readonly<Vec3Like>): void;
+  /** Hides instances not updated this frame and uploads the stores. */
   endFrame(): void;
   dispose(): void;
 }
@@ -90,11 +99,76 @@ function approach(cur: number, target: number, rateUp: number, rateDown: number,
   return target > cur ? Math.min(target, cur + rateUp * dt) : Math.max(target, cur - rateDown * dt);
 }
 
+/** One instanced mesh drawing every copy of one store (or rail) this frame. */
+interface StoreBatch {
+  mesh: THREE.InstancedMesh;
+  n: number;
+}
+
 export function createMeshAircraftRenderer(root: THREE.Object3D, template: AircraftModelTemplate, capacity = MAX_MESH_AIRCRAFT): MeshAircraftRenderer {
   const shared = createAircraftSharedUniforms();
   const instances: Instance[] = [];
   const touched = new Uint8Array(capacity);
   let dt = 1 / 60;
+
+  // Stores: shared material (stores carry no team markings), one batch per model.
+  const storeModels = buildStoreModels();
+  const storeMat = createAircraftBodyMaterial(shared, template.nozzleAxisY);
+  const batch = (geometry: THREE.BufferGeometry, max: number): StoreBatch => {
+    const mesh = new THREE.InstancedMesh(geometry, storeMat, max);
+    mesh.count = 0;
+    mesh.frustumCulled = false;
+    mesh.layers.enable(AIRCRAFT_SHADOW_LAYER);
+    root.add(mesh);
+    return { mesh, n: 0 };
+  };
+  const storeBatches = storeModels.byCode.map((m) => (m ? batch(m.geometry, m.kind === 'missile' ? 512 : 192) : undefined));
+  const railBatch = batch(storeModels.rail, 512);
+  const twinBatch = batch(storeModels.twinRail, 256);
+  const allBatches = [...storeBatches.filter((b): b is StoreBatch => !!b), railBatch, twinBatch];
+  /** Each pylon's attach frame in the aircraft's body frame. */
+  const pylonFrames = template.pylons.map((p) => new THREE.Matrix4().makeTranslation(p.x + template.offsetX, p.attachY, p.z));
+  const mA = new THREE.Matrix4();
+  const mB = new THREE.Matrix4();
+  const mC = new THREE.Matrix4();
+  const qM = new THREE.Quaternion();
+  const vDir = new THREE.Vector3();
+  const X_AXIS = new THREE.Vector3(1, 0, 0);
+
+  function put(b: StoreBatch | undefined, m: THREE.Matrix4): void {
+    if (!b || b.n >= b.mesh.instanceMatrix.count) return;
+    b.mesh.setMatrixAt(b.n++, m);
+  }
+
+  /** Stores on one aircraft whose body -> render matrix is `body`. */
+  function putStores(body: THREE.Matrix4, packed: number): void {
+    for (let k = 0; k < pylonFrames.length; k++) {
+      const slot = storeSlotAt(packed, k);
+      const code = storeSlotCode(slot);
+      const model: StoreModel | undefined = storeModels.byCode[code];
+      if (!model) continue;
+      const count = storeSlotCount(slot);
+      mA.multiplyMatrices(body, pylonFrames[k]!);
+      if (model.kind === 'tank') {
+        if (count > 0) put(storeBatches[code], mB.multiplyMatrices(mA, model.mount));
+        continue;
+      }
+      if (!storeSlotTwin(slot)) {
+        put(railBatch, mA);
+        if (count > 0) put(storeBatches[code], mB.multiplyMatrices(mA, model.mount));
+        continue;
+      }
+      put(twinBatch, mA);
+      // Both rails loaded, or only the outboard one (the inboard missile goes first).
+      const outboard = template.pylons[k]!.z >= 0 ? 1 : 0;
+      for (let side = 0; side < 2; side++) {
+        if (count >= 2 || (count === 1 && side === outboard)) {
+          mB.multiplyMatrices(mA, TWIN_RAIL_FRAMES[side]!);
+          put(storeBatches[code], mC.multiplyMatrices(mB, model.mount));
+        }
+      }
+    }
+  }
 
   function build(): Instance {
     const group = new THREE.Group();
@@ -130,6 +204,7 @@ export function createMeshAircraftRenderer(root: THREE.Object3D, template: Aircr
   return {
     beginFrame(dtSec, origin, cam, timeSec) {
       touched.fill(0);
+      for (const b of allBatches) b.n = 0;
       dt = dtSec;
       shared.uOrigin.value.set(origin.x, origin.y, origin.z);
       shared.uCamRel.value.set(cam.x - origin.x, cam.y - origin.y, cam.z - origin.z);
@@ -199,9 +274,27 @@ export function createMeshAircraftRenderer(root: THREE.Object3D, template: Aircr
       inst.flame.visible = s.afterburner;
       inst.flameMat.uniforms.uAB.value = s.afterburner ? 1 : 0;
       inst.flameMat.uniforms.uNozzle.value = inst.nozzle;
+      if (s.stores > 0) {
+        inst.root.updateMatrix();
+        putStores(inst.root.matrix, s.stores);
+      }
+    },
+
+    updateMissile(code, pos, vel, rot, origin) {
+      const model = storeModels.byCode[code];
+      if (!model || model.kind !== 'missile') return;
+      vDir.set(vel.x, vel.y, vel.z);
+      if (vDir.lengthSq() > 1) qM.setFromUnitVectors(X_AXIS, vDir.normalize());
+      else qM.set(rot.x, rot.y, rot.z, rot.w);
+      mA.makeRotationFromQuaternion(qM).setPosition(pos.x - origin.x, pos.y - origin.y, pos.z - origin.z);
+      put(storeBatches[code], mA);
     },
 
     endFrame() {
+      for (const b of allBatches) {
+        b.mesh.count = b.n;
+        b.mesh.instanceMatrix.needsUpdate = true;
+      }
       for (let i = 0; i < instances.length; i++) {
         if (touched[i]) continue;
         instances[i]!.root.visible = false;
@@ -216,6 +309,12 @@ export function createMeshAircraftRenderer(root: THREE.Object3D, template: Aircr
         inst.flameMat.dispose();
       }
       instances.length = 0;
+      for (const b of allBatches) {
+        root.remove(b.mesh);
+        b.mesh.geometry.dispose();
+        b.mesh.dispose();
+      }
+      storeMat.dispose();
       template.body.dispose();
       template.flame.dispose();
       for (const p of template.parts) p.geometry.dispose();

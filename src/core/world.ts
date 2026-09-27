@@ -24,6 +24,10 @@ import {
   WarningBit,
   WeaponKindCode,
   LockStateCode,
+  MAX_STORE_SLOTS,
+  STORE_IDS,
+  STORE_SLOT_RADIX,
+  packStoreSlot,
 } from '../contracts/core';
 import type {
   AiDifficulty,
@@ -77,9 +81,10 @@ import { createEventQueue } from './eventQueue';
 import { subSeed } from './seed';
 import { writeSnapshot as writeSnapshotBuffer } from './snapshotWriter';
 import { computeIlsDeviation, forwardWorldInto, rightWorldInto } from './hudTelemetry';
-import type { CombatPortWithContacts, CombatPortWithRearm } from './combatContext';
+import type { CombatPortWithContacts, CombatPortWithRearm, CombatPortWithStores } from './combatContext';
 import { applyAutopilotAction, autopilotFlags, createAutopilotState, stepAutopilot, type AutopilotState } from './autopilot';
-import { getAircraftDefinition } from '../aircraft';
+import { getAircraftDefinition, getLoadout } from '../aircraft';
+import { FUEL_TANKS } from '../catalog';
 import type { AutopilotAction } from '../contracts/core';
 
 const SIM_DT_SEC_LOCAL = 1 / 120; // avoid importing SIM_DT_SEC just to re-derive it; core.ts already fixes this at 1/120 (SIM_HZ)
@@ -1116,7 +1121,38 @@ class WorldImpl implements World {
       }
       hud.trackCount = n;
     }
+    for (const [id, r] of this.aircraft) {
+      const st = this.pool.get(id);
+      if (st) st.stores = this.packStores(id, r.aircraftDefId, st);
+    }
     writeSnapshotBuffer(this.pool, playerId, this.tickInternal, this.simTimeSecInternal, hud, out);
+  }
+
+  /**
+   * An aircraft's carried stores for the snapshot (contracts/core.ts STORES layout): its loadout's
+   * store on each station, with the missiles still on it (from combat) and the drop tanks only
+   * while attached.
+   */
+  private packStores(id: EntityId, defId: string, state: EntityState): number {
+    const def = getAircraftDefinition(defId);
+    if (!def?.stations) return 0;
+    const loadout = getLoadout(def, id === this.playerEntityIdInternal ? this.mission?.playerStart.loadoutId : undefined);
+    const combat = this.deps.combat as Partial<CombatPortWithStores>;
+    let packed = 0;
+    let scale = 1;
+    let k = 0;
+    for (const st of def.stations) {
+      if (st.id === 'gun') continue;
+      if (k++ >= MAX_STORE_SLOTS) break;
+      const fit = loadout?.fit[st.id];
+      const code = fit ? STORE_IDS.indexOf(fit.store) : -1;
+      if (fit && code > 0) {
+        const count = FUEL_TANKS[fit.store] ? ((state.dropTankCount ?? 0) > 0 ? fit.count : 0) : (combat.stationCount?.(id, st.id) ?? fit.count);
+        packed += packStoreSlot(code, count, fit.count >= 2) * scale;
+      }
+      scale *= STORE_SLOT_RADIX;
+    }
+    return packed;
   }
 
   private findNearestIls(playerPos: Vec3Like) {

@@ -134,6 +134,7 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
     onGround: false,
     team: 0,
     vel: { x: 0, y: 0, z: 0 },
+    stores: 0,
   };
 
   const terrainRoot = new THREE.Group();
@@ -501,6 +502,11 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
 
         aircraftRenderer.beginFrame(frameDtSec, origin, cameraPose.pos, nowMs / 1000);
         for (let i = 0; i < curr.entityCount; i++) {
+          if (curr.alive[i] === 1 && curr.kind[i] === EntityKindCode.missile) {
+            interpolateEntity(snapshotBuf, i, f, interpEntity);
+            aircraftRenderer.updateMissile(curr.stores[i]!, interpEntity.pos, interpEntity.vel, interpEntity.rot, origin);
+            continue;
+          }
           if (curr.alive[i] !== 1 || curr.kind[i] !== EntityKindCode.aircraft) continue;
           // No cockpit interior yet: from the cockpit, the player's own jet is not drawn.
           if (i === playerSlot && mode === CameraMode.Cockpit && !debugCam) continue;
@@ -517,6 +523,7 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
           st.onGround = (flags & EntityFlag.OnGround) !== 0;
           st.team = curr.team[i]!;
           st.vel = interpEntity.vel;
+          st.stores = curr.stores[i]!;
           aircraftRenderer.updateEntity(curr.id[i]!, interpEntity.pos, interpEntity.rot, st, origin);
         }
         aircraftRenderer.endFrame();

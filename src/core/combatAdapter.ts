@@ -13,10 +13,10 @@
  * extension `world.ts`'s concrete `combatCtx` object satisfies structurally.
  */
 
-import { EntityKind, NO_ENTITY_ID } from '../contracts/core';
+import { EntityKind, NO_ENTITY_ID, STORE_IDS } from '../contracts/core';
 import type { Contact, EntityId, EntityState, SimEvent, Vec3Like } from '../contracts/core';
 import type { CombatPort, CombatTickContext, EventQueue } from '../contracts/sim';
-import type { CombatPortWithContacts, CombatPortWithRearm, WorldCombatTickContext } from './combatContext';
+import type { CombatPortWithContacts, CombatPortWithRearm, CombatPortWithStores, WorldCombatTickContext } from './combatContext';
 import { subSeed } from './seed';
 import { getAircraftDefinition, getLoadout } from '../aircraft';
 import { RADARS, WEAPONS } from '../catalog';
@@ -103,7 +103,7 @@ function signatureFor(defId: string | undefined): { radar: RadarSignature; hitEl
   return sig ?? undefined;
 }
 
-export function createCombatAdapter(): CombatPort & CombatPortWithContacts & CombatPortWithRearm {
+export function createCombatAdapter(): CombatPort & CombatPortWithContacts & CombatPortWithRearm & CombatPortWithStores {
   const weaponsStates = new Map<EntityId, WeaponsState>();
   const detectableScratch: DetectableEntity[] = [];
   // Reused view over detectableScratch[0..liveCount), rebuilt (references
@@ -158,6 +158,13 @@ export function createCombatAdapter(): CombatPort & CombatPortWithContacts & Com
         if (st.maxCount > 0) f = Math.min(f, st.count / st.maxCount);
       }
       return f;
+    },
+
+    stationCount(id: EntityId, hardpointId: string): number | undefined {
+      const w = weaponsStates.get(id);
+      if (!w) return undefined;
+      for (let i = 0; i < w.stations.length; i++) if (w.stations[i]!.hardpointId === hardpointId) return w.stations[i]!.count;
+      return undefined;
     },
 
     getContacts(id: EntityId): readonly Contact[] {
@@ -298,6 +305,8 @@ export function createCombatAdapter(): CombatPort & CombatPortWithContacts & Com
             spawnedState.rot.y = req.rotWorld.y;
             spawnedState.rot.z = req.rotWorld.z;
             spawnedState.rot.w = req.rotWorld.w;
+            // Which missile it is, for the renderer's model.
+            spawnedState.stores = req.profile ? Math.max(0, STORE_IDS.indexOf(req.profile.id)) : 0;
           }
           const poolIndex = freeProjectileIndices.pop() as number;
           const slot = projectilePool[poolIndex] as ProjectileState;

@@ -53,6 +53,8 @@ export interface SnapshotFrame {
   throttle: Float32Array;
   afterburnerOn: Uint8Array;
   flags: Float64Array;
+  /** Packed stores (aircraft) / store code (missiles). */
+  stores: Float64Array;
   /** Copy of the HUD_BLOCK_FLOATS-length HUD block, curr only in practice. */
   hud: Float64Array;
 }
@@ -85,6 +87,7 @@ export function createSnapshotFrame(): SnapshotFrame {
     throttle: new Float32Array(MAX_ENTITIES),
     afterburnerOn: new Uint8Array(MAX_ENTITIES),
     flags: new Float64Array(MAX_ENTITIES),
+    stores: new Float64Array(MAX_ENTITIES),
     hud: new Float64Array(HUD_BLOCK_FLOATS),
   };
 }
@@ -120,6 +123,7 @@ export function ingestSnapshotFrame(view: Float64Array, out: SnapshotFrame, nowM
     out.throttle[i] = view[entityFieldOffset(i, SnapshotEntity.THROTTLE)]!;
     out.afterburnerOn[i] = view[entityFieldOffset(i, SnapshotEntity.AFTERBURNER_ON)]!;
     out.flags[i] = view[entityFieldOffset(i, SnapshotEntity.FLAGS)]!;
+    out.stores[i] = view[entityFieldOffset(i, SnapshotEntity.STORES)]!;
   }
 
   for (let f = 0; f < HUD_BLOCK_FLOATS; f++) {
