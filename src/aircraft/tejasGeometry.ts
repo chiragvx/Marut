@@ -44,16 +44,17 @@ export const meanChordM = wingAreaM2 / wingSpanM;
 // --- Weapon stations: the Tejas's eight hardpoints (three under each wing, the centreline, one
 // under the port intake for a pod) and the internal GSh-23. The Tejas has no wingtip rails: close-
 // combat missiles go on the outboard pylons, BVR missiles on the middle ones, wing tanks on the wet
-// inboard pylons, a 725 L tank on the (wet) centreline.
+// inboard pylons, a 725 L tank on the (wet) centreline. Positions are the pylons' store-attach points
+// on the render model (src/render/aircraftModels/tejasTestModel.ts PYLONS; a test keeps them equal).
 export const stations: readonly StationDef[] = [
   { id: 'gun', posBodyM: { x: 3.5, y: -0.2, z: 0.3 }, accepts: ['gsh-23'], maxCount: 220 },
-  { id: 'wing-outer-l', posBodyM: { x: -0.9, y: -0.3, z: -3.3 }, accepts: ['asraam', 'r-73', 'derby'], maxCount: 2 },
-  { id: 'wing-outer-r', posBodyM: { x: -0.9, y: -0.3, z: 3.3 }, accepts: ['asraam', 'r-73', 'derby'], maxCount: 2 },
-  { id: 'wing-mid-l', posBodyM: { x: -0.5, y: -0.35, z: -2.5 }, accepts: ['astra-mk1', 'derby', 'r-73', 'asraam'], maxCount: 2 },
-  { id: 'wing-mid-r', posBodyM: { x: -0.5, y: -0.35, z: 2.5 }, accepts: ['astra-mk1', 'derby', 'r-73', 'asraam'], maxCount: 2 },
-  { id: 'wing-inner-l', posBodyM: { x: -0.1, y: -0.35, z: -1.8 }, accepts: ['tank-1200l', 'astra-mk1', 'derby'], maxCount: 1 },
-  { id: 'wing-inner-r', posBodyM: { x: -0.1, y: -0.35, z: 1.8 }, accepts: ['tank-1200l', 'astra-mk1', 'derby'], maxCount: 1 },
-  { id: 'centreline', posBodyM: { x: 0.2, y: -0.9, z: 0 }, accepts: ['tank-725l'], maxCount: 1 },
+  { id: 'wing-outer-l', posBodyM: { x: -3.2, y: 0.09, z: -3.3 }, accepts: ['asraam', 'r-73', 'derby'], maxCount: 2 },
+  { id: 'wing-outer-r', posBodyM: { x: -3.2, y: 0.09, z: 3.3 }, accepts: ['asraam', 'r-73', 'derby'], maxCount: 2 },
+  { id: 'wing-mid-l', posBodyM: { x: -2.6, y: 0.06, z: -2.5 }, accepts: ['astra-mk1', 'derby', 'r-73', 'asraam'], maxCount: 2 },
+  { id: 'wing-mid-r', posBodyM: { x: -2.6, y: 0.06, z: 2.5 }, accepts: ['astra-mk1', 'derby', 'r-73', 'asraam'], maxCount: 2 },
+  { id: 'wing-inner-l', posBodyM: { x: -1.8, y: 0.03, z: -1.8 }, accepts: ['tank-1200l', 'astra-mk1', 'derby'], maxCount: 1 },
+  { id: 'wing-inner-r', posBodyM: { x: -1.8, y: 0.03, z: 1.8 }, accepts: ['tank-1200l', 'astra-mk1', 'derby'], maxCount: 1 },
+  { id: 'centreline', posBodyM: { x: 0.3, y: -0.42, z: 0 }, accepts: ['tank-725l'], maxCount: 1 },
   { id: 'intake-pod', posBodyM: { x: 1.2, y: -0.8, z: -0.5 }, accepts: [], maxCount: 1 },
 ];
 

@@ -10,7 +10,7 @@ import * as THREE from 'three';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 
-import { EntityKindCode, HUD_BLOCK_START, ServiceStateCode, SnapshotHud, type QualityTier } from '../contracts/core';
+import { EntityFlag, EntityKindCode, HUD_BLOCK_START, ServiceStateCode, SnapshotHud, type QualityTier } from '../contracts/core';
 import {
   AntiAliasMode,
   CAMERA_FAR_M,
@@ -67,7 +67,8 @@ import {
 import { createGrade } from './postGrade';
 import { createSunShadows } from './sunShadows';
 import { TERRAIN_QUALITY_PROFILES, TERRAIN_WORLD_EXTENT_M } from '../contracts/terrain';
-import { createWireframeAircraftRenderer } from './wireframeAircraftRenderer';
+import { createMeshAircraftRenderer } from './meshAircraftRenderer';
+import { buildTejasTestModel } from './aircraftModels/tejasTestModel';
 
 const FOV_BY_MODE: Readonly<Record<CameraMode, number>> = {
   [CameraMode.Cockpit]: COCKPIT_VERTICAL_FOV_DEG,
@@ -119,7 +120,21 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
 
   const aircraftRoot = new THREE.Group();
   scene.add(aircraftRoot);
-  const wireframeRenderer = createWireframeAircraftRenderer(aircraftRoot);
+  // Solid articulated aircraft (a procedural Tejas until an art asset exists); it replaces the
+  // original wireframe, so registerAircraftModel's WireframeModel is no longer drawn.
+  const aircraftRenderer = createMeshAircraftRenderer(aircraftRoot, buildTejasTestModel());
+  const aircraftState = {
+    elevonL: 0,
+    elevonR: 0,
+    rudder: 0,
+    gearPos: 0,
+    throttle: 0,
+    afterburner: false,
+    airbrakeOut: false,
+    onGround: false,
+    team: 0,
+    vel: { x: 0, y: 0, z: 0 },
+  };
 
   const terrainRoot = new THREE.Group();
   scene.add(terrainRoot);
@@ -349,8 +364,8 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
       applyOrbitDelta(cameraModeState.external, deltaYawRad, deltaPitchRad, deltaZoomM);
     },
 
-    registerAircraftModel(model) {
-      wireframeRenderer.registerModel(model);
+    registerAircraftModel() {
+      // The mesh model (meshAircraftRenderer.ts) is drawn instead of the wireframe.
     },
 
     setNavDb(navDb) {
@@ -484,19 +499,27 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
           camera.quaternion.set(cameraPose.rot.x, cameraPose.rot.y, cameraPose.rot.z, cameraPose.rot.w);
         }
 
-        wireframeRenderer.beginFrame();
+        aircraftRenderer.beginFrame(frameDtSec, origin, cameraPose.pos, nowMs / 1000);
         for (let i = 0; i < curr.entityCount; i++) {
           if (curr.alive[i] !== 1 || curr.kind[i] !== EntityKindCode.aircraft) continue;
+          // No cockpit interior yet: from the cockpit, the player's own jet is not drawn.
+          if (i === playerSlot && mode === CameraMode.Cockpit && !debugCam) continue;
           interpolateEntity(snapshotBuf, i, f, interpEntity);
-          wireframeRenderer.updateEntity(
-            curr.id[i]!,
-            interpEntity.pos,
-            interpEntity.rot,
-            { elevonL: interpEntity.elevonL, elevonR: interpEntity.elevonR, rudder: interpEntity.rudder, gearPos: interpEntity.gearPos },
-            origin
-          );
+          const flags = curr.flags[i]!;
+          const st = aircraftState;
+          st.elevonL = interpEntity.elevonL;
+          st.elevonR = interpEntity.elevonR;
+          st.rudder = interpEntity.rudder;
+          st.gearPos = interpEntity.gearPos;
+          st.throttle = interpEntity.throttle;
+          st.afterburner = curr.afterburnerOn[i] === 1;
+          st.airbrakeOut = (flags & EntityFlag.AirbrakeOut) !== 0;
+          st.onGround = (flags & EntityFlag.OnGround) !== 0;
+          st.team = curr.team[i]!;
+          st.vel = interpEntity.vel;
+          aircraftRenderer.updateEntity(curr.id[i]!, interpEntity.pos, interpEntity.rot, st, origin);
         }
-        wireframeRenderer.endFrame();
+        aircraftRenderer.endFrame();
 
         effects.syncFromSnapshot(snapshotBuf, f, origin);
         effects.tick(frameDtSec, origin);
@@ -534,7 +557,7 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
     },
 
     dispose() {
-      wireframeRenderer.dispose();
+      aircraftRenderer.dispose();
       terrainConsumer.dispose();
       urbanCache.dispose();
       features.dispose();
