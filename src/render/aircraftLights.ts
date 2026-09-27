@@ -87,7 +87,9 @@ const BEAM_FS = /* glsl */ `
     vec3 V = normalize(uAtmCamPos - vWorld);
     // Faint haze lit by the beam: brightest near the lamp, fading along it and towards its edges.
     float edge = pow(abs(dot(normalize(vNormalW), V)), 2.5);
-    float k = pow(1.0 - vU, 2.5) * edge * uIntensity;
+    // max(): interpolation can take vU a hair past 1 at the open end, and pow() of a negative
+    // number is NaN (drawn as a dotted black ring where the beam ends).
+    float k = pow(max(1.0 - vU, 0.0), 2.5) * edge * uIntensity;
     gl_FragColor = vec4(vec3(1.0, 0.94, 0.82) * k * 0.06 * atmTransmittance(vWorld), 1.0);
   }
 `;
@@ -104,7 +106,7 @@ const POOL_FS = /* glsl */ `
     float v = vUv.y;
     float halfWidth = 0.2 + 0.8 * v;
     float lat = abs(vUv.x - 0.5) * 2.0 / halfWidth;
-    float across = exp(-lat * lat * 2.5) * smoothstep(1.0, 0.75, lat);
+    float across = exp(-lat * lat * 2.5) * (1.0 - smoothstep(0.75, 1.0, lat));
     float d = uNearM + v * uLengthM;
     float along = smoothstep(0.0, 0.08, v) * (uNearM * uNearM + 400.0) / (d * d + 400.0);
     gl_FragColor = vec4(vec3(1.0, 0.93, 0.8) * across * along * uIntensity, 1.0);
