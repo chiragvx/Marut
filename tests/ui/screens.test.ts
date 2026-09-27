@@ -248,7 +248,7 @@ describe('missions and briefing', () => {
 
     const b = makeContainer();
     const onStart = vi.fn();
-    createBriefing(b, { entry: MISSIONS[1]!, base: BASES[1], index: 1, def: tejasDefinition, difficulty: 'veteran', loadout: {}, keys: { target: 'T', launch: 'Enter', weapon: 'Tab', gun: 'Space' } }, { onStart, onBack: noop });
+    createBriefing(b, { entry: MISSIONS.find((m) => m.id === 'border-duel')!, base: BASES.find((x) => x.id === 'bathinda'), index: 0, def: tejasDefinition, difficulty: 'veteran', loadout: {}, keys: { target: 'T', launch: 'Enter', weapon: 'Tab', gun: 'Space' } }, { onStart, onBack: noop });
     click(b, '[data-role="difficulty"] [data-value="ace"]');
     click(b, '[data-action="start"]');
     expect(onStart).toHaveBeenCalledWith('ace', {});
@@ -313,5 +313,18 @@ describe('untested base tag', () => {
     const b = makeContainer();
     createBriefing(b, { entry: hansaMission, base: BASES.find((x) => x.id === 'hansa'), index: 0, def: tejasDefinition, difficulty: 'veteran', loadout: {}, keys: { target: 'T', launch: 'Enter', weapon: 'Tab', gun: 'Space' } }, { onStart: noop, onBack: noop });
     expect(b.querySelector('[data-role="untested"]')).not.toBeNull();
+  });
+});
+
+describe('Bhisiana is the main base', () => {
+  it('comes first, is the Free Flight default and hosts the recommended first mission', () => {
+    expect(BASES[0]!.id).toBe('bathinda');
+    expect(DEFAULT_FREE_FLIGHT.baseId).toBe('bathinda');
+    expect(MISSIONS[0]!.recommended).toBe(true);
+    expect(MISSIONS[0]!.baseId).toBe('bathinda');
+    expect(MISSIONS.filter((m) => m.recommended)).toHaveLength(1);
+    // INS Hansa's missions come after all of Bhisiana's.
+    const firstHansa = MISSIONS.findIndex((m) => m.baseId === 'hansa');
+    expect(MISSIONS.slice(firstHansa).every((m) => m.baseId === 'hansa')).toBe(true);
   });
 });

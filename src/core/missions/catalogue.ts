@@ -34,6 +34,16 @@ export const UNTESTED_NOTE = 'This base has not been fully tested yet: you may r
 
 export const BASES: readonly BaseInfo[] = [
   {
+    id: 'bathinda',
+    name: 'Bhisiana AFS',
+    place: 'Bathinda, Punjab',
+    blurb: 'Fighter base on the Punjab plains with hardened shelters, 60 km from the border.',
+    airportId: 'bhisiana-afs',
+    freeMissionId: 'border-free',
+    parkingSpotId: 'HAS-7',
+    parkedLabel: 'in shelter HAS-7',
+  },
+  {
     id: 'hansa',
     name: 'INS Hansa',
     place: 'Goa',
@@ -43,16 +53,6 @@ export const BASES: readonly BaseInfo[] = [
     parkingSpotId: 'PARK-1',
     parkedLabel: 'on the apron',
     untested: true,
-  },
-  {
-    id: 'bathinda',
-    name: 'Bhisiana AFS',
-    place: 'Bathinda, Punjab',
-    blurb: 'Fighter base on the Punjab plains with hardened shelters, 60 km from the border.',
-    airportId: 'bhisiana-afs',
-    freeMissionId: 'border-free',
-    parkingSpotId: 'HAS-7',
-    parkedLabel: 'in shelter HAS-7',
   },
 ];
 
@@ -72,21 +72,13 @@ export interface MissionEntry {
 
 export const MISSIONS: readonly MissionEntry[] = [
   {
-    id: 'konkan-dogfight',
-    title: 'Sea Duel',
-    baseId: 'hansa',
-    bandits: 1,
-    objective: 'Shoot down one aircraft over the Arabian Sea.',
-    situation: 'A single hostile fighter is working off the Goa coast. Take off from INS Hansa, find it on radar and shoot it down.',
-    recommended: true,
-  },
-  {
     id: 'border-duel',
     title: 'Border Duel',
     baseId: 'bathinda',
     bandits: 1,
     objective: 'Meet one intruder over the Punjab plains.',
     situation: 'One intruder has crossed the border and is heading for Bathinda. Take off from runway 13 and shoot it down before it reaches the base.',
+    recommended: true,
   },
   {
     id: 'border-intercept',
@@ -95,6 +87,14 @@ export const MISSIONS: readonly MissionEntry[] = [
     bandits: 2,
     objective: 'Scramble from the shelters and stop two aircraft.',
     situation: 'Two hostile aircraft are inbound from the west. You are in shelter HAS-7: taxi out (press H for taxi guidance), take off and destroy both.',
+  },
+  {
+    id: 'konkan-dogfight',
+    title: 'Sea Duel',
+    baseId: 'hansa',
+    bandits: 1,
+    objective: 'Shoot down one aircraft over the Arabian Sea.',
+    situation: 'A single hostile fighter is working off the Goa coast. Take off from INS Hansa, find it on radar and shoot it down.',
   },
 ];
 

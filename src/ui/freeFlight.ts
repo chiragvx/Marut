@@ -1,6 +1,6 @@
 /**
  * src/ui/freeFlight.ts — Free Flight setup: base, how to start, time of day, weather, loadout.
- * The defaults (INS Hansa, runway, late morning, clear, the default loadout) make a good first
+ * The defaults (Bhisiana, runway, late morning, clear, the default loadout) make a good first
  * flight on their own; src/main.ts remembers the last setup.
  */
 import type { WeatherMode } from '../contracts/core';
@@ -21,7 +21,7 @@ export interface FreeFlightSetup {
   loadout: LoadoutSelection;
 }
 
-export const DEFAULT_FREE_FLIGHT: FreeFlightSetup = { baseId: 'hansa', start: 'runway', timeOfDayH: 10.5, weather: 'clear', loadout: {} };
+export const DEFAULT_FREE_FLIGHT: FreeFlightSetup = { baseId: 'bathinda', start: 'runway', timeOfDayH: 10.5, weather: 'clear', loadout: {} };
 
 export const FREE_FLIGHT_WEATHER: readonly { value: WeatherMode; label: string }[] = [
   { value: 'clear', label: 'Clear' },
