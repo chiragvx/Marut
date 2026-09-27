@@ -25,7 +25,7 @@ Non-goals, explicitly: photorealistic shading (there is no textured aircraft mod
 | `src/render/terrainChunkConsumer.ts` | Turns an ingested `TerrainChunkReadyMessage` into a `THREE.BufferGeometry` + the shared terrain material; tracks chunks by `(chunkX,chunkZ,lod)` key for eviction (section 4.5). |
 | `src/render/skyFog.ts` | Sky-dome gradient mesh, `THREE.Fog`/scene background wiring, sun direction → directional light (section 4.11). |
 | `src/render/effects.ts` | Pooled, instanced explosion/muzzle-flash/smoke-trail visuals driven by `SimEvent`s (section 4.12). |
-| `src/render/airportLines.ts` | Runway rectangle + ILS localiser/glideslope guide-line geometry built from `AirportNavDb` (section 4.13). |
+| ~~`src/render/airportLines.ts`~~ | Removed (section 4.13). |
 | `src/render/snapshotInterpolation.ts` | Double-buffered snapshot ingest + entity id matching + lerp/nlerp (section 4.1). |
 | `src/render/floatingOrigin.ts` | `renderOriginWorld` rebase logic (section 4.3). |
 | `src/render/mathInternal.ts` | Private vec3/quat helpers not tied to a `THREE.Object3D` (lerp3, quatNlerp, axisAngleQuat, rotateVecByAxisAngle — Rodrigues). Not exported outside `src/render`. |
@@ -434,6 +434,8 @@ Three pooled `EffectKind`s, each a fixed-size pool of `THREE.InstancedMesh` inst
 All per-effect state (position, age, kind) lives in pre-sized typed arrays parallel to each `InstancedMesh`'s instance count — `ingestEvents`/`renderFrame` never call `new Vector3()`/`new Object3D()` per event; they write into the next free pool slot's existing instance-matrix storage via `InstancedMesh.setMatrixAt`.
 
 ### 4.13 Airport line rendering
+
+> **Removed (2026-09-27).** The runway outlines and ILS guide lines were taken out at the user's request; runways are drawn by the pavement mesh (`src/render/airfieldPavement.ts`). The text below is kept for history.
 
 `setNavDb(navDb: AirportNavDb)` is called once (at mission load). `src/render/airportLines.ts` calls `navDb.listAirports()` once and, for every `RunwayInfo` of every returned `AirportInfo`, builds a static (built once, never rebuilt per-frame) `THREE.LineSegments` runway outline:
 

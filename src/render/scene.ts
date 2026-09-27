@@ -26,7 +26,6 @@ import {
   type SceneRenderer,
 } from '../contracts/render';
 
-import { createAirportLinesSystem } from './airportLines';
 import { chaseLook, computeCameraPose, createCameraModeState, createCameraPose, orbitCamera as applyOrbitDelta } from './cameraModes';
 import { createEffectsSystem } from './effects';
 import { createFloatingOriginState, updateFloatingOrigin } from './floatingOrigin';
@@ -154,9 +153,6 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
   scene.add(effectsRoot);
   const effects = createEffectsSystem(effectsRoot);
 
-  const airportRoot = new THREE.Group();
-  scene.add(airportRoot);
-  const airportLines = createAirportLinesSystem(airportRoot);
 
   const skyFog = createSkyFogSystem(scene);
   const farGround = createFarGround(scene);
@@ -304,8 +300,6 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
     const murk = 1 - Math.max(0, Math.min(1, (w.visKm - 3) / 7));
     features.setNightLights(skyLight.lights);
     runwayLights.update(Math.max(skyLight.lights, murk * 0.8, w0.deck * 0.5), origin);
-    const day = (0.2126 * (skyLight.ambSky[0] + skyLight.keyCol[0] * 0.8) + 0.7152 * (skyLight.ambSky[1] + skyLight.keyCol[1] * 0.8) + 0.0722 * (skyLight.ambSky[2] + skyLight.keyCol[2] * 0.8)) / 0.95;
-    airportLines.setBrightness(Math.max(0.12, Math.min(1, day)));
   }
 
   let shadowsOn = false;
@@ -379,7 +373,6 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
     },
 
     setNavDb(navDb) {
-      airportLines.setNavDb(navDb);
       runwayLights.setNavDb(navDb);
     },
 
@@ -477,7 +470,6 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
         terrainConsumer.updateOrigin(origin);
         features.update(origin, cameraPose.pos);
         clouds.update(cameraPose.pos, origin);
-        airportLines.updateOrigin(origin);
         pavement.updateOrigin(origin);
         structures.update(origin, lastFrameMs / 1000);
         signs.updateOrigin(origin);
@@ -640,7 +632,6 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
       farGround.dispose();
       sunShadows.dispose();
       effects.dispose();
-      airportLines.dispose();
       skyFog.dispose();
       renderer.dispose();
     },
