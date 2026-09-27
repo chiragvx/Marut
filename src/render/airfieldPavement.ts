@@ -159,6 +159,39 @@ const FS = /* glsl */ `
     return m;
   }
 
+  // All of a runway's white paint at p (one sample): both ends, the centreline, the side stripes.
+  float runwayPaint(vec2 p, float len, float width, vec2 codes, vec2 pw) {
+    float hw = width * 0.5;
+    float m = max(runwayEnd(p, len, width, codes.x, pw), runwayEnd(vec2(len - p.x, -p.y), len, width, codes.y, pw));
+    // Centreline: 30 m dashes, 20 m gaps, 0.9 m wide, between the designators.
+    if (p.x > 90.0 && p.x < len - 90.0) m = max(m, span(p.y, -0.45, 0.45, pw.y) * span(mod(p.x - 90.0, 50.0), 0.0, 30.0, pw.x));
+    // Side stripes.
+    return max(m, span(abs(p.y), hw - 1.4, hw - 0.5, pw.y));
+  }
+
+  // The same paint as its average cover over each marked area, for pixels that span several
+  // metres (far away): stripes, bars and digits there are smaller than a pixel and would flicker.
+  float runwayPaintAvg(vec2 p, float len, float width, vec2 pw) {
+    float hw = width * 0.5;
+    float av = abs(p.y);
+    float m = span(av, hw - 1.4, hw - 0.5, pw.y);
+    if (p.x > 90.0 && p.x < len - 90.0) m = max(m, 0.6 * span(p.y, -0.45, 0.45, pw.y));
+    float n = width >= 44.0 ? 6.0 : width >= 29.0 ? 4.0 : 3.0;
+    float ap = width >= 29.0 ? 1.0 : 0.0;
+    for (int end = 0; end < 2; end++) {
+      float e = end == 0 ? p.x : len - p.x;
+      m = max(m, 0.5 * span(e, 6.0, 36.0, pw.x) * span(av, 1.8, n * 3.6, pw.y));
+      m = max(m, 0.35 * span(e, 48.0, 69.0, pw.x) * span(av, 0.0, 3.75, pw.y));
+      m = max(m, ap * span(e, 400.0, 445.0, pw.x) * span(av, hw * 0.4, hw * 0.4 + 6.0, pw.y));
+      for (int i = 0; i < 5; i++) {
+        float u0 = i < 2 ? 150.0 + 150.0 * float(i) : 600.0 + 150.0 * float(i - 2);
+        float cnt = i < 2 ? 3.0 : i < 4 ? 2.0 : 1.0;
+        if (u0 < len * 0.5 - 50.0) m = max(m, 0.6 * span(e, u0, u0 + 22.5, pw.x) * span(av, 3.0, 1.8 + cnt * 3.0, pw.y));
+      }
+    }
+    return m;
+  }
+
   // Tyre marks (rubber) in a touchdown zone, metres from its threshold.
   float rubber(vec2 p, float hw) {
     float z = smoothstep(200.0, 350.0, p.x) * (1.0 - smoothstep(700.0, 1100.0, p.x));
@@ -171,11 +204,15 @@ const FS = /* glsl */ `
     vec2 p = vSurf.yz;
     vec2 pw = max(vec2(fwidth(p.x), fwidth(p.y)), vec2(0.01));
     float pwMax = max(pw.x, pw.y);
+    vec2 pdx = dFdx(p);
+    vec2 pdy = dFdy(p);
     float px = length(fwidth(vWorld.xz));
+    // Fine noise fades to its mean once a pixel covers several of its cells (it would shimmer).
+    float fine = 1.0 - smoothstep(0.4, 1.5, px);
     vec3 asphalt = vec3(0.21, 0.21, 0.22) * mix(vec3(1.0), detailAt(vWorld.xz, 3.0, 6.0, px), 0.7);
     vec3 concrete = vec3(0.58, 0.57, 0.54) * mix(vec3(1.0), detailAt(vWorld.xz, 3.0, 9.0, px), 0.35);
     // Big, soft stains so large slabs of concrete never read as flat.
-    concrete *= 0.9 + 0.2 * vnoise(vWorld.xz / 23.0) - 0.08 * vnoise(vWorld.xz / 7.0 + 3.0);
+    concrete *= 0.9 + 0.2 * vnoise(vWorld.xz / 23.0) - 0.08 * mix(0.5, vnoise(vWorld.xz / 7.0 + 3.0), 1.0 - smoothstep(1.0, 3.5, px));
     vec3 white = vec3(0.9, 0.9, 0.88);
     vec3 yellow = vec3(0.86, 0.68, 0.16);
     vec3 col;
@@ -185,14 +222,20 @@ const FS = /* glsl */ `
       float width = vExtra.y;
       float hw = width * 0.5;
       col = asphalt * (0.95 + 0.1 * vnoise(vWorld.xz / 40.0));
-      vec2 pa = p;
-      vec2 pb = vec2(len - p.x, -p.y);
-      col *= 1.0 - 0.45 * max(rubber(pa, hw), rubber(pb, hw)) * (0.7 + 0.3 * vnoise(vWorld.xz / 3.0));
-      float m = max(runwayEnd(pa, len, width, vExtra.z, pw), runwayEnd(pb, len, width, vExtra.w, pw));
-      // Centreline: 30 m dashes, 20 m gaps, 0.9 m wide, between the designators.
-      if (p.x > 90.0 && p.x < len - 90.0) m = max(m, span(p.y, -0.45, 0.45, pw.y) * step(fract((p.x - 90.0) / 50.0), 0.6));
-      // Side stripes.
-      m = max(m, span(abs(p.y), hw - 1.4, hw - 0.5, pw.y));
+      col *= 1.0 - 0.45 * max(rubber(p, hw), rubber(vec2(len - p.x, -p.y), hw)) * (0.7 + 0.3 * mix(0.5, vnoise(vWorld.xz / 3.0), fine));
+      // The paint: one sample up close; four inside the pixel once it spans more than ~20 cm, and
+      // the average cover beyond a few metres, so distant markings hold still as the view moves.
+      float m;
+      if (pwMax < 0.2) {
+        m = runwayPaint(p, len, width, vExtra.zw, pw);
+      } else {
+        vec2 hp = pw * 0.5;
+        m = 0.25 * (runwayPaint(p + pdx * 0.125 + pdy * 0.375, len, width, vExtra.zw, hp)
+                  + runwayPaint(p - pdx * 0.375 + pdy * 0.125, len, width, vExtra.zw, hp)
+                  + runwayPaint(p + pdx * 0.375 - pdy * 0.125, len, width, vExtra.zw, hp)
+                  + runwayPaint(p - pdx * 0.125 - pdy * 0.375, len, width, vExtra.zw, hp));
+        m = mix(m, runwayPaintAvg(p, len, width, pw), smoothstep(1.5, 4.0, pwMax));
+      }
       // Worn paint: the asphalt's own fine grain shows through a little.
       col = mix(col, white * mix(vec3(1.0), detailAt(vWorld.xz, 3.0, 4.0, px), 0.3), m);
     } else if (kind == 3) {
@@ -265,7 +308,7 @@ const FS = /* glsl */ `
       vec2 g = fract(p / 5.0) * 5.0;
       float j = max(span(g.x, 0.0, 0.08, pw.x), span(g.y, 0.0, 0.08, pw.y));
       col *= 1.0 - 0.2 * j * (1.0 - smoothstep(0.05, 0.3, pwMax));
-      col *= 1.0 - 0.12 * smoothstep(0.55, 0.8, vnoise(vWorld.xz / 9.0)); // oil stains
+      col *= 1.0 - 0.12 * mix(0.2, smoothstep(0.55, 0.8, vnoise(vWorld.xz / 9.0)), 1.0 - smoothstep(1.5, 4.5, px)); // oil stains
     }
 
     // Wet in rain: darker, with a little sky sheen.
