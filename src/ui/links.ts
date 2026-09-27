@@ -2,13 +2,13 @@
  * src/ui/links.ts — the game's name, version and outside links, in one place for the game and the
  * landing page.
  *
- * FEEDBACK_URL is the third-party feedback form: empty until the form exists, and every feedback
- * link then reads "coming soon".
+ * FEEDBACK_URL is the feedback form (Typeform). If it is ever emptied, every feedback link reads
+ * "coming soon" instead.
  */
 
 export const GAME_NAME = 'Marut';
 export const GAME_VERSION = '0.1.0-wireframe';
-export const FEEDBACK_URL = '';
+export const FEEDBACK_URL = 'https://chiragveerwani.typeform.com/to/I9Z0VYl3';
 
 export interface FeedbackContext {
   /** Where the player was: 'menu', 'pause', 'debrief', 'landing'. */

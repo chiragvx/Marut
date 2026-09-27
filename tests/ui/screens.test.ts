@@ -328,3 +328,22 @@ describe('Bhisiana is the main base', () => {
     expect(MISSIONS.slice(firstHansa).every((m) => m.baseId === 'hansa')).toBe(true);
   });
 });
+
+describe('feedback form', () => {
+  it('links to the Typeform with the build and screen, opening in a new tab', async () => {
+    const { feedbackUrl, FEEDBACK_URL, GAME_VERSION } = await import('../../src/ui/links');
+    expect(FEEDBACK_URL).toBe('https://chiragveerwani.typeform.com/to/I9Z0VYl3');
+    const url = new URL(feedbackUrl({ screen: 'debrief', missionId: 'border-duel', quality: 'high' })!);
+    expect(url.origin + url.pathname).toBe(FEEDBACK_URL);
+    expect(url.searchParams.get('version')).toBe(GAME_VERSION);
+    expect(url.searchParams.get('screen')).toBe('debrief');
+    expect(url.searchParams.get('mission')).toBe('border-duel');
+
+    const container = makeContainer();
+    createMainMenu(container, { ...menuOptions, feedbackUrl: feedbackUrl({ screen: 'menu' })! }, menuCallbacks);
+    const a = container.querySelector('a[href^="https://chiragveerwani.typeform.com/"]') as HTMLAnchorElement;
+    expect(a).not.toBeNull();
+    expect(a.target).toBe('_blank');
+    expect(a.rel).toContain('noopener');
+  });
+});
