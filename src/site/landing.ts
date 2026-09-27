@@ -9,6 +9,9 @@ import './site.css';
 import { FEEDBACK_URL, GAME_NAME, GAME_VERSION, feedbackUrl } from '../ui/links';
 import { externalLink } from '../ui/kit';
 import { isTouchFirstDevice } from '../ui/deviceNotice';
+import { startAnalytics } from '../ui/analytics';
+
+startAnalytics();
 
 const q = <T extends HTMLElement>(key: string): T[] => Array.from(document.querySelectorAll<T>(`[data-site="${key}"]`));
 

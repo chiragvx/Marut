@@ -63,6 +63,7 @@ import {
   type ControlGroup,
 } from './ui';
 import './ui/ui.css';
+import { startAnalytics } from './ui/analytics';
 import { approachScene, nightDepartureScene, taxiScene, type ShowcaseScene } from './ui/showcase';
 import { createFlightOverlay, hintText, pickHint, type FlightOverlay, type HintId, type HintKeys } from './ui/flightOverlay';
 import { DEFAULT_INPUT_MAP_DATA } from './input/inputMap';
@@ -1288,6 +1289,7 @@ function launchMission(missionIn: Mission, opts: { title: string; airStart: bool
 // -----------------------------------------------------------------------------
 
 async function boot(): Promise<void> {
+  startAnalytics();
   uiRoot = document.getElementById('ui-root') as HTMLElement;
   renderCanvas = document.getElementById('render-canvas') as HTMLCanvasElement;
   hudCanvas = document.getElementById('hud-canvas') as HTMLCanvasElement;

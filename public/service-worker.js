@@ -1,7 +1,7 @@
 // Offline play and install. Pages (HTML) come from the network first, so a new version shows up on
 // the next visit, falling back to the cached copy offline. Everything else (the build's hashed
 // scripts and styles, icons) comes from the cache first and is cached as it is fetched.
-const CACHE_NAME = 'flight-sim-v2';
+const CACHE_NAME = 'flight-sim-v3';
 const PRECACHE_URLS = ['./', './index.html', './play/', './play/index.html', './manifest.webmanifest'];
 
 self.addEventListener('install', (event) => {
@@ -31,6 +31,8 @@ self.addEventListener('fetch', (event) => {
   if (req.method !== 'GET') return;
   const url = new URL(req.url);
   if (url.origin !== self.location.origin) return;
+  // Vercel's analytics script and endpoints: always from the network, never cached.
+  if (url.pathname.startsWith('/_vercel/')) return;
   const isPage = req.mode === 'navigate' || (req.headers.get('accept') || '').includes('text/html');
   if (isPage) {
     event.respondWith(
