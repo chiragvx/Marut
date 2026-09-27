@@ -61,7 +61,7 @@ export const stations: readonly StationDef[] = [
 /**
  * Store fits. "CAP" is the Mk1A's air-defence fit: twin ASRAAM on the outboard pylons, one Astra Mk1
  * on each middle pylon, two 1200 L wing tanks. "CAP (legacy)" is the load the sim flew before
- * (R-73 and Derby on twin rails).
+ * (R-73 and Derby on twin rails). "Clean" carries only the gun.
  */
 export const loadouts: readonly LoadoutPreset[] = [
   {
@@ -88,6 +88,13 @@ export const loadouts: readonly LoadoutPreset[] = [
       'wing-mid-r': { store: 'derby', count: 2 },
       'wing-inner-l': { store: 'tank-1200l', count: 1 },
       'wing-inner-r': { store: 'tank-1200l', count: 1 },
+    },
+  },
+  {
+    id: 'clean',
+    name: 'Clean: gun only',
+    fit: {
+      gun: { store: 'gsh-23', count: 220 },
     },
   },
 ];

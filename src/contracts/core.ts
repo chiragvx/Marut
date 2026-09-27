@@ -244,6 +244,12 @@ export interface EntityState {
   dropTankCount?: number;
   dropTankFuelKg?: number;
   /**
+   * Attached drop tanks' empty mass (kg) and drag area (m^2), all tanks together, for fits that mix
+   * tank types. Absent = dropTankCount x AircraftDefinition.dropTank. Only counted while dropTankCount > 0.
+   */
+  dropTankShellKg?: number;
+  dropTankDragAreaM2?: number;
+  /**
    * What the renderer should draw: an aircraft's packed stores (SnapshotEntity.STORES), refreshed by
    * src/core each snapshot; a missile's store code, set at launch. Optional: absent means 0.
    */
@@ -713,6 +719,11 @@ export interface MissionPlayerStart {
   aircraftId?: string;
   /** The player's store fit (LoadoutPreset.id of that aircraft). Absent = its default loadout. */
   loadoutId?: string;
+  /**
+   * A custom store fit, station id -> store and count; takes precedence over `loadoutId`. Checked
+   * against the aircraft's stations (src/aircraft/loadout.ts): entries a station cannot carry are dropped.
+   */
+  loadout?: Readonly<Record<string, { store: string; count: number }>>;
   pos?: Vec3Like;
   headingRad?: number;
   speedMps?: number;

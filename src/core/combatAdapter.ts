@@ -16,6 +16,7 @@
 import { EntityKind, NO_ENTITY_ID, STORE_IDS } from '../contracts/core';
 import type { Contact, EntityId, EntityState, SimEvent, Vec3Like } from '../contracts/core';
 import type { CombatPort, CombatTickContext, EventQueue } from '../contracts/sim';
+import type { LoadoutPreset } from '../contracts/aircraft';
 import type { CombatPortWithContacts, CombatPortWithRearm, CombatPortWithStores, WorldCombatTickContext } from './combatContext';
 import { subSeed } from './seed';
 import { getAircraftDefinition, getLoadout } from '../aircraft';
@@ -58,12 +59,12 @@ import type { WeaponKind } from '../contracts/core';
  * to the generic profiles (one gun station).
  */
 const loadoutCache = new Map<string, WeaponsLoadout>();
-function loadoutFor(defId: string | undefined, loadoutId?: string): WeaponsLoadout {
-  const key = `${defId ?? ''}|${loadoutId ?? ''}`;
+function loadoutFor(defId: string | undefined, fit?: LoadoutPreset): WeaponsLoadout {
+  const key = `${defId ?? ''}|${fit ? JSON.stringify(fit.fit) : ''}`;
   const cached = loadoutCache.get(key);
   if (cached) return cached;
   const def = defId ? getAircraftDefinition(defId) : undefined;
-  const preset = def ? getLoadout(def, loadoutId) : undefined;
+  const preset = fit ?? (def ? getLoadout(def) : undefined);
   const stations: WeaponStationSpec[] = [];
   if (def?.stations && preset) {
     for (const st of def.stations) {
@@ -223,7 +224,7 @@ export function createCombatAdapter(): CombatPort & CombatPortWithContacts & Com
         const e = ctx.liveAt(i);
         if (e.kind !== EntityKind.Aircraft) continue;
         if (weaponsStates.has(e.id)) continue;
-        weaponsStates.set(e.id, createWeaponsState(loadoutFor(ctx.getAircraftDefId(e.id), ctx.getLoadoutId?.(e.id)), subSeed(ctx.missionSeed, 'combat:' + e.id)));
+        weaponsStates.set(e.id, createWeaponsState(loadoutFor(ctx.getAircraftDefId(e.id), ctx.getLoadout?.(e.id)), subSeed(ctx.missionSeed, 'combat:' + e.id)));
       }
       // Drop WeaponsState for aircraft no longer live (reused Set, cleared
       // and refilled each tick rather than `new Set()` + `Array.from()`).

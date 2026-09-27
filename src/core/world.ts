@@ -83,7 +83,8 @@ import { writeSnapshot as writeSnapshotBuffer } from './snapshotWriter';
 import { computeIlsDeviation, forwardWorldInto, rightWorldInto } from './hudTelemetry';
 import type { CombatPortWithContacts, CombatPortWithRearm, CombatPortWithStores } from './combatContext';
 import { applyAutopilotAction, autopilotFlags, createAutopilotState, stepAutopilot, type AutopilotState } from './autopilot';
-import { getAircraftDefinition, getLoadout } from '../aircraft';
+import { getAircraftDefinition, getLoadout, loadoutTanks, resolveLoadout, type TankLoad } from '../aircraft';
+import type { LoadoutPreset } from '../contracts/aircraft';
 import { FUEL_TANKS } from '../catalog';
 import type { AutopilotAction } from '../contracts/core';
 
@@ -319,8 +320,10 @@ class WorldImpl implements World {
       getAircraftDefId(id: EntityId): string | undefined {
         return self.aircraft.get(id)?.aircraftDefId;
       },
-      getLoadoutId(id: EntityId): string | undefined {
-        return id === self.playerEntityIdInternal ? self.mission?.playerStart.loadoutId : undefined;
+      getLoadout(id: EntityId): LoadoutPreset | undefined {
+        const rec = self.aircraft.get(id);
+        if (!rec) return undefined;
+        return id === self.playerEntityIdInternal ? self.playerLoadout(rec.aircraftDefId) : undefined;
       },
     };
   }
@@ -523,9 +526,11 @@ class WorldImpl implements World {
     state.fuelKg = this.deps.flightModel.maxFuelKg(aircraftDefId);
     // Full drop tanks for the player only (the AI has no jettison logic, so it flies clean);
     // J / the jettisonTanks input drops them (src/physics).
-    const tanks = withDropTanks && this.deps.flightModel.dropTankLoad ? this.deps.flightModel.dropTankLoad(aircraftDefId) : undefined;
+    const tanks = withDropTanks ? this.playerTanks(aircraftDefId) : undefined;
     state.dropTankCount = tanks ? tanks.count : 0;
     state.dropTankFuelKg = tanks ? tanks.fuelKg : 0;
+    state.dropTankShellKg = tanks ? tanks.shellKg : 0;
+    state.dropTankDragAreaM2 = tanks ? tanks.dragAreaM2 : 0;
     // gearPos starts at the pool's zeroed default (fully retracted) EXCEPT
     // for a ground start (see this method's doc comment), where it must be
     // set to fully-down immediately so the very first physics tick already
@@ -872,7 +877,7 @@ class WorldImpl implements World {
       return;
     }
     const maxInternal = this.deps.flightModel.maxFuelKg(rec.aircraftDefId);
-    const tanks = this.deps.flightModel.dropTankLoad?.(rec.aircraftDefId) ?? { count: 0, fuelKg: 0 };
+    const tanks = this.playerTanks(rec.aircraftDefId);
     const full = maxInternal + tanks.fuelKg;
     const tankFuel = (state.dropTankCount ?? 0) > 0 ? (state.dropTankFuelKg ?? 0) : 0;
     const port = this.deps.combat as Partial<CombatPortWithRearm>;
@@ -880,6 +885,8 @@ class WorldImpl implements World {
       if ((state.dropTankCount ?? 0) < tanks.count) {
         state.dropTankCount = tanks.count;
         state.dropTankFuelKg = tankFuel;
+        state.dropTankShellKg = tanks.shellKg;
+        state.dropTankDragAreaM2 = tanks.dragAreaM2;
       }
       let add = (full / REFUEL_FULL_SEC) * dt;
       const toInternal = Math.min(add, Math.max(0, maxInternal - state.fuelKg));
@@ -1128,6 +1135,29 @@ class WorldImpl implements World {
     writeSnapshotBuffer(this.pool, playerId, this.tickInternal, this.simTimeSecInternal, hud, out);
   }
 
+  private playerLoadoutMemo: { mission: unknown; defId: string; loadout: LoadoutPreset | undefined; tanks: TankLoad } | undefined;
+
+  /** The player's store fit from the mission: its custom fit, else its preset, else the aircraft's default. */
+  private playerLoadout(defId: string): LoadoutPreset | undefined {
+    return this.playerFit(defId).loadout;
+  }
+
+  /** The drop tanks in the player's fit, full. */
+  private playerTanks(defId: string): TankLoad {
+    return this.playerFit(defId).tanks;
+  }
+
+  private playerFit(defId: string): { loadout: LoadoutPreset | undefined; tanks: TankLoad } {
+    const m = this.playerLoadoutMemo;
+    if (m && m.mission === this.mission && m.defId === defId) return m;
+    const def = getAircraftDefinition(defId);
+    const ps = this.mission?.playerStart;
+    const loadout = def ? resolveLoadout(def, ps?.loadoutId, ps?.loadout) : undefined;
+    const memo = { mission: this.mission, defId, loadout, tanks: loadoutTanks(loadout) };
+    this.playerLoadoutMemo = memo;
+    return memo;
+  }
+
   /**
    * An aircraft's carried stores for the snapshot (contracts/core.ts STORES layout): its loadout's
    * store on each station, with the missiles still on it (from combat) and the drop tanks only
@@ -1136,7 +1166,7 @@ class WorldImpl implements World {
   private packStores(id: EntityId, defId: string, state: EntityState): number {
     const def = getAircraftDefinition(defId);
     if (!def?.stations) return 0;
-    const loadout = getLoadout(def, id === this.playerEntityIdInternal ? this.mission?.playerStart.loadoutId : undefined);
+    const loadout = id === this.playerEntityIdInternal ? this.playerLoadout(defId) : getLoadout(def);
     const combat = this.deps.combat as Partial<CombatPortWithStores>;
     let packed = 0;
     let scale = 1;

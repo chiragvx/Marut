@@ -14,6 +14,7 @@
 
 import type { Contact, EntityId, PilotInputs } from '../contracts/core';
 import type { CombatTickContext } from '../contracts/sim';
+import type { LoadoutPreset } from '../contracts/aircraft';
 
 export interface WorldCombatTickContext extends CombatTickContext {
   readonly missionSeed: number;
@@ -23,8 +24,8 @@ export interface WorldCombatTickContext extends CombatTickContext {
   getAltAglM(id: EntityId): number;
   /** The aircraft type id of a live aircraft entity (AircraftDefinition.id), or undefined. */
   getAircraftDefId(id: EntityId): string | undefined;
-  /** The loadout id chosen for a live aircraft (the player's, from the mission), or undefined = its default. */
-  getLoadoutId?(id: EntityId): string | undefined;
+  /** The store fit of a live aircraft (the player's preset or custom fit, from the mission), or undefined = its type's default. */
+  getLoadout?(id: EntityId): LoadoutPreset | undefined;
 }
 
 /**

@@ -5,3 +5,4 @@
  */
 export { tejasDefinition } from './tejasDefinition';
 export { getAircraftDefinition, listAircraftDefinitions, getLoadout } from './registry';
+export { resolveLoadout, sanitizeFit, loadoutTanks, loadoutMassKg, stationChoices, storeName, isBuiltStore, CUSTOM_LOADOUT_ID, type LoadoutFit, type TankLoad, type StationChoice } from './loadout';

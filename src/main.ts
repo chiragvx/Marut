@@ -66,7 +66,8 @@ import { buildAirfieldMask } from './airport/airfieldMask';
 import { buildAirfieldAids } from './airport/airfieldAids';
 import { activeRunway, buildTaxiGraph, routeToRunway, routeToStand, type TaxiGraph } from './airport/taxiGraph';
 import { tejasDefinition } from './aircraft';
-import { getAircraftDefinition, getLoadout } from './aircraft/registry';
+import { getAircraftDefinition } from './aircraft/registry';
+import { resolveLoadout, type LoadoutFit } from './aircraft/loadout';
 import { WEAPONS } from './catalog';
 import { isBuiltinMissionId, resolveBuiltinMission } from './core/missions/index';
 import { readSnapshotEntity, readSnapshotHeader } from './core/snapshotReader';
@@ -682,7 +683,7 @@ function launchMission(missionIn: Mission): void {
   );
   chunkManager.onChunkEvicted((key) => renderer.evictTerrainChunk(key.cx, key.cz, key.depth));
 
-  playerFullLoad = fullLoadFor(mission.playerStart.aircraftId, mission.playerStart.loadoutId);
+  playerFullLoad = fullLoadFor(mission.playerStart.aircraftId, mission.playerStart.loadoutId, mission.playerStart.loadout);
   setPlayerFullLoad();
   hud.setTaxiGuide(null);
   hud.setAirbases(buildHudAirbases(mission.world.airports as readonly AirportLayout[]));
@@ -846,10 +847,10 @@ wireMetaActionsOnce();
 /** The player's full weapon load (their aircraft's loadout preset), for the HUD's ammunition counters. */
 interface FullLoad { gun: number; ir: number; radar: number; irName?: string; radarName?: string }
 let playerFullLoad: FullLoad = { gun: 0, ir: 0, radar: 0 };
-function fullLoadFor(aircraftId: string | undefined, loadoutId: string | undefined): FullLoad {
+function fullLoadFor(aircraftId: string | undefined, loadoutId: string | undefined, custom?: LoadoutFit): FullLoad {
   const out: FullLoad = { gun: 0, ir: 0, radar: 0 };
   const def = getAircraftDefinition(aircraftId ?? 'tejas-mk1a');
-  const preset = def ? getLoadout(def, loadoutId) : undefined;
+  const preset = def ? resolveLoadout(def, loadoutId, custom) : undefined;
   if (!preset) return out;
   for (const fit of Object.values(preset.fit)) {
     const w = fit ? WEAPONS[fit.store] : undefined;

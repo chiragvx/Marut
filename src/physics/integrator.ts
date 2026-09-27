@@ -72,16 +72,18 @@ const INERTIA_MASS_SENSITIVITY = 0.5;
 
 /** Current all-up mass: empty airframe + internal fuel + carried stores + drop tanks (shells + fuel). */
 export function aircraftMassKg(
-  state: Pick<EntityState, 'fuelKg' | 'storesMassKg' | 'dropTankCount' | 'dropTankFuelKg'>,
+  state: Pick<EntityState, 'fuelKg' | 'storesMassKg' | 'dropTankCount' | 'dropTankFuelKg' | 'dropTankShellKg'>,
   def: Pick<AircraftDefinition, 'emptyMassKg' | 'dropTank'>
 ): number {
-  const tankShellsKg = (state.dropTankCount ?? 0) * (def.dropTank?.emptyMassKg ?? 0);
+  const n = state.dropTankCount ?? 0;
+  const tankShellsKg = n > 0 ? (state.dropTankShellKg ?? n * (def.dropTank?.emptyMassKg ?? 0)) : 0;
   return def.emptyMassKg + state.fuelKg + (state.storesMassKg ?? 0) + tankShellsKg + (state.dropTankFuelKg ?? 0);
 }
 
 /** Drag area (CD*S, m^2) of carried stores plus attached drop tanks. */
 function externalDragAreaM2(state: EntityState, def: AircraftDefinition): number {
-  return (state.storesDragAreaM2 ?? 0) + (state.dropTankCount ?? 0) * (def.dropTank?.dragAreaM2 ?? 0);
+  const n = state.dropTankCount ?? 0;
+  return (state.storesDragAreaM2 ?? 0) + (n > 0 ? (state.dropTankDragAreaM2 ?? n * (def.dropTank?.dragAreaM2 ?? 0)) : 0);
 }
 
 function copyEntityState(src: EntityState, dst: EntityState): void {
@@ -106,6 +108,8 @@ function copyEntityState(src: EntityState, dst: EntityState): void {
   dst.storesDragAreaM2 = src.storesDragAreaM2;
   dst.dropTankCount = src.dropTankCount;
   dst.dropTankFuelKg = src.dropTankFuelKg;
+  dst.dropTankShellKg = src.dropTankShellKg;
+  dst.dropTankDragAreaM2 = src.dropTankDragAreaM2;
   dst.flags = src.flags;
 }
 
