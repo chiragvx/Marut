@@ -191,6 +191,8 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
     return v && v.length === 6 && v.every(Number.isFinite) ? v : undefined;
   })();
   let tier: QualityTier = initialTier;
+  /** The menu's cinematic, drawn instead of the flight while set. */
+  let showcase: import('../contracts/render').ShowcaseFrame | null = null;
   let mode: CameraMode = CameraMode.Chase;
   let lastFrameMs = -1;
 
@@ -363,6 +365,10 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
       mode = m;
     },
 
+    setShowcase(frame) {
+      showcase = frame;
+    },
+
     orbitCamera(deltaYawRad, deltaPitchRad, deltaZoomM) {
       if (mode === CameraMode.Chase) chaseLook(cameraModeState.chase, deltaYawRad, deltaPitchRad, deltaZoomM);
       else if (mode === CameraMode.External) applyOrbitDelta(cameraModeState.external, deltaYawRad, deltaPitchRad, deltaZoomM);
@@ -466,9 +472,76 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
       const frameDtSec = lastFrameMs < 0 ? 1 / 60 : Math.min(Math.max((nowMs - lastFrameMs) / 1000, 0), 0.25);
       lastFrameMs = nowMs;
 
+      /** Everything that follows the floating origin and the camera. */
+      const followOrigin = (origin: Readonly<{ x: number; y: number; z: number }>): void => {
+        terrainConsumer.updateOrigin(origin);
+        features.update(origin, cameraPose.pos);
+        clouds.update(cameraPose.pos, origin);
+        airportLines.updateOrigin(origin);
+        pavement.updateOrigin(origin);
+        structures.update(origin, lastFrameMs / 1000);
+        signs.updateOrigin(origin);
+      };
+      /** Points the three.js camera from cameraPose (after the floating origin has moved). */
+      const placeCamera = (fovDeg: number): Readonly<{ x: number; y: number; z: number }> => {
+        updateFloatingOrigin(floatingOrigin, cameraPose.pos);
+        const origin = floatingOrigin.originWorld;
+        camera.fov = fovDeg;
+        camera.updateProjectionMatrix();
+        aircraftRenderer.setViewport(sizeH, camera.projectionMatrix.elements[5]!);
+        camera.position.set(cameraPose.pos.x - origin.x, cameraPose.pos.y - origin.y, cameraPose.pos.z - origin.z);
+        setAtmosphereCamera(cameraPose.pos);
+        skyFog.followCamera(camera.position);
+        farGround.update(origin);
+        if (cameraPose.useLookAt) {
+          camera.up.set(0, 1, 0);
+          camera.lookAt(cameraPose.lookAt.x - origin.x, cameraPose.lookAt.y - origin.y, cameraPose.lookAt.z - origin.z);
+        } else {
+          camera.quaternion.set(cameraPose.rot.x, cameraPose.rot.y, cameraPose.rot.z, cameraPose.rot.w);
+        }
+        return origin;
+      };
+
       // The 3D view plays the snapshots back on the sim's clock (snapshotInterpolation.ts).
       const fInterp = snapshotBuf.hasData ? advanceRenderClock(snapshotBuf, nowMs) : 1;
-      if (snapshotBuf.hasData && snapshotBuf.curr.playerSlot >= 0) {
+      if (showcase) {
+        // The menu's cinematic: a scripted camera and aircraft, no flight.
+        const sc = showcase;
+        cameraPose.pos.x = sc.camPos.x;
+        cameraPose.pos.y = sc.camPos.y;
+        cameraPose.pos.z = sc.camPos.z;
+        cameraPose.lookAt.x = sc.lookAt.x;
+        cameraPose.lookAt.y = sc.lookAt.y;
+        cameraPose.lookAt.z = sc.lookAt.z;
+        cameraPose.useLookAt = true;
+        shadowFocus.set(sc.aircraft[0]?.pos.x ?? sc.lookAt.x, sc.aircraft[0]?.pos.y ?? sc.lookAt.y, sc.aircraft[0]?.pos.z ?? sc.lookAt.z);
+        structures.setServiceVehicles(null);
+        // Subject off-centre (clear of the menu): shift the frustum, not the camera.
+        if (sc.offsetX) camera.setViewOffset(sizeW, sizeH, -sc.offsetX * sizeW, 0, sizeW, sizeH);
+        else if (camera.view) camera.clearViewOffset();
+        const origin = placeCamera(sc.fovDeg);
+        aircraftRenderer.beginFrame(frameDtSec, origin, cameraPose.pos, nowMs / 1000);
+        for (const a of sc.aircraft) {
+          const st = aircraftState;
+          st.elevonL = 0;
+          st.elevonR = 0;
+          st.rudder = 0;
+          st.gearPos = a.gearPos;
+          st.throttle = a.throttle;
+          st.afterburner = a.afterburner;
+          st.airbrakeOut = false;
+          st.onGround = false;
+          st.team = 0;
+          st.vel = a.vel;
+          st.stores = a.stores;
+          st.flags = a.flags;
+          st.groundY = a.groundY;
+          aircraftRenderer.updateEntity(a.id, a.pos, a.rot, st, origin);
+        }
+        aircraftRenderer.endFrame();
+        effects.tick(frameDtSec, origin);
+        followOrigin(origin);
+      } else if (snapshotBuf.hasData && snapshotBuf.curr.playerSlot >= 0) {
         const curr = snapshotBuf.curr;
         const playerSlot = curr.playerSlot;
         const f = fInterp;
@@ -489,22 +562,8 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
           cameraPose.lookAt.z = debugCam[5]!;
           cameraPose.useLookAt = true;
         }
-        updateFloatingOrigin(floatingOrigin, cameraPose.pos);
-        const origin = floatingOrigin.originWorld;
-
-        camera.fov = FOV_BY_MODE[mode];
-        camera.updateProjectionMatrix();
-        aircraftRenderer.setViewport(sizeH, camera.projectionMatrix.elements[5]!);
-        camera.position.set(cameraPose.pos.x - origin.x, cameraPose.pos.y - origin.y, cameraPose.pos.z - origin.z);
-        setAtmosphereCamera(cameraPose.pos);
-        skyFog.followCamera(camera.position);
-        farGround.update(origin);
-        if (cameraPose.useLookAt) {
-          camera.up.set(0, 1, 0);
-          camera.lookAt(cameraPose.lookAt.x - origin.x, cameraPose.lookAt.y - origin.y, cameraPose.lookAt.z - origin.z);
-        } else {
-          camera.quaternion.set(cameraPose.rot.x, cameraPose.rot.y, cameraPose.rot.z, cameraPose.rot.w);
-        }
+        if (camera.view) camera.clearViewOffset();
+        const origin = placeCamera(FOV_BY_MODE[mode]);
 
         aircraftRenderer.beginFrame(frameDtSec, origin, cameraPose.pos, nowMs / 1000);
         for (let i = 0; i < curr.entityCount; i++) {
@@ -539,14 +598,7 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
 
         effects.syncFromSnapshot(snapshotBuf, f, origin);
         effects.tick(frameDtSec, origin);
-
-        terrainConsumer.updateOrigin(origin);
-        features.update(origin, cameraPose.pos);
-        clouds.update(cameraPose.pos, origin);
-        airportLines.updateOrigin(origin);
-        pavement.updateOrigin(origin);
-        structures.update(origin, lastFrameMs / 1000);
-        signs.updateOrigin(origin);
+        followOrigin(origin);
       }
 
       camera.updateMatrixWorld(true);
@@ -562,7 +614,7 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
       cameraState.worldPos.x = cameraPose.pos.x;
       cameraState.worldPos.y = cameraPose.pos.y;
       cameraState.worldPos.z = cameraPose.pos.z;
-      cameraState.renderSimSec = snapshotBuf.hasData ? snapshotBuf.renderSimSec : undefined;
+      cameraState.renderSimSec = snapshotBuf.hasData && !showcase ? snapshotBuf.renderSimSec : undefined;
 
       if (!contextLost) {
         urbanCache.update(renderer, cameraPose.pos.x, cameraPose.pos.z);

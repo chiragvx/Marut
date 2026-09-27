@@ -63,6 +63,7 @@ import {
   type ControlGroup,
 } from './ui';
 import './ui/ui.css';
+import { approachScene, departureScene, type ShowcaseScene } from './ui/showcase';
 import { createFlightOverlay, hintText, pickHint, type FlightOverlay, type HintId, type HintKeys } from './ui/flightOverlay';
 import { DEFAULT_INPUT_MAP_DATA } from './input/inputMap';
 import { BASES, MISSIONS, baseInfo, freeFlightMission, missionEntry, type BaseId } from './core/missions/catalogue';
@@ -306,6 +307,7 @@ const playerAircraft = tejasDefinition;
 function showMainMenu(): void {
   destroyCurrentScreen();
   appState = 'mainMenu';
+  startShowcase();
   const last = savedLastFlight();
   const progress = savedProgress();
   const fb = feedbackUrl({ screen: 'menu', quality: currentQualityTier });
@@ -910,6 +912,57 @@ function applyWeatherSetting(mission: Mission): Mission {
   }
 }
 
+/**
+ * Loads a mission's world into the view (terrain streaming, airfields, the renderer's environment),
+ * for a flight or for the menu's cinematic. `tier` sets how much terrain streams in.
+ */
+function setupWorldView(mission: Mission, tier: QualityTier): void {
+  const terrainParams = mission.world.terrain as TerrainParams;
+  const airportLayouts = mission.world.airports as readonly AirportLayout[];
+  const flattenZones: readonly AirportFlattenZone[] = airportLayouts.flatMap((a) => a.flattenZones);
+  const navDb = createAirportNavDb(airportLayouts);
+  renderer.setNavDb(navDb);
+  renderer.setEnvironment(buildSceneEnvironment(terrainParams, airportLayouts, { x: mission.weather.windWorldMps.x, z: mission.weather.windWorldMps.z }));
+  renderer.setWeather(weatherMode, newWeatherSeed());
+
+  terrainReady = false;
+  pendingTerrainMsgs.length = 0;
+  chunkManager?.dispose();
+  // createChunkManager itself sends the TerrainInitMessage at construction
+  // (src/terrain/chunkManager.ts) — no separate explicit send needed here.
+  chunkManager = createChunkManager({ qualityTier: tier, terrainParams, flattenZones }, sendToTerrainWorker);
+  chunkManager.onChunkReady((chunk) =>
+    renderer.ingestTerrainChunk({
+      type: 'chunkReady',
+      requestId: -1,
+      chunkX: chunk.key.cx,
+      chunkZ: chunk.key.cz,
+      lod: chunk.key.depth,
+      positions: chunk.geometry.positions.buffer as ArrayBuffer,
+      normals: chunk.geometry.normals.buffer as ArrayBuffer,
+      indices: chunk.geometry.indices.buffer as ArrayBuffer,
+      ...(chunk.geometry.features
+        ? {
+            features: {
+              decalPositions: chunk.geometry.features.decalPositions.buffer as ArrayBuffer,
+              decalAttribs: chunk.geometry.features.decalAttribs.buffer as ArrayBuffer,
+              decalIndices: chunk.geometry.features.decalIndices.buffer as ArrayBuffer,
+              treeMatrices: chunk.geometry.features.treeMatrices.map((a) => a.buffer as ArrayBuffer),
+              treeColors: chunk.geometry.features.treeColors.map((a) => a.buffer as ArrayBuffer),
+              buildingMatrices: chunk.geometry.features.buildingMatrices.buffer as ArrayBuffer,
+              buildingColors: chunk.geometry.features.buildingColors.buffer as ArrayBuffer,
+              domeMatrices: chunk.geometry.features.domeMatrices.buffer as ArrayBuffer,
+              houseMatrices: chunk.geometry.features.houseMatrices.buffer as ArrayBuffer,
+              houseColors: chunk.geometry.features.houseColors.buffer as ArrayBuffer,
+            },
+          }
+        : {}),
+    })
+  );
+  chunkManager.onChunkEvicted((key) => renderer.evictTerrainChunk(key.cx, key.cz, key.depth));
+
+}
+
 /** The keys a first-time pilot needs, for the loading screen. */
 function firstKeys(): [string[], string][] {
   const k = inputSystem.inputMap.data.keyboard;
@@ -1038,7 +1091,98 @@ function tickPendingStart(nowMs: number): void {
   }
 }
 
+// -----------------------------------------------------------------------------
+// The menu's cinematic (src/ui/showcase.ts): Bathinda at dusk, then INS Hansa at sunrise, looping
+// behind the menus. Each base's world is loaded on its own (capped at High quality), the scene
+// waits for its terrain before fading in, and fades to black before the next base.
+// -----------------------------------------------------------------------------
+
+const SHOWCASE_FADE_SEC = 1.6;
+const SHOWCASE_LOAD_TIMEOUT_SEC = 10;
+let showcaseActive = false;
+let showcaseIndex = 0;
+let showcaseScene: ShowcaseScene | undefined;
+let showcasePhase: 'loading' | 'playing' = 'loading';
+let showcaseT = 0;
+let fadeEl: HTMLDivElement | undefined;
+
+function setFade(black: boolean): void {
+  if (!fadeEl) {
+    fadeEl = document.createElement('div');
+    fadeEl.className = 'tj-fade tj-passive';
+    uiRoot.prepend(fadeEl);
+  }
+  fadeEl.style.transitionDuration = `${SHOWCASE_FADE_SEC}s`;
+  fadeEl.classList.toggle('tj-fade--black', black);
+}
+
+function showcaseSceneFor(index: number): ShowcaseScene | undefined {
+  const base = index % 2 === 0 ? baseInfo('bathinda') : baseInfo('hansa');
+  const mission = resolveBuiltinMission(base.freeMissionId);
+  const layout = (mission.world.airports as readonly AirportLayout[]).find((a) => a.id === base.airportId);
+  if (!layout) return undefined;
+  const wind = mission.weather.windWorldMps;
+  const rwyId = activeRunway(layout, { x: wind.x, z: wind.z });
+  const runway = layout.runways.find((r) => r.id === rwyId) ?? layout.runways[0];
+  if (!runway) return undefined;
+  const scene = index % 2 === 0 ? approachScene(layout, runway) : departureScene(layout, runway);
+  weatherMode = 'clear';
+  renderer.setWeather(weatherMode, 7);
+  setupWorldView(mission, currentQualityTier === 'ultra' ? 'high' : currentQualityTier);
+  timeOfDayH = scene.timeOfDayH;
+  renderer.setTimeOfDay(timeOfDayH);
+  return scene;
+}
+
+function enterShowcaseScene(index: number): void {
+  showcaseIndex = index;
+  showcaseScene = showcaseSceneFor(index);
+  showcasePhase = 'loading';
+  showcaseT = 0;
+  setFade(true);
+  if (showcaseScene) renderer.setShowcase(showcaseScene.frame(0));
+}
+
+/** Plays the cinematic behind the menus (no-op if already playing). */
+function startShowcase(): void {
+  if (showcaseActive || !renderer) return;
+  showcaseActive = true;
+  hudCanvas.style.visibility = 'hidden';
+  enterShowcaseScene(0);
+}
+
+function stopShowcase(): void {
+  if (!showcaseActive) return;
+  showcaseActive = false;
+  showcaseScene = undefined;
+  renderer.setShowcase(null);
+  hudCanvas.style.visibility = 'visible';
+  setFade(false);
+}
+
+function tickShowcase(dtSec: number): void {
+  const sc = showcaseScene;
+  if (!showcaseActive || !sc) return;
+  if (showcasePhase === 'loading') {
+    // Hold on black until the terrain around the camera has loaded.
+    renderer.setShowcase(sc.frame(0));
+    showcaseT += dtSec;
+    const prog = chunkManager?.loadProgress() ?? { resident: 0, desired: 0 };
+    if ((prog.desired > 0 && prog.resident / prog.desired >= 0.9 && showcaseT > 0.8) || showcaseT > SHOWCASE_LOAD_TIMEOUT_SEC) {
+      showcasePhase = 'playing';
+      showcaseT = 0;
+      setFade(false);
+    }
+    return;
+  }
+  showcaseT += dtSec;
+  renderer.setShowcase(sc.frame(showcaseT));
+  if (showcaseT > sc.durationSec - SHOWCASE_FADE_SEC) setFade(true);
+  if (showcaseT >= sc.durationSec) enterShowcaseScene(showcaseIndex + 1);
+}
+
 function launchMission(missionIn: Mission, opts: { title: string; airStart: boolean }): void {
+  stopShowcase();
   const mission = applyWeatherSetting(applyDevStart(missionIn));
   destroyCurrentScreen();
   appState = 'loading';
@@ -1069,49 +1213,7 @@ function launchMission(missionIn: Mission, opts: { title: string; airStart: bool
   latestSimTimeSec = 0;
   sessionStartSimTimeSec = 0;
 
-  const terrainParams = mission.world.terrain as TerrainParams;
-  const airportLayouts = mission.world.airports as readonly AirportLayout[];
-  const flattenZones: readonly AirportFlattenZone[] = airportLayouts.flatMap((a) => a.flattenZones);
-  const navDb = createAirportNavDb(airportLayouts);
-  renderer.setNavDb(navDb);
-  renderer.setEnvironment(buildSceneEnvironment(terrainParams, airportLayouts, { x: mission.weather.windWorldMps.x, z: mission.weather.windWorldMps.z }));
-  renderer.setWeather(weatherMode, newWeatherSeed());
-
-  terrainReady = false;
-  pendingTerrainMsgs.length = 0;
-  chunkManager?.dispose();
-  // createChunkManager itself sends the TerrainInitMessage at construction
-  // (src/terrain/chunkManager.ts) — no separate explicit send needed here.
-  chunkManager = createChunkManager({ qualityTier: currentQualityTier, terrainParams, flattenZones }, sendToTerrainWorker);
-  chunkManager.onChunkReady((chunk) =>
-    renderer.ingestTerrainChunk({
-      type: 'chunkReady',
-      requestId: -1,
-      chunkX: chunk.key.cx,
-      chunkZ: chunk.key.cz,
-      lod: chunk.key.depth,
-      positions: chunk.geometry.positions.buffer as ArrayBuffer,
-      normals: chunk.geometry.normals.buffer as ArrayBuffer,
-      indices: chunk.geometry.indices.buffer as ArrayBuffer,
-      ...(chunk.geometry.features
-        ? {
-            features: {
-              decalPositions: chunk.geometry.features.decalPositions.buffer as ArrayBuffer,
-              decalAttribs: chunk.geometry.features.decalAttribs.buffer as ArrayBuffer,
-              decalIndices: chunk.geometry.features.decalIndices.buffer as ArrayBuffer,
-              treeMatrices: chunk.geometry.features.treeMatrices.map((a) => a.buffer as ArrayBuffer),
-              treeColors: chunk.geometry.features.treeColors.map((a) => a.buffer as ArrayBuffer),
-              buildingMatrices: chunk.geometry.features.buildingMatrices.buffer as ArrayBuffer,
-              buildingColors: chunk.geometry.features.buildingColors.buffer as ArrayBuffer,
-              domeMatrices: chunk.geometry.features.domeMatrices.buffer as ArrayBuffer,
-              houseMatrices: chunk.geometry.features.houseMatrices.buffer as ArrayBuffer,
-              houseColors: chunk.geometry.features.houseColors.buffer as ArrayBuffer,
-            },
-          }
-        : {}),
-    })
-  );
-  chunkManager.onChunkEvicted((key) => renderer.evictTerrainChunk(key.cx, key.cz, key.depth));
+  setupWorldView(mission, currentQualityTier);
 
   playerFullLoad = fullLoadFor(mission.playerStart.aircraftId, mission.playerStart.loadoutId, mission.playerStart.loadout);
   setPlayerFullLoad();
@@ -1252,6 +1354,7 @@ function frame(nowMs: number): void {
     simWorker.postMessage({ type: 'input', entityId: playerEntityId, inputs: pilotInputsScratch } as const);
   }
   tickPendingStart(nowMs);
+  tickShowcase(dtSec);
   tickLookKeys(dtSec);
   flightOverlay?.setVisible(appState === 'gameplay');
   if (renderer && hud) {

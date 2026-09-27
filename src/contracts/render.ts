@@ -26,7 +26,7 @@
  * =============================================================================
  */
 
-import type { AirportNavDb, QualityTier, SimEvent, SpeedUnit, TerrainChunkReadyMessage, Vec3Like, WeaponKind, WeatherMode } from './core';
+import type { AirportNavDb, QualityTier, QuatLike, SimEvent, SpeedUnit, TerrainChunkReadyMessage, Vec3Like, WeaponKind, WeatherMode } from './core';
 import { WarningBit } from './core';
 import type { SettlementLayer } from './terrain';
 
@@ -372,7 +372,36 @@ export interface SceneEnvironment {
   runways: readonly { centerX: number; centerZ: number; headingRad: number; lengthM: number; widthM: number }[];
 }
 
+/** One aircraft in a showcase frame (the menu's cinematic): pose and what to draw. */
+export interface ShowcaseAircraft {
+  id: number;
+  pos: Vec3Like;
+  rot: QuatLike;
+  vel: Vec3Like;
+  gearPos: number;
+  throttle: number;
+  afterburner: boolean;
+  /** EntityFlags (lights). */
+  flags: number;
+  /** Packed stores (core.ts STORES layout). */
+  stores: number;
+  /** Ground height under it, world m (lights the landing light's pool). */
+  groundY?: number;
+}
+
+/** A frame of the menu's cinematic: the camera and the aircraft, drawn instead of the flight. */
+export interface ShowcaseFrame {
+  camPos: Vec3Like;
+  lookAt: Vec3Like;
+  fovDeg: number;
+  /** Shifts the view so the look-at point sits this fraction of the screen width right of centre (0 = centred). */
+  offsetX?: number;
+  aircraft: readonly ShowcaseAircraft[];
+}
+
 export interface SceneRenderer {
+  /** Draw a scripted camera and aircraft (the menu's cinematic) instead of the flight; null returns to the flight. */
+  setShowcase(frame: ShowcaseFrame | null): void;
   /** Call on window resize / orientation change / initial mount. */
   resize(widthPx: number, heightPx: number, devicePixelRatio: number): void;
   setQualityTier(tier: QualityTier): void;
