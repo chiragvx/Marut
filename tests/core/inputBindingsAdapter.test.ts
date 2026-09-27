@@ -16,8 +16,10 @@ describe('buildKeyBindingsFromInputMap', () => {
     return bindings.find((b) => b.action === action)?.code;
   }
 
-  it('produces one entry per BindableAction (none silently dropped)', () => {
-    expect(bindings.length).toBe(Object.values(BindableAction).length);
+  it('produces one entry per BindableAction with a key (only always-on nosewheel steering has none)', () => {
+    // Every action except nosewheel steering, which is always on and has no key.
+    expect(bindings.length).toBe(Object.values(BindableAction).length - 1);
+    expect(bindings.some((b) => b.action === BindableAction.NoseWheelSteer)).toBe(false);
   });
 
   it('resolves throttleUp/throttleDown from the real default keyboard axis (Z/X), matching the live app', () => {
@@ -36,7 +38,8 @@ describe('buildKeyBindingsFromInputMap', () => {
 
   it('resolves the three actions module 09 and module 11 named differently (airbrake/noseWheelSteer/pauseToggle)', () => {
     expect(codeFor(BindableAction.Airbrake)).toBe(DEFAULT_INPUT_MAP_DATA.keyboard.buttons.airbrakeToggle);
-    expect(codeFor(BindableAction.NoseWheelSteer)).toBe(DEFAULT_INPUT_MAP_DATA.keyboard.buttons.nwsToggle);
+    expect(DEFAULT_INPUT_MAP_DATA.keyboard.buttons.nwsToggle).toBeNull(); // steering is always on
+    expect(codeFor(BindableAction.NoseWheelSteer)).toBeUndefined();
     expect(codeFor(BindableAction.PauseToggle)).toBe(DEFAULT_INPUT_MAP_DATA.keyboard.meta.menuToggle);
   });
 

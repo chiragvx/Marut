@@ -35,7 +35,6 @@ export const TOUCH_ZONE_ICON_INNER_SVG: Readonly<Record<ButtonZoneId, string>> =
   // flame — afterburner.
   [TouchZoneId.Afterburner]: '<path d="M12 3q1 4 4 6.5t3 5.5a1 1 0 0 1-14 0 5 5 0 0 1 1-3 1 1 0 0 0 5 0c0-2-1.5-3-1.5-5q0-2 2.5-4"/>',
   // move-horizontal — Lucide has no steering-wheel glyph; left-right motion reads as nosewheel steer.
-  [TouchZoneId.NwsToggle]: '<path d="m18 8 4 4-4 4"/><path d="M2 12h20"/><path d="m6 8-4 4 4 4"/>',
   // octagon — universal stop/brake sign, visually distinct from AirbrakeToggle's chevrons.
   [TouchZoneId.Brakes]: '<path d="M2.586 16.726A2 2 0 0 1 2 15.312V8.688a2 2 0 0 1 .586-1.414l4.688-4.688A2 2 0 0 1 8.688 2h6.624a2 2 0 0 1 1.414.586l4.688 4.688A2 2 0 0 1 22 8.688v6.624a2 2 0 0 1-.586 1.414l-4.688 4.688a2 2 0 0 1-1.414.586H8.688a2 2 0 0 1-1.414-.586z"/>',
   // camera — camera-mode cycle.

@@ -14,7 +14,13 @@
 import type { EntityId, PilotInputs, DamageState, QuatLike, Vec3Like } from '../contracts/core';
 import { MAX_ENTITIES, ENTITY_INDEX_RADIX } from '../contracts/core';
 import type { FcsLimits } from '../contracts/aircraft';
-import { GROUND_LAW_MAX_ROTATION_RATE_RAD_S } from '../contracts/flight';
+import {
+  GROUND_LAW_MAX_ROTATION_RATE_RAD_S,
+  GROUND_DEROTATION_RATE_RAD_S,
+  GROUND_DEROTATION_END_RAD,
+  GROUND_DEROTATION_FADE_RAD,
+  GROUND_DEROTATION_STICK_DEADBAND,
+} from '../contracts/flight';
 import { Quat, clamp, lerp, rateLimitStep, bodyRateP, bodyRateQ, bodyRateR } from '../math';
 
 /**
@@ -704,6 +710,12 @@ export function stepFcs(
     // rate; not gated by minAlphaRad/the symmetric case, since a ground rotation excursion only
     // ever runs away in the nose-up direction.
     let qCmdGround = pitchStickShaped * GROUND_LAW_MAX_ROTATION_RATE_RAD_S;
+    // Stick released after a nose-high touchdown: lower the nose onto the nose wheel (see
+    // GROUND_DEROTATION_RATE_RAD_S) instead of holding the touchdown attitude.
+    Quat.rotate(rot, BODY_FORWARD, scratchBodyAxis);
+    const pitchAttRad = Math.asin(clamp(scratchBodyAxis.y, -1, 1));
+    const released = 1 - Math.min(1, Math.abs(pitchStickShaped) / GROUND_DEROTATION_STICK_DEADBAND);
+    qCmdGround -= GROUND_DEROTATION_RATE_RAD_S * released * clamp((pitchAttRad - GROUND_DEROTATION_END_RAD) / GROUND_DEROTATION_FADE_RAD, 0, 1);
     if (!inputs.alphaLimiterDisabled && alphaAnticipated > fcsLimits.maxAlphaRad) {
       const overshootRad = alphaAnticipated - fcsLimits.maxAlphaRad;
       const blend = clamp(overshootRad / ALPHA_LIMIT_BLEND_RAD, 0, 1);

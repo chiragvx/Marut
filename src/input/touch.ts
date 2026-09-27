@@ -44,7 +44,6 @@ const BUTTON_ZONE_ORDER: readonly ButtonZoneId[] = [
   TouchZoneId.GearToggle,
   TouchZoneId.AirbrakeToggle,
   TouchZoneId.Afterburner,
-  TouchZoneId.NwsToggle,
   TouchZoneId.Brakes,
   TouchZoneId.CameraCycle,
   TouchZoneId.MenuToggle,
@@ -105,7 +104,6 @@ export const createTouchReader: CreateTouchReader = () => {
       airbrakeToggle: false,
       afterburner: false,
       brakes: false,
-      nwsToggle: false,
       cameraCycle: false,
       menuToggle: false,
     },
@@ -210,14 +208,13 @@ export const createTouchReader: CreateTouchReader = () => {
       });
     }
 
-    // Utility row: 5 buttons, anchored top-right.
+    // Utility row: 4 buttons, anchored top-right.
     const utilGap = 6;
     const utilOrder: readonly ButtonZoneId[] = [
       TouchZoneId.GearToggle,
       TouchZoneId.AirbrakeToggle,
       TouchZoneId.Afterburner,
-      TouchZoneId.NwsToggle,
-      TouchZoneId.Brakes,
+          TouchZoneId.Brakes,
     ];
     const utilWidth = utilOrder.length * TOUCH_BUTTON_SIZE_SMALL_PX + (utilOrder.length - 1) * utilGap;
     const utilRight = w - (12 + insets.right);

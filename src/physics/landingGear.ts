@@ -13,6 +13,10 @@ import {
   ROLLING_RESISTANCE_COEFFICIENT,
   GEAR_HARD_STOP_STIFFNESS_MULTIPLIER,
   GEAR_LATERAL_STIFFNESS_N_PER_MPS,
+  TYRE_LATERAL_FRICTION_COEFFICIENT,
+  NWS_FULL_AUTHORITY_BELOW_MPS,
+  NWS_MIN_AUTHORITY_ABOVE_MPS,
+  NWS_MIN_AUTHORITY_FRAC,
 } from '../contracts/flight';
 import { Vec3, Quat, clamp, lerp, sign, rateLimitStep, clamp01 } from '../math';
 
@@ -49,6 +53,12 @@ function rotateAroundWorldY(v: Readonly<Vec3Like>, angleRad: number, out: Vec3Li
   out.y = v.y;
   out.z = x * s + z * c;
   return out;
+}
+
+/** Nosewheel steering authority (0..1 of the full angle) at a ground speed, m/s. */
+export function nwsAuthority(groundSpeedMps: number): number {
+  const t = clamp((groundSpeedMps - NWS_FULL_AUTHORITY_BELOW_MPS) / (NWS_MIN_AUTHORITY_ABOVE_MPS - NWS_FULL_AUTHORITY_BELOW_MPS), 0, 1);
+  return 1 - t * (1 - NWS_MIN_AUTHORITY_FRAC);
 }
 
 /**
@@ -100,7 +110,7 @@ export function computeGearLeg(
   Vec3.set(scratchRollDirWorld, scratchFwdWorld.x, 0, scratchFwdWorld.z);
   Vec3.normalize(scratchRollDirWorld, scratchRollDirWorld);
   if (legDef.steerable && inputs.nwsEnabled) {
-    const steerRad = inputs.yaw * legDef.maxSteerAngleRad;
+    const steerRad = inputs.yaw * legDef.maxSteerAngleRad * nwsAuthority(Math.hypot(scratchPointVelWorld.x, scratchPointVelWorld.z));
     rotateAroundWorldY(scratchRollDirWorld, steerRad, scratchRollDirWorld);
   }
   scratchLateralDirWorld.x = scratchRollDirWorld.z;
@@ -113,7 +123,7 @@ export function computeGearLeg(
 
   const longCoef = legDef.brakeCapable ? lerp(ROLLING_RESISTANCE_COEFFICIENT, legDef.kineticFrictionCoefficient, inputs.brakes) : ROLLING_RESISTANCE_COEFFICIENT;
   const Flong = Math.abs(vRoll) < 1e-4 ? 0 : -sign(vRoll) * longCoef * normalForceMag;
-  const latLimit = legDef.kineticFrictionCoefficient * normalForceMag;
+  const latLimit = TYRE_LATERAL_FRICTION_COEFFICIENT * normalForceMag;
   const Flat = -clamp(vLat * GEAR_LATERAL_STIFFNESS_N_PER_MPS, -latLimit, latLimit);
 
   Vec3.scale(scratchRollDirWorld, Flong, scratchFrictionForceWorld);

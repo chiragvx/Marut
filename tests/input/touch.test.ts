@@ -21,18 +21,18 @@ describe('TouchReader — icons and visibility (previously untested file)', () =
     reader.attach(container);
 
     const buttons = container.querySelectorAll('[aria-label]');
-    // 11 buttons (Trigger, Launch, CycleWeapon, CycleTarget, GearToggle, AirbrakeToggle,
-    // Afterburner, NwsToggle, Brakes, CameraCycle, MenuToggle) + yawBar + throttle = 13 labeled.
-    expect(buttons.length).toBe(13);
+    // 10 buttons (Trigger, Launch, CycleWeapon, CycleTarget, GearToggle, AirbrakeToggle,
+    // Afterburner, Brakes, CameraCycle, MenuToggle) + yawBar + throttle = 12 labeled.
+    expect(buttons.length).toBe(12);
     for (const el of Object.values(TouchZoneId)) {
       if (el === TouchZoneId.Stick) continue; // the stick has no fixed rect/icon, it floats
       const labeled = container.querySelector(`[aria-label="${el}"]`);
       expect(labeled, `missing labeled element for zone "${el}"`).not.toBeNull();
     }
-    // Only the 11 real buttons (not yawBar/throttle, which are axes with no button icon) get an SVG.
+    // Only the 10 real buttons (not yawBar/throttle, which are axes with no button icon) get an SVG.
     const buttonZones = [
       TouchZoneId.Trigger, TouchZoneId.Launch, TouchZoneId.CycleWeapon, TouchZoneId.CycleTarget,
-      TouchZoneId.GearToggle, TouchZoneId.AirbrakeToggle, TouchZoneId.Afterburner, TouchZoneId.NwsToggle,
+      TouchZoneId.GearToggle, TouchZoneId.AirbrakeToggle, TouchZoneId.Afterburner,
       TouchZoneId.Brakes, TouchZoneId.CameraCycle, TouchZoneId.MenuToggle,
     ];
     for (const zone of buttonZones) {
@@ -52,7 +52,7 @@ describe('TouchReader — icons and visibility (previously untested file)', () =
 
     const zones = [
       TouchZoneId.Trigger, TouchZoneId.Launch, TouchZoneId.CycleWeapon, TouchZoneId.CycleTarget,
-      TouchZoneId.GearToggle, TouchZoneId.AirbrakeToggle, TouchZoneId.Afterburner, TouchZoneId.NwsToggle,
+      TouchZoneId.GearToggle, TouchZoneId.AirbrakeToggle, TouchZoneId.Afterburner,
       TouchZoneId.Brakes, TouchZoneId.CameraCycle, TouchZoneId.MenuToggle,
     ];
     const innerMarkups = zones.map((z) => container.querySelector(`[aria-label="${z}"] svg`)!.innerHTML);

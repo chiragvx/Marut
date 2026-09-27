@@ -391,7 +391,7 @@ function controlGroups(): ControlGroup[] {
         { keys: [L(a.pitch.positive)], label: 'Nose up' },
         { keys: [L(a.pitch.negative)], label: 'Nose down' },
         { keys: [L(a.roll.negative), L(a.roll.positive)], label: 'Roll left / right' },
-        { keys: [L(a.yaw.negative), L(a.yaw.positive)], label: 'Rudder left / right' },
+        { keys: [L(a.yaw.negative), L(a.yaw.positive)], label: 'Rudder / steer left, right' },
         { keys: [L(a.throttle.positive)], label: 'Throttle up' },
         { keys: [L(a.throttle.negative)], label: 'Throttle down' },
         { keys: [L(b.afterburner)], label: 'Afterburner (hold)' },
@@ -413,7 +413,6 @@ function controlGroups(): ControlGroup[] {
       rows: [
         { keys: [L(b.gearToggle)], label: 'Landing gear' },
         { keys: [L(b.airbrakeToggle)], label: 'Airbrake and wheel brakes' },
-        { keys: [L(b.nwsToggle)], label: 'Nosewheel steering' },
         { keys: [L(b.jettisonTanks)], label: 'Drop tanks' },
         { keys: [L(b.service)], label: 'Refuel and rearm (stopped on a stand)' },
         { keys: [L(m.taxiGuide)], label: 'Taxi guidance' },

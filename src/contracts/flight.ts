@@ -192,7 +192,24 @@ export const ROLLING_RESISTANCE_COEFFICIENT = 0.02;
 /** Multiplier applied to GearDefinition's spring rate for compression beyond maxCompressionM (hard-stop stiffening), preventing ground penetration without a force discontinuity. */
 export const GEAR_HARD_STOP_STIFFNESS_MULTIPLIER = 20;
 
-/** Lateral (cornering) stiffness gain, N per (m/s) of lateral slip velocity, used by the gear friction model before saturating at the leg's kinetic-friction limit. */
+/**
+ * Tyre side-force limit as a fraction of the leg's normal force (dry runway, typical aircraft tyre
+ * ~0.7-0.8). Separate from GearDefinition.kineticFrictionCoefficient, which models average
+ * anti-skid braking (0.32 on the Tejas mains) and used to cap side grip too, so the aircraft slid
+ * sideways in any turn.
+ */
+export const TYRE_LATERAL_FRICTION_COEFFICIENT = 0.75;
+
+/**
+ * Nosewheel steering authority by ground speed: full GearDefinition.maxSteerAngleRad below the
+ * first speed, fading linearly to the fraction at the second (a high-speed steering gain, as on
+ * real aircraft), so a full rudder input at take-off speed is a correction, not a swerve.
+ */
+export const NWS_FULL_AUTHORITY_BELOW_MPS = 8;
+export const NWS_MIN_AUTHORITY_ABOVE_MPS = 45;
+export const NWS_MIN_AUTHORITY_FRAC = 0.2;
+
+/** Lateral (cornering) stiffness gain, N per (m/s) of lateral slip velocity, used by the gear friction model before saturating at the leg's side-grip limit. */
 export const GEAR_LATERAL_STIFFNESS_N_PER_MPS = 50000;
 
 /**
@@ -218,3 +235,15 @@ export const GEAR_LATERAL_STIFFNESS_N_PER_MPS = 50000;
  * pull on a fast jet without being violent.
  */
 export const GROUND_LAW_MAX_ROTATION_RATE_RAD_S = 0.174533;
+
+/**
+ * Ground law, stick released: after a nose-high touchdown the nose is lowered onto the nose wheel
+ * at up to this rate (4 deg/s), fading out between GROUND_DEROTATION_END_RAD + FADE and END of
+ * pitch attitude, and only while the stick is within GROUND_DEROTATION_STICK_DEADBAND of centre.
+ * Without it the rate-command ground law held whatever attitude the aircraft touched down at, and
+ * the unstable airframe's pitch-up moment could lift the nose on to the tip-back angle.
+ */
+export const GROUND_DEROTATION_RATE_RAD_S = 0.0698;
+export const GROUND_DEROTATION_END_RAD = 0.0175;
+export const GROUND_DEROTATION_FADE_RAD = 0.0524;
+export const GROUND_DEROTATION_STICK_DEADBAND = 0.3;

@@ -112,6 +112,7 @@ export const createSettingsScreen: CreateSettingsScreen = (container, initial, c
   const bindingsList = h('div', { className: 'tj-settings-bindings' });
   for (const action of Object.values(BindableActionEnum)) {
     if (action === 'pauseToggle') continue; // Esc always pauses
+    if (action === 'noseWheelSteer') continue; // steering is always on
     const binding = findBinding(current.keyBindings, action);
     const codeLabel = h('span', { className: 'tj-settings-binding-code tj-key', text: keyLabel(binding?.code) });
     const rebindBtn = button('Rebind', () => startRebind(action), 'default', { 'data-action': 'rebind', 'data-binding-action': action });

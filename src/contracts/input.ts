@@ -273,7 +273,6 @@ export const TouchZoneId = {
   AirbrakeToggle: 'airbrakeToggle',
   Afterburner: 'afterburner',
   Brakes: 'brakes',
-  NwsToggle: 'nwsToggle',
   CameraCycle: 'cameraCycle',
   MenuToggle: 'menuToggle',
 } as const;

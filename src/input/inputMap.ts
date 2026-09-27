@@ -57,7 +57,8 @@ export const DEFAULT_INPUT_MAP_DATA: InputMapData = {
       // and the wheel brakes follow the airbrake state (playerPilot.ts), so B on landing rollout
       // extends the airbrake and brakes; B again releases both. Holding B also brakes directly.
       brakes: 'KeyB',
-      nwsToggle: 'KeyN',
+      // Nosewheel steering is always on; the toggle is kept unbound for older saved maps.
+      nwsToggle: null,
       jettisonTanks: 'KeyJ',
       service: 'KeyR',
       radarMode: 'KeyM',
@@ -98,7 +99,7 @@ export const DEFAULT_INPUT_MAP_DATA: InputMapData = {
       afterburner: { buttonIndex: 5 },
       cycleWeapon: { buttonIndex: 8 },
       cycleTarget: { buttonIndex: 12 },
-      nwsToggle: { buttonIndex: 10 },
+      nwsToggle: null,
       jettisonTanks: { buttonIndex: 13 },
       service: { buttonIndex: 14 },
       radarMode: null,

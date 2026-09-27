@@ -32,6 +32,17 @@ import { DEFAULT_INPUT_MAP_DATA, loadInputMap, saveInputMapData, createInputMap 
 
 export const KEYBOARD_AXIS_RAMP_RATE_PER_SEC = 2.5;
 export const KEYBOARD_AXIS_CENTER_RATE_PER_SEC = 4.0;
+/** Roll keys ramp a little slower than the other axes: 0.6 s to full deflection. */
+export const KEYBOARD_ROLL_RAMP_RATE_PER_SEC = 1.7;
+
+/**
+ * Keyboard roll and rudder response: 35% linear + 65% cubic. A key held for 0.2 s gives about a
+ * fifth of full roll rate instead of a third; full deflection is unchanged.
+ */
+export function keyboardResponse(x: number): number {
+  const a = Math.abs(x);
+  return Math.sign(x) * (0.35 * a + 0.65 * a * a * a);
+}
 export const KEYBOARD_THROTTLE_RAMP_RATE_PER_SEC = 0.5;
 export const INPUT_MAX_DT_SEC = 0.25;
 export const REBIND_AXIS_THRESHOLD = 0.5;
@@ -122,12 +133,10 @@ export function createPlayerInputSystem(config: PlayerInputConfig): PlayerInputS
   // player who never touches the gear key ends up in the safe state, not the unsafe one.
   let gearDownState = true;
   let airbrakeState = false;
-  let nwsState = false;
   let alphaLimiterDisabledState = false;
 
   const gearEdge = createEdgeDetector();
   const airbrakeEdge = createEdgeDetector();
-  const nwsEdge = createEdgeDetector();
   const cameraCycleEdge = createEdgeDetector();
   const menuToggleEdge = createEdgeDetector();
   const taxiGuideEdge = createEdgeDetector();
@@ -342,7 +351,7 @@ export function createPlayerInputSystem(config: PlayerInputConfig): PlayerInputS
           rollAxis,
           rawKeyboardHeldFor(axes.roll.negative),
           rawKeyboardHeldFor(axes.roll.positive),
-          KEYBOARD_AXIS_RAMP_RATE_PER_SEC,
+          KEYBOARD_ROLL_RAMP_RATE_PER_SEC,
           KEYBOARD_AXIS_CENTER_RATE_PER_SEC,
           -1,
           1,
@@ -373,8 +382,10 @@ export function createPlayerInputSystem(config: PlayerInputConfig): PlayerInputS
           dtSec
         );
         pitch = pitchAxis;
-        roll = rollAxis;
-        yaw = yawAxis;
+        // Softer at small deflections, so a tap is a gentle roll or a small steering correction;
+        // full deflection still gives full authority.
+        roll = keyboardResponse(rollAxis);
+        yaw = keyboardResponse(yawAxis);
 
         if (d.mouse.enabled && mouseReader.isPointerLocked()) {
           mouseStickX = moveTowardZero(mouseStickX, d.mouse.recenterRatePerSec * dtSec);
@@ -434,8 +445,6 @@ export function createPlayerInputSystem(config: PlayerInputConfig): PlayerInputS
       if (gearEdge.risingEdge(rawGear)) gearDownState = !gearDownState;
       const rawAirbrake = rawButtonHeld(LogicalButton.AirbrakeToggle, scheme);
       if (airbrakeEdge.risingEdge(rawAirbrake)) airbrakeState = !airbrakeState;
-      const rawNws = rawButtonHeld(LogicalButton.NwsToggle, scheme);
-      if (nwsEdge.risingEdge(rawNws)) nwsState = !nwsState;
 
       // Meta actions (not in PilotInputs).
       const rawCameraCycle = rawButtonHeld(MetaAction.CameraCycle, scheme);
@@ -496,7 +505,8 @@ export function createPlayerInputSystem(config: PlayerInputConfig): PlayerInputS
       out.launch = rawLaunch;
       out.cycleWeapon = rawCycleWeapon;
       out.cycleTarget = rawCycleTarget;
-      out.nwsEnabled = nwsState;
+      // Nosewheel steering is always available (its strength fades with speed: src/physics/landingGear.ts).
+      out.nwsEnabled = true;
       out.alphaLimiterDisabled = alphaLimiterDisabledState;
     },
 
