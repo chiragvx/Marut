@@ -153,6 +153,16 @@ export const CHASE_CAM_HEIGHT_M = 4;
 export const CHASE_CAM_SMOOTHING_TAU_SEC = 0.15;
 export const CHASE_VERTICAL_FOV_DEG = 60;
 
+/**
+ * Chase-camera free look: the player drags the view around the aircraft (orbitCamera). After
+ * FREE_LOOK_RETURN_DELAY_SEC without looking, the view eases back behind the aircraft with this
+ * time constant. Distance (scroll to zoom) stays within the min/max.
+ */
+export const FREE_LOOK_RETURN_DELAY_SEC = 6;
+export const FREE_LOOK_RETURN_TAU_SEC = 0.7;
+export const FREE_LOOK_MIN_DISTANCE_M = 8;
+export const FREE_LOOK_MAX_DISTANCE_M = 80;
+
 export const EXTERNAL_ORBIT_DEFAULT_RADIUS_M = 25;
 export const EXTERNAL_ORBIT_MIN_RADIUS_M = 8;
 export const EXTERNAL_ORBIT_MAX_RADIUS_M = 150;
@@ -367,7 +377,11 @@ export interface SceneRenderer {
   resize(widthPx: number, heightPx: number, devicePixelRatio: number): void;
   setQualityTier(tier: QualityTier): void;
   setCameraMode(mode: CameraMode): void;
-  /** Only meaningful in CameraMode.External; deltas are radians/radians/metres applied to the orbit state. */
+  /**
+   * Looks around: in CameraMode.Chase, free look around the aircraft (it eases back behind after
+   * FREE_LOOK_RETURN_DELAY_SEC); in CameraMode.External, the orbit. Deltas are radians (yaw right,
+   * pitch up) and metres (further away). No effect in the other modes.
+   */
   orbitCamera(deltaYawRad: number, deltaPitchRad: number, deltaZoomM: number): void;
   /**
    * Registers the single wireframe model used to draw every EntityKind

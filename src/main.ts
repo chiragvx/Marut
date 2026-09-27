@@ -433,6 +433,8 @@ function controlGroups(): ControlGroup[] {
       title: 'View and menus',
       rows: [
         { keys: [L(m.cameraCycle)], label: 'Change camera' },
+        { keys: ['Drag', 'Scroll'], label: 'Look around, zoom (the view returns behind the jet after 6 s)' },
+        { keys: ['←', '↑', '↓', '→'], label: 'Look around' },
         { keys: ['Esc'], label: 'Pause' },
         { keys: ['F1'], label: 'This screen (in flight)' },
       ],
@@ -1244,6 +1246,7 @@ function frame(nowMs: number): void {
     simWorker.postMessage({ type: 'input', entityId: playerEntityId, inputs: pilotInputsScratch } as const);
   }
   tickPendingStart(nowMs);
+  tickLookKeys(dtSec);
   flightOverlay?.setVisible(appState === 'gameplay');
   if (renderer && hud) {
     const camera: CameraState = renderer.renderFrame(nowMs);
@@ -1282,6 +1285,76 @@ function wireGlobalListeners(): void {
 
 void orientationPrompt;
 
+// -----------------------------------------------------------------------------
+// Free look (chase and external views): drag with the mouse (right button, or left when not
+// flying with the mouse), scroll to zoom, or hold the arrow keys. The chase view eases back
+// behind the aircraft a few seconds after you stop (src/render/cameraModes.ts).
+// -----------------------------------------------------------------------------
+
+const LOOK_RAD_PER_PX = 0.006;
+const LOOK_KEY_RAD_PER_SEC = 1.6;
+const ZOOM_M_PER_WHEEL_UNIT = 0.02;
+const lookKeys = new Set<string>();
+
+/** True if the key map uses this key for anything (then it is not a look key). */
+function isBoundKey(code: string): boolean {
+  if (!inputSystem) return false;
+  const k = inputSystem.inputMap.data.keyboard;
+  const axes = Object.values(k.axes).flatMap((a) => [a.negative, a.positive]);
+  return [...axes, ...Object.values(k.buttons), ...Object.values(k.meta)].includes(code);
+}
+
+function wireFreeLook(): void {
+  let dragging = false;
+  window.addEventListener('pointerdown', (e: PointerEvent) => {
+    if (appState !== 'gameplay' || e.pointerType === 'touch' || e.target !== renderCanvas) return;
+    const mouseFlying = inputSystem?.inputMap.data.mouse.enabled ?? false;
+    if (e.button === 2 || (e.button === 0 && !mouseFlying)) dragging = true;
+  });
+  window.addEventListener('pointermove', (e: PointerEvent) => {
+    if (!dragging) return;
+    if (appState !== 'gameplay' || (e.buttons & 3) === 0) {
+      dragging = false;
+      return;
+    }
+    // Drag right: the view turns right (the camera swings round the aircraft's left); drag down: look down on it.
+    renderer.orbitCamera(-e.movementX * LOOK_RAD_PER_PX, e.movementY * LOOK_RAD_PER_PX, 0);
+  });
+  window.addEventListener('pointerup', () => (dragging = false));
+  window.addEventListener('blur', () => {
+    dragging = false;
+    lookKeys.clear();
+  });
+  window.addEventListener('contextmenu', (e) => {
+    if (appState === 'gameplay') e.preventDefault();
+  });
+  window.addEventListener(
+    'wheel',
+    (e: WheelEvent) => {
+      if (appState !== 'gameplay') return;
+      renderer.orbitCamera(0, 0, e.deltaY * ZOOM_M_PER_WHEEL_UNIT);
+    },
+    { passive: true }
+  );
+  window.addEventListener('keydown', (e: KeyboardEvent) => {
+    if (e.code.startsWith('Arrow') && appState === 'gameplay' && !isBoundKey(e.code)) {
+      lookKeys.add(e.code);
+      e.preventDefault();
+    }
+  });
+  window.addEventListener('keyup', (e: KeyboardEvent) => lookKeys.delete(e.code));
+}
+
+/** Arrow keys held: keep looking round. */
+function tickLookKeys(dtSec: number): void {
+  if (lookKeys.size === 0 || appState !== 'gameplay' || !renderer) return;
+  const r = LOOK_KEY_RAD_PER_SEC * dtSec;
+  const yaw = (lookKeys.has('ArrowLeft') ? r : 0) - (lookKeys.has('ArrowRight') ? r : 0);
+  const pitch = (lookKeys.has('ArrowUp') ? -r : 0) + (lookKeys.has('ArrowDown') ? r : 0);
+  if (yaw !== 0 || pitch !== 0) renderer.orbitCamera(yaw, pitch, 0);
+}
+
+wireFreeLook();
 wireGlobalListeners();
 requestAnimationFrame(frame);
 boot().catch((err) => {

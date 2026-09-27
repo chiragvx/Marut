@@ -13,6 +13,10 @@ import {
   CHASE_CAM_HEIGHT_M,
   CHASE_CAM_SMOOTHING_TAU_SEC,
   CameraMode,
+  FREE_LOOK_MAX_DISTANCE_M,
+  FREE_LOOK_MIN_DISTANCE_M,
+  FREE_LOOK_RETURN_DELAY_SEC,
+  FREE_LOOK_RETURN_TAU_SEC,
   COCKPIT_EYE_OFFSET_BODY_M,
   EXTERNAL_ORBIT_DEFAULT_PITCH_RAD,
   EXTERNAL_ORBIT_DEFAULT_RADIUS_M,
@@ -77,10 +81,30 @@ export function computeCockpitPose(playerPos: Readonly<Vec3Like>, playerRot: Rea
 export interface ChaseCameraState {
   smoothedPos: Vec3Like;
   initialized: boolean;
+  /** Free look, added to the default view: yaw (rad, + = view swings to the aircraft's right), elevation (rad, + = from higher up), extra distance (m). */
+  lookYawRad: number;
+  lookPitchRad: number;
+  lookZoomM: number;
+  /** Seconds since the player last looked around. */
+  lookIdleSec: number;
 }
 
 export function createChaseCameraState(): ChaseCameraState {
-  return { smoothedPos: { x: 0, y: 0, z: 0 }, initialized: false };
+  return { smoothedPos: { x: 0, y: 0, z: 0 }, initialized: false, lookYawRad: 0, lookPitchRad: 0, lookZoomM: 0, lookIdleSec: Infinity };
+}
+
+/** Default chase offset as a distance and an elevation angle (15 m back, 4 m up). */
+const CHASE_RANGE_M = Math.hypot(CHASE_CAM_DISTANCE_M, CHASE_CAM_HEIGHT_M);
+const CHASE_ELEVATION_RAD = Math.atan2(CHASE_CAM_HEIGHT_M, CHASE_CAM_DISTANCE_M);
+/** Free look never goes past looking straight down or up at the aircraft. */
+const CHASE_LOOK_ELEVATION_LIMIT_RAD = 1.45;
+
+/** Applies a free-look input (drag/scroll) and restarts the return-to-behind delay. */
+export function chaseLook(state: ChaseCameraState, deltaYawRad: number, deltaPitchRad: number, deltaZoomM: number): void {
+  state.lookYawRad = Math.atan2(Math.sin(state.lookYawRad + deltaYawRad), Math.cos(state.lookYawRad + deltaYawRad));
+  state.lookPitchRad = clamp(state.lookPitchRad + deltaPitchRad, -CHASE_LOOK_ELEVATION_LIMIT_RAD - CHASE_ELEVATION_RAD, CHASE_LOOK_ELEVATION_LIMIT_RAD - CHASE_ELEVATION_RAD);
+  state.lookZoomM = clamp(state.lookZoomM + deltaZoomM, FREE_LOOK_MIN_DISTANCE_M - CHASE_RANGE_M, FREE_LOOK_MAX_DISTANCE_M - CHASE_RANGE_M);
+  state.lookIdleSec = 0;
 }
 
 const scratchChaseForward: Vec3Like = { x: 0, y: 0, z: 0 };
@@ -92,10 +116,40 @@ export function computeChasePose(
   frameDtSec: number,
   out: CameraPose
 ): CameraPose {
+  // After a while without looking around, ease the view back behind the aircraft.
+  state.lookIdleSec += frameDtSec;
+  if (state.lookIdleSec > FREE_LOOK_RETURN_DELAY_SEC) {
+    state.lookYawRad = expSmooth(state.lookYawRad, 0, FREE_LOOK_RETURN_TAU_SEC, frameDtSec);
+    state.lookPitchRad = expSmooth(state.lookPitchRad, 0, FREE_LOOK_RETURN_TAU_SEC, frameDtSec);
+    state.lookZoomM = expSmooth(state.lookZoomM, 0, FREE_LOOK_RETURN_TAU_SEC, frameDtSec);
+  }
+
   rotateVecByQuat(playerRot, BODY_FORWARD, scratchChaseForward);
-  const desiredX = playerPos.x - scratchChaseForward.x * CHASE_CAM_DISTANCE_M;
-  const desiredY = playerPos.y - scratchChaseForward.y * CHASE_CAM_DISTANCE_M + CHASE_CAM_HEIGHT_M;
-  const desiredZ = playerPos.z - scratchChaseForward.z * CHASE_CAM_DISTANCE_M;
+  // Default: behind along the nose, a little above. As a direction and elevation from the
+  // aircraft, then turned by the free look.
+  const fx = scratchChaseForward.x;
+  const fy = scratchChaseForward.y;
+  const fz = scratchChaseForward.z;
+  const ox = -fx * CHASE_CAM_DISTANCE_M;
+  const oy = -fy * CHASE_CAM_DISTANCE_M + CHASE_CAM_HEIGHT_M;
+  const oz = -fz * CHASE_CAM_DISTANCE_M;
+  let desiredX: number;
+  let desiredY: number;
+  let desiredZ: number;
+  if (state.lookYawRad === 0 && state.lookPitchRad === 0 && state.lookZoomM === 0) {
+    desiredX = playerPos.x + ox;
+    desiredY = playerPos.y + oy;
+    desiredZ = playerPos.z + oz;
+  } else {
+    const r0 = Math.hypot(ox, oy, oz);
+    const azimuth = Math.atan2(ox, oz) + state.lookYawRad;
+    const elevation = clamp(Math.asin(clamp(oy / r0, -1, 1)) + state.lookPitchRad, -CHASE_LOOK_ELEVATION_LIMIT_RAD, CHASE_LOOK_ELEVATION_LIMIT_RAD);
+    const r = r0 + state.lookZoomM;
+    const h = r * Math.cos(elevation);
+    desiredX = playerPos.x + h * Math.sin(azimuth);
+    desiredY = playerPos.y + r * Math.sin(elevation);
+    desiredZ = playerPos.z + h * Math.cos(azimuth);
+  }
 
   if (!state.initialized) {
     state.smoothedPos.x = desiredX;

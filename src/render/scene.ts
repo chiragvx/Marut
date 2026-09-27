@@ -27,7 +27,7 @@ import {
 } from '../contracts/render';
 
 import { createAirportLinesSystem } from './airportLines';
-import { computeCameraPose, createCameraModeState, createCameraPose, orbitCamera as applyOrbitDelta } from './cameraModes';
+import { chaseLook, computeCameraPose, createCameraModeState, createCameraPose, orbitCamera as applyOrbitDelta } from './cameraModes';
 import { createEffectsSystem } from './effects';
 import { createFloatingOriginState, updateFloatingOrigin } from './floatingOrigin';
 import {
@@ -362,7 +362,8 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
     },
 
     orbitCamera(deltaYawRad, deltaPitchRad, deltaZoomM) {
-      applyOrbitDelta(cameraModeState.external, deltaYawRad, deltaPitchRad, deltaZoomM);
+      if (mode === CameraMode.Chase) chaseLook(cameraModeState.chase, deltaYawRad, deltaPitchRad, deltaZoomM);
+      else if (mode === CameraMode.External) applyOrbitDelta(cameraModeState.external, deltaYawRad, deltaPitchRad, deltaZoomM);
     },
 
     registerAircraftModel() {

@@ -20,7 +20,7 @@ import type {
   GamepadButtonBinding,
   StorageLike,
 } from '../contracts/input';
-import { InputControlScheme, LogicalAxis, LogicalButton, MetaAction, RebindDeviceKind } from '../contracts/input';
+import { InputControlScheme, LogicalAxis, LogicalButton, MetaAction, MouseButtonId, RebindDeviceKind } from '../contracts/input';
 
 import { applyLinearDeadzone, applyRadialDeadzone, shapeCurve, moveTowardZero, updateKeyAxis, createEdgeDetector } from './deadzones';
 import { createKeyboardReader } from './keyboard';
@@ -391,6 +391,11 @@ export function createPlayerInputSystem(config: PlayerInputConfig): PlayerInputS
           mouseStickX = moveTowardZero(mouseStickX, d.mouse.recenterRatePerSec * dtSec);
           mouseStickY = moveTowardZero(mouseStickY, d.mouse.recenterRatePerSec * dtSec);
           mouseReader.consumeDelta(mouseDeltaScratch);
+          // Right button held: the mouse is looking around (free look), not flying.
+          if (mouseReader.isButtonDown(MouseButtonId.Right)) {
+            mouseDeltaScratch.dxPx = 0;
+            mouseDeltaScratch.dyPx = 0;
+          }
           mouseStickX = clamp(mouseStickX + mouseDeltaScratch.dxPx * d.mouse.sensitivityPerPx, -1, 1);
           mouseStickY = clamp(mouseStickY + mouseDeltaScratch.dyPx * d.mouse.sensitivityPerPx, -1, 1);
           roll = shapeCurve(mouseStickX, d.mouse.curveExponent);
