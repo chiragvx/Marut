@@ -1448,6 +1448,10 @@ function computeStallSpeedMps<TDef extends AircraftDefLike>(def: TDef, massKg: n
   return Math.sqrt((2 * massKg * GRAVITY_MPS2) / (RHO0_KG_M3 * def.wingAreaM2 * clMax));
 }
 
+/** Take-off rotation: from ~260 km/h (the Tejas's published rotation speed range), 70% stick back. */
+const TAKEOFF_ROTATE_SPEED_MPS = 72;
+const TAKEOFF_ROTATE_STICK = 0.7;
+
 function computeGroundRollM<TDef extends AircraftDefLike>(
   step: StepAircraftLike<TDef>,
   def: TDef,
@@ -1507,6 +1511,10 @@ function computeGroundRollM<TDef extends AircraftDefLike>(
   let distanceM = 0;
   const maxSteps = Math.round(GROUND_ROLL_MAX_SIM_SEC / SIM_DT_SEC);
   for (let i = 0; i < maxSteps; i++) {
+    // Take-off: rotate (stick back) from the rotation speed, as a pilot does. With the main gear
+    // behind the centre of gravity the nose wheel carries weight, so the aircraft no longer
+    // lifts off by itself with the stick centred.
+    if (mode === 'takeoff') inputs.pitch = state.vel.x >= TAKEOFF_ROTATE_SPEED_MPS ? TAKEOFF_ROTATE_STICK : 0;
     step(state, damage, inputs, env, def, SIM_DT_SEC, out);
     distanceM += SIM_DT_SEC * state.vel.x;
     const tmp = state;

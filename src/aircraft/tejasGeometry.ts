@@ -128,6 +128,11 @@ export const sensors: AircraftSensors = {
 export const signature: AircraftSignature = { rcsNoseOnM2: 2.0, rcsBroadsideM2: 6.0, hitEllipsoidBodyM: { x: 6.6, y: 2.2, z: 4.1 } };
 
 // --- Landing gear, three legs (section 5.4). ---
+// The main legs sit 0.6 m behind the centre of gravity (cgOffsetBodyM.x = -0.15), 1.1 m below it: a
+// tip-back angle of ~27 deg, so the aircraft rests on its nose wheel (~12% of its weight) and can
+// land nose-high without sitting back on its tail. (They were 0.05 m behind it, which put the
+// wheels AHEAD of the centre of gravity at any landing attitude over ~3 deg: every nose-high
+// touchdown tipped over backwards, and the nearly unloaded nose wheel could barely steer.)
 export const gear: readonly GearDefinition[] = [
   {
     id: 'nose',
@@ -142,7 +147,7 @@ export const gear: readonly GearDefinition[] = [
   },
   {
     id: 'mainLeft',
-    posBodyM: { x: -0.2, y: -1.1, z: -1.1 },
+    posBodyM: { x: -0.75, y: -1.1, z: -1.1 },
     maxCompressionM: 0.35,
     springNPerM: 450000,
     damperNPerMPerS: 35000,
@@ -169,7 +174,7 @@ export const gear: readonly GearDefinition[] = [
   },
   {
     id: 'mainRight',
-    posBodyM: { x: -0.2, y: -1.1, z: 1.1 },
+    posBodyM: { x: -0.75, y: -1.1, z: 1.1 },
     maxCompressionM: 0.35,
     springNPerM: 450000,
     damperNPerMPerS: 35000,

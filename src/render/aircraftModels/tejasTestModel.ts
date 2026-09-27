@@ -380,15 +380,17 @@ function buildNoseGear(): THREE.BufferGeometry {
   ]);
 }
 
-const MAIN_PIVOT_R: V3 = [-0.82, 0.28, 0.9];
+/** Main legs' station (layout x): matched to src/aircraft's main gear, 0.6 m behind the centre of gravity. */
+const MAIN_X = -1.45;
+const MAIN_PIVOT_R: V3 = [MAIN_X + 0.08, 0.28, 0.9];
 function buildMainGearRight(): THREE.BufferGeometry {
-  const axle: V3 = [-0.9, WHEEL_BOTTOM_Y + MAIN_WHEEL_R, 1.12];
+  const axle: V3 = [MAIN_X, WHEEL_BOTTOM_Y + MAIN_WHEEL_R, 1.12];
   return merge([
-    cylinder(MAIN_PIVOT_R, [-0.87, -0.5, 1.0], 0.07, PART.gear),
-    cylinder([-0.87, -0.5, 1.0], [-0.9, axle[1], 1.0], 0.055, PART.metal),
-    cylinder([-0.9, axle[1], 0.98], [-0.9, axle[1], 1.03], 0.06, PART.gear),
-    // Drag brace from the leg to the wing root.
-    cylinder([-0.86, -0.25, 0.98], [-0.2, 0.26, 0.85], 0.03, PART.gear, 8),
+    cylinder(MAIN_PIVOT_R, [MAIN_X + 0.03, -0.5, 1.0], 0.07, PART.gear),
+    cylinder([MAIN_X + 0.03, -0.5, 1.0], [MAIN_X, axle[1], 1.0], 0.055, PART.metal),
+    cylinder([MAIN_X, axle[1], 0.98], [MAIN_X, axle[1], 1.03], 0.06, PART.gear),
+    // Drag brace from the leg forward to the wing root.
+    cylinder([MAIN_X + 0.04, -0.25, 0.98], [MAIN_X + 0.7, 0.26, 0.85], 0.03, PART.gear, 8),
     wheel(axle, MAIN_WHEEL_R, 0.09),
   ]);
 }
