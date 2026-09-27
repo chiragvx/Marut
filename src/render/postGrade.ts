@@ -64,7 +64,10 @@ const GRADE_GLSL = /* glsl */ `
     float haze = smoothstep(0.45, 0.7, l) * (1.0 - smoothstep(0.05, 0.18, sat0));
     c = mix(c, c * vec3(0.95, 0.97, 1.02), haze * 0.5);
     l = gLuma(c);
-    float s = l * l * (3.0 - 2.0 * l);
+    // The S-curve covers 0..1 and runs straight on above it (the cubic alone turns negative past
+    // ~1.5, which drew bright lamps, e.g. the PAPI, as black dots).
+    float lc = min(l, 1.0);
+    float s = lc * lc * (3.0 - 2.0 * lc) + max(l - 1.0, 0.0);
     float curved = mix(l, s, 0.28);
     curved = curved / (1.0 + max(curved - 0.85, 0.0) * 0.9);
     c *= curved / max(l, 1e-4);
