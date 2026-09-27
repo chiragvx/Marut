@@ -19,7 +19,7 @@ describe('cameraModes', () => {
   });
 });
 
-import { chaseLook, computeChasePose, createCameraPose, createChaseCameraState } from '../../src/render/cameraModes';
+import { chaseLook, computeChasePose, createChaseCameraState } from '../../src/render/cameraModes';
 import { FREE_LOOK_MAX_DISTANCE_M, FREE_LOOK_RETURN_DELAY_SEC } from '../../src/contracts/render';
 
 describe('chase free look', () => {
@@ -59,5 +59,23 @@ describe('chase free look', () => {
     const back = settle(s, 6);
     expect(back.pos.x).toBeCloseTo(-15, 0);
     expect(back.pos.y).toBeCloseTo(1004, 0);
+  });
+});
+
+describe('chase camera at speed', () => {
+  it('keeps its distance and goes where you look however fast the aircraft flies', () => {
+    const s = createChaseCameraState();
+    const out = createCameraPose();
+    const rot = { x: 0, y: 0, z: 0, w: 1 }; // nose east
+    const pos = { x: 0, y: 1000, z: 0 };
+    let minD = Infinity;
+    for (let i = 0; i < 180; i++) {
+      pos.x += 190 / 60; // 190 m/s east
+      if (i < 60) chaseLook(s, Math.PI / 60, 0, 0); // half a turn over 1 s
+      computeChasePose(pos, rot, s, 1 / 60, out);
+      minD = Math.min(minD, Math.hypot(out.pos.x - pos.x, out.pos.y - pos.y, out.pos.z - pos.z));
+    }
+    expect(minD).toBeGreaterThan(15); // never pulled back through the aircraft
+    expect(out.pos.x - pos.x).toBeCloseTo(15, 0); // in front of it, as asked
   });
 });

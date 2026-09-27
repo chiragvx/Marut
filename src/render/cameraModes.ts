@@ -79,7 +79,15 @@ export function computeCockpitPose(playerPos: Readonly<Vec3Like>, playerRot: Rea
 // -----------------------------------------------------------------------------
 
 export interface ChaseCameraState {
-  smoothedPos: Vec3Like;
+  /**
+   * The camera's offset from the aircraft, smoothed. Smoothing the offset (not the world position)
+   * keeps the lag independent of speed: world-position smoothing trailed ~speed x tau behind (28 m
+   * at 190 m/s), which pulled the camera back through the aircraft when looking to the side or
+   * front, and made the view jump with uneven frame times.
+   */
+  smoothedOffset: Vec3Like;
+  /** The offset's length, smoothed on its own, so a swing round the aircraft follows the circle instead of cutting across it. */
+  smoothedRangeM: number;
   initialized: boolean;
   /** Free look, added to the default view: yaw (rad, + = view swings to the aircraft's right), elevation (rad, + = from higher up), extra distance (m). */
   lookYawRad: number;
@@ -90,7 +98,7 @@ export interface ChaseCameraState {
 }
 
 export function createChaseCameraState(): ChaseCameraState {
-  return { smoothedPos: { x: 0, y: 0, z: 0 }, initialized: false, lookYawRad: 0, lookPitchRad: 0, lookZoomM: 0, lookIdleSec: Infinity };
+  return { smoothedOffset: { x: 0, y: 0, z: 0 }, smoothedRangeM: 0, initialized: false, lookYawRad: 0, lookPitchRad: 0, lookZoomM: 0, lookIdleSec: Infinity };
 }
 
 /** Default chase offset as a distance and an elevation angle (15 m back, 4 m up). */
@@ -133,38 +141,50 @@ export function computeChasePose(
   const ox = -fx * CHASE_CAM_DISTANCE_M;
   const oy = -fy * CHASE_CAM_DISTANCE_M + CHASE_CAM_HEIGHT_M;
   const oz = -fz * CHASE_CAM_DISTANCE_M;
-  let desiredX: number;
-  let desiredY: number;
-  let desiredZ: number;
+  let dx: number;
+  let dy: number;
+  let dz: number;
   if (state.lookYawRad === 0 && state.lookPitchRad === 0 && state.lookZoomM === 0) {
-    desiredX = playerPos.x + ox;
-    desiredY = playerPos.y + oy;
-    desiredZ = playerPos.z + oz;
+    dx = ox;
+    dy = oy;
+    dz = oz;
   } else {
     const r0 = Math.hypot(ox, oy, oz);
     const azimuth = Math.atan2(ox, oz) + state.lookYawRad;
     const elevation = clamp(Math.asin(clamp(oy / r0, -1, 1)) + state.lookPitchRad, -CHASE_LOOK_ELEVATION_LIMIT_RAD, CHASE_LOOK_ELEVATION_LIMIT_RAD);
     const r = r0 + state.lookZoomM;
     const h = r * Math.cos(elevation);
-    desiredX = playerPos.x + h * Math.sin(azimuth);
-    desiredY = playerPos.y + r * Math.sin(elevation);
-    desiredZ = playerPos.z + h * Math.cos(azimuth);
+    dx = h * Math.sin(azimuth);
+    dy = r * Math.sin(elevation);
+    dz = h * Math.cos(azimuth);
   }
 
+  const o = state.smoothedOffset;
+  const range = Math.hypot(dx, dy, dz);
   if (!state.initialized) {
-    state.smoothedPos.x = desiredX;
-    state.smoothedPos.y = desiredY;
-    state.smoothedPos.z = desiredZ;
+    o.x = dx;
+    o.y = dy;
+    o.z = dz;
+    state.smoothedRangeM = range;
     state.initialized = true;
   } else {
-    state.smoothedPos.x = expSmooth(state.smoothedPos.x, desiredX, CHASE_CAM_SMOOTHING_TAU_SEC, frameDtSec);
-    state.smoothedPos.y = expSmooth(state.smoothedPos.y, desiredY, CHASE_CAM_SMOOTHING_TAU_SEC, frameDtSec);
-    state.smoothedPos.z = expSmooth(state.smoothedPos.z, desiredZ, CHASE_CAM_SMOOTHING_TAU_SEC, frameDtSec);
+    o.x = expSmooth(o.x, dx, CHASE_CAM_SMOOTHING_TAU_SEC, frameDtSec);
+    o.y = expSmooth(o.y, dy, CHASE_CAM_SMOOTHING_TAU_SEC, frameDtSec);
+    o.z = expSmooth(o.z, dz, CHASE_CAM_SMOOTHING_TAU_SEC, frameDtSec);
+    state.smoothedRangeM = expSmooth(state.smoothedRangeM, range, CHASE_CAM_SMOOTHING_TAU_SEC, frameDtSec);
+    // Direction from the smoothed offset, distance from the smoothed range: stays on the sphere.
+    const len = Math.hypot(o.x, o.y, o.z);
+    if (len > 0.5) {
+      const k = state.smoothedRangeM / len;
+      o.x *= k;
+      o.y *= k;
+      o.z *= k;
+    }
   }
 
-  out.pos.x = state.smoothedPos.x;
-  out.pos.y = state.smoothedPos.y;
-  out.pos.z = state.smoothedPos.z;
+  out.pos.x = playerPos.x + o.x;
+  out.pos.y = playerPos.y + o.y;
+  out.pos.z = playerPos.z + o.z;
   out.lookAt.x = playerPos.x;
   out.lookAt.y = playerPos.y + 1;
   out.lookAt.z = playerPos.z;

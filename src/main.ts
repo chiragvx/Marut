@@ -1292,6 +1292,7 @@ void orientationPrompt;
 // -----------------------------------------------------------------------------
 
 const LOOK_RAD_PER_PX = 0.006;
+const MAX_LOOK_PX_PER_EVENT = 120;
 const LOOK_KEY_RAD_PER_SEC = 1.6;
 const ZOOM_M_PER_WHEEL_UNIT = 0.02;
 const lookKeys = new Set<string>();
@@ -1318,7 +1319,10 @@ function wireFreeLook(): void {
       return;
     }
     // Drag right: the view turns right (the camera swings round the aircraft's left); drag down: look down on it.
-    renderer.orbitCamera(-e.movementX * LOOK_RAD_PER_PX, e.movementY * LOOK_RAD_PER_PX, 0);
+    // Capped per event: browsers occasionally report a spurious huge jump in movementX/Y.
+    const mx = Math.max(-MAX_LOOK_PX_PER_EVENT, Math.min(MAX_LOOK_PX_PER_EVENT, e.movementX));
+    const my = Math.max(-MAX_LOOK_PX_PER_EVENT, Math.min(MAX_LOOK_PX_PER_EVENT, e.movementY));
+    renderer.orbitCamera(-mx * LOOK_RAD_PER_PX, my * LOOK_RAD_PER_PX, 0);
   });
   window.addEventListener('pointerup', () => (dragging = false));
   window.addEventListener('blur', () => {
