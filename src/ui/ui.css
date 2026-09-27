@@ -22,6 +22,7 @@
   --tj-focus: #0b0d0f;
   --tj-danger: #7c2b23;
   --tj-ok: #2f5f3f;
+  --tj-warn: #8a5a12;
 
   --tj-radius: 4px;
   --tj-gap: 12px;
@@ -128,6 +129,9 @@ a.tj-link { color: var(--tj-ink); }
 .tj-card-meta { font-size: var(--tj-small); color: var(--tj-muted); }
 .tj-badge { font: 500 11px/1 var(--tj-mono); text-transform: uppercase; letter-spacing: 0.06em; border: 1px solid var(--tj-line); border-radius: 999px; padding: 4px 7px; white-space: nowrap; align-self: start; }
 .tj-badge--ok { border-color: var(--tj-ok); color: var(--tj-ok); }
+.tj-badge--warn { border-color: var(--tj-warn); color: var(--tj-warn); }
+.tj-badge--inline { margin-left: 8px; vertical-align: 1px; }
+.tj-note--warn { color: var(--tj-warn); }
 
 /* ---- Form controls ---------------------------------------------------------------------- */
 

@@ -7,6 +7,7 @@ import type { WeatherMode } from '../contracts/core';
 import type { AircraftDefinition } from '../contracts/aircraft';
 import type { ScreenHandle } from '../contracts/ui';
 import type { BaseId, BaseInfo, StartMode } from '../core/missions/catalogue';
+import { UNTESTED_BADGE, UNTESTED_NOTE } from '../core/missions/catalogue';
 import { mountScreen } from './screenHandle';
 import { button, field, h, menuKeys, segmented, shell } from './kit';
 import { createLoadoutEditor, describeFit, selectionFit, selectionName, type LoadoutSelection } from './loadoutEditor';
@@ -46,9 +47,10 @@ export function createFreeFlightSetup(container: HTMLElement, opts: { bases: rea
     const card = h(
       'button',
       { className: 'tj-card', attrs: { type: 'button', role: 'radio', 'aria-checked': String(b.id === setup.baseId), 'data-base': b.id } },
-      h('span', { className: 'tj-card-title' }, h('span', { text: b.name })),
+      h('span', { className: 'tj-card-title' }, h('span', { text: b.name }), b.untested ? h('span', { className: 'tj-badge tj-badge--warn', text: UNTESTED_BADGE }) : false),
       h('span', { className: 'tj-card-meta', text: b.place }),
-      h('span', { text: b.blurb })
+      h('span', { text: b.blurb }),
+      b.untested ? h('span', { className: 'tj-note tj-note--warn', text: UNTESTED_NOTE }) : false
     );
     card.addEventListener('click', () => {
       setup.baseId = b.id;

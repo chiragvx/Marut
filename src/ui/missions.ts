@@ -9,6 +9,7 @@ import type { AiDifficulty } from '../contracts/core';
 import type { AircraftDefinition } from '../contracts/aircraft';
 import type { ScreenHandle } from '../contracts/ui';
 import type { BaseInfo, MissionEntry } from '../core/missions/catalogue';
+import { UNTESTED_BADGE, UNTESTED_NOTE } from '../core/missions/catalogue';
 import { mountScreen } from './screenHandle';
 import { button, field, h, keyCap, menuKeys, segmented, shell } from './kit';
 import { createLoadoutEditor, describeFit, fitSummary, selectionFit, selectionName, type LoadoutSelection } from './loadoutEditor';
@@ -38,7 +39,7 @@ export function createMissionList(
       'button',
       { className: 'tj-card', attrs: { type: 'button', 'data-mission': m.id } },
       h('span', { className: 'tj-card-title' }, h('span', { text: m.title }), status),
-      h('span', { className: 'tj-card-meta', text: `${base?.name ?? ''} · ${m.bandits} bandit${m.bandits === 1 ? '' : 's'}` }),
+      h('span', { className: 'tj-card-meta', text: `${base?.name ?? ''} · ${m.bandits} bandit${m.bandits === 1 ? '' : 's'}` }, base?.untested ? h('span', { className: 'tj-badge tj-badge--warn tj-badge--inline', text: UNTESTED_BADGE }) : false),
       h('span', { text: m.objective }),
       m.recommended ? h('span', { className: 'tj-label', text: 'Fly this one first' }) : false
     );
@@ -90,6 +91,7 @@ export function createBriefing(
   renderLoadout();
   const change = button('Change loadout…', () => openEditor(), 'default', { 'data-action': 'loadout' });
 
+  if (opts.base?.untested) s.body.append(h('p', { className: 'tj-note tj-note--warn', text: UNTESTED_NOTE, attrs: { 'data-role': 'untested' } }));
   s.body.append(
     h(
       'div',

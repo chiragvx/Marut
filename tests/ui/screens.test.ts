@@ -294,3 +294,24 @@ describe('loading screen', () => {
     expect(onStart).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('untested base tag', () => {
+  it('INS Hansa is tagged in Free Flight, the mission list and its briefings; Bhisiana is not', () => {
+    const ff = makeContainer();
+    createFreeFlightSetup(ff, { bases: BASES, def: tejasDefinition, setup: DEFAULT_FREE_FLIGHT }, { onFly: noop, onBack: noop });
+    expect(ff.querySelector('[data-base="hansa"]')!.textContent).toContain('Not fully tested');
+    expect(ff.querySelector('[data-base="bathinda"]')!.textContent).not.toContain('Not fully tested');
+
+    const list = makeContainer();
+    createMissionList(list, { missions: MISSIONS, bases: BASES, progress: {} }, { onSelect: noop, onBack: noop });
+    for (const m of MISSIONS) {
+      const tagged = list.querySelector(`[data-mission="${m.id}"]`)!.textContent!.includes('Not fully tested');
+      expect(tagged).toBe(m.baseId === 'hansa');
+    }
+
+    const hansaMission = MISSIONS.find((m) => m.baseId === 'hansa')!;
+    const b = makeContainer();
+    createBriefing(b, { entry: hansaMission, base: BASES.find((x) => x.id === 'hansa'), index: 0, def: tejasDefinition, difficulty: 'veteran', loadout: {}, keys: { target: 'T', launch: 'Enter', weapon: 'Tab', gun: 'Space' } }, { onStart: noop, onBack: noop });
+    expect(b.querySelector('[data-role="untested"]')).not.toBeNull();
+  });
+});

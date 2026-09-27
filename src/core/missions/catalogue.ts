@@ -24,7 +24,13 @@ export interface BaseInfo {
   /** Where "Parked" starts. */
   parkingSpotId: string;
   parkedLabel: string;
+  /** Not fully tested yet: the menus tag the base (and its missions) so players expect bugs. */
+  untested?: boolean;
 }
+
+/** The tag and the line the menus show for an untested base. */
+export const UNTESTED_BADGE = 'Not fully tested';
+export const UNTESTED_NOTE = 'This base has not been fully tested yet: you may run into bugs here.';
 
 export const BASES: readonly BaseInfo[] = [
   {
@@ -36,6 +42,7 @@ export const BASES: readonly BaseInfo[] = [
     freeMissionId: 'konkan-free',
     parkingSpotId: 'PARK-1',
     parkedLabel: 'on the apron',
+    untested: true,
   },
   {
     id: 'bathinda',
