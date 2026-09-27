@@ -8,7 +8,7 @@
  * exports of modules 04/08/09/11 rather than a contracts/*.ts file).
  */
 
-import { AutopilotFlag, EntityFlag, HUD_BLOCK_START, NO_ENTITY_ID, ServiceStateCode, SnapshotHud, SpeedUnit, WeatherMode, type AutopilotAction } from './contracts/core';
+import { AutopilotFlag, EntityFlag, HUD_BLOCK_START, LockStateCode, NO_ENTITY_ID, ServiceStateCode, SnapshotHud, SpeedUnit, WarningBit, WeaponKindCode, WeatherMode, type AutopilotAction } from './contracts/core';
 import type {
   AiDifficulty,
   EntityId,
@@ -63,6 +63,7 @@ import {
   type ControlGroup,
 } from './ui';
 import './ui/ui.css';
+import { createFlightOverlay, hintText, pickHint, type FlightOverlay, type HintId, type HintKeys } from './ui/flightOverlay';
 import { DEFAULT_INPUT_MAP_DATA } from './input/inputMap';
 import { BASES, MISSIONS, baseInfo, freeFlightMission, missionEntry, type BaseId } from './core/missions/catalogue';
 import { createChunkManager } from './terrain';
@@ -179,6 +180,13 @@ let timeOfDayH = 10.5;
 const newWeatherSeed = (): number => Math.floor(Math.random() * 4294967296) >>> 0;
 /** First-flight hints (Settings -> Gameplay). */
 let hintsEnabled = true;
+/** Objective tracker, event messages and hints over the HUD (src/ui/flightOverlay.ts). */
+let flightOverlay: FlightOverlay | undefined;
+let hintsDone = new Set<HintId>();
+let playerMissilesFired = 0;
+let banditsTotal = 0;
+let lastWarningBits = 0;
+let lastTankFuelKg = -1;
 let playerEntityId: EntityId = NO_ENTITY_ID;
 let sessionStartSimTimeSec = 0;
 let latestSimTimeSec = 0;
@@ -736,11 +744,14 @@ async function initWorkersAndRenderer(qualityTier: QualityTier): Promise<void> {
       // A completed ground service re-arms: reset the HUD's locally counted ammunition.
       const service = view[HUD_BLOCK_START + SnapshotHud.SERVICE_STATE] ?? 0;
       if (service === ServiceStateCode.Complete && lastServiceState !== ServiceStateCode.Complete) setPlayerFullLoad();
+      const serviceWas = lastServiceState;
       lastServiceState = service;
       // The autothrottle drives the throttle lever (so taking over, or disengaging, never jumps).
       if (((view[HUD_BLOCK_START + SnapshotHud.AP_FLAGS] ?? 0) & AutopilotFlag.Autothrottle) !== 0) inputSystem?.setThrottle(view[HUD_BLOCK_START + SnapshotHud.AP_THROTTLE] ?? 0);
+      if (service === ServiceStateCode.Complete && serviceWas !== ServiceStateCode.Complete && appState === 'gameplay') flightOverlay?.message('Refuelled and rearmed');
       renderer.ingestSnapshot(view);
       hud.ingestSnapshot(view);
+      updateFlightOverlay(view);
       simWorker.postMessage({ type: 'releaseBuffer', buffer: (msg as SimSnapshotMessage).buffer } satisfies SimReleaseBufferMessage, [(msg as SimSnapshotMessage).buffer]);
       return;
     }
@@ -750,12 +761,21 @@ async function initWorkersAndRenderer(qualityTier: QualityTier): Promise<void> {
       hud.ingestEvents(eventsMsg.events);
       for (const ev of eventsMsg.events) {
         if (ev.type === 'gunFire') statShotsFiredGun += 1;
-        else if (ev.type === 'missileLaunch') statMissilesFired += 1;
+        else if (ev.type === 'missileLaunch') {
+          statMissilesFired += 1;
+          if (ev.shooterId === playerEntityId) {
+            playerMissilesFired += 1;
+            flightOverlay?.message('Missile away');
+          }
+        }
         else if (ev.type === 'hit') {
           if (ev.weapon === 'gun') statShotsHitGun += 1;
           else statMissilesHit += 1;
         } else if (ev.type === 'kill') {
-          if (ev.sourceId === playerEntityId) statKills += 1;
+          if (ev.sourceId === playerEntityId) {
+            statKills += 1;
+            flightOverlay?.message('Target destroyed');
+          }
           if (ev.targetId === playerEntityId) statDeaths += 1;
         }
       }
@@ -898,6 +918,89 @@ function firstKeys(): [string[], string][] {
   ];
 }
 
+function hintKeys(): HintKeys {
+  const k = inputSystem.inputMap.data.keyboard;
+  return {
+    throttleUp: keyLabel(k.axes.throttle.positive),
+    throttleDown: keyLabel(k.axes.throttle.negative),
+    afterburner: keyLabel(k.buttons.afterburner),
+    noseUp: keyLabel(k.axes.pitch.positive),
+    gear: keyLabel(k.buttons.gearToggle),
+    taxiGuide: keyLabel(k.meta.taxiGuide),
+    target: keyLabel(k.buttons.cycleTarget),
+    launch: keyLabel(k.buttons.launch),
+    weapon: keyLabel(k.buttons.cycleWeapon),
+  };
+}
+
+/** Objective tracker, warnings-as-messages and hints, from the latest snapshot's HUD block. */
+function updateFlightOverlay(view: Float64Array): void {
+  const o = flightOverlay;
+  const flight = currentFlight;
+  if (!o || !flight || !currentMission || (appState !== 'gameplay' && appState !== 'paused')) return;
+  const hudv = (f: number): number => view[HUD_BLOCK_START + f] ?? 0;
+
+  // Objective, or the nearest friendly base in Free Flight.
+  if (flight.kind === 'mission') {
+    const entry = missionEntry(flight.id);
+    o.setObjective('Objective', entry?.objective ?? '', `Destroyed ${statKills} / ${banditsTotal}`);
+  } else if (lastPlayer.valid) {
+    let best: AirportLayout | undefined;
+    let bd = Infinity;
+    for (const a of currentMission.world.airports as readonly AirportLayout[]) {
+      if (a.side === 'hostile') continue;
+      const d = Math.hypot(a.referenceWorldX - lastPlayer.x, a.referenceWorldZ - lastPlayer.z);
+      if (d < bd) {
+        bd = d;
+        best = a;
+      }
+    }
+    if (best) {
+      const brg = ((Math.atan2(best.referenceWorldX - lastPlayer.x, -(best.referenceWorldZ - lastPlayer.z)) * 180) / Math.PI + 360) % 360;
+      o.setObjective('Nearest base', best.name, bd < 1500 ? 'Overhead' : `${(bd / 1000).toFixed(1)} km · bearing ${String(Math.round(brg) % 360).padStart(3, '0')}°`);
+    }
+  }
+
+  // Missile launch warning and dropped tanks.
+  const warn = hudv(SnapshotHud.WARNING_BITS);
+  if ((warn & WarningBit.MissileLaunch) !== 0 && (lastWarningBits & WarningBit.MissileLaunch) === 0) o.message('Missile launched at you!', true);
+  lastWarningBits = warn;
+  const tank = hudv(SnapshotHud.TANK_FUEL_KG);
+  if (lastTankFuelKg >= 0 && tank < 0) o.message('Tanks dropped');
+  lastTankFuelKg = tank;
+
+  // First-flight hints.
+  if (!hintsEnabled || appState !== 'gameplay') {
+    o.setHint(undefined);
+    return;
+  }
+  const weapon = hudv(SnapshotHud.WEAPON_IDX);
+  const hint = pickHint(
+    {
+      t: latestSimTimeSec - sessionStartSimTimeSec,
+      start: flight.kind === 'free' ? flight.setup.start : missionStartKind(flight.id),
+      mission: flight.kind === 'mission',
+      onGround: lastPlayer.onGround,
+      speedMps: lastPlayer.speedMps,
+      aglM: hudv(SnapshotHud.ALT_AGL_M),
+      vsMps: hudv(SnapshotHud.VSPEED_MPS),
+      gearPos: hudv(SnapshotHud.GEAR_POS),
+      taxiGuideOn: hud.hasTaxiGuide(),
+      hasTarget: hudv(SnapshotHud.TARGET_ID) !== NO_ENTITY_ID,
+      locked: hudv(SnapshotHud.LOCK_STATE) === LockStateCode.locked,
+      missileSelected: weapon === WeaponKindCode.ir_missile || weapon === WeaponKindCode.radar_missile,
+      missilesFired: playerMissilesFired,
+    },
+    hintsDone
+  );
+  o.setHint(hint ? hintText(hint, hintKeys()) : undefined);
+}
+
+/** How a mission starts the player: parked (shelter) or on a runway. */
+function missionStartKind(id: BuiltinMissionId): 'parked' | 'runway' {
+  return resolveBuiltinMission(id).playerStart.parkingSpotId ? 'parked' : 'runway';
+}
+
 /** A flight being loaded: waits for the terrain around the aircraft, then for Start. */
 let pendingStart: { loading: LoadingScreenHandle; simReady: boolean; t0: number; shown: boolean } | undefined;
 
@@ -926,6 +1029,12 @@ function launchMission(missionIn: Mission, opts: { title: string; airStart: bool
   currentScreen = loading;
   loading.setProgress(0, 'Loading mission…');
   pendingStart = { loading, simReady: false, t0: performance.now(), shown: false };
+  flightOverlay?.clear();
+  hintsDone = new Set();
+  playerMissilesFired = 0;
+  lastWarningBits = 0;
+  lastTankFuelKg = -1;
+  banditsTotal = missionIn.aiFlights.filter((f) => f.team === 1).reduce((n, f) => n + (f.count ?? 1), 0);
   // Gear lever and throttle to suit the start (the gear lever otherwise keeps the last flight's).
   inputSystem.setGearDown(!opts.airStart);
   inputSystem.setThrottle(opts.airStart ? 0.8 : 0);
@@ -938,7 +1047,9 @@ function launchMission(missionIn: Mission, opts: { title: string; airStart: bool
   statShotsHitGun = 0;
   statMissilesFired = 0;
   statMissilesHit = 0;
-  sessionStartSimTimeSec = latestSimTimeSec;
+  // Each launch starts a new world whose clock starts at 0.
+  latestSimTimeSec = 0;
+  sessionStartSimTimeSec = 0;
 
   const terrainParams = mission.world.terrain as TerrainParams;
   const airportLayouts = mission.world.airports as readonly AirportLayout[];
@@ -1033,6 +1144,7 @@ async function boot(): Promise<void> {
   }
   currentSpeedUnit = persisted?.speedUnit ?? SpeedUnit.Mps;
   orientationPrompt = mountOrientationPrompt(uiRoot);
+  flightOverlay = createFlightOverlay(uiRoot);
 
   loading.setProgress(0.3, 'Starting simulation…');
   await initWorkersAndRenderer(currentQualityTier);
@@ -1111,6 +1223,7 @@ function frame(nowMs: number): void {
     simWorker.postMessage({ type: 'input', entityId: playerEntityId, inputs: pilotInputsScratch } as const);
   }
   tickPendingStart(nowMs);
+  flightOverlay?.setVisible(appState === 'gameplay');
   if (renderer && hud) {
     const camera: CameraState = renderer.renderFrame(nowMs);
     hud.renderFrame(nowMs, camera);
