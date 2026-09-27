@@ -1,35 +1,69 @@
 /**
- * src/ui/settings.ts — implements CreateSettingsScreen (docs/spec/11-ui.md
- * section 4.3). Purely presentational: performs zero localStorage/IndexedDB
- * I/O. `initial` is supplied by the caller (module 10) on every call;
- * `onChange` hands the caller a full new SettingsState to persist however
- * it chooses.
+ * src/ui/settings.ts — implements CreateSettingsScreen (docs/spec/11-ui.md section 4.3), in three
+ * tabs: Graphics (quality), Controls (keys, mouse), Gameplay (units, AoA limiter, flight hints).
+ * Time of day and weather are per flight now (Free Flight setup), not settings.
+ *
+ * Purely presentational: no storage I/O. Every change applies at once through `onChange`, which is
+ * handed a full new SettingsState. Rebinding: "Rebind" asks the caller to capture a key
+ * (`onRebindStart`); the caller reports it with `setCapturedKey`; after 5 s without a key the row
+ * reverts.
  */
-import type { QualityTier, SpeedUnit, WeatherMode } from '../contracts/core';
-import type {
-  BindableAction,
-  CreateSettingsScreen,
-  KeyBinding,
-  SettingsScreenHandle,
-  SettingsState,
-} from '../contracts/ui';
+import type { QualityTier, SpeedUnit } from '../contracts/core';
+import type { BindableAction, CreateSettingsScreen, KeyBinding, SettingsScreenHandle, SettingsState } from '../contracts/ui';
 import { BindableAction as BindableActionEnum } from '../contracts/ui';
 import { mountScreen } from './screenHandle';
-import { el, actionButton } from './domHelpers';
+import { button, checkbox, h, keyLabel, menuKeys, row, select, shell } from './kit';
 
-const QUALITY_OPTIONS: readonly (QualityTier | 'auto')[] = ['auto', 'low', 'medium', 'high', 'ultra'];
-const SPEED_UNIT_OPTIONS: readonly SpeedUnit[] = ['ms', 'kt'];
-const SPEED_UNIT_LABELS: Readonly<Record<SpeedUnit, string>> = { ms: 'm/s', kt: 'knots' };
-
-const WEATHER_OPTIONS: readonly [WeatherMode, string][] = [
-  ['dynamic', 'Dynamic (random, changing)'],
-  ['clear', 'Clear'],
-  ['hazy', 'Hazy'],
-  ['fog', 'Fog'],
-  ['overcast', 'Overcast'],
-  ['rain', 'Rain'],
-  ['off', 'Off (clear sky, calm air)'],
+const QUALITY_OPTIONS: readonly { value: QualityTier | 'auto'; label: string }[] = [
+  { value: 'auto', label: 'Auto' },
+  { value: 'low', label: 'Low' },
+  { value: 'medium', label: 'Medium' },
+  { value: 'high', label: 'High' },
+  { value: 'ultra', label: 'Ultra' },
 ];
+const SPEED_UNIT_OPTIONS: readonly { value: SpeedUnit; label: string }[] = [
+  { value: 'ms', label: 'm/s' },
+  { value: 'kt', label: 'knots' },
+];
+
+/** What each rebindable action does, in the player's words. */
+export const ACTION_LABELS: Readonly<Record<BindableAction, string>> = {
+  pitchUp: 'Pitch up (nose up)',
+  pitchDown: 'Pitch down',
+  rollLeft: 'Roll left',
+  rollRight: 'Roll right',
+  yawLeft: 'Rudder left',
+  yawRight: 'Rudder right',
+  throttleUp: 'Throttle up',
+  throttleDown: 'Throttle down',
+  afterburner: 'Afterburner',
+  brakes: 'Wheel brakes',
+  gearToggle: 'Landing gear',
+  airbrake: 'Airbrake and brakes',
+  trigger: 'Gun',
+  launch: 'Fire missile',
+  cycleWeapon: 'Next weapon',
+  cycleTarget: 'Next target',
+  jettisonTanks: 'Drop tanks',
+  service: 'Refuel and rearm',
+  noseWheelSteer: 'Nosewheel steering',
+  pauseToggle: 'Pause',
+  cameraCycle: 'Change camera',
+  taxiGuide: 'Taxi guidance',
+  radarMode: 'Radar mode',
+  radarRangeUp: 'Radar range up',
+  radarRangeDown: 'Radar range down',
+  apToggle: 'Autopilot',
+  atToggle: 'Autothrottle',
+  apHdgDown: 'Autopilot heading left',
+  apHdgUp: 'Autopilot heading right',
+  apAltDown: 'Autopilot altitude down',
+  apAltUp: 'Autopilot altitude up',
+  apVsDown: 'Autopilot climb rate down',
+  apVsUp: 'Autopilot climb rate up',
+  apSpdDown: 'Autopilot speed down',
+  apSpdUp: 'Autopilot speed up',
+};
 
 /** "HH:MM" for a time of day in hours. */
 export function formatTimeOfDay(hours: number): string {
@@ -40,140 +74,87 @@ export function formatTimeOfDay(hours: number): string {
 const REBIND_TIMEOUT_MS = 5000;
 
 function findBinding(bindings: readonly KeyBinding[], action: BindableAction): KeyBinding | undefined {
-  for (const b of bindings) {
-    if (b.action === action) return b;
-  }
-  return undefined;
+  return bindings.find((b) => b.action === action);
 }
 
-export const createSettingsScreen: CreateSettingsScreen = (container, initial, callbacks): SettingsScreenHandle => {
-  // Local mutable snapshot this module owns between commits; a fresh object
-  // literal (never the caller's `initial` reference) is handed to onChange.
-  let current: SettingsState = {
-    qualityOverride: initial.qualityOverride,
-    detectedTier: initial.detectedTier,
-    keyBindings: initial.keyBindings.map((b) => ({ action: b.action, code: b.code })),
-    mouseSensitivityMultiplier: initial.mouseSensitivityMultiplier,
-    invertPitch: initial.invertPitch,
-    speedUnit: initial.speedUnit,
-    alphaLimiterEnabled: initial.alphaLimiterEnabled,
-    weatherEnabled: initial.weatherEnabled ?? true,
-    weatherMode: initial.weatherMode ?? (initial.weatherEnabled === false ? 'off' : 'clear'),
-    timeOfDayH: initial.timeOfDayH ?? 10.5,
-  };
+type Tab = 'graphics' | 'controls' | 'gameplay';
 
+export const createSettingsScreen: CreateSettingsScreen = (container, initial, callbacks): SettingsScreenHandle => {
+  let current: SettingsState = { ...initial, keyBindings: initial.keyBindings.map((b) => ({ ...b })) };
   let capturingAction: BindableAction | null = null;
   let captureTimeoutHandle: ReturnType<typeof setTimeout> | undefined;
 
-  const root = el('div', { className: 'tj-settings' });
-  const title = el('h2', { text: 'Settings' });
-
-  // --- Quality override ---
-  const qualitySection = el('div', { className: 'tj-settings-section' });
-  const qualityLabel = el('label', { text: 'Graphics quality' });
-  const qualitySelect = el('select', { attrs: { 'data-action': 'quality-override' } });
-  for (const q of QUALITY_OPTIONS) {
-    qualitySelect.appendChild(el('option', { text: q, attrs: { value: q } }));
-  }
-  qualitySelect.value = current.qualityOverride;
-  qualityLabel.appendChild(qualitySelect);
-  qualitySection.appendChild(qualityLabel);
-
-  // --- Speed unit ---
-  const speedUnitSection = el('div', { className: 'tj-settings-section' });
-  const speedUnitLabel = el('label', { text: 'Speed unit' });
-  const speedUnitSelect = el('select', { attrs: { 'data-action': 'speed-unit' } });
-  for (const u of SPEED_UNIT_OPTIONS) {
-    speedUnitSelect.appendChild(el('option', { text: SPEED_UNIT_LABELS[u], attrs: { value: u } }));
-  }
-  speedUnitSelect.value = current.speedUnit;
-  speedUnitLabel.appendChild(speedUnitSelect);
-  speedUnitSection.appendChild(speedUnitLabel);
-
-  // --- Mouse sensitivity ---
-  const sensitivitySection = el('div', { className: 'tj-settings-section' });
-  const sensitivityLabel = el('label', { text: 'Mouse sensitivity' });
-  const sensitivityInput = el('input', { attrs: { 'data-role': 'mouse-sensitivity', type: 'range', min: '0.1', max: '3.0', step: '0.1' } }) as HTMLInputElement;
-  sensitivityInput.value = String(current.mouseSensitivityMultiplier);
-  sensitivityLabel.appendChild(sensitivityInput);
-  sensitivitySection.appendChild(sensitivityLabel);
-
-  // --- Invert pitch ---
-  const invertSection = el('div', { className: 'tj-settings-section' });
-  const invertLabel = el('label', { text: 'Invert pitch' });
-  const invertInput = el('input', { attrs: { 'data-role': 'invert-pitch', type: 'checkbox' } }) as HTMLInputElement;
-  invertInput.checked = current.invertPitch;
-  invertLabel.appendChild(invertInput);
-  invertSection.appendChild(invertLabel);
-
-  // --- AoA limiter ---
-  const alphaLimiterSection = el('div', { className: 'tj-settings-section' });
-  const alphaLimiterLabel = el('label', { text: 'AoA limiter' });
-  const alphaLimiterInput = el('input', { attrs: { 'data-role': 'alpha-limiter', type: 'checkbox' } }) as HTMLInputElement;
-  alphaLimiterInput.checked = current.alphaLimiterEnabled;
-  alphaLimiterLabel.appendChild(alphaLimiterInput);
-  alphaLimiterSection.appendChild(alphaLimiterLabel);
-
-  // --- Weather ---
-  const weatherSection = el('div', { className: 'tj-settings-section' });
-  const weatherLabel = el('label', { text: 'Weather' });
-  const weatherSelect = el('select', { attrs: { 'data-role': 'weather' } });
-  for (const [m, text] of WEATHER_OPTIONS) weatherSelect.appendChild(el('option', { text, attrs: { value: m } }));
-  weatherSelect.value = current.weatherMode ?? 'clear';
-  weatherLabel.appendChild(weatherSelect);
-  weatherSection.appendChild(weatherLabel);
-
-  // --- Time of day ---
-  const timeSection = el('div', { className: 'tj-settings-section' });
-  const timeLabel = el('label', { text: 'Time of day' });
-  const timeInput = el('input', { attrs: { 'data-role': 'time-of-day', type: 'range', min: '0', max: '24', step: '0.25' } }) as HTMLInputElement;
-  timeInput.value = String(current.timeOfDayH ?? 10.5);
-  const timeValue = el('span', { className: 'tj-settings-value', attrs: { 'data-role': 'time-of-day-value' }, text: formatTimeOfDay(current.timeOfDayH ?? 10.5) });
-  timeLabel.append(timeInput, timeValue);
-  timeSection.appendChild(timeLabel);
-
-  // --- Key bindings ---
-  const bindingsSection = el('div', { className: 'tj-settings-bindings' });
-  const bindingRows = new Map<BindableAction, { row: HTMLDivElement; codeLabel: HTMLSpanElement; button: HTMLButtonElement }>();
-  for (const action of Object.values(BindableActionEnum)) {
-    const row = el('div', { className: 'tj-settings-binding-row' });
-    const nameLabel = el('span', { className: 'tj-settings-binding-name', text: action });
-    const binding = findBinding(current.keyBindings, action);
-    const codeLabel = el('span', { className: 'tj-settings-binding-code', text: binding !== undefined ? binding.code : '—' });
-    const rebindBtn = actionButton('rebind', 'Rebind', { 'data-binding-action': action });
-    row.append(nameLabel, codeLabel, rebindBtn);
-    bindingsSection.appendChild(row);
-    bindingRows.set(action, { row, codeLabel, button: rebindBtn });
-
-    rebindBtn.addEventListener('click', () => {
-      startRebind(action);
-    });
-  }
-
-  // --- Footer nav ---
-  const nav = el('div', { className: 'tj-settings-nav' });
-  const resetBtn = actionButton('reset-defaults', 'Reset Defaults');
-  const backBtn = actionButton('back', 'Back');
-  nav.append(resetBtn, backBtn);
-
-  root.append(title, qualitySection, speedUnitSection, sensitivitySection, invertSection, alphaLimiterSection, weatherSection, timeSection, bindingsSection, nav);
+  const s = shell({ title: 'Settings', sub: 'Changes apply straight away and are saved on this device.', back: { onClick: () => callbacks.onBack() } });
+  s.root.classList.add('tj-settings');
 
   function fireChange(): void {
-    // Hand out a fresh snapshot; keyBindings is always a new array too.
-    current = {
-      qualityOverride: current.qualityOverride,
-      detectedTier: current.detectedTier,
-      keyBindings: current.keyBindings.map((b) => ({ action: b.action, code: b.code })),
-      mouseSensitivityMultiplier: current.mouseSensitivityMultiplier,
-      invertPitch: current.invertPitch,
-      speedUnit: current.speedUnit,
-      alphaLimiterEnabled: current.alphaLimiterEnabled,
-      weatherEnabled: current.weatherMode !== 'off',
-      weatherMode: current.weatherMode ?? 'clear',
-      timeOfDayH: current.timeOfDayH ?? 10.5,
-    };
+    current = { ...current, keyBindings: current.keyBindings.map((b) => ({ ...b })) };
     callbacks.onChange(current);
   }
+
+  // --- Graphics ---
+  const qualitySelect = select(QUALITY_OPTIONS, current.qualityOverride, (v) => {
+    current.qualityOverride = v;
+    fireChange();
+  }, { 'data-action': 'quality-override' });
+  const graphics = h('div', { className: 'tj-stack', attrs: { 'data-tab': 'graphics' } }, row('Graphics quality', qualitySelect), row('Detected for this device', h('span', { text: current.detectedTier[0]!.toUpperCase() + current.detectedTier.slice(1) })), h('p', { className: 'tj-note', text: 'Auto uses the level measured the first time the game ran on this device.' }));
+
+  // --- Controls ---
+  const sensitivityValue = h('span', { className: 'tj-value', text: `${current.mouseSensitivityMultiplier.toFixed(1)}×` });
+  const sensitivityInput = h('input', { className: 'tj-range', attrs: { 'data-role': 'mouse-sensitivity', type: 'range', min: '0.1', max: '3.0', step: '0.1', 'aria-label': 'Mouse sensitivity' } });
+  sensitivityInput.value = String(current.mouseSensitivityMultiplier);
+  sensitivityInput.addEventListener('input', () => (sensitivityValue.textContent = `${Number(sensitivityInput.value).toFixed(1)}×`));
+  sensitivityInput.addEventListener('change', () => {
+    current.mouseSensitivityMultiplier = Number(sensitivityInput.value);
+    fireChange();
+  });
+  const bindingRows = new Map<BindableAction, { row: HTMLElement; codeLabel: HTMLElement; button: HTMLButtonElement }>();
+  const bindingsList = h('div', { className: 'tj-settings-bindings' });
+  for (const action of Object.values(BindableActionEnum)) {
+    if (action === 'pauseToggle') continue; // Esc always pauses
+    const binding = findBinding(current.keyBindings, action);
+    const codeLabel = h('span', { className: 'tj-settings-binding-code tj-key', text: keyLabel(binding?.code) });
+    const rebindBtn = button('Rebind', () => startRebind(action), 'default', { 'data-action': 'rebind', 'data-binding-action': action });
+    const r = h('div', { className: 'tj-settings-binding-row' }, h('span', { className: 'tj-settings-binding-name', text: ACTION_LABELS[action] ?? action }), codeLabel, rebindBtn);
+    bindingsList.append(r);
+    bindingRows.set(action, { row: r, codeLabel, button: rebindBtn });
+  }
+  const controls = h(
+    'div',
+    { className: 'tj-stack tj-hidden', attrs: { 'data-tab': 'controls' } },
+    row('Fly with the mouse', checkbox('On', current.mouseEnabled ?? false, (v) => { current.mouseEnabled = v; fireChange(); }, { 'data-role': 'mouse-enabled' })),
+    row('Mouse sensitivity', h('span', { className: 'tj-row' }, sensitivityInput, sensitivityValue)),
+    row('Invert mouse pitch', checkbox('On', current.invertPitch, (v) => { current.invertPitch = v; fireChange(); }, { 'data-role': 'invert-pitch' })),
+    h('p', { className: 'tj-note', text: 'With the mouse on, click the view in flight to capture the pointer; Esc releases it.' }),
+    h('div', { className: 'tj-row', attrs: { style: 'justify-content: space-between' } }, h('span', { className: 'tj-label', text: 'Keys' }), button('Reset keys to defaults', () => callbacks.onResetDefaults(), 'default', { 'data-action': 'reset-defaults' })),
+    bindingsList
+  );
+
+  // --- Gameplay ---
+  const speedUnitSelect = select(SPEED_UNIT_OPTIONS, current.speedUnit, (v) => {
+    current.speedUnit = v;
+    fireChange();
+  }, { 'data-action': 'speed-unit' });
+  const gameplay = h(
+    'div',
+    { className: 'tj-stack tj-hidden', attrs: { 'data-tab': 'gameplay' } },
+    row('Speed shown in', speedUnitSelect),
+    row('AoA limiter (stops you pulling into a stall)', checkbox('On', current.alphaLimiterEnabled, (v) => { current.alphaLimiterEnabled = v; fireChange(); }, { 'data-role': 'alpha-limiter' })),
+    row('First-flight hints', checkbox('On', current.hintsEnabled ?? true, (v) => { current.hintsEnabled = v; fireChange(); }, { 'data-role': 'hints' }))
+  );
+
+  const panes: Record<Tab, HTMLElement> = { graphics, controls, gameplay };
+  const tabs = h('div', { className: 'tj-tabs', attrs: { role: 'tablist' } });
+  const tabButtons = (['graphics', 'controls', 'gameplay'] as const).map((t) => {
+    const b = h('button', { className: 'tj-tab', text: t[0]!.toUpperCase() + t.slice(1), attrs: { type: 'button', role: 'tab', 'aria-selected': String(t === 'graphics'), 'data-tab-button': t } });
+    b.addEventListener('click', () => {
+      for (const x of tabButtons) x.setAttribute('aria-selected', String(x === b));
+      for (const [k, p] of Object.entries(panes)) p.classList.toggle('tj-hidden', k !== t);
+    });
+    return b;
+  });
+  tabs.append(...tabButtons);
+  s.body.append(tabs, graphics, controls, gameplay);
 
   function cancelCaptureTimeout(): void {
     if (captureTimeoutHandle !== undefined) {
@@ -203,73 +184,36 @@ export const createSettingsScreen: CreateSettingsScreen = (container, initial, c
     const entry = bindingRows.get(action);
     if (entry === undefined) return;
     entry.row.classList.remove('tj-settings-binding-capturing');
-    const binding = findBinding(current.keyBindings, action);
-    entry.codeLabel.textContent = binding !== undefined ? binding.code : '—';
+    entry.codeLabel.textContent = keyLabel(findBinding(current.keyBindings, action)?.code);
     entry.button.disabled = false;
+    entry.button.focus();
   }
 
-  qualitySelect.addEventListener('change', () => {
-    current.qualityOverride = qualitySelect.value as QualityTier | 'auto';
-    fireChange();
-  });
-  speedUnitSelect.addEventListener('change', () => {
-    current.speedUnit = speedUnitSelect.value as SpeedUnit;
-    fireChange();
-  });
-  sensitivityInput.addEventListener('change', () => {
-    current.mouseSensitivityMultiplier = Number(sensitivityInput.value);
-    fireChange();
-  });
-  invertInput.addEventListener('change', () => {
-    current.invertPitch = invertInput.checked;
-    fireChange();
-  });
-  alphaLimiterInput.addEventListener('change', () => {
-    current.alphaLimiterEnabled = alphaLimiterInput.checked;
-    fireChange();
-  });
-  weatherSelect.addEventListener('change', () => {
-    current.weatherMode = weatherSelect.value as WeatherMode;
-    fireChange();
-  });
-  // Live while dragging, so the sky can be watched changing.
-  timeInput.addEventListener('input', () => {
-    current.timeOfDayH = Number(timeInput.value);
-    timeValue.textContent = formatTimeOfDay(current.timeOfDayH);
-    fireChange();
-  });
-  resetBtn.addEventListener('click', () => callbacks.onResetDefaults());
-  backBtn.addEventListener('click', () => callbacks.onBack());
-
-  const baseHandle = mountScreen(container, root);
+  const baseHandle = mountScreen(container, s.root);
+  const release = menuKeys(s.root, () => callbacks.onBack(), { isCapturing: () => capturingAction !== null, initialFocus: tabButtons[0] });
 
   return {
     ...baseHandle,
+    destroy(): void {
+      cancelCaptureTimeout();
+      release();
+      baseHandle.destroy();
+    },
     setCapturedKey(action: BindableAction, code: string): void {
       if (capturingAction !== action) return;
       cancelCaptureTimeout();
       capturingAction = null;
       const next = current.keyBindings.filter((b) => b.action !== action);
       next.push({ action, code });
-      current = {
-        qualityOverride: current.qualityOverride,
-        detectedTier: current.detectedTier,
-        keyBindings: next,
-        mouseSensitivityMultiplier: current.mouseSensitivityMultiplier,
-        invertPitch: current.invertPitch,
-        speedUnit: current.speedUnit,
-        alphaLimiterEnabled: current.alphaLimiterEnabled,
-        weatherEnabled: current.weatherMode !== 'off',
-        weatherMode: current.weatherMode ?? 'clear',
-        timeOfDayH: current.timeOfDayH ?? 10.5,
-      };
+      current = { ...current, keyBindings: next };
       const entry = bindingRows.get(action);
       if (entry !== undefined) {
         entry.row.classList.remove('tj-settings-binding-capturing');
-        entry.codeLabel.textContent = code;
+        entry.codeLabel.textContent = keyLabel(code);
         entry.button.disabled = false;
+        entry.button.focus();
       }
-      callbacks.onChange(current);
+      callbacks.onChange({ ...current, keyBindings: next.map((b) => ({ ...b })) });
     },
   };
 };

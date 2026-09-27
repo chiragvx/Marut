@@ -33,6 +33,7 @@ import punjabFreeFlightRaw from './punjabFreeFlight.json';
 import punjabDogfightRaw from './punjabDogfight.json';
 import borderFreeFlightRaw from './borderFreeFlight.json';
 import borderInterceptRaw from './borderIntercept.json';
+import borderDuelRaw from './borderDuel.json';
 import rangpurAfbRaw from '../../airport/layouts/rangpur-afb.json';
 import konarakCoastalRaw from '../../airport/layouts/konarak-coastal.json';
 import insHansaRaw from '../../airport/layouts/ins-hansa.json';
@@ -112,6 +113,7 @@ const BUILTIN_DESCRIPTORS = {
   'punjab-dogfight': punjabDogfightRaw as unknown as MissionDescriptor,
   'border-free': borderFreeFlightRaw as unknown as MissionDescriptor,
   'border-intercept': borderInterceptRaw as unknown as MissionDescriptor,
+  'border-duel': borderDuelRaw as unknown as MissionDescriptor,
 } as const satisfies Readonly<Record<string, MissionDescriptor>>;
 
 export type BuiltinMissionId = keyof typeof BUILTIN_DESCRIPTORS;

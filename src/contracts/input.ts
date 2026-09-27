@@ -382,6 +382,8 @@ export interface InputMapData {
     sensitivityPerPx: number;
     curveExponent: number;
     recenterRatePerSec: number;
+    /** Mouse forward = nose up. Optional so older saved maps still load; absent = off. */
+    invertPitch?: boolean;
   };
 
   touch: {
@@ -476,6 +478,8 @@ export interface PlayerInputSystem extends Pilot {
   isAlphaLimiterDisabled(): boolean;
   /** Moves the throttle lever (keyboard/gamepad schemes): the autothrottle drives it while engaged. */
   setThrottle(frac: number): void;
+  /** Sets the landing-gear lever (the G key toggles it): down for ground starts, up for air starts. */
+  setGearDown(down: boolean): void;
   setAlphaLimiterDisabled(disabled: boolean): void;
 
   /** Subscribes to meta actions (camera cycle, menu toggle). Returns an unsubscribe function. Fires at most once per rising edge, regardless of source device. */

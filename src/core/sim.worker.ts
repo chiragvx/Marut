@@ -79,6 +79,10 @@ self.onmessage = (e: MessageEvent<MainToSimMessage>): void => {
       accState.tickCount = 0;
       const ready: SimReadyMessage = { type: 'ready' };
       postMessage(ready);
+      if (msg.startPaused) {
+        world.setPaused(true);
+        emitSnapshotIfBufferAvailable();
+      }
       startTimer();
       break;
     }
@@ -122,6 +126,8 @@ self.onmessage = (e: MessageEvent<MainToSimMessage>): void => {
           break;
         case 'pause':
           world.setPaused(cmd.paused);
+          // A paused world sends no snapshots; send one so the view shows where it stopped.
+          if (cmd.paused) emitSnapshotIfBufferAvailable();
           break;
         case 'autopilot':
           world.commandAutopilot(cmd.action);

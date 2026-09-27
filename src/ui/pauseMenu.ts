@@ -1,27 +1,53 @@
 /**
- * src/ui/pauseMenu.ts — implements CreatePauseMenu (docs/spec/11-ui.md section 4.4).
+ * src/ui/pauseMenu.ts — implements CreatePauseMenu: Resume, Restart flight, Controls, Settings,
+ * feedback, Exit to menu. Restart and Exit ask first, inside the menu. Escape resumes (or
+ * cancels an open question).
  */
 import type { CreatePauseMenu } from '../contracts/ui';
 import { mountScreen } from './screenHandle';
-import { el, actionButton } from './domHelpers';
+import { button, externalLink, h, menuKeys } from './kit';
 
-export const createPauseMenu: CreatePauseMenu = (container, callbacks) => {
-  const root = el('div', { className: 'tj-pause-menu' });
-  const title = el('h2', { text: 'Paused' });
+export const createPauseMenu: CreatePauseMenu = (container, callbacks, options = {}) => {
+  const list = h('div', { className: 'tj-menu' });
+  const confirmSlot = h('div');
+  const resume = button('Resume', () => callbacks.onResume(), ['block', 'primary'], { 'data-action': 'resume' });
 
-  const nav = el('div', { className: 'tj-pause-menu-nav' });
-  const resumeBtn = actionButton('resume', 'Resume');
-  const restartBtn = actionButton('restart', 'Restart');
-  const settingsBtn = actionButton('open-settings', 'Settings');
-  const quitBtn = actionButton('quit-to-menu', 'Quit to Menu');
-  nav.append(resumeBtn, restartBtn, settingsBtn, quitBtn);
+  function ask(question: string, detail: string, yesLabel: string, onYes: () => void, from: HTMLElement): void {
+    const no = button('Stay', () => close(), 'default', { 'data-action': 'confirm-no' });
+    const box = h('div', { className: 'tj-confirm', attrs: { role: 'alertdialog', 'aria-label': question } }, h('b', { text: question }), h('span', { className: 'tj-note', text: detail }), h('div', { className: 'tj-row' }, no, button(yesLabel, onYes, 'primary', { 'data-action': 'confirm-yes' })));
+    confirmSlot.replaceChildren(box);
+    list.classList.add('tj-hidden');
+    no.focus();
+    function close(): void {
+      confirmSlot.replaceChildren();
+      list.classList.remove('tj-hidden');
+      from.focus();
+    }
+    closeQuestion = close;
+  }
+  let closeQuestion: (() => void) | undefined;
 
-  root.append(title, nav);
+  const restart = button('Restart flight', () => ask('Restart this flight?', 'You start again from the beginning.', 'Restart', () => callbacks.onRestart(), restart), 'block', { 'data-action': 'restart' });
+  const exit = button('Exit to menu', () => ask('Exit this flight?', 'Progress in this flight is lost.', 'Exit to menu', () => callbacks.onQuitToMenu(), exit), 'block', { 'data-action': 'quit' });
+  list.append(resume, restart);
+  if (callbacks.onControls) list.append(button('Controls', () => callbacks.onControls?.(), 'block', { 'data-action': 'controls' }));
+  list.append(button('Settings', () => callbacks.onOpenSettings(), 'block', { 'data-action': 'settings' }), exit);
 
-  resumeBtn.addEventListener('click', () => callbacks.onResume());
-  restartBtn.addEventListener('click', () => callbacks.onRestart());
-  settingsBtn.addEventListener('click', () => callbacks.onOpenSettings());
-  quitBtn.addEventListener('click', () => callbacks.onQuitToMenu());
-
-  return mountScreen(container, root);
+  const panel = h(
+    'div',
+    { className: 'tj-panel', attrs: { style: 'width: min(460px, 100%)' } },
+    h('div', { className: 'tj-head' }, h('h1', { className: 'tj-title', text: 'Paused' }), options.subtitle ? h('p', { className: 'tj-sub', text: options.subtitle }) : false),
+    list,
+    confirmSlot,
+    h('div', { className: 'tj-foot' }, externalLink('Give feedback', options.feedbackUrl, 'Feedback (coming soon)'), h('span', { className: 'tj-note', text: 'Esc resumes' }))
+  );
+  const root = h('div', { className: 'tj-screen tj-pause' }, panel);
+  const handle = mountScreen(container, root);
+  const release = menuKeys(root, () => {
+    if (closeQuestion && confirmSlot.childElementCount > 0) {
+      closeQuestion();
+      closeQuestion = undefined;
+    } else callbacks.onResume();
+  });
+  return { ...handle, destroy: () => { release(); handle.destroy(); } };
 };

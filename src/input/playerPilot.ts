@@ -383,7 +383,7 @@ export function createPlayerInputSystem(config: PlayerInputConfig): PlayerInputS
           mouseStickX = clamp(mouseStickX + mouseDeltaScratch.dxPx * d.mouse.sensitivityPerPx, -1, 1);
           mouseStickY = clamp(mouseStickY + mouseDeltaScratch.dyPx * d.mouse.sensitivityPerPx, -1, 1);
           roll = shapeCurve(mouseStickX, d.mouse.curveExponent);
-          pitch = shapeCurve(-mouseStickY, d.mouse.curveExponent);
+          pitch = shapeCurve(d.mouse.invertPitch ? mouseStickY : -mouseStickY, d.mouse.curveExponent);
         }
       } else if (scheme === InputControlScheme.Gamepad) {
         const g = d.gamepad;
@@ -519,6 +519,10 @@ export function createPlayerInputSystem(config: PlayerInputConfig): PlayerInputS
 
     setThrottle(frac: number): void {
       throttleAxis = clamp(frac, 0, 1);
+    },
+
+    setGearDown(down: boolean): void {
+      gearDownState = down;
     },
 
     onMetaAction(handler: (action: MetaActionType, repeat?: boolean) => void): () => void {

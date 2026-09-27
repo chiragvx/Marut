@@ -187,6 +187,12 @@ class ChunkManagerImpl implements ChunkManager {
     this.onChunkEvictedCallback = callback;
   }
 
+  loadProgress(): { resident: number; desired: number } {
+    let resident = 0;
+    for (const e of this.entries.values()) if (e.resident) resident++;
+    return { resident, desired: this.entries.size };
+  }
+
   getResidentChunks(): readonly ResidentChunkInfo[] {
     const result: ResidentChunkInfo[] = [];
     for (const entry of this.entries.values()) {

@@ -1,45 +1,58 @@
 /**
- * src/ui/debrief.ts — implements CreateDebriefScreen (docs/spec/11-ui.md
- * section 4.4). Displays objectivesCompleted/objectivesTotal as a fraction
- * and per-weapon accuracy with a max(1, fired) guard so 0 shots fired never
- * renders 0/0 (NaN) — display-only arithmetic, never written back anywhere.
+ * src/ui/debrief.ts — implements CreateDebriefScreen: the outcome in plain words, the numbers,
+ * the objectives, a feedback prompt, and what to do next. The main action is Next mission after a
+ * win and Fly again otherwise.
  */
 import type { CreateDebriefScreen, DebriefStats } from '../contracts/ui';
+import { MissionOutcome } from '../contracts/ui';
 import { mountScreen } from './screenHandle';
-import { el, actionButton } from './domHelpers';
+import { button, externalLink, h, menuKeys } from './kit';
+import { formatDuration } from './missions';
 
-function accuracyPct(hit: number, fired: number): string {
-  const pct = (hit / Math.max(1, fired)) * 100;
-  return `${pct.toFixed(0)}%`;
+/** The headline for a result. */
+export function outcomeTitle(stats: DebriefStats, freeFlight: boolean): string {
+  if (stats.outcome === MissionOutcome.Success) return freeFlight ? 'Flight complete' : 'Mission complete';
+  if (stats.outcome === MissionOutcome.Aborted) return freeFlight ? 'Flight ended' : 'Mission abandoned';
+  if (stats.deaths > 0) return 'Shot down';
+  return freeFlight ? 'Crashed' : 'Mission failed';
 }
 
-export const createDebriefScreen: CreateDebriefScreen = (container, stats: DebriefStats, callbacks) => {
-  const root = el('div', { className: 'tj-debrief' });
-  const title = el('h2', { text: 'Mission Debrief' });
-  const outcome = el('div', { className: `tj-debrief-outcome tj-debrief-outcome-${stats.outcome}`, text: `Outcome: ${stats.outcome}` });
+const pct = (hit: number, fired: number): string => (fired > 0 ? `${Math.round((100 * hit) / fired)}%` : '—');
 
-  const statsList = el('ul', { className: 'tj-debrief-stats' });
-  const addStat = (text: string): void => {
-    statsList.appendChild(el('li', { text }));
-  };
-  addStat(`Duration: ${stats.durationSec.toFixed(0)}s`);
-  addStat(`Kills: ${stats.kills}`);
-  addStat(`Deaths: ${stats.deaths}`);
-  addStat(`Objectives: ${stats.objectivesCompleted.length}/${stats.objectivesTotal}`);
-  addStat(`Gun: ${stats.shotsHitGun}/${stats.shotsFiredGun} hits (${accuracyPct(stats.shotsHitGun, stats.shotsFiredGun)})`);
-  addStat(`Missiles: ${stats.missilesHit}/${stats.missilesFired} hits (${accuracyPct(stats.missilesHit, stats.missilesFired)})`);
+export const createDebriefScreen: CreateDebriefScreen = (container, stats, callbacks, options = {}) => {
+  const free = options.freeFlight === true;
+  const won = stats.outcome === MissionOutcome.Success;
+  const statTile = (label: string, value: string): HTMLElement => h('div', { className: 'tj-stat' }, h('span', { className: 'tj-label', text: label }), h('b', { text: value }));
+  const tiles: (HTMLElement | false)[] = [
+    statTile('Time', formatDuration(stats.durationSec)),
+    free ? false : statTile('Kills', String(stats.kills)),
+    stats.missilesFired > 0 ? statTile('Missiles hit', `${stats.missilesHit} / ${stats.missilesFired}`) : false,
+    stats.shotsFiredGun > 0 ? statTile('Gun hits', pct(stats.shotsHitGun, stats.shotsFiredGun)) : false,
+    options.newBest ? statTile('Best time', 'New') : false,
+  ];
 
-  const nav = el('div', { className: 'tj-debrief-nav' });
-  const replayBtn = actionButton('replay', 'Replay');
-  const missionSelectBtn = actionButton('mission-select', 'Mission Select');
-  const mainMenuBtn = actionButton('main-menu', 'Main Menu');
-  nav.append(replayBtn, missionSelectBtn, mainMenuBtn);
+  const objectives = free
+    ? false
+    : h('div', { className: 'tj-stack', attrs: { style: 'gap: 4px' } }, h('span', { className: 'tj-label', text: 'Objectives' }), h('span', { text: `${stats.objectivesCompleted.length} of ${stats.objectivesTotal} complete${options.objectiveText ? ` · ${options.objectiveText}` : ''}` }));
 
-  root.append(title, outcome, statsList, nav);
-
-  replayBtn.addEventListener('click', () => callbacks.onReplay());
-  missionSelectBtn.addEventListener('click', () => callbacks.onMissionSelect());
-  mainMenuBtn.addEventListener('click', () => callbacks.onMainMenu());
-
-  return mountScreen(container, root);
+  const next = won && callbacks.onNext ? button('Next mission', () => callbacks.onNext?.(), 'primary', { 'data-action': 'next' }) : false;
+  const replay = button(free ? 'Fly again' : 'Fly again', () => callbacks.onReplay(), next ? 'default' : 'primary', { 'data-action': 'replay' });
+  const panel = h(
+    'div',
+    { className: 'tj-panel', attrs: { style: 'width: min(720px, 100%)' } },
+    h('div', { className: 'tj-head' }, h('div', { className: 'tj-eyebrow', text: options.title ?? '' }), h('h1', { className: 'tj-title', text: outcomeTitle(stats, free) })),
+    h('div', { className: 'tj-stats' }, ...tiles),
+    objectives,
+    h('div', { className: 'tj-stack', attrs: { style: 'gap: 4px' } }, h('span', { className: 'tj-label', text: 'How was that flight?' }), h('span', {}, 'A couple of minutes of feedback helps a lot. ', externalLink('Give feedback', options.feedbackUrl, 'Feedback form coming soon'))),
+    h(
+      'div',
+      { className: 'tj-foot' },
+      button('Main menu', () => callbacks.onMainMenu(), 'default', { 'data-action': 'main-menu' }),
+      h('div', { className: 'tj-foot-actions' }, free ? false : button('Missions', () => callbacks.onMissionSelect(), 'default', { 'data-action': 'mission-select' }), replay, next)
+    )
+  );
+  const root = h('div', { className: 'tj-screen tj-debrief' }, panel);
+  const handle = mountScreen(container, root);
+  const release = menuKeys(root, () => callbacks.onMainMenu());
+  return { ...handle, destroy: () => { release(); handle.destroy(); } };
 };

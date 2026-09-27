@@ -212,6 +212,10 @@ export interface SettingsState {
   weatherMode?: WeatherMode;
   /** Local time of day, hours 0-24 (sun, moon, sky and night lights). Missing = 10.5. */
   timeOfDayH?: number;
+  /** Mouse flying (pointer lock) on. Absent = off. */
+  mouseEnabled?: boolean;
+  /** First-flight hints in flight. Absent = on. */
+  hintsEnabled?: boolean;
 }
 
 export interface SettingsCallbacks {
@@ -239,11 +243,24 @@ export type CreateSettingsScreen = (
 //    prompt.
 // -----------------------------------------------------------------------------
 
-export interface MainMenuCallbacks {
-  onPlay(): void;
-  onSettings(): void;
+export interface MainMenuOptions {
+  /** "Free Flight · INS Hansa" once the player has flown; absent hides Continue. */
+  continueLabel?: string;
+  missionsDone: number;
+  missionsTotal: number;
+  /** Current graphics quality, as shown to the player. */
+  qualityLabel: string;
+  /** The feedback form (src/ui/links.ts), absent while there is none. */
+  feedbackUrl?: string;
 }
-export type CreateMainMenu = (container: HTMLElement, callbacks: MainMenuCallbacks) => ScreenHandle;
+export interface MainMenuCallbacks {
+  onContinue?(): void;
+  onFreeFlight(): void;
+  onMissions(): void;
+  onSettings(): void;
+  onControls(): void;
+}
+export type CreateMainMenu = (container: HTMLElement, options: MainMenuOptions, callbacks: MainMenuCallbacks) => ScreenHandle;
 
 export interface MissionSummary {
   id: string;
@@ -271,8 +288,14 @@ export interface PauseMenuCallbacks {
   onRestart(): void;
   onQuitToMenu(): void;
   onOpenSettings(): void;
+  onControls?(): void;
 }
-export type CreatePauseMenu = (container: HTMLElement, callbacks: PauseMenuCallbacks) => ScreenHandle;
+export interface PauseMenuOptions {
+  /** e.g. the mission's name. */
+  subtitle?: string;
+  feedbackUrl?: string;
+}
+export type CreatePauseMenu = (container: HTMLElement, callbacks: PauseMenuCallbacks, options?: PauseMenuOptions) => ScreenHandle;
 
 /** MUST use the same three string values as `core.ts`'s own `MissionOutcome` (duplicated there only because `core.ts`, the root contract, cannot import this leaf contract — see `core.ts`'s matching comment). */
 export const MissionOutcome = {
@@ -313,18 +336,39 @@ export interface DebriefCallbacks {
   onReplay(): void;
   onMissionSelect(): void;
   onMainMenu(): void;
+  /** Present when there is a next mission to fly. */
+  onNext?(): void;
+}
+export interface DebriefOptions {
+  /** The mission's (or flight's) name, above the outcome. */
+  title?: string;
+  /** A Free Flight: no kills or objectives shown. */
+  freeFlight?: boolean;
+  /** This flight set the mission's best time. */
+  newBest?: boolean;
+  objectiveText?: string;
+  feedbackUrl?: string;
 }
 export type CreateDebriefScreen = (
   container: HTMLElement,
   stats: DebriefStats,
-  callbacks: DebriefCallbacks
+  callbacks: DebriefCallbacks,
+  options?: DebriefOptions
 ) => ScreenHandle;
 
 export interface LoadingScreenHandle extends ScreenHandle {
   /** `fraction` clamped internally to [0,1]. `message` is short status text, e.g. "Building terrain…". */
   setProgress(fraction: number, message?: string): void;
+  /** Loading is done: replaces the progress bar with a focused start button. */
+  setReady(label: string, onStart: () => void): void;
 }
-export type CreateLoadingScreen = (container: HTMLElement) => LoadingScreenHandle;
+export interface LoadingScreenOptions {
+  title?: string;
+  eyebrow?: string;
+  /** Keys to show while loading: [key labels, what they do]. */
+  tips?: readonly (readonly [readonly string[], string])[];
+}
+export type CreateLoadingScreen = (container: HTMLElement, options?: LoadingScreenOptions) => LoadingScreenHandle;
 
 /** The larger of screen.width/screen.height must be <= this (px, CSS pixels) for the orientation prompt's mobile heuristic to apply. See 11-ui.md §4. */
 export const MOBILE_MAX_DIMENSION_PX = 900;

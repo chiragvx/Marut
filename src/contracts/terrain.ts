@@ -1032,6 +1032,8 @@ export interface ChunkManager {
   onChunkEvicted(callback: (key: ChunkKey) => void): void;
   /** Current resident set. For debugging/HUD only — module 08's per-frame path should use the callbacks above, not poll this (this method allocates a fresh readonly array view each call). */
   getResidentChunks(): readonly ResidentChunkInfo[];
+  /** How much of what the camera currently wants is loaded: chunks resident of chunks desired (both 0 before the first update). */
+  loadProgress(): { resident: number; desired: number };
   dispose(): void;
 }
 

@@ -1,0 +1,51 @@
+{
+  "id": "border-duel",
+  "name": "Duel \u2014 Punjab border",
+  "seed": 1971,
+  "terrain": {
+    "seed": 1947,
+    "theatre": "border"
+  },
+  "airportIds": [
+    "bhisiana-afs",
+    "pafb-shahbaz"
+  ],
+  "playerStart": {
+    "airportId": "bhisiana-afs",
+    "runwayId": "13",
+    "speedMps": 0
+  },
+  "aiFlights": [
+    {
+      "id": "bandit-1",
+      "aircraftId": "tejas-mk1a",
+      "team": 1,
+      "difficulty": "rookie",
+      "startPos": {
+        "x": 6000,
+        "y": 3500,
+        "z": -6000
+      },
+      "startHeadingRad": 1.75,
+      "startSpeedMps": 220,
+      "count": 1
+    }
+  ],
+  "weather": {
+    "windWorldMps": {
+      "x": -1.5,
+      "y": 0,
+      "z": 0.5
+    },
+    "gustMps": 1,
+    "turbulence": 0.05
+  },
+  "objectives": [
+    {
+      "id": "obj-kill",
+      "kind": "destroy_all_hostiles",
+      "description": "One intruder is heading for Bathinda. Shoot it down.",
+      "params": {}
+    }
+  ]
+}

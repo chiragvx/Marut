@@ -1,3 +1,4 @@
+/// <reference types="vite/client" />
 /**
  * src/main.ts — app entry point: creates both workers, wires
  * src/render/src/hud/src/input/src/ui, drives requestAnimationFrame, resize,
@@ -28,16 +29,7 @@ import type { AirportLayout } from './contracts/airport';
 import type { CameraState, HudRenderer, SceneEnvironment, SceneRenderer } from './contracts/render';
 import type { PlayerInputSystem } from './contracts/input';
 import { RebindDeviceKind } from './contracts/input';
-import type {
-  BindableAction,
-  DebriefStats,
-  MissionSelectOptions,
-  MissionSummary,
-  OrientationPromptHandle,
-  ScreenHandle,
-  SettingsScreenHandle,
-  SettingsState,
-} from './contracts/ui';
+import type { BindableAction, DebriefStats, LoadingScreenHandle, OrientationPromptHandle, ScreenHandle, SettingsScreenHandle, SettingsState } from './contracts/ui';
 import { MissionOutcome } from './contracts/ui';
 import type { ChunkManager } from './contracts/terrain';
 import type { SnapshotEntityView } from './contracts/sim';
@@ -48,14 +40,31 @@ import { buildHudAirbases } from './hud/airbaseMarkers';
 import { createPlayerInputSystem } from './input';
 import {
   createMainMenu,
-  createMissionSelect,
   createSettingsScreen,
   createPauseMenu,
   createDebriefScreen,
   createLoadingScreen,
   mountOrientationPrompt,
   detectQualityTier,
+  createFreeFlightSetup,
+  createMissionList,
+  createBriefing,
+  createControlsScreen,
+  createDeviceNotice,
+  isTouchFirstDevice,
+  registerServiceWorker,
+  feedbackUrl,
+  keyLabel,
+  GAME_NAME,
+  DEFAULT_FREE_FLIGHT,
+  type FreeFlightSetup,
+  type MissionProgress,
+  type LoadoutSelection,
+  type ControlGroup,
 } from './ui';
+import './ui/ui.css';
+import { DEFAULT_INPUT_MAP_DATA } from './input/inputMap';
+import { BASES, MISSIONS, baseInfo, freeFlightMission, missionEntry, type BaseId } from './core/missions/catalogue';
 import { createChunkManager } from './terrain';
 import { buildCoastProfile, createHeightSampler } from './terrain';
 import { RIVER_FLOATS, packRiver } from './terrain/riverMath';
@@ -69,7 +78,7 @@ import { tejasDefinition } from './aircraft';
 import { getAircraftDefinition } from './aircraft/registry';
 import { resolveLoadout, type LoadoutFit } from './aircraft/loadout';
 import { WEAPONS } from './catalog';
-import { isBuiltinMissionId, resolveBuiltinMission } from './core/missions/index';
+import { resolveBuiltinMission, type BuiltinMissionId } from './core/missions/index';
 import { readSnapshotEntity, readSnapshotHeader } from './core/snapshotReader';
 import { buildKeyBindingsFromInputMap, isAxisRebindMiscapturePositive, targetForBindableAction } from './core/inputBindingsAdapter';
 
@@ -98,6 +107,10 @@ interface PersistedSettings {
   weatherMode?: WeatherMode;
   /** src/ui/settings.ts's "Time of day" (hours); missing = 10.5. */
   timeOfDayH?: number;
+  /** Mouse sensitivity multiplier (Settings -> Controls); missing = 1. */
+  mouseSensitivity?: number;
+  /** First-flight hints in flight (Settings -> Gameplay); missing = on. */
+  hintsEnabled?: boolean;
 }
 
 function loadPersistedSettings(): PersistedSettings | undefined {
@@ -164,7 +177,8 @@ let weatherMode: WeatherMode = 'clear';
 let timeOfDayH = 10.5;
 /** Seeds dynamic weather: a new random sequence every mission. */
 const newWeatherSeed = (): number => Math.floor(Math.random() * 4294967296) >>> 0;
-let currentDifficulty: AiDifficulty = 'veteran';
+/** First-flight hints (Settings -> Gameplay). */
+let hintsEnabled = true;
 let playerEntityId: EntityId = NO_ENTITY_ID;
 let sessionStartSimTimeSec = 0;
 let latestSimTimeSec = 0;
@@ -207,38 +221,258 @@ function destroyCurrentScreen(): void {
   currentScreen = undefined;
 }
 
+// -----------------------------------------------------------------------------
+// Menus and flights: main menu -> Free Flight setup, or Missions -> briefing; loading (the
+// flight waits, paused, for Start); flight; pause; debrief. Screen text lives in src/ui and
+// src/core/missions/catalogue.ts.
+// -----------------------------------------------------------------------------
+
+/** What the player chose to fly; replayed by Restart, Fly again and Continue. */
+type Flight = { kind: 'free'; setup: FreeFlightSetup } | { kind: 'mission'; id: BuiltinMissionId; difficulty: AiDifficulty; loadout: LoadoutSelection };
+let currentFlight: Flight | undefined;
+
+const STORAGE = {
+  freeFlight: 'tejas.freeFlight.v1',
+  progress: 'tejas.progress.v1',
+  lastFlight: 'tejas.lastFlight.v1',
+  missionPrefs: 'tejas.missionPrefs.v1',
+} as const;
+
+function loadJson<T>(key: string): T | undefined {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? (JSON.parse(raw) as T) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+function saveJson(key: string, value: unknown): void {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    // Storage unavailable or full: the choice just isn't remembered.
+  }
+}
+
+const isWeather = (w: unknown): w is WeatherMode => typeof w === 'string' && (Object.values(WeatherMode) as string[]).includes(w);
+
+/** The saved Free Flight setup, with anything unknown replaced by the default. */
+function savedFreeFlight(): FreeFlightSetup {
+  const s = loadJson<Partial<FreeFlightSetup>>(STORAGE.freeFlight) ?? {};
+  const d = DEFAULT_FREE_FLIGHT;
+  return {
+    baseId: BASES.some((b) => b.id === s.baseId) ? (s.baseId as BaseId) : d.baseId,
+    start: s.start === 'parked' || s.start === 'runway' || s.start === 'air' ? s.start : d.start,
+    timeOfDayH: typeof s.timeOfDayH === 'number' && s.timeOfDayH >= 0 && s.timeOfDayH <= 24 ? s.timeOfDayH : d.timeOfDayH,
+    weather: isWeather(s.weather) && s.weather !== 'off' ? s.weather : d.weather,
+    loadout: s.loadout && typeof s.loadout === 'object' ? s.loadout : d.loadout,
+  };
+}
+
+function savedProgress(): Record<string, MissionProgress> {
+  return loadJson<Record<string, MissionProgress>>(STORAGE.progress) ?? {};
+}
+
+function savedLastFlight(): Flight | undefined {
+  const f = loadJson<Flight>(STORAGE.lastFlight);
+  if (f?.kind === 'free' && f.setup) return { kind: 'free', setup: { ...savedFreeFlight(), ...f.setup } };
+  if (f?.kind === 'mission' && missionEntry(f.id)) return f;
+  return undefined;
+}
+
+function flightTitle(f: Flight): string {
+  return f.kind === 'free' ? `Free Flight · ${baseInfo(f.setup.baseId).name}` : (missionEntry(f.id)?.title ?? 'Mission');
+}
+
+function qualityLabel(): string {
+  const auto = (loadPersistedSettings()?.qualityTierOverride ?? 'auto') === 'auto';
+  const t = currentQualityTier ?? 'medium';
+  return `${t[0]!.toUpperCase()}${t.slice(1)}${auto ? ' (auto)' : ''}`;
+}
+
+const playerAircraft = tejasDefinition;
+
 function showMainMenu(): void {
   destroyCurrentScreen();
   appState = 'mainMenu';
-  currentScreen = createMainMenu(uiRoot, {
-    onPlay: showMissionSelect,
-    onSettings: showSettingsOverlay,
-  });
+  const last = savedLastFlight();
+  const progress = savedProgress();
+  const fb = feedbackUrl({ screen: 'menu', quality: currentQualityTier });
+  currentScreen = createMainMenu(
+    uiRoot,
+    {
+      ...(last ? { continueLabel: flightTitle(last) } : {}),
+      missionsDone: MISSIONS.filter((m) => progress[m.id]?.completed).length,
+      missionsTotal: MISSIONS.length,
+      qualityLabel: qualityLabel(),
+      ...(fb ? { feedbackUrl: fb } : {}),
+    },
+    {
+      ...(last ? { onContinue: () => launchFlight(last) } : {}),
+      onFreeFlight: showFreeFlight,
+      onMissions: showMissions,
+      onSettings: showSettingsOverlay,
+      onControls: showControlsOverlay,
+    }
+  );
 }
 
-const MISSION_SUMMARIES: readonly MissionSummary[] = [
-  { id: 'border-free', name: 'Free Flight — India-Pakistan Border', description: 'Bhisiana AFS (Bathinda) with its shelters and dispersal loops; PAF Base Shahbaz 65 km west-south-west across the border and the Indus. Bases from OpenStreetMap data (c) OpenStreetMap contributors.', aircraftLabel: 'HAL Tejas Mk1A' },
-  { id: 'border-intercept', name: 'Intercept — Aggressors from Shahbaz', description: 'Two aggressors inbound from PAF Base Shahbaz. Take off from Bhisiana and intercept them.', aircraftLabel: 'HAL Tejas Mk1A' },
-  { id: 'konkan-free', name: 'Free Flight — Goa Coast', description: 'INS Hansa, on a laterite plateau above the Zuari estuary. Beaches and headlands, three estuaries, the Western Ghats inland. Dry season. Water is not a runway.', aircraftLabel: 'HAL Tejas Mk1A' },
-  { id: 'konkan-dogfight', name: '1v1 Dogfight — Arabian Sea', description: 'One hostile Tejas off the Goa coast.', aircraftLabel: 'HAL Tejas Mk1A' },
-  { id: 'punjab-free', name: 'Free Flight — Punjab Plains', description: 'Adampur, late winter. A hazy, flat plain of wheat green with tree-lined roads and canals, villages, and the braided Sutlej and Beas in wide sandy floodplains.', aircraftLabel: 'HAL Tejas Mk1A' },
-  { id: 'punjab-dogfight', name: '1v1 Dogfight — Punjab Plains', description: 'One hostile Tejas low over the plains.', aircraftLabel: 'HAL Tejas Mk1A' },
-  { id: 'free-flight', name: 'Free Flight — Konarak Coastal', description: 'Unopposed circuit and landing practice (original test terrain).', aircraftLabel: 'HAL Tejas Mk1A' },
-  { id: 'dogfight-1v1', name: '1v1 Dogfight — Rangpur Highlands', description: 'One hostile Tejas over mountainous terrain (original test terrain).', aircraftLabel: 'HAL Tejas Mk1A' },
-];
+function showFreeFlight(): void {
+  destroyCurrentScreen();
+  appState = 'mainMenu';
+  currentScreen = createFreeFlightSetup(
+    uiRoot,
+    { bases: BASES, def: playerAircraft, setup: savedFreeFlight() },
+    {
+      onFly: (setup) => {
+        saveJson(STORAGE.freeFlight, setup);
+        launchFlight({ kind: 'free', setup });
+      },
+      onBack: showMainMenu,
+    }
+  );
+}
 
-function showMissionSelect(): void {
+function showMissions(): void {
   destroyCurrentScreen();
   appState = 'missionSelect';
-  const options: MissionSelectOptions = { missions: MISSION_SUMMARIES, defaultDifficulty: currentDifficulty };
-  currentScreen = createMissionSelect(uiRoot, options, {
-    onLaunch: (missionId, difficulty) => {
-      currentDifficulty = difficulty;
-      const mission = resolveBuiltinMission(isBuiltinMissionId(missionId) ? missionId : 'free-flight');
-      launchMission(mission);
+  currentScreen = createMissionList(uiRoot, { missions: MISSIONS, bases: BASES, progress: savedProgress() }, { onSelect: showBriefing, onBack: showMainMenu });
+}
+
+function showBriefing(id: string): void {
+  const index = MISSIONS.findIndex((m) => m.id === id);
+  const entry = MISSIONS[index];
+  if (!entry) return showMissions();
+  destroyCurrentScreen();
+  appState = 'missionSelect';
+  const prefs = loadJson<{ difficulty?: AiDifficulty; loadout?: LoadoutSelection }>(STORAGE.missionPrefs) ?? {};
+  const difficulty: AiDifficulty = prefs.difficulty === 'rookie' || prefs.difficulty === 'ace' ? prefs.difficulty : 'veteran';
+  const b = inputSystem.inputMap.data.keyboard.buttons;
+  currentScreen = createBriefing(
+    uiRoot,
+    {
+      entry,
+      base: baseInfo(entry.baseId),
+      index,
+      def: playerAircraft,
+      difficulty,
+      loadout: prefs.loadout ?? {},
+      keys: { target: keyLabel(b.cycleTarget), launch: keyLabel(b.launch), weapon: keyLabel(b.cycleWeapon), gun: keyLabel(b.trigger) },
     },
-    onBack: showMainMenu,
-  });
+    {
+      onStart: (d, loadout) => {
+        saveJson(STORAGE.missionPrefs, { difficulty: d, loadout });
+        launchFlight({ kind: 'mission', id: entry.id, difficulty: d, loadout });
+      },
+      onBack: showMissions,
+    }
+  );
+}
+
+/** The key groups for the Controls screen, from the live key map. */
+function controlGroups(): ControlGroup[] {
+  const k = inputSystem.inputMap.data.keyboard;
+  const a = k.axes;
+  const b = k.buttons;
+  const m = k.meta;
+  const L = keyLabel;
+  return [
+    {
+      title: 'Fly',
+      rows: [
+        { keys: [L(a.pitch.positive)], label: 'Nose up' },
+        { keys: [L(a.pitch.negative)], label: 'Nose down' },
+        { keys: [L(a.roll.negative), L(a.roll.positive)], label: 'Roll left / right' },
+        { keys: [L(a.yaw.negative), L(a.yaw.positive)], label: 'Rudder left / right' },
+        { keys: [L(a.throttle.positive)], label: 'Throttle up' },
+        { keys: [L(a.throttle.negative)], label: 'Throttle down' },
+        { keys: [L(b.afterburner)], label: 'Afterburner (hold)' },
+      ],
+    },
+    {
+      title: 'Fight',
+      rows: [
+        { keys: [L(b.cycleTarget)], label: 'Next target' },
+        { keys: [L(b.launch)], label: 'Fire missile (after LOCK)' },
+        { keys: [L(b.cycleWeapon)], label: 'Next weapon' },
+        { keys: [L(b.trigger)], label: 'Gun (hold)' },
+        { keys: [L(b.radarMode)], label: 'Radar mode' },
+        { keys: [L(m.radarRangeDown), L(m.radarRangeUp)], label: 'Radar range' },
+      ],
+    },
+    {
+      title: 'Aircraft',
+      rows: [
+        { keys: [L(b.gearToggle)], label: 'Landing gear' },
+        { keys: [L(b.airbrakeToggle)], label: 'Airbrake and wheel brakes' },
+        { keys: [L(b.nwsToggle)], label: 'Nosewheel steering' },
+        { keys: [L(b.jettisonTanks)], label: 'Drop tanks' },
+        { keys: [L(b.service)], label: 'Refuel and rearm (stopped on a stand)' },
+        { keys: [L(m.taxiGuide)], label: 'Taxi guidance' },
+      ],
+    },
+    {
+      title: 'Autopilot',
+      rows: [
+        { keys: [L(m.apToggle)], label: 'Autopilot on / off' },
+        { keys: [L(m.atToggle)], label: 'Autothrottle' },
+        { keys: [L(m.apHdgDown), L(m.apHdgUp)], label: 'Heading' },
+        { keys: [L(m.apAltDown), L(m.apAltUp)], label: 'Altitude' },
+        { keys: [L(m.apVsDown), L(m.apVsUp)], label: 'Climb rate' },
+        { keys: [L(m.apSpdDown), L(m.apSpdUp)], label: 'Speed' },
+      ],
+    },
+    {
+      title: 'View and menus',
+      rows: [
+        { keys: [L(m.cameraCycle)], label: 'Change camera' },
+        { keys: ['Esc'], label: 'Pause' },
+        { keys: ['F1'], label: 'This screen (in flight)' },
+      ],
+    },
+  ];
+}
+
+/** Controls, over whatever screen is showing (main menu or pause); Back returns to it. */
+function showControlsOverlay(): void {
+  const handle = createControlsScreen(uiRoot, controlGroups(), { onBack: () => handle.destroy() });
+}
+
+/** Mouse flying from the settings, into the live key map (saved with it). */
+function applyMouseSettings(enabled: boolean, sensitivity: number, invert: boolean): void {
+  const mouse = inputSystem.inputMap.data.mouse;
+  mouse.enabled = enabled;
+  mouse.sensitivityPerPx = DEFAULT_INPUT_MAP_DATA.mouse.sensitivityPerPx * sensitivity;
+  mouse.invertPitch = invert;
+  inputSystem.saveInputMap();
+}
+
+/** A preset or custom fit onto the mission's player start. */
+function withLoadout(m: Mission, sel: LoadoutSelection): Mission {
+  const { loadout: _l, loadoutId: _id, ...rest } = m.playerStart;
+  void _l;
+  void _id;
+  const playerStart = { ...rest, ...(sel.fit ? { loadout: sel.fit } : sel.presetId ? { loadoutId: sel.presetId } : {}) };
+  return { ...m, playerStart };
+}
+
+function launchFlight(flight: Flight): void {
+  currentFlight = flight;
+  saveJson(STORAGE.lastFlight, flight);
+  if (flight.kind === 'free') {
+    const s = flight.setup;
+    weatherMode = s.weather;
+    timeOfDayH = s.timeOfDayH;
+    renderer.setTimeOfDay(timeOfDayH);
+    launchMission(withLoadout(freeFlightMission(s.baseId, s.start), s.loadout), { title: flightTitle(flight), airStart: s.start === 'air' });
+    return;
+  }
+  const base = resolveBuiltinMission(flight.id);
+  weatherMode = 'clear';
+  timeOfDayH = 10.5;
+  renderer.setTimeOfDay(timeOfDayH);
+  const mission: Mission = { ...base, aiFlights: base.aiFlights.map((f) => ({ ...f, difficulty: flight.difficulty })) };
+  launchMission(withLoadout(mission, flight.loadout), { title: flightTitle(flight), airStart: false });
 }
 
 // Previously main.ts passed `keyBindings: []` and no-op rebind callbacks here, so the settings
@@ -276,17 +510,18 @@ function closeSettingsRebindState(): void {
 }
 
 function showSettingsOverlay(): void {
+  const persisted = loadPersistedSettings();
+  const mouse = inputSystem?.inputMap.data.mouse;
   const initial: SettingsState = {
-    qualityOverride: (loadPersistedSettings()?.qualityTierOverride ?? 'auto') as QualityTier | 'auto',
-    detectedTier: currentQualityTier,
+    qualityOverride: (persisted?.qualityTierOverride ?? 'auto') as QualityTier | 'auto',
+    detectedTier: persisted?.cachedAutoTier ?? currentQualityTier,
     keyBindings: inputSystem ? buildKeyBindingsFromInputMap(inputSystem.inputMap.data) : [],
-    mouseSensitivityMultiplier: 1,
-    invertPitch: false,
+    mouseSensitivityMultiplier: persisted?.mouseSensitivity ?? 1,
+    invertPitch: mouse?.invertPitch ?? false,
+    mouseEnabled: mouse?.enabled ?? false,
     speedUnit: currentSpeedUnit,
     alphaLimiterEnabled: inputSystem ? !inputSystem.isAlphaLimiterDisabled() : true,
-    weatherEnabled: weatherMode !== 'off',
-    weatherMode,
-    timeOfDayH,
+    hintsEnabled: persisted?.hintsEnabled ?? true,
   };
   const handle: SettingsScreenHandle = createSettingsScreen(uiRoot, initial, {
     onChange: (next) => {
@@ -295,29 +530,20 @@ function showSettingsOverlay(): void {
         version: 1,
         speedUnit: next.speedUnit,
         alphaLimiterEnabled: next.alphaLimiterEnabled,
-        weatherEnabled: (next.weatherMode ?? 'clear') !== 'off',
-        weatherMode: next.weatherMode ?? 'clear',
-        timeOfDayH: next.timeOfDayH ?? 10.5,
+        mouseSensitivity: next.mouseSensitivityMultiplier,
+        hintsEnabled: next.hintsEnabled ?? true,
       });
-      if (next.qualityOverride !== 'auto') {
-        currentQualityTier = next.qualityOverride;
+      const tier = next.qualityOverride === 'auto' ? (loadPersistedSettings()?.cachedAutoTier ?? currentQualityTier) : next.qualityOverride;
+      if (tier !== currentQualityTier) {
+        currentQualityTier = tier;
         renderer?.setQualityTier(currentQualityTier);
         hud?.setQualityTier(currentQualityTier);
       }
       currentSpeedUnit = next.speedUnit;
       hud?.setSpeedUnit(currentSpeedUnit);
       inputSystem?.setAlphaLimiterDisabled(!next.alphaLimiterEnabled);
-      const w = next.weatherMode ?? 'clear';
-      if (w !== weatherMode) {
-        weatherMode = w;
-        // The sky changes right away; wind and turbulence follow at the next mission start.
-        renderer?.setWeather(weatherMode, newWeatherSeed());
-      }
-      const t = next.timeOfDayH ?? 10.5;
-      if (t !== timeOfDayH) {
-        timeOfDayH = t;
-        renderer?.setTimeOfDay(timeOfDayH);
-      }
+      if (inputSystem) applyMouseSettings(next.mouseEnabled ?? false, next.mouseSensitivityMultiplier, next.invertPitch);
+      hintsEnabled = next.hintsEnabled ?? true;
     },
     onRebindStart: (action) => {
       if (!inputSystem) return;
@@ -341,8 +567,10 @@ function showSettingsOverlay(): void {
     onResetDefaults: () => {
       closeSettingsRebindState();
       if (!inputSystem) return;
+      const mouseNow = { ...inputSystem.inputMap.data.mouse };
       inputSystem.resetInputMapToDefaults();
-      inputSystem.saveInputMap();
+      // "Reset keys" resets the keys; the mouse choices stay.
+      applyMouseSettings(mouseNow.enabled, loadPersistedSettings()?.mouseSensitivity ?? 1, mouseNow.invertPitch ?? false);
       handle.destroy();
       showSettingsOverlay(); // simplest correct refresh: rebuild the whole screen from the now-reset live data
     },
@@ -365,27 +593,38 @@ function showSettingsOverlay(): void {
   }
 }
 
+function resumeFlight(): void {
+  destroyCurrentScreen();
+  appState = 'gameplay';
+  simWorker.postMessage({ type: 'command', command: { kind: 'pause', paused: false } } satisfies SimCommandMessage);
+}
+
 function showPauseMenu(): void {
+  if (appState !== 'gameplay') return;
   destroyCurrentScreen();
   appState = 'paused';
   simWorker.postMessage({ type: 'command', command: { kind: 'pause', paused: true } } satisfies SimCommandMessage);
-  currentScreen = createPauseMenu(uiRoot, {
-    onResume: () => {
-      destroyCurrentScreen();
-      appState = 'gameplay';
-      simWorker.postMessage({ type: 'command', command: { kind: 'pause', paused: false } } satisfies SimCommandMessage);
+  const fb = feedbackUrl({ screen: 'pause', ...(currentMission ? { missionId: currentMission.id } : {}), quality: currentQualityTier });
+  currentScreen = createPauseMenu(
+    uiRoot,
+    {
+      onResume: resumeFlight,
+      onRestart: () => {
+        if (currentFlight) launchFlight(currentFlight);
+        else if (currentMission) launchMission(currentMission, { title: currentMission.name, airStart: false });
+      },
+      onQuitToMenu: showMainMenu,
+      onOpenSettings: showSettingsOverlay,
+      onControls: showControlsOverlay,
     },
-    onRestart: () => {
-      if (currentMission) launchMission(currentMission);
-    },
-    onQuitToMenu: showMainMenu,
-    onOpenSettings: showSettingsOverlay,
-  });
+    { ...(currentFlight ? { subtitle: flightTitle(currentFlight) } : {}), ...(fb ? { feedbackUrl: fb } : {}) }
+  );
 }
 
 function showDebrief(ended: MissionEndedEvent): void {
   destroyCurrentScreen();
   appState = 'debrief';
+  simWorker.postMessage({ type: 'command', command: { kind: 'pause', paused: true } } satisfies SimCommandMessage);
   const stats: DebriefStats = {
     missionId: currentMission?.id ?? '',
     outcome: ended.outcome === 'success' ? MissionOutcome.Success : ended.outcome === 'failure' ? MissionOutcome.Failure : MissionOutcome.Aborted,
@@ -399,13 +638,38 @@ function showDebrief(ended: MissionEndedEvent): void {
     objectivesCompleted: ended.objectivesCompleted,
     objectivesTotal: ended.objectivesTotal,
   };
-  currentScreen = createDebriefScreen(uiRoot, stats, {
-    onReplay: () => {
-      if (currentMission) launchMission(currentMission);
+  const flight = currentFlight;
+  const entry = flight?.kind === 'mission' ? missionEntry(flight.id) : undefined;
+  let newBest = false;
+  if (entry && stats.outcome === MissionOutcome.Success) {
+    const progress = savedProgress();
+    const prev = progress[entry.id];
+    newBest = prev?.bestSec === undefined || stats.durationSec < prev.bestSec;
+    progress[entry.id] = { completed: true, bestSec: newBest ? stats.durationSec : prev!.bestSec! };
+    saveJson(STORAGE.progress, progress);
+  }
+  const nextEntry = entry ? MISSIONS[MISSIONS.indexOf(entry) + 1] : undefined;
+  const fb = feedbackUrl({ screen: 'debrief', missionId: stats.missionId, quality: currentQualityTier });
+  currentScreen = createDebriefScreen(
+    uiRoot,
+    stats,
+    {
+      onReplay: () => {
+        if (flight) launchFlight(flight);
+        else if (currentMission) launchMission(currentMission, { title: currentMission.name, airStart: false });
+      },
+      onMissionSelect: showMissions,
+      onMainMenu: showMainMenu,
+      ...(nextEntry && stats.outcome === MissionOutcome.Success ? { onNext: () => showBriefing(nextEntry.id) } : {}),
     },
-    onMissionSelect: showMissionSelect,
-    onMainMenu: showMainMenu,
-  });
+    {
+      ...(flight ? { title: flightTitle(flight) } : {}),
+      freeFlight: flight?.kind === 'free',
+      newBest,
+      ...(entry ? { objectiveText: entry.objective } : {}),
+      ...(fb ? { feedbackUrl: fb } : {}),
+    }
+  );
 }
 
 // -----------------------------------------------------------------------------
@@ -621,13 +885,50 @@ function applyWeatherSetting(mission: Mission): Mission {
   }
 }
 
-function launchMission(missionIn: Mission): void {
+/** The keys a first-time pilot needs, for the loading screen. */
+function firstKeys(): [string[], string][] {
+  const k = inputSystem.inputMap.data.keyboard;
+  return [
+    [[keyLabel(k.axes.pitch.positive), keyLabel(k.axes.pitch.negative)], 'Nose up / down'],
+    [[keyLabel(k.axes.roll.negative), keyLabel(k.axes.roll.positive)], 'Roll left / right'],
+    [[keyLabel(k.axes.throttle.positive), keyLabel(k.axes.throttle.negative)], 'Throttle up / down'],
+    [[keyLabel(k.buttons.afterburner)], 'Afterburner'],
+    [[keyLabel(k.buttons.gearToggle)], 'Landing gear'],
+    [['F1'], 'All controls'],
+  ];
+}
+
+/** A flight being loaded: waits for the terrain around the aircraft, then for Start. */
+let pendingStart: { loading: LoadingScreenHandle; simReady: boolean; t0: number; shown: boolean } | undefined;
+
+function tickPendingStart(nowMs: number): void {
+  const p = pendingStart;
+  if (!p || !p.simReady || p.shown) return;
+  const prog = chunkManager?.loadProgress() ?? { resident: 0, desired: 0 };
+  const frac = prog.desired > 0 ? prog.resident / prog.desired : 0;
+  const elapsed = nowMs - p.t0;
+  p.loading.setProgress(0.2 + 0.8 * frac, 'Loading terrain…');
+  if ((playerEntityId !== NO_ENTITY_ID && frac >= 0.9 && elapsed > 800) || elapsed > 20000) {
+    p.shown = true;
+    p.loading.setReady('Start  (Space)', () => {
+      if (pendingStart !== p) return;
+      pendingStart = undefined;
+      resumeFlight();
+    });
+  }
+}
+
+function launchMission(missionIn: Mission, opts: { title: string; airStart: boolean }): void {
   const mission = applyWeatherSetting(applyDevStart(missionIn));
   destroyCurrentScreen();
   appState = 'loading';
-  const loading = createLoadingScreen(uiRoot);
+  const loading = createLoadingScreen(uiRoot, { title: opts.title, eyebrow: 'Loading', tips: firstKeys() });
   currentScreen = loading;
   loading.setProgress(0, 'Loading mission…');
+  pendingStart = { loading, simReady: false, t0: performance.now(), shown: false };
+  // Gear lever and throttle to suit the start (the gear lever otherwise keeps the last flight's).
+  inputSystem.setGearDown(!opts.airStart);
+  inputSystem.setThrottle(opts.airStart ? 0.8 : 0);
 
   currentMission = mission;
   playerEntityId = NO_ENTITY_ID;
@@ -689,15 +990,18 @@ function launchMission(missionIn: Mission): void {
   hud.setAirbases(buildHudAirbases(mission.world.airports as readonly AirportLayout[]));
   lastPlayer.valid = false;
 
-  loading.setProgress(0.5, 'Starting simulation…');
-  simWorker.postMessage({ type: 'init', mission, qualityTier: currentQualityTier } satisfies SimInitMessage);
+  loading.setProgress(0.1, 'Starting simulation…');
+  // The flight is held until Start; one snapshot still arrives so terrain streams around the aircraft.
+  simWorker.postMessage({ type: 'init', mission, qualityTier: currentQualityTier, startPaused: true } satisfies SimInitMessage);
 
+  const starting = pendingStart;
   const onReady = (e: MessageEvent<SimToMainMessage>): void => {
     if (e.data.type === 'ready') {
       simWorker.removeEventListener('message', onReady as EventListener);
-      loading.setProgress(1, 'Ready');
-      destroyCurrentScreen();
-      appState = 'gameplay';
+      if (pendingStart === starting && starting) {
+        starting.simReady = true;
+        starting.t0 = performance.now();
+      }
     }
   };
   simWorker.addEventListener('message', onReady as EventListener);
@@ -745,9 +1049,36 @@ async function boot(): Promise<void> {
   // after initial load; without this call the render/HUD canvases stay at
   // the HTML5 default backing-store size (300x150) for the whole session.
   onResize();
+  applyMouseSettings(inputSystem.inputMap.data.mouse.enabled, persisted?.mouseSensitivity ?? 1, inputSystem.inputMap.data.mouse.invertPitch ?? false);
+  hintsEnabled = persisted?.hintsEnabled ?? true;
+  document.title = GAME_NAME;
+  // Offline play and install: production builds only (a cached dev server would serve stale code).
+  if (import.meta.env.PROD) void registerServiceWorker('./service-worker.js');
   loading.setProgress(1, 'Ready');
   destroyCurrentScreen();
-  showMainMenu();
+  if (isTouchFirstDevice() && sessionStorageGet('tejas.deviceNotice') === null) {
+    currentScreen = createDeviceNotice(uiRoot, {
+      onContinue: () => {
+        sessionStorageSet('tejas.deviceNotice', '1');
+        showMainMenu();
+      },
+    });
+  } else showMainMenu();
+}
+
+function sessionStorageGet(key: string): string | null {
+  try {
+    return sessionStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+function sessionStorageSet(key: string, value: string): void {
+  try {
+    sessionStorage.setItem(key, value);
+  } catch {
+    // ignored
+  }
 }
 
 // -----------------------------------------------------------------------------
@@ -779,6 +1110,7 @@ function frame(nowMs: number): void {
     inputSystem.update(undefined as never, dtSec, pilotInputsScratch);
     simWorker.postMessage({ type: 'input', entityId: playerEntityId, inputs: pilotInputsScratch } as const);
   }
+  tickPendingStart(nowMs);
   if (renderer && hud) {
     const camera: CameraState = renderer.renderFrame(nowMs);
     hud.renderFrame(nowMs, camera);
@@ -797,8 +1129,14 @@ function onResize(): void {
 function wireGlobalListeners(): void {
   window.addEventListener('resize', onResize);
   document.addEventListener('visibilitychange', () => {
-    const paused = document.visibilityState === 'hidden';
-    simWorker.postMessage({ type: 'command', command: { kind: 'pause', paused } } satisfies SimCommandMessage);
+    // Leaving the tab in flight opens the pause menu (the flight then waits for Resume).
+    if (document.visibilityState === 'hidden' && appState === 'gameplay') showPauseMenu();
+  });
+  window.addEventListener('keydown', (e: KeyboardEvent) => {
+    if (e.code !== 'F1') return;
+    e.preventDefault(); // the browser's help page
+    if (appState === 'gameplay') showPauseMenu();
+    if (appState === 'paused') showControlsOverlay();
   });
 }
 
@@ -823,11 +1161,7 @@ function wireMetaActionsOnce(): void {
   inputSystem.onMetaAction((action, repeat) => {
     if (action === 'menuToggle') {
       if (appState === 'gameplay') showPauseMenu();
-      else if (appState === 'paused') {
-        destroyCurrentScreen();
-        appState = 'gameplay';
-        simWorker.postMessage({ type: 'command', command: { kind: 'pause', paused: false } } satisfies SimCommandMessage);
-      }
+      else if (appState === 'paused') resumeFlight();
     } else if (action === 'taxiGuide' && appState === 'gameplay') {
       toggleTaxiGuide();
     } else if ((action === 'radarRangeUp' || action === 'radarRangeDown') && appState === 'gameplay') {

@@ -1,0 +1,210 @@
+/*
+ * src/ui/ui.css — the game's menu and overlay styles, WIREFRAME stage.
+ *
+ * Deliberately plain grey: this build exists to prove the flows work before a visual style is
+ * chosen. Every colour, size and radius is a token below, so the brand pass changes the tokens,
+ * not the screens. Class names are tj-* (the screens in src/ui build them with src/ui/kit.ts).
+ */
+
+:root {
+  --tj-font: system-ui, "Segoe UI", Roboto, sans-serif;
+  --tj-mono: ui-monospace, "Cascadia Mono", Consolas, monospace;
+
+  --tj-backdrop: rgba(12, 15, 18, 0.62);
+  --tj-panel: #e8ebed;
+  --tj-panel-2: #dadfe2;
+  --tj-panel-3: #cbd1d5;
+  --tj-ink: #1b2024;
+  --tj-muted: #59636b;
+  --tj-line: #a9b2b8;
+  --tj-primary: #2b3237;
+  --tj-primary-ink: #f2f4f5;
+  --tj-focus: #0b0d0f;
+  --tj-danger: #7c2b23;
+  --tj-ok: #2f5f3f;
+
+  --tj-radius: 4px;
+  --tj-gap: 12px;
+  --tj-pad: 24px;
+  --tj-title: 30px;
+  --tj-text: 15px;
+  --tj-small: 13px;
+
+  /* In-flight overlays sit over the 3D view and HUD. */
+  --tj-overlay-bg: rgba(12, 15, 18, 0.6);
+  --tj-overlay-ink: #eef1f3;
+}
+
+#ui-root { font: 400 var(--tj-text)/1.45 var(--tj-font); color: var(--tj-ink); pointer-events: none; }
+#ui-root > * { pointer-events: auto; }
+#ui-root > .tj-passive, #ui-root > .tj-orientation-prompt { pointer-events: none; }
+
+.tj-hidden { display: none !important; }
+
+/* ---- Screens ---------------------------------------------------------------------------- */
+
+.tj-screen {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: var(--tj-backdrop);
+  padding: 16px;
+  overflow: auto;
+}
+.tj-screen.tj-screen--clear { background: transparent; }
+
+.tj-panel {
+  width: min(1040px, 100%);
+  max-height: 100%;
+  overflow: auto;
+  background: var(--tj-panel);
+  border: 1px solid var(--tj-line);
+  border-radius: var(--tj-radius);
+  padding: var(--tj-pad);
+  display: grid;
+  gap: 18px;
+  align-content: start;
+}
+.tj-panel--narrow { width: min(560px, 100%); }
+
+.tj-head { display: grid; gap: 4px; }
+.tj-eyebrow { font: 500 11px/1.2 var(--tj-mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--tj-muted); }
+.tj-title { font-size: var(--tj-title); font-weight: 700; line-height: 1.1; margin: 0; }
+.tj-sub { color: var(--tj-muted); margin: 0; max-width: 70ch; }
+
+.tj-body { display: grid; gap: 16px; }
+.tj-foot { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; border-top: 1px solid var(--tj-line); padding-top: 14px; }
+.tj-foot-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-left: auto; }
+.tj-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 20px; align-items: start; }
+.tj-stack { display: grid; gap: 10px; align-content: start; }
+.tj-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.tj-note { font-size: var(--tj-small); color: var(--tj-muted); margin: 0; }
+.tj-label { font: 500 11px/1.2 var(--tj-mono); letter-spacing: 0.07em; text-transform: uppercase; color: var(--tj-muted); }
+
+/* ---- Buttons ---------------------------------------------------------------------------- */
+
+.tj-btn {
+  font: inherit;
+  color: var(--tj-ink);
+  background: var(--tj-panel);
+  border: 1px solid var(--tj-line);
+  border-radius: var(--tj-radius);
+  padding: 9px 16px;
+  cursor: pointer;
+  text-align: center;
+}
+.tj-btn:hover { background: var(--tj-panel-2); }
+.tj-btn:disabled { opacity: 0.5; cursor: default; }
+.tj-btn--primary { background: var(--tj-primary); color: var(--tj-primary-ink); border-color: var(--tj-primary); font-weight: 600; }
+.tj-btn--primary:hover { background: var(--tj-ink); }
+.tj-btn--danger { border-color: var(--tj-danger); color: var(--tj-danger); }
+.tj-btn--quiet { background: transparent; border-color: transparent; text-decoration: underline; padding-inline: 6px; }
+.tj-btn--block { display: flex; justify-content: space-between; align-items: center; width: 100%; text-align: left; padding: 12px 16px; font-size: 16px; }
+.tj-btn--big { padding: 14px 18px; font-size: 17px; }
+
+a.tj-link { color: var(--tj-ink); }
+.tj-link--off { color: var(--tj-muted); text-decoration: none; cursor: default; }
+
+:where(#ui-root) :focus-visible { outline: 3px solid var(--tj-focus); outline-offset: 2px; }
+
+/* Main menu list */
+.tj-menu { display: grid; gap: 8px; width: min(420px, 100%); }
+
+/* ---- Cards (selectable) ----------------------------------------------------------------- */
+
+.tj-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; }
+.tj-card {
+  font: inherit; color: inherit; text-align: left; cursor: pointer;
+  background: var(--tj-panel);
+  border: 1px solid var(--tj-line);
+  border-radius: var(--tj-radius);
+  padding: 14px 16px;
+  display: grid; gap: 6px; align-content: start;
+}
+.tj-card:hover { background: var(--tj-panel-2); }
+.tj-card[aria-pressed="true"], .tj-card[aria-checked="true"] { border: 2px solid var(--tj-ink); padding: 13px 15px; background: var(--tj-panel-2); }
+.tj-card-title { font-weight: 700; font-size: 17px; display: flex; justify-content: space-between; gap: 8px; }
+.tj-card-meta { font-size: var(--tj-small); color: var(--tj-muted); }
+.tj-badge { font: 500 11px/1 var(--tj-mono); text-transform: uppercase; letter-spacing: 0.06em; border: 1px solid var(--tj-line); border-radius: 999px; padding: 4px 7px; white-space: nowrap; align-self: start; }
+.tj-badge--ok { border-color: var(--tj-ok); color: var(--tj-ok); }
+
+/* ---- Form controls ---------------------------------------------------------------------- */
+
+.tj-field { display: grid; gap: 6px; }
+.tj-field-row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; padding-block: 8px; border-bottom: 1px solid var(--tj-panel-3); }
+.tj-seg { display: inline-flex; flex-wrap: wrap; border: 1px solid var(--tj-line); border-radius: var(--tj-radius); overflow: hidden; }
+.tj-seg button {
+  font: inherit; color: var(--tj-ink); background: var(--tj-panel); border: 0; border-right: 1px solid var(--tj-line);
+  padding: 7px 12px; cursor: pointer;
+}
+.tj-seg button:last-child { border-right: 0; }
+.tj-seg button[aria-checked="true"] { background: var(--tj-primary); color: var(--tj-primary-ink); font-weight: 600; }
+.tj-select, .tj-range { font: inherit; color: var(--tj-ink); }
+.tj-select { background: var(--tj-panel); border: 1px solid var(--tj-line); border-radius: var(--tj-radius); padding: 7px 8px; min-width: 0; max-width: 100%; }
+.tj-range { width: min(260px, 100%); accent-color: var(--tj-primary); }
+.tj-check { display: inline-flex; gap: 8px; align-items: center; cursor: pointer; }
+.tj-check input { width: 18px; height: 18px; accent-color: var(--tj-primary); }
+.tj-value { font: 500 14px/1 var(--tj-mono); min-width: 5ch; }
+
+/* Tabs */
+.tj-tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--tj-line); }
+.tj-tab { font: inherit; background: transparent; color: var(--tj-muted); border: 1px solid transparent; border-bottom: 0; border-radius: var(--tj-radius) var(--tj-radius) 0 0; padding: 8px 14px; cursor: pointer; margin-bottom: -1px; }
+.tj-tab[aria-selected="true"] { background: var(--tj-panel); color: var(--tj-ink); border-color: var(--tj-line); font-weight: 600; }
+
+/* Key caps and key lists */
+.tj-key { font: 500 12px/1 var(--tj-mono); border: 1px solid var(--tj-line); border-bottom-width: 2px; border-radius: 3px; padding: 3px 6px; background: var(--tj-panel); white-space: nowrap; }
+.tj-keylist { display: grid; gap: 6px; }
+.tj-keyrow { display: flex; justify-content: space-between; gap: 12px; align-items: center; }
+.tj-keygroups { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 18px; }
+.tj-keygroup h3 { margin: 0 0 8px; font-size: 16px; }
+
+/* Settings bindings table */
+.tj-settings-binding-row { display: grid; grid-template-columns: 1fr auto auto; gap: 10px; align-items: center; padding-block: 5px; border-bottom: 1px solid var(--tj-panel-3); }
+.tj-settings-binding-capturing .tj-settings-binding-code { font-style: italic; }
+
+/* Stats */
+.tj-stats { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 10px; }
+.tj-stat { background: var(--tj-panel-2); border-radius: var(--tj-radius); padding: 10px 12px; display: grid; gap: 2px; }
+.tj-stat b { font-size: 22px; font-variant-numeric: tabular-nums; }
+
+/* Confirm strip inside a menu */
+.tj-confirm { background: var(--tj-panel-2); border: 1px solid var(--tj-line); border-radius: var(--tj-radius); padding: 14px 16px; display: grid; gap: 10px; }
+
+/* Progress */
+.tj-progress { height: 8px; background: var(--tj-panel-3); border-radius: 4px; overflow: hidden; }
+.tj-progress > div { height: 100%; background: var(--tj-primary); width: 0; transition: width 0.2s linear; }
+
+/* ---- Loadout editor --------------------------------------------------------------------- */
+
+.tj-pylons { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 8px; }
+.tj-pylon { display: grid; gap: 6px; align-content: start; background: var(--tj-panel-2); border-radius: var(--tj-radius); padding: 10px 8px; }
+.tj-pylon .tj-select { width: 100%; }
+.tj-pylon--centre { background: var(--tj-panel-3); }
+.tj-planform { font: 12px/1.3 var(--tj-mono); color: var(--tj-muted); text-align: center; border: 1px dashed var(--tj-line); border-radius: var(--tj-radius); padding: 10px; }
+@media (max-width: 760px) { .tj-pylons { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+/* ---- In-flight overlays (never take pointer input) -------------------------------------- */
+
+.tj-flight { position: absolute; inset: 0; pointer-events: none; }
+.tj-objective {
+  position: absolute; left: 16px; top: 64px; max-width: 280px;
+  background: var(--tj-overlay-bg); color: var(--tj-overlay-ink);
+  border-radius: var(--tj-radius); padding: 8px 12px; font-size: 14px; display: grid; gap: 2px;
+}
+.tj-objective .tj-label { color: var(--tj-overlay-ink); opacity: 0.75; }
+.tj-toasts { position: absolute; right: 16px; top: 64px; display: grid; gap: 6px; justify-items: end; }
+.tj-toast { background: var(--tj-overlay-bg); color: var(--tj-overlay-ink); border-radius: var(--tj-radius); padding: 7px 12px; font-size: 14px; }
+.tj-toast--warn { outline: 1px solid #e0a640; }
+.tj-hint {
+  position: absolute; left: 50%; bottom: 22%; transform: translateX(-50%);
+  background: var(--tj-overlay-bg); color: var(--tj-overlay-ink);
+  border-radius: var(--tj-radius); padding: 10px 16px; font-size: 15px; max-width: min(520px, 90vw); text-align: center;
+}
+.tj-hint .tj-key { background: transparent; color: var(--tj-overlay-ink); }
+
+/* ---- Orientation prompt (phones in portrait) -------------------------------------------- */
+
+.tj-orientation-prompt { position: absolute; inset: auto 0 0 0; padding: 12px 16px; text-align: center; background: var(--tj-overlay-bg); color: var(--tj-overlay-ink); pointer-events: none; }
+
+@media (prefers-reduced-motion: reduce) { .tj-progress > div { transition: none; } }

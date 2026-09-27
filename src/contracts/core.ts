@@ -1103,6 +1103,8 @@ export interface SimInitMessage {
   type: 'init';
   mission: Mission;
   qualityTier: QualityTier;
+  /** Load the mission but hold the clock (one snapshot is still sent so the scene can be drawn and terrain streamed); a 'pause' false command starts it. */
+  startPaused?: boolean;
 }
 export interface SimInputMessage {
   type: 'input';
