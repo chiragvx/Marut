@@ -10,7 +10,7 @@
     <script type="module" src="/src/site/landing.ts"></script>
   </head>
   <body class="site">
-    <!-- WIREFRAME: layout and words only. Grey boxes mark where footage, renders and maps go. -->
+    <!-- Images are captures from the game (src/site/media). Wireframe styling until the brand pass. -->
     <header class="site-nav">
       <a class="site-brand" href="./" data-site="name">Marut</a>
       <nav aria-label="Sections">
@@ -36,7 +36,7 @@
           <p class="site-desktop-note tj-hidden" data-site="desktop-note">Best on a desktop with a keyboard. <a href="./play/">Try anyway</a></p>
           <p class="tj-note">Desktop · keyboard · Chrome, Edge or Firefox</p>
         </div>
-        <div class="site-media" role="img" aria-label="Gameplay footage">Gameplay loop (muted video)</div>
+        <img class="site-shot" src="/src/site/media/hero.webp" alt="A Tejas Mk1A with missiles and drop tanks flying over the fields of Punjab" width="1600" height="900" fetchpriority="high" />
       </section>
 
       <section id="modes" class="site-section">
@@ -45,20 +45,20 @@
           <a class="site-card" href="./play/#free">
             <span class="tj-label">Mode</span>
             <h3>Free Flight</h3>
-            <p>Start parked, on the runway or in the air. Pick the time of day, the weather and what hangs under the wings, then fly for as long as you like.</p>
-            <div class="site-media site-media--small">Screenshot</div>
+            <p>Start in a hardened shelter, on the runway or in the air. Pick the time of day, the weather and what hangs under the wings, then fly for as long as you like.</p>
+            <img class="site-shot" src="/src/site/media/free-flight.webp" alt="A Tejas taxiing head-on towards the camera at Bathinda, taxi light on" width="960" height="540" loading="lazy" decoding="async" />
           </a>
           <a class="site-card" href="./play/#missions">
             <span class="tj-label">Mode</span>
             <h3>Missions</h3>
-            <p>Air-to-air: find the enemy on radar, lock on and shoot it down. Three missions to start, from a single duel over the sea to a two-ship intercept.</p>
-            <div class="site-media site-media--small">Screenshot</div>
+            <p>Air-to-air: find the enemy on radar, lock on and shoot it down. Three missions: a one-on-one over the Punjab border, a scramble from the shelters against two bandits, and a duel off the Goa coast.</p>
+            <img class="site-shot" src="/src/site/media/missions.webp" alt="Chase view of a Tejas over Punjab with the head-up display" width="960" height="540" loading="lazy" decoding="async" />
           </a>
         </div>
       </section>
 
       <section id="aircraft" class="site-section site-grid-2">
-        <div class="site-media">Tejas Mk1A render</div>
+        <img class="site-shot" src="/src/site/media/aircraft.webp" alt="Side view of the Tejas Mk1A on the taxiway at sunset, carrying ASRAAM and Astra missiles and drop tanks" width="1120" height="700" loading="lazy" decoding="async" />
         <div>
           <span class="tj-label">The aircraft</span>
           <h2>HAL Tejas Mk1A</h2>
@@ -69,7 +69,24 @@
             <dt>Engine</dt><dd>GE F404-IN20, 84 kN with afterburner</dd>
             <dt>Weapons in the game</dt><dd>ASRAAM, R-73, Derby, Astra Mk1, 23 mm gun</dd>
             <dt>Loadouts</dt><dd>Choose what goes on each of the seven pylons, including drop tanks</dd>
+            <dt>Lights</dt><dd>Navigation lights, strobes, landing and taxi light, formation lights</dd>
+            <dt>Views</dt><dd>Cockpit, chase with free look, orbit and fly-by</dd>
           </dl>
+        </div>
+      </section>
+
+      <section id="day-night" class="site-section">
+        <h2>Dawn to dusk, and after dark</h2>
+        <p>Set the clock to any hour. Runways, taxiways and towns light up after dark, and the Tejas carries working lights: press L to step through them.</p>
+        <div class="site-grid-2">
+          <figure class="site-figure">
+            <img class="site-shot" src="/src/site/media/approach.webp" alt="A Tejas touching down at the aiming point on the Bathinda runway in the evening" width="960" height="540" loading="lazy" decoding="async" />
+            <figcaption>Golden hour: touchdown at Bathinda.</figcaption>
+          </figure>
+          <figure class="site-figure">
+            <img class="site-shot" src="/src/site/media/night.webp" alt="A Tejas lifting off at night on afterburner between the runway edge lights" width="960" height="540" loading="lazy" decoding="async" />
+            <figcaption>Nightfall: an afterburner take-off between the runway lights.</figcaption>
+          </figure>
         </div>
       </section>
 
@@ -77,14 +94,14 @@
         <h2>Where you fly</h2>
         <div class="site-grid-2">
           <div class="site-card">
+            <img class="site-shot" src="/src/site/media/bathinda.webp" alt="Bhisiana Air Force Station from the air: the runway, taxiways and hardened shelters on the Punjab plains" width="960" height="540" loading="lazy" decoding="async" />
             <h3>Bhisiana AFS, Bathinda</h3>
-            <p>The Punjab plains near the border, with hardened aircraft shelters.</p>
-            <div class="site-media site-media--small">Map</div>
+            <p>The main base: the Punjab plains near the border, with hardened aircraft shelters, a lit runway and taxi guidance to it.</p>
           </div>
           <div class="site-card">
-            <h3>INS Hansa, Goa</h3>
-            <p>Coast, estuaries and headlands, with the Western Ghats inland. Not fully tested yet: expect some bugs.</p>
-            <div class="site-media site-media--small">Map</div>
+            <img class="site-shot" src="/src/site/media/hansa.webp" alt="INS Hansa from the air: the runway on its plateau, with the Zuari estuary and the Arabian Sea beyond" width="960" height="540" loading="lazy" decoding="async" />
+            <h3>INS Hansa, Goa <span class="tj-badge tj-badge--warn">Not fully tested</span></h3>
+            <p>Coast, estuaries and headlands, with the Western Ghats inland. Still being tested: you may run into bugs here.</p>
           </div>
         </div>
       </section>
@@ -99,6 +116,9 @@
             <div class="tj-keyrow"><span>Afterburner</span><span class="tj-key">Shift</span></div>
             <div class="tj-keyrow"><span>Next target, fire missile</span><span><span class="tj-key">T</span> <span class="tj-key">Enter</span></span></div>
             <div class="tj-keyrow"><span>Gun, landing gear</span><span><span class="tj-key">Space</span> <span class="tj-key">G</span></span></div>
+            <div class="tj-keyrow"><span>Airbrake and wheel brakes</span><span class="tj-key">B</span></div>
+            <div class="tj-keyrow"><span>Lights, change view</span><span><span class="tj-key">L</span> <span class="tj-key">V</span></span></div>
+            <div class="tj-keyrow"><span>Look around</span><span>Right-drag or <span class="tj-key">←</span> <span class="tj-key">↑</span> <span class="tj-key">↓</span> <span class="tj-key">→</span></span></div>
             <div class="tj-keyrow"><span>Pause, all controls</span><span><span class="tj-key">Esc</span> <span class="tj-key">F1</span></span></div>
           </div>
         </div>
