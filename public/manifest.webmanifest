@@ -1,6 +1,6 @@
 {
-  "name": "[Game name]",
-  "short_name": "[Game name]",
+  "name": "Marut",
+  "short_name": "Marut",
   "description": "Combat flight over India, in your browser.",
   "start_url": "./play/",
   "scope": "./",

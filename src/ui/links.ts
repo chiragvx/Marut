@@ -2,11 +2,11 @@
  * src/ui/links.ts — the game's name, version and outside links, in one place for the game and the
  * landing page.
  *
- * GAME_NAME is a placeholder until the brand is chosen. FEEDBACK_URL is the third-party feedback
- * form: empty until the form exists, and every feedback link then reads "coming soon".
+ * FEEDBACK_URL is the third-party feedback form: empty until the form exists, and every feedback
+ * link then reads "coming soon".
  */
 
-export const GAME_NAME = '[Game name]';
+export const GAME_NAME = 'Marut';
 export const GAME_VERSION = '0.1.0-wireframe';
 export const FEEDBACK_URL = '';
 
