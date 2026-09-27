@@ -62,10 +62,13 @@ const VS = /* glsl */ `
   varying vec4 vSurf;
   varying vec4 vExtra;
   varying vec3 vWorld;
+  attribute vec2 aLocal;
+  varying vec2 vLocal;
   void main() {
     vSurf = aSurf;
     vExtra = aExtra;
     vWorld = position;
+    vLocal = aLocal;
     gl_Position = projectionMatrix * modelViewMatrix * vec4(atmCurve(position), 1.0);
   }
 `;
@@ -84,6 +87,9 @@ const FS = /* glsl */ `
   varying vec4 vSurf;
   varying vec4 vExtra;
   varying vec3 vWorld;
+  // Position relative to the airbase (pavementGeometry.ts): textures and noise are looked up with
+  // this, never with vWorld (tens of km: float32 rounding made the texture swim as the view moved).
+  varying vec2 vLocal;
 
   float hash12(vec2 p) {
     vec3 p3 = fract(vec3(p.xyx) * 0.1031);
@@ -206,13 +212,13 @@ const FS = /* glsl */ `
     float pwMax = max(pw.x, pw.y);
     vec2 pdx = dFdx(p);
     vec2 pdy = dFdy(p);
-    float px = length(fwidth(vWorld.xz));
+    float px = length(fwidth(vLocal));
     // Fine noise fades to its mean once a pixel covers several of its cells (it would shimmer).
     float fine = 1.0 - smoothstep(0.4, 1.5, px);
-    vec3 asphalt = vec3(0.21, 0.21, 0.22) * mix(vec3(1.0), detailAt(vWorld.xz, 3.0, 6.0, px), 0.7);
-    vec3 concrete = vec3(0.58, 0.57, 0.54) * mix(vec3(1.0), detailAt(vWorld.xz, 3.0, 9.0, px), 0.35);
+    vec3 asphalt = vec3(0.21, 0.21, 0.22) * mix(vec3(1.0), detailAt(vLocal, 3.0, 6.0, px), 0.7);
+    vec3 concrete = vec3(0.58, 0.57, 0.54) * mix(vec3(1.0), detailAt(vLocal, 3.0, 9.0, px), 0.35);
     // Big, soft stains so large slabs of concrete never read as flat.
-    concrete *= 0.9 + 0.2 * vnoise(vWorld.xz / 23.0) - 0.08 * mix(0.5, vnoise(vWorld.xz / 7.0 + 3.0), 1.0 - smoothstep(1.0, 3.5, px));
+    concrete *= 0.9 + 0.2 * vnoise(vLocal / 23.0) - 0.08 * mix(0.5, vnoise(vLocal / 7.0 + 3.0), 1.0 - smoothstep(1.0, 3.5, px));
     vec3 white = vec3(0.9, 0.9, 0.88);
     vec3 yellow = vec3(0.86, 0.68, 0.16);
     vec3 col;
@@ -221,8 +227,8 @@ const FS = /* glsl */ `
       float len = vExtra.x;
       float width = vExtra.y;
       float hw = width * 0.5;
-      col = asphalt * (0.95 + 0.1 * vnoise(vWorld.xz / 40.0));
-      col *= 1.0 - 0.45 * max(rubber(p, hw), rubber(vec2(len - p.x, -p.y), hw)) * (0.7 + 0.3 * mix(0.5, vnoise(vWorld.xz / 3.0), fine));
+      col = asphalt * (0.95 + 0.1 * vnoise(vLocal / 40.0));
+      col *= 1.0 - 0.45 * max(rubber(p, hw), rubber(vec2(len - p.x, -p.y), hw)) * (0.7 + 0.3 * mix(0.5, vnoise(vLocal / 3.0), fine));
       // The paint: one sample up close; four inside the pixel once it spans more than ~20 cm, and
       // the average cover beyond a few metres, so distant markings hold still as the view moves.
       float m;
@@ -237,7 +243,7 @@ const FS = /* glsl */ `
         m = mix(m, runwayPaintAvg(p, len, width, pw), smoothstep(1.5, 4.0, pwMax));
       }
       // Worn paint: the asphalt's own fine grain shows through a little.
-      col = mix(col, white * mix(vec3(1.0), detailAt(vWorld.xz, 3.0, 4.0, px), 0.3), m);
+      col = mix(col, white * mix(vec3(1.0), detailAt(vLocal, 3.0, 4.0, px), 0.3), m);
     } else if (kind == 3) {
       col = concrete;
       // Slab joints across and along the lanes.
@@ -308,7 +314,7 @@ const FS = /* glsl */ `
       vec2 g = fract(p / 5.0) * 5.0;
       float j = max(span(g.x, 0.0, 0.08, pw.x), span(g.y, 0.0, 0.08, pw.y));
       col *= 1.0 - 0.2 * j * (1.0 - smoothstep(0.05, 0.3, pwMax));
-      col *= 1.0 - 0.12 * mix(0.2, smoothstep(0.55, 0.8, vnoise(vWorld.xz / 9.0)), 1.0 - smoothstep(1.5, 4.5, px)); // oil stains
+      col *= 1.0 - 0.12 * mix(0.2, smoothstep(0.55, 0.8, vnoise(vLocal / 9.0)), 1.0 - smoothstep(1.5, 4.5, px)); // oil stains
     }
 
     // Wet in rain: darker, with a little sky sheen.
@@ -350,9 +356,12 @@ export function createAirfieldPavement(root: THREE.Object3D): AirfieldPavement {
     side: THREE.DoubleSide,
     transparent: true,
     depthWrite: false,
+    // Pulled towards the camera in depth so the flat ground 4 cm below never wins: -2/-6 left it
+    // fighting the terrain at grazing angles a few hundred metres away (whole pieces of runway
+    // flickered as the camera moved). The slope term does the work there.
     polygonOffset: true,
-    polygonOffsetFactor: -2,
-    polygonOffsetUnits: -6,
+    polygonOffsetFactor: -4,
+    polygonOffsetUnits: -8,
   });
   let mesh: THREE.Mesh | undefined;
 
@@ -375,14 +384,18 @@ export function createAirfieldPavement(root: THREE.Object3D): AirfieldPavement {
       if (!g || g.indices.length === 0) return;
       const geom = new THREE.BufferGeometry();
       geom.setAttribute('position', new THREE.BufferAttribute(g.positions, 3));
+      geom.setAttribute('aLocal', new THREE.BufferAttribute(g.local, 2));
       geom.setAttribute('aSurf', new THREE.BufferAttribute(g.surf, 4));
       geom.setAttribute('aExtra', new THREE.BufferAttribute(g.extra, 4));
       geom.setIndex(new THREE.BufferAttribute(g.indices, 1));
       geom.computeBoundingSphere();
       mesh = new THREE.Mesh(geom, mat);
       mesh.matrixAutoUpdate = false;
-      // Just after the terrain, before road decals and tree shadows.
-      mesh.renderOrder = 0;
+      // After the terrain (0), before road decals (1) and tree shadows (2). It must be strictly
+      // after: the pavement writes no depth, so a terrain chunk sorted after it (same renderOrder:
+      // three.js then sorts by material and distance, which change as chunks stream and the camera
+      // moves) painted over whole pieces of runway and taxiway, flickering from frame to frame.
+      mesh.renderOrder = 0.5;
       group.add(mesh);
     },
     updateOrigin(origin) {

@@ -15,6 +15,9 @@
  *      blast pad:   u, v in the nearest runway's frame (u < 0 before its first threshold, > length beyond)
  *      shelter pad: u = metres out from the door (negative inside), v = across
  *      apron:       u = world x, v = world z (slab joints)
+ *  - local: world x, z relative to the airbase's reference point (rounded to 100 m), for the shader's
+ *    textures and noise: full world coordinates (tens of km) lose too much precision in float32 on
+ *    the GPU, and the texture swims as the camera moves.
  *  - extra: runway (length, width, designator code of the first end, of the other end); taxiway
  *    (direction x, z of the centreline, 0, 0); shelter pad (stand number, metres inside the door the
  *    aircraft parks, 0, 0);
@@ -35,6 +38,8 @@ export const PavementKind = {
 
 export interface PavementGeometry {
   positions: Float32Array;
+  /** x, z relative to the vertex's airbase (see above). */
+  local: Float32Array;
   surf: Float32Array;
   extra: Float32Array;
   indices: Uint32Array;
@@ -163,11 +168,15 @@ export function triangulate(pts: readonly [number, number][]): number[] {
 
 export function buildPavementGeometry(layouts: readonly AirportLayout[]): PavementGeometry {
   const pos: number[] = [];
+  const local: number[] = [];
+  let anchorX = 0;
+  let anchorZ = 0;
   const surf: number[] = [];
   const extra: number[] = [];
   const index: number[] = [];
   const vert = (x: number, y: number, z: number, kind: number, u: number, v: number, p: number, e0 = 0, e1 = 0, e2 = 0, e3 = 0): number => {
     pos.push(x, y, z);
+    local.push(x - anchorX, z - anchorZ);
     surf.push(kind, u, v, p);
     extra.push(e0, e1, e2, e3);
     return pos.length / 3 - 1;
@@ -175,6 +184,8 @@ export function buildPavementGeometry(layouts: readonly AirportLayout[]): Paveme
 
   for (const L of layouts) {
     const y = L.elevationM + LIFT_M;
+    anchorX = Math.round(L.referenceWorldX / 100) * 100;
+    anchorZ = Math.round(L.referenceWorldZ / 100) * 100;
     // One entry per physical runway (the direction with the lower designator; one-way strips too).
     const runways: RunwayDef[] = [];
     for (const r of L.runways) {
@@ -374,6 +385,7 @@ export function buildPavementGeometry(layouts: readonly AirportLayout[]): Paveme
   }
   return {
     positions: Float32Array.from(pos),
+    local: Float32Array.from(local),
     surf: Float32Array.from(surf),
     extra: Float32Array.from(extra),
     indices: Uint32Array.from(index),

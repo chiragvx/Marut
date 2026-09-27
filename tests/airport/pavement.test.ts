@@ -60,6 +60,19 @@ describe('pavement geometry', () => {
     expect([...codes].sort()).toEqual([130, 151, 152, 310, 331, 332]);
   });
 
+  test('texture coordinates are local to each airbase (small enough for float32 on the GPU)', () => {
+    const g = buildPavementGeometry([load(bhisiana), load(shahbaz)]);
+    const n = g.positions.length / 3;
+    expect(g.local.length).toBe(n * 2);
+    let maxAbs = 0;
+    for (const v of g.local) maxAbs = Math.max(maxAbs, Math.abs(v));
+    // The bases are tens of km from the world origin; each one's pavement is within a few km of it.
+    expect(maxAbs).toBeLessThan(6000);
+    let maxWorld = 0;
+    for (let v = 0; v < n; v++) maxWorld = Math.max(maxWorld, Math.abs(g.positions[v * 3]!), Math.abs(g.positions[v * 3 + 2]!));
+    expect(maxWorld).toBeGreaterThan(10000);
+  });
+
   test('blast pads are drawn over the taxiways and tuck under the runway end', () => {
     const L = load(bhisiana);
     const g = buildPavementGeometry([L]);
