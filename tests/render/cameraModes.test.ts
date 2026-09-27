@@ -79,3 +79,53 @@ describe('chase camera at speed', () => {
     expect(out.pos.x - pos.x).toBeCloseTo(15, 0); // in front of it, as asked
   });
 });
+
+import { keepAboveGround, computeExternalPose, createExternalOrbitState, orbitCamera } from '../../src/render/cameraModes';
+import { CAMERA_MIN_GROUND_CLEARANCE_M } from '../../src/contracts/render';
+
+describe('outside views stay above the ground', () => {
+  const ground = (x: number): number => 190 + 0.02 * x; // a gentle slope
+
+  it('lifts a camera below the ground to the clearance, leaves one above alone', () => {
+    const pose = createCameraPose();
+    pose.pos = { x: 100, y: 150, z: 0 };
+    expect(keepAboveGround(pose, ground, CAMERA_MIN_GROUND_CLEARANCE_M)).toBe(true);
+    expect(pose.pos.y).toBeCloseTo(192 + CAMERA_MIN_GROUND_CLEARANCE_M, 9);
+    pose.pos.y = 300;
+    expect(keepAboveGround(pose, ground, CAMERA_MIN_GROUND_CLEARANCE_M)).toBe(false);
+    expect(pose.pos.y).toBe(300);
+  });
+
+  it('free look dragged all the way under the jet on the runway slides along the ground, never under or into it', () => {
+    const st = createChaseCameraState();
+    const pose = createCameraPose();
+    const jet = { x: 0, y: 191.1, z: 0 }; // on its wheels, field at 190
+    const level = { x: 0, y: 0, z: 0, w: 1 };
+    const minOffsetY = 190 + CAMERA_MIN_GROUND_CLEARANCE_M - jet.y;
+    for (let i = 0; i < 120; i++) {
+      chaseLook(st, 0.02, -0.1, 0); // round and down, far past the ground
+      computeChasePose(jet, level, st, 1 / 60, pose, minOffsetY);
+      expect(pose.pos.y).toBeGreaterThanOrEqual(190 + CAMERA_MIN_GROUND_CLEARANCE_M - 1e-6);
+    }
+    // Still its full distance out from the jet (not tucked under a wing).
+    expect(Math.hypot(pose.pos.x - jet.x, pose.pos.z - jet.z)).toBeGreaterThan(14);
+    // No wind-up below the ground: one small drag up lifts the camera straight away.
+    const before = pose.pos.y;
+    chaseLook(st, 0, 0.1, 0);
+    for (let i = 0; i < 30; i++) computeChasePose(jet, level, st, 1 / 60, pose, minOffsetY);
+    expect(pose.pos.y).toBeGreaterThan(before + 1);
+  });
+
+  it('the external orbit pitched fully down stops at the ground, and pitches back up at once', () => {
+    const st = createExternalOrbitState();
+    const pose = createCameraPose();
+    const jet = { x: 0, y: 191.1, z: 0 };
+    const minOffsetY = 190 + CAMERA_MIN_GROUND_CLEARANCE_M - jet.y;
+    orbitCamera(st, 0, -10, 0);
+    computeExternalPose(jet, st, pose, minOffsetY);
+    expect(pose.pos.y).toBeCloseTo(190 + CAMERA_MIN_GROUND_CLEARANCE_M, 6);
+    orbitCamera(st, 0, 0.2, 0);
+    computeExternalPose(jet, st, pose, minOffsetY);
+    expect(pose.pos.y).toBeGreaterThan(190 + CAMERA_MIN_GROUND_CLEARANCE_M + 2);
+  });
+});

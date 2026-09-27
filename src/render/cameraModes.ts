@@ -117,12 +117,36 @@ export function chaseLook(state: ChaseCameraState, deltaYawRad: number, deltaPit
 
 const scratchChaseForward: Vec3Like = { x: 0, y: 0, z: 0 };
 
+/**
+ * Raises an offset from the aircraft to at least `minY` by turning it round the aircraft, keeping
+ * its distance and bearing (so the view slides up along the ground instead of ending up under the
+ * aircraft). Returns true if it moved.
+ */
+function liftOffsetOnSphere(o: Vec3Like, minY: number): boolean {
+  if (!(o.y < minY)) return false;
+  const r = Math.hypot(o.x, o.y, o.z);
+  const y = Math.min(minY, r);
+  const hOld = Math.hypot(o.x, o.z);
+  const hNew = Math.sqrt(Math.max(0, r * r - y * y));
+  if (hOld > 1e-6) {
+    o.x *= hNew / hOld;
+    o.z *= hNew / hOld;
+  } else {
+    o.z = -hNew;
+  }
+  o.y = y;
+  return true;
+}
+const scratchOffset: Vec3Like = { x: 0, y: 0, z: 0 };
+
 export function computeChasePose(
   playerPos: Readonly<Vec3Like>,
   playerRot: Readonly<QuatLike>,
   state: ChaseCameraState,
   frameDtSec: number,
-  out: CameraPose
+  out: CameraPose,
+  /** Lowest the camera may be relative to the aircraft, m (the ground below plus a margin). */
+  minOffsetY = -Infinity
 ): CameraPose {
   // After a while without looking around, ease the view back behind the aircraft.
   state.lookIdleSec += frameDtSec;
@@ -158,6 +182,22 @@ export function computeChasePose(
     dy = r * Math.sin(elevation);
     dz = h * Math.cos(azimuth);
   }
+  // Never below the ground: swing up round the aircraft, and don't let free look wind further
+  // down than the ground allows (dragging back up then answers at once).
+  scratchOffset.x = dx;
+  scratchOffset.y = dy;
+  scratchOffset.z = dz;
+  if (liftOffsetOnSphere(scratchOffset, minOffsetY)) {
+    dx = scratchOffset.x;
+    dy = scratchOffset.y;
+    dz = scratchOffset.z;
+    if (state.lookPitchRad !== 0 || state.lookYawRad !== 0 || state.lookZoomM !== 0) {
+      const r0 = Math.hypot(ox, oy, oz);
+      const base = Math.asin(clamp(oy / r0, -1, 1));
+      const r = Math.hypot(dx, dy, dz);
+      state.lookPitchRad = Math.max(state.lookPitchRad, Math.asin(clamp(dy / r, -1, 1)) - base);
+    }
+  }
 
   const o = state.smoothedOffset;
   const range = Math.hypot(dx, dy, dz);
@@ -182,6 +222,8 @@ export function computeChasePose(
     }
   }
 
+  // The smoothing can lag below the floor for a moment: keep the drawn camera above it too.
+  liftOffsetOnSphere(o, minOffsetY);
   out.pos.x = playerPos.x + o.x;
   out.pos.y = playerPos.y + o.y;
   out.pos.z = playerPos.z + o.z;
@@ -190,6 +232,18 @@ export function computeChasePose(
   out.lookAt.z = playerPos.z;
   out.useLookAt = true;
   return out;
+}
+
+/**
+ * Lifts an outside camera to at least `clearanceM` above the ground or water under it. The chase
+ * and orbit views already keep above the ground under the aircraft (minOffsetY); this catches
+ * the rest: rising ground under the camera itself, and the fly-by camera. Returns true if lifted.
+ */
+export function keepAboveGround(pose: CameraPose, groundAt: (x: number, z: number) => number, clearanceM: number): boolean {
+  const floor = groundAt(pose.pos.x, pose.pos.z) + clearanceM;
+  if (!(pose.pos.y < floor)) return false;
+  pose.pos.y = floor;
+  return true;
 }
 
 // -----------------------------------------------------------------------------
@@ -217,9 +271,12 @@ export function orbitCamera(state: ExternalOrbitState, deltaYawRad: number, delt
   state.radiusM = clamp(state.radiusM + deltaZoomM, EXTERNAL_ORBIT_MIN_RADIUS_M, EXTERNAL_ORBIT_MAX_RADIUS_M);
 }
 
-export function computeExternalPose(playerPos: Readonly<Vec3Like>, state: ExternalOrbitState, out: CameraPose): CameraPose {
+export function computeExternalPose(playerPos: Readonly<Vec3Like>, state: ExternalOrbitState, out: CameraPose, minOffsetY = -Infinity): CameraPose {
   const r = state.radiusM;
   const yaw = state.yawRad;
+  // Never below the ground: the orbit stops at the lowest pitch the ground allows (and stays
+  // there, so pitching back up answers at once).
+  if (r * Math.sin(state.pitchRad) < minOffsetY) state.pitchRad = Math.asin(clamp(minOffsetY / r, -1, 1));
   const pitch = state.pitchRad;
   out.pos.x = playerPos.x + r * Math.cos(pitch) * Math.sin(yaw);
   out.pos.y = playerPos.y + r * Math.sin(pitch);
@@ -313,15 +370,17 @@ export function computeCameraPose(
   playerVelWorld: Readonly<Vec3Like>,
   state: CameraModeState,
   frameDtSec: number,
-  out: CameraPose
+  out: CameraPose,
+  /** Chase and orbit: lowest the camera may be relative to the aircraft, m (see keepAboveGround). */
+  minOffsetY = -Infinity
 ): CameraPose {
   switch (mode) {
     case CameraMode.Cockpit:
       return computeCockpitPose(playerPos, playerRot, out);
     case CameraMode.Chase:
-      return computeChasePose(playerPos, playerRot, state.chase, frameDtSec, out);
+      return computeChasePose(playerPos, playerRot, state.chase, frameDtSec, out, minOffsetY);
     case CameraMode.External:
-      return computeExternalPose(playerPos, state.external, out);
+      return computeExternalPose(playerPos, state.external, out, minOffsetY);
     case CameraMode.Flyby:
       return computeFlybyPose(playerPos, playerRot, playerVelWorld, state.flyby, out);
     default:

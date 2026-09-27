@@ -14,6 +14,7 @@ import { EntityFlag, EntityKindCode, HUD_BLOCK_START, ServiceStateCode, Snapshot
 import {
   AntiAliasMode,
   CAMERA_FAR_M,
+  CAMERA_MIN_GROUND_CLEARANCE_M,
   CAMERA_NEAR_M,
   CHASE_VERTICAL_FOV_DEG,
   CameraMode,
@@ -26,7 +27,7 @@ import {
   type SceneRenderer,
 } from '../contracts/render';
 
-import { chaseLook, computeCameraPose, createCameraModeState, createCameraPose, orbitCamera as applyOrbitDelta } from './cameraModes';
+import { chaseLook, computeCameraPose, createCameraModeState, createCameraPose, keepAboveGround, orbitCamera as applyOrbitDelta } from './cameraModes';
 import { createEffectsSystem } from './effects';
 import { createFloatingOriginState, updateFloatingOrigin } from './floatingOrigin';
 import {
@@ -187,6 +188,8 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
     return v && v.length === 6 && v.every(Number.isFinite) ? v : undefined;
   })();
   let tier: QualityTier = initialTier;
+  /** Ground height under a point (the world's height sampler), for keeping outside views above it. */
+  let groundHeightAt: ((x: number, z: number) => number) | null = null;
   /** The menu's cinematic, drawn instead of the flight while set. */
   let showcase: import('../contracts/render').ShowcaseFrame | null = null;
   let mode: CameraMode = CameraMode.Chase;
@@ -357,6 +360,10 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
 
     setCameraMode(m) {
       mode = m;
+    },
+
+    setGroundHeight(heightAt) {
+      groundHeightAt = heightAt;
     },
 
     setShowcase(frame) {
@@ -543,7 +550,11 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
         structures.setServiceVehicles(
           playerServiceState === ServiceStateCode.Servicing ? { x: interpEntity.pos.x, y: interpEntity.pos.y - 1.15, z: interpEntity.pos.z, headingRad: playerHeadingRad } : null
         );
-        computeCameraPose(mode, interpEntity.pos, interpEntity.rot, interpEntity.vel, cameraModeState, frameDtSec, cameraPose);
+        // Outside views stay above the ground: free look and the orbit swing round the aircraft no
+        // lower than the ground under it, then the camera is kept clear of the ground under itself.
+        const minOffsetY = groundHeightAt ? groundHeightAt(interpEntity.pos.x, interpEntity.pos.z) + CAMERA_MIN_GROUND_CLEARANCE_M - interpEntity.pos.y : -Infinity;
+        computeCameraPose(mode, interpEntity.pos, interpEntity.rot, interpEntity.vel, cameraModeState, frameDtSec, cameraPose, minOffsetY);
+        if (mode !== CameraMode.Cockpit && groundHeightAt) keepAboveGround(cameraPose, groundHeightAt, CAMERA_MIN_GROUND_CLEARANCE_M);
         if (debugCam) {
           // Dev aid (?cam=x,y,z,lookX,lookY,lookZ): a fixed camera anywhere, for checking scenery.
           cameraPose.pos.x = debugCam[0]!;

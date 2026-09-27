@@ -922,6 +922,8 @@ function setupWorldView(mission: Mission, tier: QualityTier): void {
   const flattenZones: readonly AirportFlattenZone[] = airportLayouts.flatMap((a) => a.flattenZones);
   const navDb = createAirportNavDb(airportLayouts);
   renderer.setNavDb(navDb);
+  // The same ground the simulation flies over (airfields flattened), for keeping the camera above it.
+  renderer.setGroundHeight(createHeightSampler(terrainParams, flattenZones).heightAt);
   renderer.setEnvironment(buildSceneEnvironment(terrainParams, airportLayouts, { x: mission.weather.windWorldMps.x, z: mission.weather.windWorldMps.z }));
   renderer.setWeather(weatherMode, newWeatherSeed());
 

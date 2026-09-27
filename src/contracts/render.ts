@@ -162,6 +162,8 @@ export const FREE_LOOK_RETURN_DELAY_SEC = 6;
 export const FREE_LOOK_RETURN_TAU_SEC = 0.7;
 export const FREE_LOOK_MIN_DISTANCE_M = 8;
 export const FREE_LOOK_MAX_DISTANCE_M = 80;
+/** The outside views (chase with free look, orbit, fly-by) never go lower than this above the ground or water under the camera. */
+export const CAMERA_MIN_GROUND_CLEARANCE_M = 1.5;
 
 export const EXTERNAL_ORBIT_DEFAULT_RADIUS_M = 25;
 export const EXTERNAL_ORBIT_MIN_RADIUS_M = 8;
@@ -406,6 +408,8 @@ export interface SceneRenderer {
   resize(widthPx: number, heightPx: number, devicePixelRatio: number): void;
   setQualityTier(tier: QualityTier): void;
   setCameraMode(mode: CameraMode): void;
+  /** Ground (or water) height under a point, world metres, for keeping the outside views above it; null = no ground. Call on each world load. */
+  setGroundHeight(heightAt: ((x: number, z: number) => number) | null): void;
   /**
    * Looks around: in CameraMode.Chase, free look around the aircraft (it eases back behind after
    * FREE_LOOK_RETURN_DELAY_SEC); in CameraMode.External, the orbit. Deltas are radians (yaw right,
