@@ -251,6 +251,8 @@ export interface CameraState {
   originWorld: Vec3Like;
   /** Camera's absolute world position this frame, m. */
   worldPos: Vec3Like;
+  /** The sim time the 3D view shows this frame (it plays a few snapshots behind the newest), s; HUD symbols on world objects use it to line up. */
+  renderSimSec?: number;
 }
 
 // -----------------------------------------------------------------------------

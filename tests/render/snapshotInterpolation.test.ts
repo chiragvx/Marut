@@ -37,3 +37,61 @@ describe('snapshotInterpolation', () => {
     expect(computeInterpFraction(520, 0)).toBe(1);
   });
 });
+
+import { SNAPSHOT_FLOATS, SnapshotHeader } from '../../src/contracts/core';
+import { advanceRenderClock, createSnapshotDoubleBuffer, ingestSnapshotIntoBuffer, RENDER_DELAY_SEC } from '../../src/render/snapshotInterpolation';
+
+describe('render clock (snapshots played on the sim clock)', () => {
+  const view = new Float64Array(SNAPSHOT_FLOATS);
+  const snap = (simSec: number): Float64Array => {
+    view[SnapshotHeader.SIM_TIME_SEC_OFFSET] = simSec;
+    view[SnapshotHeader.ENTITY_COUNT_OFFSET] = 0;
+    view[SnapshotHeader.PLAYER_INDEX_OFFSET] = -1;
+    return view;
+  };
+
+  it('advances evenly although snapshots arrive in bursts', () => {
+    const buf = createSnapshotDoubleBuffer();
+    const frameMs = 1000 / 60;
+    // Snapshots every 1/60 s of sim time, delivered in uneven clumps (as the worker timer does).
+    const gaps = [16, 16, 30, 4, 16, 28, 8, 16, 16, 12, 22, 16];
+    let sim = 0;
+    let arrive = 0;
+    let k = 0;
+    const steps: number[] = [];
+    let last = NaN;
+    for (let t = 0; t < 3000; t += frameMs) {
+      while (arrive <= t) {
+        ingestSnapshotIntoBuffer(buf, snap(sim), arrive);
+        sim += 1 / 60;
+        arrive += gaps[k++ % gaps.length]!;
+      }
+      const f = advanceRenderClock(buf, t);
+      expect(f).toBeGreaterThanOrEqual(0);
+      expect(f).toBeLessThanOrEqual(1);
+      if (t > 1000) steps.push((buf.renderSimSec - last) * 1000);
+      last = buf.renderSimSec;
+    }
+    // Every frame moves the view on by about one frame's worth of sim time.
+    for (const s of steps) {
+      expect(s).toBeGreaterThan(frameMs * 0.9);
+      expect(s).toBeLessThan(frameMs * 1.1);
+    }
+    // And it stays a little behind the newest snapshot.
+    expect(buf.latest.simTimeSec - buf.renderSimSec).toBeGreaterThan(RENDER_DELAY_SEC * 0.3);
+  });
+
+  it('stops at the newest snapshot when the sim pauses, and restarts with a new world', () => {
+    const buf = createSnapshotDoubleBuffer();
+    for (let i = 0; i < 10; i++) {
+      ingestSnapshotIntoBuffer(buf, snap(i / 60), i * 16.7);
+      advanceRenderClock(buf, i * 16.7);
+    }
+    for (let t = 200; t < 1200; t += 16.7) advanceRenderClock(buf, t);
+    expect(buf.renderSimSec).toBeCloseTo(9 / 60, 6);
+    ingestSnapshotIntoBuffer(buf, snap(0), 1300); // a new mission: its clock starts at 0
+    advanceRenderClock(buf, 1300);
+    expect(buf.renderSimSec).toBe(0);
+    expect(buf.count).toBe(1);
+  });
+});

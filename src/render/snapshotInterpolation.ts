@@ -172,8 +172,25 @@ export function findPrevSlot(table: IdMatchTable, prev: Pick<SnapshotFrame, 'id'
 }
 
 // -----------------------------------------------------------------------------
-// Double buffer.
+// Snapshot history and the render clock.
+//
+// The sim worker's timer is irregular (on Windows its 4 ms interval lands anywhere from 10 to
+// 32 ms apart), so snapshots arrive in uneven bursts, and the sim can run a little slower than
+// real time. Interpolating by ARRIVAL time turned every burst into a visible hitch of the aircraft
+// (the chase camera looks straight at it). Instead the renderer keeps the last few snapshots and
+// plays them back on the sim's own clock, RENDER_DELAY_SEC behind the newest: the render clock
+// advances with real time and is eased toward that target, snapping only after a jump (a pause,
+// a new mission). `prev`/`curr` are the two snapshots either side of the render time.
 // -----------------------------------------------------------------------------
+
+/** Snapshots kept. */
+export const SNAPSHOT_HISTORY = 8;
+/** How far behind the newest snapshot the renderer plays, seconds: enough to ride out the longest arrival gaps seen (~32 ms). */
+export const RENDER_DELAY_SEC = 2.6 / SNAPSHOT_HZ;
+/** Rate at which the render clock is pulled toward its target, 1/s. */
+const CLOCK_GAIN_PER_SEC = 1;
+/** Beyond this error the render clock jumps instead of easing. */
+const CLOCK_SNAP_SEC = 0.25;
 
 export interface SnapshotDoubleBuffer {
   prev: SnapshotFrame;
@@ -181,25 +198,133 @@ export interface SnapshotDoubleBuffer {
   matchTable: IdMatchTable;
   /** True once at least one snapshot has been ingested. */
   hasData: boolean;
+  /** Ring of frames, oldest first from `head`; `count` valid. */
+  ring: SnapshotFrame[];
+  head: number;
+  count: number;
+  /** The newest frame. */
+  latest: SnapshotFrame;
+  /** Render clock, sim seconds; NaN until the first advance. */
+  renderSimSec: number;
+  lastAdvanceMs: number;
+  /** The frame the match table was built from. */
+  matchedPrev: SnapshotFrame | null;
+  /** Measured sim seconds per real second (the sim can run slower than real time), smoothed. */
+  simRate: number;
+  rateRefSim: number;
+  rateRefMs: number;
 }
 
 export function createSnapshotDoubleBuffer(): SnapshotDoubleBuffer {
+  const ring = Array.from({ length: SNAPSHOT_HISTORY }, createSnapshotFrame);
   return {
-    prev: createSnapshotFrame(),
-    curr: createSnapshotFrame(),
+    prev: ring[0]!,
+    curr: ring[0]!,
     matchTable: createIdMatchTable(),
     hasData: false,
+    ring,
+    head: 0,
+    count: 0,
+    latest: ring[0]!,
+    renderSimSec: NaN,
+    lastAdvanceMs: NaN,
+    matchedPrev: null,
+    simRate: 1,
+    rateRefSim: NaN,
+    rateRefMs: NaN,
   };
 }
 
-/** 08-render.md section 4.1 `ingestSnapshot` algorithm, steps 1+5 (steps 2-4 are `ingestSnapshotFrame`). */
+/** Rate is measured over at least this long, seconds, and smoothed with this time constant. */
+const RATE_WINDOW_SEC = 0.5;
+const RATE_TAU_SEC = 2;
+
+/** The i-th oldest stored frame. */
+function frameAt(buf: SnapshotDoubleBuffer, i: number): SnapshotFrame {
+  return buf.ring[(buf.head + i) % SNAPSHOT_HISTORY]!;
+}
+
+/**
+ * Stores a snapshot as the newest frame. Until `advanceRenderClock` runs, prev/curr are the two
+ * newest frames (as the old double buffer had them). A snapshot older than the newest (a new
+ * world restarting its clock) clears the history.
+ */
 export function ingestSnapshotIntoBuffer(buf: SnapshotDoubleBuffer, view: Float64Array, nowMs: number): void {
-  const swap = buf.prev;
-  buf.prev = buf.curr;
-  buf.curr = swap;
-  ingestSnapshotFrame(view, buf.curr, nowMs);
+  const simTime = view[SnapshotHeader.SIM_TIME_SEC_OFFSET]!;
+  if (buf.count > 0 && simTime < buf.latest.simTimeSec) {
+    buf.count = 0;
+    buf.renderSimSec = NaN;
+    buf.rateRefSim = NaN;
+  }
+  // How fast sim time passes against real time.
+  if (!Number.isFinite(buf.rateRefSim)) {
+    buf.rateRefSim = simTime;
+    buf.rateRefMs = nowMs;
+  } else {
+    const realSec = (nowMs - buf.rateRefMs) / 1000;
+    if (realSec >= RATE_WINDOW_SEC) {
+      const r = (simTime - buf.rateRefSim) / realSec;
+      // A pause (no sim time passing) is not a rate: the clamp to the newest snapshot handles it.
+      if (r > 0.2 && r < 2) buf.simRate += (r - buf.simRate) * Math.min(1, realSec / RATE_TAU_SEC);
+      buf.rateRefSim = simTime;
+      buf.rateRefMs = nowMs;
+    }
+  }
+  let slot: SnapshotFrame;
+  if (buf.count < SNAPSHOT_HISTORY) {
+    slot = buf.ring[(buf.head + buf.count) % SNAPSHOT_HISTORY]!;
+    buf.count++;
+  } else {
+    slot = buf.ring[buf.head]!;
+    buf.head = (buf.head + 1) % SNAPSHOT_HISTORY;
+  }
+  ingestSnapshotFrame(view, slot, nowMs);
+  buf.latest = slot;
+  buf.curr = slot;
+  buf.prev = buf.count >= 2 ? frameAt(buf, buf.count - 2) : slot;
   rebuildMatchTable(buf.matchTable, buf.prev);
+  buf.matchedPrev = buf.prev;
   buf.hasData = true;
+}
+
+/**
+ * Advances the render clock to `nowMs` and points prev/curr at the snapshots either side of it.
+ * Returns the fraction between them (0..1) for interpolateEntity.
+ */
+export function advanceRenderClock(buf: SnapshotDoubleBuffer, nowMs: number): number {
+  if (buf.count === 0) return 1;
+  const newest = buf.latest.simTimeSec;
+  const oldest = frameAt(buf, 0).simTimeSec;
+  const target = newest - RENDER_DELAY_SEC;
+  const dt = Number.isFinite(buf.lastAdvanceMs) ? Math.min(0.25, Math.max(0, (nowMs - buf.lastAdvanceMs) / 1000)) : 0;
+  buf.lastAdvanceMs = nowMs;
+  if (!Number.isFinite(buf.renderSimSec) || Math.abs(target - buf.renderSimSec) > CLOCK_SNAP_SEC) {
+    buf.renderSimSec = target;
+  } else {
+    buf.renderSimSec += dt * buf.simRate;
+    buf.renderSimSec += (target - buf.renderSimSec) * Math.min(1, CLOCK_GAIN_PER_SEC * dt);
+  }
+  // Never ahead of the newest snapshot (paused), never before the oldest kept.
+  buf.renderSimSec = Math.min(newest, Math.max(oldest, buf.renderSimSec));
+
+  // The two frames around the render time.
+  let a = frameAt(buf, 0);
+  let b = a;
+  for (let i = 1; i < buf.count; i++) {
+    const f = frameAt(buf, i);
+    b = f;
+    if (f.simTimeSec >= buf.renderSimSec) break;
+    a = f;
+  }
+  if (a === b || b.simTimeSec < buf.renderSimSec) a = b; // at or past the newest
+  buf.prev = a;
+  buf.curr = b;
+  if (buf.matchedPrev !== a) {
+    rebuildMatchTable(buf.matchTable, a);
+    buf.matchedPrev = a;
+  }
+  const span = b.simTimeSec - a.simTimeSec;
+  return span > 1e-9 ? clamp((buf.renderSimSec - a.simTimeSec) / span, 0, 1) : 1;
 }
 
 /**

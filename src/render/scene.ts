@@ -31,11 +31,11 @@ import { computeCameraPose, createCameraModeState, createCameraPose, orbitCamera
 import { createEffectsSystem } from './effects';
 import { createFloatingOriginState, updateFloatingOrigin } from './floatingOrigin';
 import {
-  computeInterpFraction,
   createInterpolatedEntity,
   createSnapshotDoubleBuffer,
   ingestSnapshotIntoBuffer,
   interpolateEntity,
+  advanceRenderClock,
 } from './snapshotInterpolation';
 import { createSkyFogSystem } from './skyFog';
 import { createTerrainChunkConsumer } from './terrainChunkConsumer';
@@ -463,10 +463,12 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
       const frameDtSec = lastFrameMs < 0 ? 1 / 60 : Math.min(Math.max((nowMs - lastFrameMs) / 1000, 0), 0.25);
       lastFrameMs = nowMs;
 
+      // The 3D view plays the snapshots back on the sim's clock (snapshotInterpolation.ts).
+      const fInterp = snapshotBuf.hasData ? advanceRenderClock(snapshotBuf, nowMs) : 1;
       if (snapshotBuf.hasData && snapshotBuf.curr.playerSlot >= 0) {
         const curr = snapshotBuf.curr;
         const playerSlot = curr.playerSlot;
-        const f = computeInterpFraction(nowMs, curr.arrivalMs);
+        const f = fInterp;
 
         interpolateEntity(snapshotBuf, playerSlot, f, interpEntity);
         shadowFocus.set(interpEntity.pos.x, interpEntity.pos.y, interpEntity.pos.z);
@@ -553,6 +555,7 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
       cameraState.worldPos.x = cameraPose.pos.x;
       cameraState.worldPos.y = cameraPose.pos.y;
       cameraState.worldPos.z = cameraPose.pos.z;
+      cameraState.renderSimSec = snapshotBuf.hasData ? snapshotBuf.renderSimSec : undefined;
 
       if (!contextLost) {
         urbanCache.update(renderer, cameraPose.pos.x, cameraPose.pos.z);

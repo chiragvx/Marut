@@ -188,7 +188,10 @@ export const createHudRenderer: CreateHudRenderer = (canvas, initialTier) => {
       if (hasTarget(targetId)) {
         const targetSlot = findEntitySlotById(curr, targetId);
         if (targetSlot >= 0) {
-          const f = computeInterpFraction(nowMs, curr.arrivalMs);
+          // At the moment the 3D view shows (it plays a little behind the newest snapshot), so the
+          // box stays on the aircraft it frames.
+          const span = curr.simTimeSec - buf.prev.simTimeSec;
+          const f = camera.renderSimSec !== undefined && span > 1e-6 ? Math.max(-3, Math.min(1, (camera.renderSimSec - buf.prev.simTimeSec) / span)) : computeInterpFraction(nowMs, curr.arrivalMs);
           interpolateHudEntity(buf, targetSlot, f, interpTarget);
           drawTargetBox(ctx, camera, interpTarget.pos, widthPx, heightPx, hud[SnapshotHud.TARGET_RANGE_M]!, hud[SnapshotHud.CLOSURE_MPS]!, scratchProjection);
         }
