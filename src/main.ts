@@ -1204,7 +1204,7 @@ function tickShowcase(dtSec: number): void {
     return;
   }
   if (devShowcase) {
-    renderer.setShowcase(devShowcaseFrame(sc, devShowcase.t));
+    renderer.setShowcase(devShowcaseFrame(sc, (globalThis as { __showcaseT?: number }).__showcaseT ?? devShowcase.t));
     return;
   }
   showcaseT += dtSec;
