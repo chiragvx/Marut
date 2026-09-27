@@ -59,6 +59,31 @@ describe('pavement geometry', () => {
     for (const v of rwy) codes.add(g.extra[v * 4 + 2]!).add(g.extra[v * 4 + 3]!);
     expect([...codes].sort()).toEqual([130, 151, 152, 310, 331, 332]);
   });
+
+  test('blast pads are drawn over the taxiways and tuck under the runway end', () => {
+    const L = load(bhisiana);
+    const g = buildPavementGeometry([L]);
+    // Draw order of the first triangle of each kind (by its first vertex).
+    const first = new Map<number, number>();
+    const last = new Map<number, number>();
+    for (let t = 0; t < g.indices.length; t += 3) {
+      const k = g.surf[g.indices[t]! * 4]!;
+      if (!first.has(k)) first.set(k, t);
+      last.set(k, t);
+    }
+    expect(first.get(PavementKind.BlastPad)!).toBeGreaterThan(last.get(PavementKind.TaxiLine)!);
+    expect(first.get(PavementKind.Runway)!).toBeGreaterThan(last.get(PavementKind.BlastPad)!);
+    // Some blast-pad corner reaches past the runway end, under the runway (no hairline between them).
+    const n = g.positions.length / 3;
+    let under = 0;
+    for (let v = 0; v < n; v++) {
+      if (g.surf[v * 4] !== PavementKind.BlastPad) continue;
+      const u = g.surf[v * 4 + 1]!;
+      const len = g.extra[v * 4]!;
+      if ((u > 0 && u < 3) || (u < len && u > len - 3)) under++;
+    }
+    expect(under).toBeGreaterThan(0);
+  });
 });
 
 test('runways and taxiways are cut into short pieces so they follow the curved ground', () => {

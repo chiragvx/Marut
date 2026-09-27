@@ -3,7 +3,7 @@
  * stopways, shelter pads, blast pads, taxiways, runways), with per-vertex surface coordinates the
  * pavement shader (src/render/airfieldPavement.ts) draws markings from.
  *
- * Triangles are emitted in draw order — aprons, shelter pads, blast pads, taxiways, runways — and
+ * Triangles are emitted in draw order — aprons, shelter pads, taxiways, blast pads, runways — and
  * the mesh is drawn without depth writes, so later surfaces cover earlier ones where they overlap
  * (a taxiway over an apron edge, a runway over the taxiway that joins it) with no z-fighting.
  *
@@ -243,32 +243,6 @@ export function buildPavementGeometry(layouts: readonly AirportLayout[]): Paveme
       polygon(a.points, PavementKind.ShelterPad, (x, z) => [(x - mx) * ux + (z - mz) * uz - doorU, (x - mx) * -uz + (z - mz) * ux], [stand, parkU, 0, 0]);
     }
 
-    for (const a of blast) {
-      // Frame of the nearest runway.
-      let cx = 0;
-      let cz = 0;
-      for (const p of a.points) {
-        cx += p.worldX / a.points.length;
-        cz += p.worldZ / a.points.length;
-      }
-      let best = runways[0];
-      let bd = Infinity;
-      for (const r of runways) {
-        const f = frame(r);
-        const dx = cx - r.thresholdWorldX;
-        const dz = cz - r.thresholdWorldZ;
-        const d = Math.abs(dx * f.rx + dz * f.rz);
-        if (d < bd) {
-          bd = d;
-          best = r;
-        }
-      }
-      if (!best) continue;
-      const r = best;
-      const f = frame(r);
-      polygon(a.points, PavementKind.BlastPad, (x, z) => [(x - r.thresholdWorldX) * f.fx + (z - r.thresholdWorldZ) * f.fz, (x - r.thresholdWorldX) * f.rx + (z - r.thresholdWorldZ) * f.rz], [r.lengthM, r.widthM, 0, 0]);
-    }
-
     // Taxiways: centrelines smoothed through their bends (fillet arcs; junctions stay put), drawn as
     // surface strips with round joins, then the yellow centrelines on top of them all as their own
     // continuous strips, so lines flow through bends and meet cleanly at junctions.
@@ -339,6 +313,41 @@ export function buildPavementGeometry(layouts: readonly AirportLayout[]): Paveme
         u += len;
       }
       for (const [px, pz] of P) disc(px, pz, LINE_STRIP_HW, PavementKind.TaxiLine, 0, 1, 0, true);
+    }
+
+    // Blast pads after the taxiways: a taxiway meeting the runway end would otherwise cut a concrete
+    // wedge through the pad between it and the runway.
+    for (const a of blast) {
+      // Frame of the nearest runway.
+      let cx = 0;
+      let cz = 0;
+      for (const p of a.points) {
+        cx += p.worldX / a.points.length;
+        cz += p.worldZ / a.points.length;
+      }
+      let best = runways[0];
+      let bd = Infinity;
+      for (const r of runways) {
+        const f = frame(r);
+        const dx = cx - r.thresholdWorldX;
+        const dz = cz - r.thresholdWorldZ;
+        const d = Math.abs(dx * f.rx + dz * f.rz);
+        if (d < bd) {
+          bd = d;
+          best = r;
+        }
+      }
+      if (!best) continue;
+      const r = best;
+      const f = frame(r);
+      // Corners on (or just short of) the runway end tuck 1.5 m under it, so no hairline of the
+      // surface below shows between the pad and the runway.
+      const pts = a.points.map((q) => {
+        const u = (q.worldX - r.thresholdWorldX) * f.fx + (q.worldZ - r.thresholdWorldZ) * f.fz;
+        const into = u <= 0 && u > -3 ? 1.5 : u >= r.lengthM && u < r.lengthM + 3 ? -1.5 : 0;
+        return { worldX: q.worldX + f.fx * into, worldZ: q.worldZ + f.fz * into };
+      });
+      polygon(pts, PavementKind.BlastPad, (x, z) => [(x - r.thresholdWorldX) * f.fx + (z - r.thresholdWorldZ) * f.fz, (x - r.thresholdWorldX) * f.rx + (z - r.thresholdWorldZ) * f.rz], [r.lengthM, r.widthM, 0, 0]);
     }
 
     for (const r of runways) {
