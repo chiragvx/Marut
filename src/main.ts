@@ -8,7 +8,7 @@
  * exports of modules 04/08/09/11 rather than a contracts/*.ts file).
  */
 
-import { AutopilotFlag, EntityFlag, HUD_BLOCK_START, LockStateCode, NO_ENTITY_ID, ServiceStateCode, SnapshotHud, SpeedUnit, WarningBit, WeaponKindCode, WeatherMode, type AutopilotAction } from './contracts/core';
+import { AutopilotFlag, EntityFlag, HUD_BLOCK_START, LIGHT_MODES, LockStateCode, NO_ENTITY_ID, ServiceStateCode, SnapshotHud, SpeedUnit, WarningBit, WeaponKindCode, WeatherMode, type AutopilotAction } from './contracts/core';
 import type {
   AiDifficulty,
   EntityId,
@@ -180,6 +180,9 @@ let timeOfDayH = 10.5;
 const newWeatherSeed = (): number => Math.floor(Math.random() * 4294967296) >>> 0;
 /** First-flight hints (Settings -> Gameplay). */
 let hintsEnabled = true;
+/** Exterior light mode (LIGHT_MODES index), cycled with L; nav + strobes at the start of a flight. */
+const DEFAULT_LIGHT_MODE = 2;
+let lightMode = DEFAULT_LIGHT_MODE;
 /** Objective tracker, event messages and hints over the HUD (src/ui/flightOverlay.ts). */
 let flightOverlay: FlightOverlay | undefined;
 let hintsDone = new Set<HintId>();
@@ -416,6 +419,7 @@ function controlGroups(): ControlGroup[] {
         { keys: [L(b.jettisonTanks)], label: 'Drop tanks' },
         { keys: [L(b.service)], label: 'Refuel and rearm (stopped on a stand)' },
         { keys: [L(m.taxiGuide)], label: 'Taxi guidance' },
+        { keys: [L(m.lightsCycle)], label: 'Lights: off, nav, strobes, landing, formation' },
       ],
     },
     {
@@ -1050,6 +1054,7 @@ function launchMission(missionIn: Mission, opts: { title: string; airStart: bool
   banditsTotal = missionIn.aiFlights.filter((f) => f.team === 1).reduce((n, f) => n + (f.count ?? 1), 0);
   // Gear lever and throttle to suit the start (the gear lever otherwise keeps the last flight's).
   inputSystem.setGearDown(!opts.airStart);
+  lightMode = DEFAULT_LIGHT_MODE;
   inputSystem.setThrottle(opts.airStart ? 0.8 : 0);
 
   currentMission = mission;
@@ -1243,6 +1248,7 @@ function frame(nowMs: number): void {
   lastFrameMs = nowMs;
   if (appState === 'gameplay' && renderer && hud && inputSystem) {
     inputSystem.update(undefined as never, dtSec, pilotInputsScratch);
+    pilotInputsScratch.lights = LIGHT_MODES[lightMode]!.flags;
     simWorker.postMessage({ type: 'input', entityId: playerEntityId, inputs: pilotInputsScratch } as const);
   }
   tickPendingStart(nowMs);
@@ -1379,6 +1385,9 @@ function wireMetaActionsOnce(): void {
     if (action === 'menuToggle') {
       if (appState === 'gameplay') showPauseMenu();
       else if (appState === 'paused') resumeFlight();
+    } else if (action === 'lightsCycle' && appState === 'gameplay') {
+      lightMode = (lightMode + 1) % LIGHT_MODES.length;
+      flightOverlay?.message(`Lights: ${LIGHT_MODES[lightMode]!.name}`);
     } else if (action === 'taxiGuide' && appState === 'gameplay') {
       toggleTaxiGuide();
     } else if ((action === 'radarRangeUp' || action === 'radarRangeDown') && appState === 'gameplay') {

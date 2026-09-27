@@ -320,13 +320,47 @@ function buildProbe(): THREE.BufferGeometry {
   return merge(out);
 }
 
+const TIP_X = (wingLE(SEMI_SPAN) + wingTE(SEMI_SPAN)) / 2;
+
+/**
+ * Exterior light positions, layout frame: navigation (red left, green right, white tail),
+ * anti-collision strobes (wingtips, just aft of the nav lights), the landing/taxi light on the nose
+ * gear leg (in the gear's extended pose) and the direction it points (ahead, 4 deg down).
+ */
+export const LIGHTS = {
+  navLeft: [TIP_X + 0.05, WING_Y, -SEMI_SPAN - 0.03] as V3,
+  navRight: [TIP_X + 0.05, WING_Y, SEMI_SPAN + 0.03] as V3,
+  navTail: [-6.45, 0.98, 0] as V3,
+  strobeLeft: [TIP_X - 0.2, WING_Y, -SEMI_SPAN - 0.03] as V3,
+  strobeRight: [TIP_X - 0.2, WING_Y, SEMI_SPAN + 0.03] as V3,
+  landing: [3.73, -0.4, 0] as V3,
+  landingDir: [Math.cos(0.07), -Math.sin(0.07), 0] as V3,
+};
+
 function buildNavLights(): THREE.BufferGeometry {
-  const tipX = (wingLE(SEMI_SPAN) + wingTE(SEMI_SPAN)) / 2;
   return merge([
-    box([tipX, WING_Y, -SEMI_SPAN - 0.01], [0.07, 0.025, 0.012], PART.lightRed),
-    box([tipX, WING_Y, SEMI_SPAN + 0.01], [0.07, 0.025, 0.012], PART.lightGreen),
+    box([TIP_X, WING_Y, -SEMI_SPAN - 0.01], [0.07, 0.025, 0.012], PART.lightRed),
+    box([TIP_X, WING_Y, SEMI_SPAN + 0.01], [0.07, 0.025, 0.012], PART.lightGreen),
     box([-6.43, 0.98, 0], [0.012, 0.05, 0.05], PART.lightWhite),
+    box([TIP_X - 0.2, WING_Y, -SEMI_SPAN - 0.01], [0.05, 0.02, 0.012], PART.lightStrobe),
+    box([TIP_X - 0.2, WING_Y, SEMI_SPAN + 0.01], [0.05, 0.02, 0.012], PART.lightStrobe),
   ]);
+}
+
+/** Formation lights: dim green strips on the nose sides, the fin and the wingtips. */
+function buildFormationLights(): THREE.BufferGeometry {
+  const strips: THREE.BufferGeometry[] = [];
+  for (const side of [-1, 1]) {
+    // Along the nose below the cockpit.
+    const x = 2.2;
+    const s = fuselageSection(x);
+    strips.push(box([x, s.cy + 0.05, side * (s.w + 0.005)], [0.35, 0.02, 0.006], PART.lightFormation));
+    // Wingtip, upper surface.
+    strips.push(box([TIP_X - 0.45, WING_Y + 0.03, side * (SEMI_SPAN - 0.08)], [0.3, 0.004, 0.02], PART.lightFormation));
+    // Fin, both faces.
+    strips.push(box([-4.9, 2.0, side * 0.06], [0.02, 0.35, 0.006], PART.lightFormation));
+  }
+  return merge(strips);
 }
 
 /** Right airbrake panel on the upper rear fuselage; returns geometry + hinge. */
@@ -376,7 +410,7 @@ function buildNoseGear(): THREE.BufferGeometry {
     box([3.605, axle[1] + 0.06, 0.1], [0.05, 0.1, 0.012], PART.gear),
     box([3.605, axle[1] + 0.17, 0], [0.05, 0.012, 0.11], PART.gear),
     wheel(axle, NOSE_WHEEL_R, 0.075),
-    box([3.7, -0.4, 0], [0.02, 0.035, 0.05], PART.lightWhite),
+    box([3.7, -0.4, 0], [0.02, 0.035, 0.05], PART.lightLanding),
   ]);
 }
 
@@ -446,6 +480,9 @@ export interface AircraftModelTemplate {
   nozzleAxisY: number;
   /** Store stations with pylons, in store-slot order (see PYLONS). */
   pylons: readonly Pylon[];
+  /** Exterior light positions (LIGHTS); `landing` is carried by the part named by `landingPart`. */
+  lights: typeof LIGHTS;
+  landingPart: string;
 }
 
 function unit(v: V3): V3 {
@@ -468,6 +505,7 @@ export function buildTejasTestModel(): AircraftModelTemplate {
     buildPylons(),
     buildProbe(),
     buildNavLights(),
+    buildFormationLights(),
   ]);
 
   const [ea, eb] = [ELEVON_SPANS[0]![0], ELEVON_SPANS[1]![1]];
@@ -497,5 +535,5 @@ export function buildTejasTestModel(): AircraftModelTemplate {
     { name: 'mainGearR', geometry: mainR, pivot: MAIN_PIVOT_R, axis: [0, 0, 1], driver: 'gear', travelRad: 88 * deg },
     { name: 'mainGearL', geometry: mirrorZ(mainR), pivot: [MAIN_PIVOT_R[0], MAIN_PIVOT_R[1], -MAIN_PIVOT_R[2]], axis: [0, 0, 1], driver: 'gear', travelRad: 88 * deg },
   ];
-  return { offsetX: LAYOUT_TO_BODY_X, body, parts, flame: buildFlame(), nozzleAxisY: NOZZLE_AXIS_Y, pylons: PYLONS };
+  return { offsetX: LAYOUT_TO_BODY_X, body, parts, flame: buildFlame(), nozzleAxisY: NOZZLE_AXIS_Y, pylons: PYLONS, lights: LIGHTS, landingPart: 'noseGear' };
 }

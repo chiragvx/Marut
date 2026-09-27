@@ -655,6 +655,7 @@ class WorldImpl implements World {
     // Settings "AoA limiter" toggle never reached the sim and drop tanks could not be jettisoned.
     target.alphaLimiterDisabled = inputs.alphaLimiterDisabled ?? false;
     target.jettisonTanks = inputs.jettisonTanks ?? false;
+    target.lights = inputs.lights ?? 0;
     target.requestService = inputs.requestService ?? false;
     target.radarModeCycle = inputs.radarModeCycle ?? false;
     target.throttleActive = inputs.throttleActive ?? false;

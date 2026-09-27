@@ -183,9 +183,27 @@ export const EntityFlag = {
   GearDownCommanded: 1 << 2,
   /** Airbrake/speedbrake commanded extended. */
   AirbrakeOut: 1 << 3,
-  /** Exterior lights on (nav/strobe), cosmetic only. */
+  /** Exterior lights (cosmetic): navigation lights (red left, green right, white tail). */
   Lights: 1 << 4,
+  /** Anti-collision strobes (flashing white). */
+  LightsStrobe: 1 << 5,
+  /** Landing/taxi light on the nose gear (shines only with the gear down). */
+  LightsLanding: 1 << 6,
+  /** Formation lights (dim green strips). */
+  LightsFormation: 1 << 7,
 } as const;
+
+/** All exterior-light bits of EntityFlags. */
+export const LIGHT_FLAGS_MASK = EntityFlag.Lights | EntityFlag.LightsStrobe | EntityFlag.LightsLanding | EntityFlag.LightsFormation;
+
+/** The light modes the player cycles through (L): name and EntityFlags light bits. */
+export const LIGHT_MODES: readonly { name: string; flags: number }[] = [
+  { name: 'Off', flags: 0 },
+  { name: 'Nav', flags: EntityFlag.Lights },
+  { name: 'Nav + strobes', flags: EntityFlag.Lights | EntityFlag.LightsStrobe },
+  { name: 'Nav + strobes + landing', flags: EntityFlag.Lights | EntityFlag.LightsStrobe | EntityFlag.LightsLanding },
+  { name: 'Formation (covert)', flags: EntityFlag.LightsFormation },
+];
 export type EntityFlags = number; // bitmask of EntityFlag values
 
 export interface EntityState {
@@ -298,6 +316,8 @@ export interface DamageState {
 // -----------------------------------------------------------------------------
 
 export interface PilotInputs {
+  /** Exterior lights to show: EntityFlags light bits (LIGHT_FLAGS_MASK). Optional: absent means off. */
+  lights?: number;
   /** [-1,1]. +1 = stick full aft = nose-up command. */
   pitch: number;
   /** [-1,1]. +1 = roll right command. */

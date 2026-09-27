@@ -76,6 +76,8 @@ const FS = /* glsl */ `
   ${CLOUD_SHADOW_GLSL}
   ${SUN_SHADOW_GLSL}
   uniform float uTeam;
+  /** Exterior lights: x nav, y strobe flash (0..1), z landing, w formation. */
+  uniform vec4 uLightState;
   uniform float uThrottle;
   uniform float uAB;
   uniform float uNozzleY;
@@ -208,9 +210,22 @@ const FS = /* glsl */ `
       col = vec3(0.5, 0.51, 0.5);
       ks = 0.12;
     } else if (part >= 10 && part <= 12) {
+      // Navigation lights (uLightState.x).
       vec3 lc = part == 10 ? vec3(1.0, 0.12, 0.08) : part == 11 ? vec3(0.1, 1.0, 0.3) : vec3(1.0);
-      col = lc * 0.4;
-      glow = lc * (0.25 + 2.5 * uAtmLights);
+      col = lc * 0.3;
+      glow = lc * uLightState.x * (0.6 + 2.5 * uAtmLights);
+    } else if (part == 19) {
+      // Formation strips (uLightState.w): dim green electroluminescent.
+      col = vec3(0.16, 0.2, 0.17);
+      glow = vec3(0.35, 1.0, 0.45) * uLightState.w * (0.25 + 1.2 * uAtmLights);
+    } else if (part == 20) {
+      // Anti-collision strobes (uLightState.y = the flash).
+      col = vec3(0.55);
+      glow = vec3(1.0, 0.97, 0.92) * uLightState.y * 6.0;
+    } else if (part == 21) {
+      // Landing/taxi light (uLightState.z).
+      col = vec3(0.5);
+      glow = vec3(1.0, 0.95, 0.85) * uLightState.z * 5.0;
     }
 
     vec3 L = normalize(uAtmSunDir);
@@ -228,6 +243,7 @@ const FS = /* glsl */ `
 
 export interface AircraftBodyUniforms {
   uTeam: { value: number };
+  uLightState: { value: THREE.Vector4 };
   uThrottle: { value: number };
   uAB: { value: number };
   uNozzle: { value: number };
@@ -243,6 +259,7 @@ export function createAircraftBodyMaterial(shared: AircraftSharedUniforms, nozzl
       ...shared,
       uNozzleY: { value: nozzleAxisY },
       uTeam: { value: 0 },
+      uLightState: { value: new THREE.Vector4(0, 0, 0, 0) },
       uThrottle: { value: 0 },
       uAB: { value: 0 },
       uNozzle: { value: 0 },

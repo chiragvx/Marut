@@ -76,6 +76,7 @@ const BINDABLE_ACTION_TARGETS: Readonly<Record<BindableAction, BindableActionTar
   [BA.ApVsUp]: { rebindAction: MetaAction.ApVsUp },
   [BA.ApSpdDown]: { rebindAction: MetaAction.ApSpdDown },
   [BA.ApSpdUp]: { rebindAction: MetaAction.ApSpdUp },
+  [BA.LightsCycle]: { rebindAction: MetaAction.LightsCycle },
 };
 
 /** The `RebindableAction` + axis direction (if any) a given settings-screen row corresponds to. */

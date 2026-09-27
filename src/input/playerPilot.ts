@@ -142,6 +142,7 @@ export function createPlayerInputSystem(config: PlayerInputConfig): PlayerInputS
   const taxiGuideEdge = createEdgeDetector();
   const radarRangeUpEdge = createEdgeDetector();
   const radarRangeDownEdge = createEdgeDetector();
+  const lightsCycleEdge = createEdgeDetector();
   const apKeys = new Map<MetaActionType, { held: boolean; heldSec: number; acc: number }>();
   for (const a of AP_META_ACTIONS) apKeys.set(a, { held: false, heldSec: 0, acc: 0 });
   let prevTouchThrottle = -1;
@@ -469,6 +470,9 @@ export function createPlayerInputSystem(config: PlayerInputConfig): PlayerInputS
       }
       if (radarRangeDownEdge.risingEdge(rawButtonHeld(MetaAction.RadarRangeDown, scheme))) {
         for (const handler of metaHandlers) handler(MetaAction.RadarRangeDown);
+      }
+      if (lightsCycleEdge.risingEdge(rawButtonHeld(MetaAction.LightsCycle, scheme))) {
+        for (const handler of metaHandlers) handler(MetaAction.LightsCycle);
       }
       // Autopilot keys: once per press; the bug adjusters also repeat while held.
       for (const a of AP_META_ACTIONS) {

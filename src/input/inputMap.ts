@@ -26,7 +26,7 @@ export const INPUT_MAP_STORAGE_KEY = 'tejas.inputMap.v1';
 // Bumped 2 -> 3 when the jettisonTanks button (J) was added, for the same reason.
 // Bumped 4 -> 5 when the service button (R: refuel + re-arm) was added; 5 -> 6 for taxi guidance (H);
 // 6 -> 7 for the radar mode (M) and radar range ([ / ]) keys; 7 -> 8 for the autopilot keys.
-export const INPUT_MAP_VERSION = 8;
+export const INPUT_MAP_VERSION = 9;
 
 /**
  * The literal default binding/tuning data, matching 09-input.md section 5.1 (throttle keys
@@ -80,6 +80,7 @@ export const DEFAULT_INPUT_MAP_DATA: InputMapData = {
       apVsUp: 'Digit6',
       apSpdDown: 'Digit7',
       apSpdUp: 'Digit8',
+      lightsCycle: 'KeyL',
     },
   },
   gamepad: {
@@ -120,6 +121,7 @@ export const DEFAULT_INPUT_MAP_DATA: InputMapData = {
       apVsUp: null,
       apSpdDown: null,
       apSpdUp: null,
+      lightsCycle: null,
     },
     deadzone: 0.12,
     stickCurveExponent: 1.6,
@@ -167,10 +169,30 @@ function isInputMapDataShape(value: unknown): value is InputMapData {
   return true;
 }
 
+/**
+ * Brings a saved map from an older version up to date without losing the player's own keys:
+ * v8 -> v9 adds the lights key (L, unless the player already uses L for something else).
+ */
+function migrateInputMapData(value: unknown): unknown {
+  if (typeof value !== 'object' || value === null) return value;
+  const v = value as { version?: unknown; keyboard?: { meta?: Record<string, unknown>; buttons?: Record<string, unknown>; axes?: Record<string, { negative?: unknown; positive?: unknown }> }; gamepad?: { meta?: Record<string, unknown> } };
+  if (v.version === 8 && v.keyboard?.meta && v.gamepad?.meta) {
+    const used = [
+      ...Object.values(v.keyboard.meta),
+      ...Object.values(v.keyboard.buttons ?? {}),
+      ...Object.values(v.keyboard.axes ?? {}).flatMap((a) => [a.negative, a.positive]),
+    ];
+    v.keyboard.meta.lightsCycle = used.includes('KeyL') ? null : 'KeyL';
+    v.gamepad.meta.lightsCycle = null;
+    v.version = 9;
+  }
+  return value;
+}
+
 export const parseInputMapData: ParseInputMapData = (json) => {
   let parsed: unknown;
   try {
-    parsed = JSON.parse(json);
+    parsed = migrateInputMapData(JSON.parse(json));
   } catch {
     return { ok: false, error: 'malformed JSON' } as Result<InputMapData, string>;
   }

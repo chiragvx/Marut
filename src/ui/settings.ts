@@ -63,6 +63,7 @@ export const ACTION_LABELS: Readonly<Record<BindableAction, string>> = {
   apVsUp: 'Autopilot climb rate up',
   apSpdDown: 'Autopilot speed down',
   apSpdUp: 'Autopilot speed up',
+  lightsCycle: 'Exterior lights (next mode)',
 };
 
 /** "HH:MM" for a time of day in hours. */

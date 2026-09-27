@@ -135,6 +135,8 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
     team: 0,
     vel: { x: 0, y: 0, z: 0 },
     stores: 0,
+    flags: 0,
+    groundY: undefined as number | undefined,
   };
 
   const terrainRoot = new THREE.Group();
@@ -492,6 +494,7 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
 
         camera.fov = FOV_BY_MODE[mode];
         camera.updateProjectionMatrix();
+        aircraftRenderer.setViewport(sizeH, camera.projectionMatrix.elements[5]!);
         camera.position.set(cameraPose.pos.x - origin.x, cameraPose.pos.y - origin.y, cameraPose.pos.z - origin.z);
         setAtmosphereCamera(cameraPose.pos);
         skyFog.followCamera(camera.position);
@@ -527,6 +530,9 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
           st.team = curr.team[i]!;
           st.vel = interpEntity.vel;
           st.stores = curr.stores[i]!;
+          st.flags = flags;
+          // The player's ground height (from the HUD's height above ground) lights the runway ahead.
+          st.groundY = i === playerSlot ? interpEntity.pos.y - (curr.hud[SnapshotHud.ALT_AGL_M] ?? 0) : undefined;
           aircraftRenderer.updateEntity(curr.id[i]!, interpEntity.pos, interpEntity.rot, st, origin);
         }
         aircraftRenderer.endFrame();

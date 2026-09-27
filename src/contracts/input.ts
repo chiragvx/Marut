@@ -188,6 +188,8 @@ export const MetaAction = {
   ApVsUp: 'apVsUp',
   ApSpdDown: 'apSpdDown',
   ApSpdUp: 'apSpdUp',
+  /** Exterior lights: next mode (LIGHT_MODES). */
+  LightsCycle: 'lightsCycle',
 } as const;
 export type MetaAction = (typeof MetaAction)[keyof typeof MetaAction];
 

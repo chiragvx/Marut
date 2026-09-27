@@ -30,6 +30,9 @@ export const PART = {
   bandYellow: 16,
   bandBrown: 17,
   missileRadome: 18,
+  lightFormation: 19,
+  lightStrobe: 20,
+  lightLanding: 21,
 } as const;
 
 /** Monotone cubic through (xs ascending, ys). */

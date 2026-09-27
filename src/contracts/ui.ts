@@ -178,6 +178,7 @@ export const BindableAction = {
   ApVsUp: 'apVsUp',
   ApSpdDown: 'apSpdDown',
   ApSpdUp: 'apSpdUp',
+  LightsCycle: 'lightsCycle',
 } as const;
 export type BindableAction = (typeof BindableAction)[keyof typeof BindableAction];
 

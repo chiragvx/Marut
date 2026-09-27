@@ -11,7 +11,7 @@
  * section 6 of the spec, which explicitly sanctions this.
  */
 import type { EntityState, DamageState, PilotInputs, Vec3Like } from '../contracts/core';
-import { EntityFlag } from '../contracts/core';
+import { EntityFlag, LIGHT_FLAGS_MASK } from '../contracts/core';
 import type { AircraftDefinition } from '../contracts/aircraft';
 import type { Environment, StepAircraft } from '../contracts/flight';
 import { FLIGHT_MODEL_SUBSTEPS } from '../contracts/flight';
@@ -218,6 +218,7 @@ function runSubstep(
   else out.flags &= ~EntityFlag.GearDownCommanded;
   if (inputs.airbrake) out.flags |= EntityFlag.AirbrakeOut;
   else out.flags &= ~EntityFlag.AirbrakeOut;
+  out.flags = (out.flags & ~LIGHT_FLAGS_MASK) | ((inputs.lights ?? 0) & LIGHT_FLAGS_MASK);
   // Airbrake panels move at a finite rate (hydraulic actuators: ~1.2 s out, ~1.0 s in) rather than
   // snapping; drag follows the panel position.
   const ab = out.airbrakePos ?? 0;

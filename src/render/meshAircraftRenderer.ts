@@ -21,6 +21,8 @@ import { storeSlotAt, storeSlotCode, storeSlotCount, storeSlotTwin, type QuatLik
 import { AIRCRAFT_SHADOW_LAYER } from './sunShadows';
 import type { AircraftModelTemplate, ArticulatedPart } from './aircraftModels/tejasTestModel';
 import { buildStoreModels, TWIN_RAIL_FRAMES, type StoreModel } from './aircraftModels/stores';
+import { createAircraftLights } from './aircraftLights';
+import { EntityFlag } from '../contracts/core';
 import { createAircraftBodyMaterial, createAircraftFlameMaterial, createAircraftSharedUniforms, type AircraftBodyUniforms, type AircraftFlameUniforms } from './aircraftMaterial';
 
 export const MAX_MESH_AIRCRAFT = 64;
@@ -42,6 +44,10 @@ export interface MeshAircraftState {
   vel: Readonly<Vec3Like>;
   /** Packed stores (contracts/core.ts STORES layout). */
   stores: number;
+  /** EntityFlags (exterior lights). */
+  flags: number;
+  /** Ground height under the aircraft, world metres, when known (for the landing light's pool). */
+  groundY?: number;
 }
 
 /** Slat droop, 0..1, for the velocity in world axes and orientation `rot`. */
@@ -75,6 +81,8 @@ interface Instance {
   body: THREE.ShaderMaterial & { uniforms: AircraftBodyUniforms };
   flameMat: THREE.ShaderMaterial & { uniforms: AircraftFlameUniforms };
   flame: THREE.Mesh;
+  airframe: THREE.Group;
+  landingNode: THREE.Object3D | undefined;
   assignedId: number;
   airbrake: number;
   slat: number;
@@ -89,6 +97,8 @@ export interface MeshAircraftRenderer {
   updateEntity(entityId: number, pos: Readonly<Vec3Like>, rot: Readonly<QuatLike>, state: Readonly<MeshAircraftState>, originWorld: Readonly<Vec3Like>): void;
   /** A missile in flight: store code (STORE_IDS), pointing along its velocity (else `rot`). */
   updateMissile(code: number, pos: Readonly<Vec3Like>, vel: Readonly<Vec3Like>, rot: Readonly<QuatLike>, originWorld: Readonly<Vec3Like>): void;
+  /** The drawing-buffer height (px) and the projection's [1][1] term, for sizing light glows. */
+  setViewport(heightPx: number, projection11: number): void;
   /** Hides instances not updated this frame and uploads the stores. */
   endFrame(): void;
   dispose(): void;
@@ -126,6 +136,9 @@ export function createMeshAircraftRenderer(root: THREE.Object3D, template: Aircr
   const railBatch = batch(storeModels.rail, 512);
   const twinBatch = batch(storeModels.twinRail, 256);
   const allBatches = [...storeBatches.filter((b): b is StoreBatch => !!b), railBatch, twinBatch];
+  const lights = createAircraftLights(root, template.lights, shared);
+  const landingPivot = template.parts.find((p) => p.name === template.landingPart)?.pivot ?? [0, 0, 0];
+
   /** Each pylon's attach frame in the aircraft's body frame. */
   const pylonFrames = template.pylons.map((p) => new THREE.Matrix4().makeTranslation(p.x + template.offsetX, p.attachY, p.z));
   const mA = new THREE.Matrix4();
@@ -198,13 +211,15 @@ export function createMeshAircraftRenderer(root: THREE.Object3D, template: Aircr
     flame.renderOrder = 1;
     airframe.add(flame);
     root.add(group);
-    return { root: group, parts, body, flameMat, flame, assignedId: NO_ID, airbrake: 0, slat: 0, nozzle: 0 };
+    const landingNode = parts.find((p) => p.part.name === template.landingPart)?.node;
+    return { root: group, parts, body, flameMat, flame, airframe, landingNode, assignedId: NO_ID, airbrake: 0, slat: 0, nozzle: 0 };
   }
 
   return {
     beginFrame(dtSec, origin, cam, timeSec) {
       touched.fill(0);
       for (const b of allBatches) b.n = 0;
+      lights.begin(timeSec);
       dt = dtSec;
       shared.uOrigin.value.set(origin.x, origin.y, origin.z);
       shared.uCamRel.value.set(cam.x - origin.x, cam.y - origin.y, cam.z - origin.z);
@@ -278,6 +293,33 @@ export function createMeshAircraftRenderer(root: THREE.Object3D, template: Aircr
         inst.root.updateMatrix();
         putStores(inst.root.matrix, s.stores);
       }
+
+      // Exterior lights: the lamps (shader) and their glows, beam and pool (aircraftLights.ts).
+      const lightBits = s.flags & (EntityFlag.Lights | EntityFlag.LightsStrobe | EntityFlag.LightsLanding | EntityFlag.LightsFormation);
+      let strobe = 0;
+      if (lightBits !== 0) {
+        inst.root.updateMatrixWorld(true);
+        const res = lights.add({
+          airframe: inst.airframe.matrixWorld,
+          landingPart: (inst.landingNode ?? inst.airframe).matrixWorld,
+          landingPivot: inst.landingNode ? landingPivot : [0, 0, 0],
+          flags: lightBits,
+          gearPos: s.gearPos,
+          phase: (entityId % 97) * 0.113,
+          ...(s.groundY !== undefined ? { groundY: s.groundY - origin.y } : {}),
+        });
+        strobe = res.strobe;
+      }
+      u.uLightState.value.set(
+        lightBits & EntityFlag.Lights ? 1 : 0,
+        strobe,
+        lightBits & EntityFlag.LightsLanding && s.gearPos > 0.9 ? 1 : 0,
+        lightBits & EntityFlag.LightsFormation ? 1 : 0
+      );
+    },
+
+    setViewport(heightPx, projection11) {
+      lights.setViewportHeight(heightPx, projection11);
     },
 
     updateMissile(code, pos, vel, rot, origin) {
@@ -291,6 +333,7 @@ export function createMeshAircraftRenderer(root: THREE.Object3D, template: Aircr
     },
 
     endFrame() {
+      lights.end();
       for (const b of allBatches) {
         b.mesh.count = b.n;
         b.mesh.instanceMatrix.needsUpdate = true;
@@ -315,6 +358,7 @@ export function createMeshAircraftRenderer(root: THREE.Object3D, template: Aircr
         b.mesh.dispose();
       }
       storeMat.dispose();
+      lights.dispose();
       template.body.dispose();
       template.flame.dispose();
       for (const p of template.parts) p.geometry.dispose();
