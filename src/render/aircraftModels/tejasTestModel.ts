@@ -170,8 +170,22 @@ const [cTop, cW] = table([
 
 function canopySection(x: number): Section {
   const sill = fuselageTopY(x, 0) - 0.16;
-  return { cy: sill, cz: 0, w: cW(x), hT: cTop(x) - sill, hB: 0, n: 2.3 };
+  return { cy: sill, cz: 0, w: cW(x), hT: cTop(x) - sill, hB: 0, n: CANOPY_EXPONENT };
 }
+const CANOPY_EXPONENT = 2.3;
+
+/**
+ * The canopy's cross-section at layout x (for the cockpit interior, which must fit inside it): the
+ * sill (canopy rail) height, half-width at the sill, top height, and the superellipse exponent
+ * (|z/halfW|^n + |(y-sill)/(top-sill)|^n = 1). Valid for -3.4 <= x <= 3.62.
+ */
+export function canopyProfile(x: number): { sillY: number; halfW: number; topY: number; n: number } {
+  const s = canopySection(x);
+  return { sillY: s.cy, halfW: s.w, topY: s.cy + s.hT, n: s.n };
+}
+/** Layout x of the canopy's front tip and its rear end. */
+export const CANOPY_FRONT_X = 3.62;
+export const CANOPY_REAR_X = -3.4;
 
 function buildCanopy(): THREE.BufferGeometry {
   return loft(range(-3.4, 3.62, 0.09), canopySection, 24, PART.canopy, { arc: [0, Math.PI] });

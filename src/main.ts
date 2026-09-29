@@ -26,7 +26,7 @@ import type {
 import type { MainToTerrainMessage, TerrainToMainMessage } from './contracts/core';
 import type { MainToTerrainMessageExt, TerrainToMainMessageExt, AirportFlattenZone, TerrainParams } from './contracts/terrain';
 import type { AirportLayout } from './contracts/airport';
-import type { CameraState, HudRenderer, SceneEnvironment, SceneRenderer, ShowcaseFrame } from './contracts/render';
+import type { CameraState, CockpitAction, HudRenderer, SceneEnvironment, SceneRenderer, ShowcaseFrame } from './contracts/render';
 import type { PlayerInputSystem } from './contracts/input';
 import { RebindDeviceKind } from './contracts/input';
 import type { BindableAction, DebriefStats, LoadingScreenHandle, OrientationPromptHandle, ScreenHandle, SettingsScreenHandle, SettingsState } from './contracts/ui';
@@ -184,6 +184,12 @@ const newWeatherSeed = (): number => Math.floor(Math.random() * 4294967296) >>> 
 let hintsEnabled = true;
 /** Exterior light mode (LIGHT_MODES index), cycled with L; nav + strobes at the start of a flight. */
 const DEFAULT_LIGHT_MODE = 2;
+/** Master arm (3D cockpit switch): SAFE blocks the trigger and missile launch. Armed by default. */
+let masterArm = true;
+/** One-shot presses from cockpit controls, added to the next frame's pilot inputs (frames left). */
+const cockpitPulse = { cycleWeapon: 0, cycleTarget: 0, radarModeCycle: 0, jettisonTanks: 0, requestService: 0 };
+/** Bumped at every spawn and rearm, so the cockpit starts counting gun rounds again. */
+let loadSerial = 0;
 let lightMode = DEFAULT_LIGHT_MODE;
 /** Objective tracker, event messages and hints over the HUD (src/ui/flightOverlay.ts). */
 let flightOverlay: FlightOverlay | undefined;
@@ -437,11 +443,25 @@ function controlGroups(): ControlGroup[] {
       ],
     },
     {
-      title: 'View and menus',
+      title: 'View',
       rows: [
-        { keys: [L(m.cameraCycle)], label: 'Change camera' },
-        { keys: ['Drag', 'Scroll'], label: 'Look around, zoom (the view returns behind the jet after 6 s)' },
+        { keys: [L(m.cameraCycle)], label: 'Change camera: chase, cockpit, HUD only, external, fly-by' },
+        { keys: ['Drag', 'Scroll'], label: 'Look around, zoom (the chase view returns behind the jet after 6 s)' },
         { keys: ['←', '↑', '↓', '→'], label: 'Look around' },
+      ],
+    },
+    {
+      title: 'Cockpit',
+      rows: [
+        { keys: ['Click'], label: 'Press a switch, button or lever (point at one to see what it is)' },
+        { keys: ['Middle click'], label: 'Look ahead again (or double-click)' },
+        { keys: ['UFCP'], label: 'Pick HDG/ALT/SPD/V/S, type a value, ENT: sets the autopilot' },
+        { keys: ['MFD'], label: 'Top and bottom buttons pick the page; side buttons do what they say' },
+      ],
+    },
+    {
+      title: 'Menus',
+      rows: [
         { keys: ['Esc'], label: 'Pause' },
         { keys: ['F1'], label: 'This screen (in flight)' },
       ],
@@ -557,6 +577,7 @@ function showSettingsOverlay(): void {
       }
       currentSpeedUnit = next.speedUnit;
       hud?.setSpeedUnit(currentSpeedUnit);
+      pushCockpitAux();
       inputSystem?.setAlphaLimiterDisabled(!next.alphaLimiterEnabled);
       if (inputSystem) applyMouseSettings(next.mouseEnabled ?? false, next.mouseSensitivityMultiplier, next.invertPitch);
       hintsEnabled = next.hintsEnabled ?? true;
@@ -748,6 +769,8 @@ async function initWorkersAndRenderer(qualityTier: QualityTier): Promise<void> {
         lastPlayer.speedMps = Math.hypot(ev.vel.x, ev.vel.y, ev.vel.z);
         lastPlayer.onGround = (ev.flags & EntityFlag.OnGround) !== 0;
         lastPlayer.valid = true;
+        lastPlayerGearCmd = (ev.flags & EntityFlag.GearDownCommanded) !== 0;
+        lastPlayerAirbrake = (ev.flags & EntityFlag.AirbrakeOut) !== 0;
       }
       // A completed ground service re-arms: reset the HUD's locally counted ammunition.
       const service = view[HUD_BLOCK_START + SnapshotHud.SERVICE_STATE] ?? 0;
@@ -1245,6 +1268,7 @@ function launchMission(missionIn: Mission, opts: { title: string; airStart: bool
   // Gear lever and throttle to suit the start (the gear lever otherwise keeps the last flight's).
   inputSystem.setGearDown(!opts.airStart);
   lightMode = DEFAULT_LIGHT_MODE;
+  masterArm = true;
   inputSystem.setThrottle(opts.airStart ? 0.8 : 0);
 
   currentMission = mission;
@@ -1398,8 +1422,23 @@ function frame(nowMs: number): void {
   if (appState === 'gameplay' && renderer && hud && inputSystem) {
     inputSystem.update(undefined as never, dtSec, pilotInputsScratch);
     pilotInputsScratch.lights = LIGHT_MODES[lightMode]!.flags;
+    applyCockpitPulses();
+    renderer.setCockpitControls({
+      pitch: pilotInputsScratch.pitch,
+      roll: pilotInputsScratch.roll,
+      yaw: pilotInputsScratch.yaw,
+      throttle: pilotInputsScratch.throttle,
+      afterburner: pilotInputsScratch.afterburner,
+      brakes: pilotInputsScratch.brakes,
+      trigger: pilotInputsScratch.trigger || pilotInputsScratch.launch,
+    });
+    if (!masterArm) {
+      pilotInputsScratch.trigger = false;
+      pilotInputsScratch.launch = false;
+    }
     simWorker.postMessage({ type: 'input', entityId: playerEntityId, inputs: pilotInputsScratch } as const);
   }
+  if (appState !== 'gameplay' && cockpitTip && cockpitTip.style.display !== 'none') hideCockpitTip();
   tickPendingStart(nowMs);
   tickShowcase(dtSec);
   tickLookKeys(dtSec);
@@ -1451,6 +1490,9 @@ const LOOK_RAD_PER_PX = 0.006;
 const MAX_LOOK_PX_PER_EVENT = 120;
 const LOOK_KEY_RAD_PER_SEC = 1.6;
 const ZOOM_M_PER_WHEEL_UNIT = 0.02;
+/** 3D cockpit: head turn per pixel dragged, and field of view per wheel unit (deg). */
+const COCKPIT_LOOK_RAD_PER_PX = 0.0045;
+const COCKPIT_ZOOM_DEG_PER_WHEEL_UNIT = 0.03;
 const lookKeys = new Set<string>();
 
 /** True if the key map uses this key for anything (then it is not a look key). */
@@ -1463,24 +1505,85 @@ function isBoundKey(code: string): boolean {
 
 function wireFreeLook(): void {
   let dragging = false;
+  // 3D cockpit: a press that doesn't move is a click on a control; one that moves turns the head.
+  let pressX = 0;
+  let pressY = 0;
+  let pressMoved = false;
+  let pressLeft = false;
+  let swallowClick = false;
   window.addEventListener('pointerdown', (e: PointerEvent) => {
     if (appState !== 'gameplay' || e.pointerType === 'touch' || e.target !== renderCanvas) return;
     const mouseFlying = inputSystem?.inputMap.data.mouse.enabled ?? false;
-    if (e.button === 2 || (e.button === 0 && !mouseFlying)) dragging = true;
+    const pointerLocked = document.pointerLockElement !== null;
+    if (e.button === 2 || (e.button === 0 && (!mouseFlying || (inCockpit3d() && !pointerLocked)))) dragging = true;
+    pressX = e.clientX;
+    pressY = e.clientY;
+    pressMoved = false;
+    pressLeft = e.button === 0;
+    if (e.button === 1 && inCockpit3d()) {
+      renderer.recenterCockpit();
+      e.preventDefault();
+    }
   });
   window.addEventListener('pointermove', (e: PointerEvent) => {
-    if (!dragging) return;
+    if (Math.hypot(e.clientX - pressX, e.clientY - pressY) > 4) pressMoved = true;
+    if (!dragging) {
+      // Hover: name the cockpit control under the pointer.
+      if (appState === 'gameplay' && inCockpit3d() && document.pointerLockElement === null && e.target === renderCanvas) {
+        const r = renderer.cockpitPointer(e.clientX, e.clientY, false);
+        if (r.hover) showCockpitTip(r.hover.label, e.clientX, e.clientY);
+        else if (cockpitTip) cockpitTip.style.display = 'none';
+      }
+      return;
+    }
     if (appState !== 'gameplay' || (e.buttons & 3) === 0) {
       dragging = false;
       return;
     }
-    // Drag right: the view turns right (the camera swings round the aircraft's left); drag down: look down on it.
     // Capped per event: browsers occasionally report a spurious huge jump in movementX/Y.
     const mx = Math.max(-MAX_LOOK_PX_PER_EVENT, Math.min(MAX_LOOK_PX_PER_EVENT, e.movementX));
     const my = Math.max(-MAX_LOOK_PX_PER_EVENT, Math.min(MAX_LOOK_PX_PER_EVENT, e.movementY));
+    if (inCockpit3d()) {
+      // Head look: drag right looks right, drag down looks down (finer when zoomed in).
+      if (!pressMoved) return;
+      if (cockpitTip) cockpitTip.style.display = 'none';
+      renderer.lookCockpit(-mx * COCKPIT_LOOK_RAD_PER_PX, -my * COCKPIT_LOOK_RAD_PER_PX, 0);
+      return;
+    }
+    // Drag right: the view turns right (the camera swings round the aircraft's left); drag down: look down on it.
     renderer.orbitCamera(-mx * LOOK_RAD_PER_PX, my * LOOK_RAD_PER_PX, 0);
   });
-  window.addEventListener('pointerup', () => (dragging = false));
+  window.addEventListener('pointerup', (e: PointerEvent) => {
+    dragging = false;
+    // A drag to look round the cockpit is not a click (it must not start mouse flying either).
+    if (appState === 'gameplay' && inCockpit3d() && pressLeft && pressMoved) swallowClick = true;
+    if (appState !== 'gameplay' || !inCockpit3d() || !pressLeft || pressMoved || e.target !== renderCanvas || document.pointerLockElement !== null) return;
+    const r = renderer.cockpitPointer(e.clientX, e.clientY, true);
+    if (r.hover) {
+      // A control took the click: don't let it also start mouse flying (pointer lock).
+      swallowClick = true;
+      showCockpitTip(r.hover.label, e.clientX, e.clientY);
+      if (r.action) doCockpitAction(r.action);
+      // The tooltip shows the new state once the aircraft has answered.
+      setTimeout(() => {
+        const r2 = renderer.cockpitPointer(e.clientX, e.clientY, false);
+        if (r2.hover) showCockpitTip(r2.hover.label, e.clientX, e.clientY);
+      }, 180);
+    }
+  });
+  window.addEventListener(
+    'click',
+    (e) => {
+      if (swallowClick) {
+        swallowClick = false;
+        e.stopPropagation();
+      }
+    },
+    true
+  );
+  window.addEventListener('dblclick', (e) => {
+    if (appState === 'gameplay' && inCockpit3d() && e.target === renderCanvas && !renderer.cockpitPointer(e.clientX, e.clientY, false).hover) renderer.recenterCockpit();
+  });
   window.addEventListener('blur', () => {
     dragging = false;
     lookKeys.clear();
@@ -1492,7 +1595,8 @@ function wireFreeLook(): void {
     'wheel',
     (e: WheelEvent) => {
       if (appState !== 'gameplay') return;
-      renderer.orbitCamera(0, 0, e.deltaY * ZOOM_M_PER_WHEEL_UNIT);
+      if (inCockpit3d()) renderer.lookCockpit(0, 0, e.deltaY * COCKPIT_ZOOM_DEG_PER_WHEEL_UNIT);
+      else renderer.orbitCamera(0, 0, e.deltaY * ZOOM_M_PER_WHEEL_UNIT);
     },
     { passive: true }
   );
@@ -1511,6 +1615,10 @@ function tickLookKeys(dtSec: number): void {
   const r = LOOK_KEY_RAD_PER_SEC * dtSec;
   const yaw = (lookKeys.has('ArrowLeft') ? r : 0) - (lookKeys.has('ArrowRight') ? r : 0);
   const pitch = (lookKeys.has('ArrowUp') ? -r : 0) + (lookKeys.has('ArrowDown') ? r : 0);
+  if (inCockpit3d()) {
+    if (yaw !== 0 || pitch !== 0) renderer.lookCockpit(yaw, -pitch, 0);
+    return;
+  }
   if (yaw !== 0 || pitch !== 0) renderer.orbitCamera(yaw, pitch, 0);
 }
 
@@ -1538,6 +1646,7 @@ function wireMetaActionsOnce(): void {
     } else if (action === 'lightsCycle' && appState === 'gameplay') {
       lightMode = (lightMode + 1) % LIGHT_MODES.length;
       flightOverlay?.message(`Lights: ${LIGHT_MODES[lightMode]!.name}`);
+      pushCockpitAux();
     } else if (action === 'taxiGuide' && appState === 'gameplay') {
       toggleTaxiGuide();
     } else if ((action === 'radarRangeUp' || action === 'radarRangeDown') && appState === 'gameplay') {
@@ -1573,6 +1682,8 @@ function fullLoadFor(aircraftId: string | undefined, loadoutId: string | undefin
 }
 function setPlayerFullLoad(): void {
   const f = playerFullLoad;
+  loadSerial += 1;
+  pushCockpitAux();
   hud.setWeaponLoadout(f.gun, f.ir, f.radar, { ...(f.irName ? { ir: f.irName } : {}), ...(f.radarName ? { radar: f.radarName } : {}) });
 }
 let lastServiceState = 0;
@@ -1597,6 +1708,9 @@ function autopilotKey(action: string, held: boolean): void {
   else if (action.startsWith('apSpd')) post({ type: 'adjust', target: 'spd', delta: sign * (kt ? (held ? 10 : 5) * 0.514444 : held ? 5 : 2) });
 }
 
+/** The player's gear lever and airbrake as of the latest snapshot (cockpit controls toggle them). */
+let lastPlayerGearCmd = true;
+let lastPlayerAirbrake = false;
 /** The player as of the latest snapshot (for taxi guidance). */
 const lastPlayer = { x: 0, z: 0, speedMps: 0, onGround: false, valid: false };
 const taxiGraphs = new Map<string, TaxiGraph>();
@@ -1645,9 +1759,129 @@ function toggleTaxiGuide(): void {
   hud.setTaxiGuide({ points: route.points, groundY: best.elevationM, holdIndex: route.holdIndex, runwayId: route.runwayId, standNumber: route.standNumber });
 }
 
-const CAMERA_MODE_CYCLE = ['cockpit', 'chase', 'external', 'flyby'] as const;
-let cameraModeIndex = 1;
+const CAMERA_MODE_CYCLE = ['chase', 'cockpit3d', 'cockpit', 'external', 'flyby'] as const;
+const CAMERA_MODE_NAMES: Record<(typeof CAMERA_MODE_CYCLE)[number], string> = {
+  chase: 'Chase',
+  cockpit3d: 'Cockpit',
+  cockpit: 'HUD only',
+  external: 'External',
+  flyby: 'Fly-by',
+};
+let cameraModeIndex = 0;
 function cycleCameraMode(): void {
   cameraModeIndex = (cameraModeIndex + 1) % CAMERA_MODE_CYCLE.length;
-  renderer.setCameraMode(CAMERA_MODE_CYCLE[cameraModeIndex] as (typeof CAMERA_MODE_CYCLE)[number]);
+  const m = CAMERA_MODE_CYCLE[cameraModeIndex]!;
+  renderer.setCameraMode(m);
+  hud.setOverlayMode(m === 'cockpit3d' ? 'helmet' : 'full');
+  if (m === 'cockpit3d') pushCockpitAux();
+  else hideCockpitTip();
+  flightOverlay?.message(`View: ${CAMERA_MODE_NAMES[m]}`);
+}
+const inCockpit3d = (): boolean => CAMERA_MODE_CYCLE[cameraModeIndex] === 'cockpit3d';
+
+// -----------------------------------------------------------------------------
+// 3D cockpit: clickable controls (a tooltip names the control under the pointer), and what they
+// do to the aircraft (src/render/cockpit handles its own display pages itself).
+// -----------------------------------------------------------------------------
+
+/** The cockpit's aux state: things the sim doesn't carry (master arm, light mode, bases, loadout). */
+function pushCockpitAux(): void {
+  if (!renderer) return;
+  const airports = (currentMission?.world.airports ?? []) as readonly AirportLayout[];
+  const friendly = airports.filter((a) => a.side !== 'hostile');
+  const home = friendly[0];
+  renderer.setCockpitAux({
+    masterArm,
+    lightMode: LIGHT_MODES[lightMode]?.name ?? '',
+    speedUnit: currentSpeedUnit,
+    ...(home
+      ? { homeBase: { name: home.name, x: home.referenceWorldX, z: home.referenceWorldZ, elevationM: home.elevationM, runways: home.runways.map((r) => r.id).join('/') } }
+      : {}),
+    bases: airports.map((a) => ({ name: a.name, x: a.referenceWorldX, z: a.referenceWorldZ, hostile: a.side === 'hostile' })),
+    ...(currentMission ? { missionName: currentMission.name } : {}),
+    gunRoundsFull: playerFullLoad.gun,
+    loadSerial,
+  });
+}
+
+function applyCockpitPulses(): void {
+  const p = cockpitPulse;
+  // Edge-triggered inputs: pressed for one frame, released the next.
+  if (p.cycleWeapon > 0) pilotInputsScratch.cycleWeapon = p.cycleWeapon-- > 1;
+  if (p.cycleTarget > 0) pilotInputsScratch.cycleTarget = p.cycleTarget-- > 1;
+  if (p.radarModeCycle > 0) pilotInputsScratch.radarModeCycle = p.radarModeCycle-- > 1;
+  // Level inputs: held for a few frames.
+  if (p.jettisonTanks > 0) {
+    p.jettisonTanks--;
+    pilotInputsScratch.jettisonTanks = true;
+  }
+  if (p.requestService > 0) {
+    p.requestService--;
+    pilotInputsScratch.requestService = true;
+  }
+}
+
+/** Carries out a cockpit control's action, as the matching key would. */
+function doCockpitAction(a: CockpitAction): void {
+  switch (a.kind) {
+    case 'gear': {
+      const down = lastPlayerGearCmd;
+      inputSystem.setGearDown(!down);
+      break;
+    }
+    case 'airbrake':
+      inputSystem.setAirbrake(!lastPlayerAirbrake);
+      break;
+    case 'lights':
+      lightMode = (lightMode + 1) % LIGHT_MODES.length;
+      flightOverlay?.message(`Lights: ${LIGHT_MODES[lightMode]!.name}`);
+      break;
+    case 'masterArm':
+      masterArm = !masterArm;
+      flightOverlay?.message(masterArm ? 'Master arm: ARM' : 'Master arm: SAFE');
+      break;
+    case 'jettison':
+      cockpitPulse.jettisonTanks = 3;
+      break;
+    case 'autopilot':
+      simWorker.postMessage({ type: 'command', command: { kind: 'autopilot', action: a.action } } satisfies SimCommandMessage);
+      break;
+    case 'cycleWeapon':
+      cockpitPulse.cycleWeapon = 2;
+      break;
+    case 'cycleTarget':
+      cockpitPulse.cycleTarget = 2;
+      break;
+    case 'radarMode':
+      cockpitPulse.radarModeCycle = 2;
+      break;
+    case 'radarRange':
+      hud.cycleRadarRange(a.dir);
+      break;
+    case 'taxiGuide':
+      toggleTaxiGuide();
+      break;
+    case 'service':
+      cockpitPulse.requestService = 20;
+      break;
+  }
+  pushCockpitAux();
+}
+
+let cockpitTip: HTMLDivElement | null = null;
+function showCockpitTip(label: string, x: number, y: number): void {
+  if (!cockpitTip) {
+    cockpitTip = document.createElement('div');
+    cockpitTip.style.cssText =
+      'position:fixed;z-index:30;pointer-events:none;padding:3px 8px;font:12px/1.35 system-ui,sans-serif;color:#e8f0f4;background:rgba(10,14,18,0.82);border:1px solid rgba(160,190,210,0.35);border-radius:3px;white-space:nowrap;';
+    document.body.appendChild(cockpitTip);
+  }
+  cockpitTip.textContent = label;
+  cockpitTip.style.left = `${x + 14}px`;
+  cockpitTip.style.top = `${y + 16}px`;
+  cockpitTip.style.display = 'block';
+}
+function hideCockpitTip(): void {
+  if (cockpitTip) cockpitTip.style.display = 'none';
+  renderer?.cockpitPointer(null, 0, false);
 }

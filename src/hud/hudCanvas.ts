@@ -39,6 +39,32 @@ import { createScreenProjection, drawLeadSight, drawTargetBox, hasTarget } from 
 import { createWeaponStatusState, drawWeaponStatus, ingestWeaponEvents, setWeaponLoadout as applyWeaponLoadout } from './weaponStatus';
 import { drawWarnings } from './warnings';
 
+/**
+ * True if a world point is within the aircraft HUD's field of view (a 12 deg cone round its optical
+ * axis, 6.5 deg below the nose: the 3D cockpit's HUD), where the helmet display blanks its symbols.
+ */
+function insideHudField(curr: { posX: Float64Array; posY: Float64Array; posZ: Float64Array; rotX: Float32Array; rotY: Float32Array; rotZ: Float32Array; rotW: Float32Array }, slot: number, p: { x: number; y: number; z: number }): boolean {
+  const vx = p.x - curr.posX[slot]!;
+  const vy = p.y - curr.posY[slot]!;
+  const vz = p.z - curr.posZ[slot]!;
+  // World -> body: rotate by the conjugate of the orientation.
+  const qx = -curr.rotX[slot]!;
+  const qy = -curr.rotY[slot]!;
+  const qz = -curr.rotZ[slot]!;
+  const qw = curr.rotW[slot]!;
+  const ix = qw * vx + qy * vz - qz * vy;
+  const iy = qw * vy + qz * vx - qx * vz;
+  const iz = qw * vz + qx * vy - qy * vx;
+  const iw = -qx * vx - qy * vy - qz * vz;
+  const bx = ix * qw + iw * -qx + iy * -qz - iz * -qy;
+  const by = iy * qw + iw * -qy + iz * -qx - ix * -qz;
+  const bz = iz * qw + iw * -qz + ix * -qy - iy * -qx;
+  const len = Math.hypot(bx, by, bz) || 1;
+  const axis = (-6.5 * Math.PI) / 180;
+  const cosToAxis = (bx * Math.cos(axis) + by * Math.sin(axis)) / len;
+  return cosToAxis > Math.cos((11 * Math.PI) / 180) && Math.abs(bz / len) < Math.sin((10 * Math.PI) / 180);
+}
+
 export const createHudRenderer: CreateHudRenderer = (canvas, initialTier) => {
   const ctx = canvas.getContext('2d');
   if (!ctx) throw new Error('hudCanvas: 2D rendering context unavailable');
@@ -75,8 +101,14 @@ export const createHudRenderer: CreateHudRenderer = (canvas, initialTier) => {
   // Navigation markers (airbaseMarkers.ts): the mission's airbases, and whether the player is on the ground.
   let airbases: readonly HudAirbase[] = [];
   let playerOnGround = false;
+  // 'helmet': only the helmet-mounted display's symbols over the world (3D cockpit view).
+  let overlayMode: 'full' | 'helmet' = 'full';
 
   const api: HudRenderer = {
+    setOverlayMode(m) {
+      overlayMode = m;
+    },
+
     resize(widthPxArg, heightPxArg, devicePixelRatio) {
       const cap = RENDER_QUALITY_TABLE[tier].pixelRatioCap;
       const dpr = Math.min(devicePixelRatio, cap);
@@ -152,6 +184,28 @@ export const createHudRenderer: CreateHudRenderer = (canvas, initialTier) => {
       const playerSlot = curr.playerSlot;
       if (playerSlot < 0) return;
       const hud = curr.hud;
+
+      if (overlayMode === 'helmet') {
+        // Helmet-mounted display: world-referenced cues only (the cockpit's HUD and displays carry the rest).
+        drawAirbaseMarkers(ctx, airbases, camera, curr.posX[playerSlot]!, curr.posY[playerSlot]!, curr.posZ[playerSlot]!, playerOnGround, widthPx, heightPx);
+        lastNowMs = nowMs;
+        if (taxiGuide.route || taxiGuide.message) {
+          const p = { x: curr.posX[playerSlot]!, z: curr.posZ[playerSlot]! };
+          if (!drawTaxiGuide(ctx, taxiGuide, p, hud[SnapshotHud.TAS_MPS]!, camera, widthPx, heightPx, nowMs)) applyTaxiGuide(taxiGuide, null, nowMs);
+        }
+        const tId = hud[SnapshotHud.TARGET_ID]!;
+        const tSlot = hasTarget(tId) ? findEntitySlotById(curr, tId) : -1;
+        if (tSlot >= 0) {
+          const span = curr.simTimeSec - buf.prev.simTimeSec;
+          const f = camera.renderSimSec !== undefined && span > 1e-6 ? Math.max(-3, Math.min(1, (camera.renderSimSec - buf.prev.simTimeSec) / span)) : computeInterpFraction(nowMs, curr.arrivalMs);
+          interpolateHudEntity(buf, tSlot, f, interpTarget);
+          // Like a real helmet display, blank the target box where the aircraft's own HUD shows it.
+          if (!insideHudField(curr, playerSlot, interpTarget.pos)) {
+            drawTargetBox(ctx, camera, interpTarget.pos, widthPx, heightPx, hud[SnapshotHud.TARGET_RANGE_M]!, hud[SnapshotHud.CLOSURE_MPS]!, scratchProjection);
+          }
+        }
+        return;
+      }
 
       drawLadder(ctx, hud, widthPx, heightPx);
       drawSpeedTape(ctx, hud, 50, heightPx * 0.5, heightPx * 0.32, speedUnit);

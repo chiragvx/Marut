@@ -26,7 +26,7 @@
  * =============================================================================
  */
 
-import type { AirportNavDb, QualityTier, QuatLike, SimEvent, SpeedUnit, TerrainChunkReadyMessage, Vec3Like, WeaponKind, WeatherMode } from './core';
+import type { AirportNavDb, AutopilotAction, QualityTier, QuatLike, SimEvent, SpeedUnit, TerrainChunkReadyMessage, Vec3Like, WeaponKind, WeatherMode } from './core';
 import { WarningBit } from './core';
 import type { SettlementLayer } from './terrain';
 
@@ -136,16 +136,31 @@ export const RENDER_QUALITY_TABLE: Readonly<Record<QualityTier, RenderQualitySet
 // -----------------------------------------------------------------------------
 
 export const CameraMode = {
+  /** From the pilot's eye with the full-screen game HUD (no cockpit drawn). */
   Cockpit: 'cockpit',
+  /** From the pilot's eye inside the 3D cockpit (src/render/cockpit): real HUD, displays, controls. */
+  Cockpit3d: 'cockpit3d',
   Chase: 'chase',
   External: 'external',
   Flyby: 'flyby',
 } as const;
 export type CameraMode = (typeof CameraMode)[keyof typeof CameraMode];
 
-/** Eye position, body-frame metres from the player aircraft's origin (not CG), for CameraMode.Cockpit. */
-export const COCKPIT_EYE_OFFSET_BODY_M: Vec3Like = { x: 0.35, y: 1.05, z: 0 };
+/** Eye position, body-frame metres from the player aircraft's origin (not CG), for CameraMode.Cockpit: the Tejas design eye point (as in src/render/cockpit/layouts/tejas.ts). */
+export const COCKPIT_EYE_OFFSET_BODY_M: Vec3Like = { x: 2.65, y: 1.2, z: 0 };
 export const COCKPIT_VERTICAL_FOV_DEG = 75;
+
+/**
+ * 3D cockpit view: default vertical field of view and the zoom range (mouse wheel), degrees. The
+ * default is a natural monitor view; the narrow end reads the displays, the wide end is a glance.
+ */
+export const COCKPIT3D_VERTICAL_FOV_DEG = 62;
+export const COCKPIT3D_MIN_FOV_DEG = 26;
+export const COCKPIT3D_MAX_FOV_DEG = 88;
+/** Head turn limits in the 3D cockpit, rad: yaw either side, pitch up and down. */
+export const COCKPIT3D_MAX_YAW_RAD = 2.6;
+export const COCKPIT3D_MAX_PITCH_UP_RAD = 1.35;
+export const COCKPIT3D_MAX_PITCH_DOWN_RAD = 1.2;
 
 export const CHASE_CAM_DISTANCE_M = 15;
 export const CHASE_CAM_HEIGHT_M = 4;
@@ -401,6 +416,69 @@ export interface ShowcaseFrame {
   aircraft: readonly ShowcaseAircraft[];
 }
 
+/**
+ * A cockpit control the pilot clicked (src/render/cockpit). The cockpit handles its own displays
+ * (page selection, brightness) itself; these are the ones that reach the aircraft, so src/main
+ * carries them out the same way as the matching key.
+ */
+export type CockpitAction =
+  | { kind: 'gear' }
+  | { kind: 'airbrake' }
+  | { kind: 'lights' }
+  | { kind: 'masterArm' }
+  | { kind: 'jettison' }
+  | { kind: 'autopilot'; action: AutopilotAction }
+  | { kind: 'cycleWeapon' }
+  | { kind: 'cycleTarget' }
+  | { kind: 'radarMode' }
+  | { kind: 'radarRange'; dir: 1 | -1 }
+  | { kind: 'taxiGuide' }
+  | { kind: 'service' };
+
+/** What the pointer is over in the 3D cockpit: the control's name and state, for a tooltip. */
+export interface CockpitHover {
+  label: string;
+  /** Screen position for the tooltip, CSS px. */
+  x: number;
+  y: number;
+}
+
+/** Pilot controls as the pilot is moving them (the stick, pedals and throttle drawn in the cockpit). */
+export interface CockpitPilotControls {
+  /** [-1,1], + = stick aft. */
+  pitch: number;
+  /** [-1,1], + = stick right. */
+  roll: number;
+  /** [-1,1], + = right pedal forward. */
+  yaw: number;
+  /** [0,1] throttle lever, idle..military. */
+  throttle: number;
+  afterburner: boolean;
+  /** [0,1] toe brakes. */
+  brakes: number;
+  /** Trigger or pickle pressed (the stick's buttons). */
+  trigger: boolean;
+}
+
+/**
+ * Cockpit state the sim doesn't carry: master arm (src/main gates the trigger with it), the exterior
+ * light mode name, the speed unit the pilot chose (the HUD itself flies knots and feet), and the
+ * home base for the navigation display.
+ */
+export interface CockpitAuxState {
+  masterArm: boolean;
+  lightMode: string;
+  speedUnit: SpeedUnit;
+  homeBase?: { name: string; x: number; z: number; elevationM: number; runways: string };
+  /** Other airbases for the navigation display (hostile ones drawn as threats). */
+  bases?: readonly { name: string; x: number; z: number; hostile: boolean }[];
+  /** The mission's name (the UFCP shows it at start-up). */
+  missionName?: string;
+  /** Gun rounds at full load; the cockpit counts them down from the gun-fire events and starts again when `loadSerial` changes (spawn, rearm). */
+  gunRoundsFull: number;
+  loadSerial: number;
+}
+
 export interface SceneRenderer {
   /** Draw a scripted camera and aircraft (the menu's cinematic) instead of the flight; null returns to the flight. */
   setShowcase(frame: ShowcaseFrame | null): void;
@@ -416,6 +494,19 @@ export interface SceneRenderer {
    * pitch up) and metres (further away). No effect in the other modes.
    */
   orbitCamera(deltaYawRad: number, deltaPitchRad: number, deltaZoomM: number): void;
+  /** CameraMode.Cockpit3d: turns the head (rad, yaw left +, pitch up +) and zooms (+ = wider field of view, degrees). */
+  lookCockpit(deltaYawRad: number, deltaPitchRad: number, deltaFovDeg: number): void;
+  /** Looks straight ahead again at the default zoom (3D cockpit). */
+  recenterCockpit(): void;
+  /** The pilot's controls this frame, for the stick, pedals and throttle drawn in the 3D cockpit. */
+  setCockpitControls(controls: Readonly<CockpitPilotControls>): void;
+  setCockpitAux(state: Readonly<CockpitAuxState>): void;
+  /**
+   * The pointer in the 3D cockpit (CSS px from the canvas's top left; null = gone). With `click`,
+   * presses the control under it and returns what the aircraft must do (null if nothing, or the
+   * cockpit handled it itself). Returns what the pointer is over for a tooltip via `hover`.
+   */
+  cockpitPointer(xPx: number | null, yPx: number, click: boolean): { action: CockpitAction | null; hover: CockpitHover | null };
   /**
    * Registers the single wireframe model used to draw every EntityKind
    * 'aircraft' entity (this project has exactly one aircraft type, the
@@ -482,6 +573,12 @@ export interface HudAirbase {
 }
 
 export interface HudRenderer {
+  /**
+   * 'full' = the game HUD over the whole screen; 'helmet' = only what a helmet-mounted display shows
+   * over the world (target box, airbase markers, taxi guidance, warnings), for the 3D cockpit, whose
+   * own HUD and displays carry the rest.
+   */
+  setOverlayMode(mode: 'full' | 'helmet'): void;
   resize(widthPx: number, heightPx: number, devicePixelRatio: number): void;
   setQualityTier(tier: QualityTier): void;
   /** Display unit for the airspeed tape only; defaults to 'ms' (SnapshotHud.IAS_MPS's own wire unit) until called. */

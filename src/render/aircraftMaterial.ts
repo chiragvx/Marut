@@ -134,7 +134,8 @@ const FS = /* glsl */ `
     } else if (part == 1) {
       // Canopy glass (gold-tinted), its frame, and the dorsal spine behind it.
       if (p.x > 1.02 && p.x < 3.6) {
-        bool frame = abs(p.x - 3.33) < 0.035 || p.x < 1.1;
+        // Windscreen arch where the cockpit interior has it (cockpit/layouts/tejas.ts archX + DEP x).
+        bool frame = abs(p.x - 2.85) < 0.03 || p.x < 1.1;
         if (frame) {
           col = paint * 0.8;
         } else {

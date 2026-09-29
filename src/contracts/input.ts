@@ -481,6 +481,8 @@ export interface PlayerInputSystem extends Pilot {
   setThrottle(frac: number): void;
   /** Sets the landing-gear lever (the G key toggles it): down for ground starts, up for air starts. */
   setGearDown(down: boolean): void;
+  /** Sets the airbrake (the B key toggles it; the wheel brakes follow it). */
+  setAirbrake(out: boolean): void;
   setAlphaLimiterDisabled(disabled: boolean): void;
 
   /** Subscribes to meta actions (camera cycle, menu toggle). Returns an unsubscribe function. Fires at most once per rising edge, regardless of source device. */

@@ -544,6 +544,10 @@ export function createPlayerInputSystem(config: PlayerInputConfig): PlayerInputS
       gearDownState = down;
     },
 
+    setAirbrake(out: boolean): void {
+      airbrakeState = out;
+    },
+
     onMetaAction(handler: (action: MetaActionType, repeat?: boolean) => void): () => void {
       metaHandlers.add(handler);
       return () => {

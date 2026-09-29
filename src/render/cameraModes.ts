@@ -61,15 +61,22 @@ export function createCameraPose(): CameraPose {
 // Cockpit.
 // -----------------------------------------------------------------------------
 
+/** A camera looks down its -Z; this turns that onto body +X (the nose): -90 deg about body Y. */
+const CAMERA_TO_BODY: Readonly<QuatLike> = { x: 0, y: -Math.SQRT1_2, z: 0, w: Math.SQRT1_2 };
+
 export function computeCockpitPose(playerPos: Readonly<Vec3Like>, playerRot: Readonly<QuatLike>, out: CameraPose): CameraPose {
   rotateVecByQuat(playerRot, COCKPIT_EYE_OFFSET_BODY_M, out.pos);
   out.pos.x += playerPos.x;
   out.pos.y += playerPos.y;
   out.pos.z += playerPos.z;
-  out.rot.x = playerRot.x;
-  out.rot.y = playerRot.y;
-  out.rot.z = playerRot.z;
-  out.rot.w = playerRot.w;
+  // out.rot = playerRot * CAMERA_TO_BODY (the camera was set to playerRot alone, which looked
+  // out along body -Z: the left wing).
+  const a = playerRot;
+  const b = CAMERA_TO_BODY;
+  out.rot.x = a.w * b.x + a.x * b.w + a.y * b.z - a.z * b.y;
+  out.rot.y = a.w * b.y - a.x * b.z + a.y * b.w + a.z * b.x;
+  out.rot.z = a.w * b.z + a.x * b.y - a.y * b.x + a.z * b.w;
+  out.rot.w = a.w * b.w - a.x * b.x - a.y * b.y - a.z * b.z;
   out.useLookAt = false;
   return out;
 }

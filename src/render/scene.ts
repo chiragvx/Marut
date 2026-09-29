@@ -18,16 +18,20 @@ import {
   CAMERA_NEAR_M,
   CHASE_VERTICAL_FOV_DEG,
   CameraMode,
+  COCKPIT3D_VERTICAL_FOV_DEG,
   COCKPIT_VERTICAL_FOV_DEG,
   EXTERNAL_VERTICAL_FOV_DEG,
   FLYBY_VERTICAL_FOV_DEG,
   RENDER_QUALITY_TABLE,
   type CameraState,
+  type CockpitAuxState,
+  type CockpitPilotControls,
   type CreateSceneRenderer,
   type SceneRenderer,
 } from '../contracts/render';
 
 import { chaseLook, computeCameraPose, createCameraModeState, createCameraPose, keepAboveGround, orbitCamera as applyOrbitDelta } from './cameraModes';
+import { rotateVecByQuat } from './mathInternal';
 import { createEffectsSystem } from './effects';
 import { createFloatingOriginState, updateFloatingOrigin } from './floatingOrigin';
 import {
@@ -69,9 +73,14 @@ import { createSunShadows } from './sunShadows';
 import { TERRAIN_QUALITY_PROFILES, TERRAIN_WORLD_EXTENT_M } from '../contracts/terrain';
 import { createMeshAircraftRenderer } from './meshAircraftRenderer';
 import { buildTejasTestModel } from './aircraftModels/tejasTestModel';
+import { createCockpitSystem, type CockpitSystem } from './cockpit';
+import { CockpitPass } from './cockpit/pass';
+import { TEJAS_COCKPIT } from './cockpit/layouts/tejas';
+import type { CockpitFlight } from './cockpit/types';
 
 const FOV_BY_MODE: Readonly<Record<CameraMode, number>> = {
   [CameraMode.Cockpit]: COCKPIT_VERTICAL_FOV_DEG,
+  [CameraMode.Cockpit3d]: COCKPIT3D_VERTICAL_FOV_DEG,
   [CameraMode.Chase]: CHASE_VERTICAL_FOV_DEG,
   [CameraMode.External]: EXTERNAL_VERTICAL_FOV_DEG,
   [CameraMode.Flyby]: FLYBY_VERTICAL_FOV_DEG,
@@ -85,8 +94,13 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
   let composer = new EffectComposer(renderer);
   let renderPass = new RenderPass(scene, camera);
   let grade = createGrade();
+  // The 3D cockpit, drawn over the world in its own pass (src/render/cockpit); built on first use.
+  const cockpitPass = new CockpitPass();
+  let cockpit: CockpitSystem | null = null;
   let sizeW = 1;
   let sizeH = 1;
+  let cssW = 1;
+  let cssH = 1;
 
   function rebuildComposerAndPasses(): void {
     composer = new EffectComposer(renderer);
@@ -96,6 +110,7 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
     grade = createGrade();
     grade.setSize(sizeW, sizeH);
     composer.addPass(renderPass);
+    composer.addPass(cockpitPass);
     composer.addPass(grade.fxaaPass);
     composer.addPass(grade.gradePass);
   }
@@ -176,11 +191,53 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
     default: [1200, 1650],
   };
 
+  /** The player's aircraft for the 3D cockpit, filled each frame. */
+  const cockpitFlight: CockpitFlight = {
+    valid: false,
+    simTimeSec: 0,
+    pos: { x: 0, y: 0, z: 0 },
+    rot: { x: 0, y: 0, z: 0, w: 1 },
+    vel: { x: 0, y: 0, z: 0 },
+    hud: new Float64Array(0),
+    flags: 0,
+    throttle: 0,
+    afterburner: false,
+    gearPos: 1,
+    elevonL: 0,
+    elevonR: 0,
+    rudder: 0,
+    stores: 0,
+    targetValid: false,
+    targetPos: { x: 0, y: 0, z: 0 },
+    sunDir: { x: 0, y: 1, z: 0 },
+    sunCol: { r: 1, g: 1, b: 1 },
+    ambSky: { r: 0.4, g: 0.45, b: 0.5 },
+    ambGround: { r: 0.3, g: 0.28, b: 0.25 },
+    night: 0,
+  };
+  const cockpitControls: CockpitPilotControls = { pitch: 0, roll: 0, yaw: 0, throttle: 0, afterburner: false, brakes: 0, trigger: false };
+  let cockpitAux: CockpitAuxState | null = null;
+  const qWorldCam = new THREE.Quaternion();
+  const qBodyCam = new THREE.Quaternion();
+  const vEyeWorld = { x: 0, y: 0, z: 0 };
+  function ensureCockpit(): CockpitSystem {
+    if (!cockpit) {
+      cockpit = createCockpitSystem(TEJAS_COCKPIT);
+      cockpit.setControls(cockpitControls);
+      if (cockpitAux) cockpit.setAux(cockpitAux);
+      cockpit.setShadowQuality(tier === 'low' ? 1024 : 2048);
+      cockpitPass.scene = cockpit.scene;
+      cockpitPass.camera = cockpit.camera;
+    }
+    return cockpit;
+  }
+
   const snapshotBuf = createSnapshotDoubleBuffer();
   const floatingOrigin = createFloatingOriginState();
   const cameraModeState = createCameraModeState();
   const cameraPose = createCameraPose();
   const interpEntity = createInterpolatedEntity();
+  const interpTarget = createInterpolatedEntity();
 
   const debugCam = ((): number[] | undefined => {
     if (typeof location === 'undefined') return undefined;
@@ -328,8 +385,8 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
     terrainConsumer.setUrbanQuality(TERRAIN_QUALITY_PROFILES[t].maxLodDepth >= 4);
     features.setRealShadowRadius(settings.shadowsEnabled ? sunShadows.radiusM() : 0, settings.shadowsEnabled && sunShadows.treesCast());
     effects.setBudget(settings.effectBudget);
-    renderer.shadowMap.enabled = false;
     shadowsOn = settings.shadowsEnabled;
+    cockpit?.setShadowQuality(t === 'low' ? 1024 : 2048);
     if (settings.antialias === AntiAliasMode.Msaa4x) {
       composer.renderTarget1.samples = 4;
       composer.renderTarget2.samples = 4;
@@ -345,6 +402,8 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
       composer.setPixelRatio(ratio);
       renderer.setSize(widthPx, heightPx, false);
       composer.setSize(widthPx, heightPx);
+      cssW = Math.max(1, widthPx);
+      cssH = Math.max(1, heightPx);
       camera.aspect = widthPx / Math.max(heightPx, 1);
       camera.updateProjectionMatrix();
       sizeW = Math.round(widthPx * ratio);
@@ -360,6 +419,31 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
 
     setCameraMode(m) {
       mode = m;
+      if (m === CameraMode.Cockpit3d) ensureCockpit();
+    },
+
+    lookCockpit(dYaw, dPitch, dFov) {
+      if (mode === CameraMode.Cockpit3d) cockpit?.look(dYaw, dPitch, dFov);
+    },
+
+    recenterCockpit() {
+      cockpit?.recenter();
+    },
+
+    setCockpitControls(c) {
+      Object.assign(cockpitControls, c);
+      cockpit?.setControls(cockpitControls);
+    },
+
+    setCockpitAux(a) {
+      cockpitAux = { ...a };
+      cockpit?.setAux(cockpitAux);
+    },
+
+    cockpitPointer(xPx, yPx, click) {
+      if (mode !== CameraMode.Cockpit3d || !cockpit || showcase) return { action: null, hover: null };
+      if (xPx === null) return cockpit.pointer(null, 0, false, 0, 0);
+      return cockpit.pointer((xPx / cssW) * 2 - 1, -((yPx / cssH) * 2 - 1), click, xPx, yPx);
     },
 
     setGroundHeight(heightAt) {
@@ -435,6 +519,7 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
 
     ingestEvents(events) {
       effects.ingestEvents(events);
+      if (cockpit && snapshotBuf.hasData && snapshotBuf.curr.playerSlot >= 0) cockpit.ingestEvents(events, snapshotBuf.curr.id[snapshotBuf.curr.playerSlot]!);
     },
 
     ingestTerrainChunk(msg) {
@@ -547,14 +632,46 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
 
         interpolateEntity(snapshotBuf, playerSlot, f, interpEntity);
         shadowFocus.set(interpEntity.pos.x, interpEntity.pos.y, interpEntity.pos.z);
+        const cf = cockpitFlight;
+        cf.valid = true;
+        cf.simTimeSec = snapshotBuf.renderSimSec;
+        Object.assign(cf.pos, interpEntity.pos);
+        Object.assign(cf.rot, interpEntity.rot);
+        Object.assign(cf.vel, interpEntity.vel);
+        cf.hud = curr.hud;
+        cf.flags = curr.flags[playerSlot]!;
+        cf.throttle = interpEntity.throttle;
+        cf.afterburner = curr.afterburnerOn[playerSlot] === 1;
+        cf.gearPos = interpEntity.gearPos;
+        cf.elevonL = interpEntity.elevonL;
+        cf.elevonR = interpEntity.elevonR;
+        cf.rudder = interpEntity.rudder;
+        cf.stores = curr.stores[playerSlot]!;
         structures.setServiceVehicles(
           playerServiceState === ServiceStateCode.Servicing ? { x: interpEntity.pos.x, y: interpEntity.pos.y - 1.15, z: interpEntity.pos.z, headingRad: playerHeadingRad } : null
         );
         // Outside views stay above the ground: free look and the orbit swing round the aircraft no
         // lower than the ground under it, then the camera is kept clear of the ground under itself.
         const minOffsetY = groundHeightAt ? groundHeightAt(interpEntity.pos.x, interpEntity.pos.z) + CAMERA_MIN_GROUND_CLEARANCE_M - interpEntity.pos.y : -Infinity;
-        computeCameraPose(mode, interpEntity.pos, interpEntity.rot, interpEntity.vel, cameraModeState, frameDtSec, cameraPose, minOffsetY);
-        if (mode !== CameraMode.Cockpit && groundHeightAt) keepAboveGround(cameraPose, groundHeightAt, CAMERA_MIN_GROUND_CLEARANCE_M);
+        let fovDeg = FOV_BY_MODE[mode];
+        if (mode === CameraMode.Cockpit3d) {
+          // The pilot's head: eye and view direction relative to the body, turned into the world.
+          const hp = ensureCockpit().head(frameDtSec);
+          rotateVecByQuat(interpEntity.rot, hp.eyeBody, vEyeWorld);
+          cameraPose.pos.x = interpEntity.pos.x + vEyeWorld.x;
+          cameraPose.pos.y = interpEntity.pos.y + vEyeWorld.y;
+          cameraPose.pos.z = interpEntity.pos.z + vEyeWorld.z;
+          qWorldCam.set(interpEntity.rot.x, interpEntity.rot.y, interpEntity.rot.z, interpEntity.rot.w).multiply(qBodyCam.copy(hp.rotBody));
+          cameraPose.rot.x = qWorldCam.x;
+          cameraPose.rot.y = qWorldCam.y;
+          cameraPose.rot.z = qWorldCam.z;
+          cameraPose.rot.w = qWorldCam.w;
+          cameraPose.useLookAt = false;
+          fovDeg = hp.fovDeg;
+        } else {
+          computeCameraPose(mode, interpEntity.pos, interpEntity.rot, interpEntity.vel, cameraModeState, frameDtSec, cameraPose, minOffsetY);
+        }
+        if (mode !== CameraMode.Cockpit && mode !== CameraMode.Cockpit3d && groundHeightAt) keepAboveGround(cameraPose, groundHeightAt, CAMERA_MIN_GROUND_CLEARANCE_M);
         if (debugCam) {
           // Dev aid (?cam=x,y,z,lookX,lookY,lookZ): a fixed camera anywhere, for checking scenery.
           cameraPose.pos.x = debugCam[0]!;
@@ -566,7 +683,7 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
           cameraPose.useLookAt = true;
         }
         if (camera.view) camera.clearViewOffset();
-        const origin = placeCamera(FOV_BY_MODE[mode]);
+        const origin = placeCamera(fovDeg);
 
         aircraftRenderer.beginFrame(frameDtSec, origin, cameraPose.pos, nowMs / 1000);
         for (let i = 0; i < curr.entityCount; i++) {
@@ -599,6 +716,19 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
         }
         aircraftRenderer.endFrame();
 
+        // The designated target, interpolated like the view (for the 3D cockpit's HUD).
+        cf.targetValid = false;
+        if (mode === CameraMode.Cockpit3d) {
+          const targetId = curr.hud[SnapshotHud.TARGET_ID] ?? -1;
+          for (let i = 0; i < curr.entityCount && targetId >= 0; i++) {
+            if (curr.id[i] !== targetId || curr.alive[i] !== 1) continue;
+            interpolateEntity(snapshotBuf, i, f, interpTarget);
+            Object.assign(cf.targetPos, interpTarget.pos);
+            cf.targetValid = true;
+            break;
+          }
+        }
+
         effects.syncFromSnapshot(snapshotBuf, f, origin);
         effects.tick(frameDtSec, origin);
         followOrigin(origin);
@@ -619,6 +749,31 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
       cameraState.worldPos.z = cameraPose.pos.z;
       cameraState.renderSimSec = snapshotBuf.hasData && !showcase ? snapshotBuf.renderSimSec : undefined;
 
+      // The 3D cockpit: lit by this frame's sun and sky, drawn over the world.
+      const inCockpit = mode === CameraMode.Cockpit3d && !showcase && cockpit !== null && cockpitFlight.valid && snapshotBuf.hasData;
+      cockpitPass.enabled = inCockpit;
+      renderer.shadowMap.enabled = inCockpit;
+      // (Set every frame: a restored WebGL context brings a new renderer with the default type.)
+      renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+      if (inCockpit && cockpit) {
+        const u = getAtmosphereUniforms();
+        const cf = cockpitFlight;
+        cf.sunDir.x = u.uAtmSunDir.value.x;
+        cf.sunDir.y = u.uAtmSunDir.value.y;
+        cf.sunDir.z = u.uAtmSunDir.value.z;
+        cf.sunCol.r = u.uAtmSunCol.value.r;
+        cf.sunCol.g = u.uAtmSunCol.value.g;
+        cf.sunCol.b = u.uAtmSunCol.value.b;
+        cf.ambSky.r = u.uAtmAmbSky.value.r;
+        cf.ambSky.g = u.uAtmAmbSky.value.g;
+        cf.ambSky.b = u.uAtmAmbSky.value.b;
+        cf.ambGround.r = u.uAtmAmbGround.value.r;
+        cf.ambGround.g = u.uAtmAmbGround.value.g;
+        cf.ambGround.b = u.uAtmAmbGround.value.b;
+        cf.night = u.uAtmLights.value;
+        cockpit.update(cf, frameDtSec, nowMs / 1000, camera.aspect);
+      }
+
       if (!contextLost) {
         urbanCache.update(renderer, cameraPose.pos.x, cameraPose.pos.z);
         sunShadows.render(renderer, scene, shadowFocus, floatingOrigin.originWorld, getAtmosphereUniforms().uAtmSunDir.value, shadowsOn);
@@ -629,6 +784,7 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
     },
 
     dispose() {
+      cockpit?.dispose();
       aircraftRenderer.dispose();
       terrainConsumer.dispose();
       urbanCache.dispose();
