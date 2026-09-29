@@ -161,6 +161,11 @@ export interface GearDefinition {
   steerable: boolean;
   /** 0 for main gear. */
   maxSteerAngleRad: number;
+  /**
+   * Steerable legs: the wheelbase the steering turns about (to the main gear), m. With it the
+   * steering angle is capped so a turn at speed stays within NWS_MAX_LATERAL_ACCEL_MPS2.
+   */
+  steeringWheelbaseM?: number;
   /** True only for main gear. */
   brakeCapable: boolean;
 }

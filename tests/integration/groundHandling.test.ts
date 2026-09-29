@@ -19,7 +19,7 @@ const inputs = (over: Partial<PilotInputs> = {}): PilotInputs => ({
 const wrap = (a: number): number => Math.atan2(Math.sin(a), Math.cos(a));
 
 /** Full rudder for 2 s at `speed`: degrees turned and the largest sideways slide, degrees. */
-function steer(speed: number, yaw: number): { turnedDeg: number; slideDeg: number } {
+function steer(speed: number, yaw: number): { turnedDeg: number; slideDeg: number; rollDeg: number } {
   const mission = { ...freeFlightMission('hansa', 'runway'), weather: calm };
   const world = createWorld(buildWorldDependencies(mission));
   world.loadMission(mission);
@@ -27,6 +27,7 @@ function steer(speed: number, yaw: number): { turnedDeg: number; slideDeg: numbe
   const snap = new Float64Array(SNAPSHOT_FLOATS);
   let hdg0 = NaN;
   let slide = 0;
+  let roll = 0;
   let steerTicks = 0;
   for (let k = 0; k < 60 / SIM_DT_SEC && steerTicks < 2 / SIM_DT_SEC; k++) {
     world.writeSnapshot(snap);
@@ -39,13 +40,14 @@ function steer(speed: number, yaw: number): { turnedDeg: number; slideDeg: numbe
       inp.yaw = yaw;
       inp.throttle = v < speed ? 0.6 : 0.1;
       slide = Math.max(slide, Math.abs(wrap(Math.atan2(st.vel.x, -st.vel.z) - hdg)));
+      roll = Math.max(roll, Math.abs(snap[HUD_BLOCK_START + SnapshotHud.ROLL_RAD]!));
       steerTicks++;
     }
     world.setPlayerInput(id, inp);
     world.stepOnce();
   }
   world.writeSnapshot(snap);
-  return { turnedDeg: (wrap(snap[HUD_BLOCK_START + SnapshotHud.HEADING_RAD]! - hdg0) * 180) / Math.PI, slideDeg: (slide * 180) / Math.PI };
+  return { turnedDeg: (wrap(snap[HUD_BLOCK_START + SnapshotHud.HEADING_RAD]! - hdg0) * 180) / Math.PI, slideDeg: (slide * 180) / Math.PI, rollDeg: (roll * 180) / Math.PI };
 }
 
 describe('ground handling', () => {
@@ -62,9 +64,16 @@ describe('ground handling', () => {
   });
 
   test('the tyres grip: full steering at taxi speed turns without sliding', () => {
-    const r = steer(10, 1);
+    const r = steer(6, 1);
     expect(r.turnedDeg).toBeGreaterThan(30);
     expect(r.slideDeg).toBeLessThan(10);
+  });
+
+  test('full steering at a fast taxi does not roll the aircraft over (centre of gravity ~1.7 m up, 2.2 m track)', () => {
+    const r = steer(12, 1);
+    expect(r.turnedDeg).toBeGreaterThan(15);
+    expect(r.slideDeg).toBeLessThan(10);
+    expect(r.rollDeg).toBeLessThan(8);
   });
 
   test('at take-off speed, full rudder is a correction, not a swerve', () => {

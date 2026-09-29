@@ -43,19 +43,21 @@ export const meanChordM = wingAreaM2 / wingSpanM;
 
 // --- Weapon stations: the Tejas's eight hardpoints (three under each wing, the centreline, one
 // under the port intake for a pod) and the internal GSh-23. The Tejas has no wingtip rails: close-
-// combat missiles go on the outboard pylons, BVR missiles on the middle ones, wing tanks on the wet
-// inboard pylons, a 725 L tank on the (wet) centreline. Positions are the pylons' store-attach points
-// on the render model (src/render/aircraftModels/tejasTestModel.ts PYLONS; a test keeps them equal).
+// combat missiles go on the outboard pylons (stations 5/6), BVR missiles on the middle ones (3/4),
+// wing tanks on the wet inboard pylons (1/2), a 725 L tank on the (wet) centreline (7), pods on L.
+// Spans from ADA's weapon-station diagram. Positions are the pylons' store-attach points on the render
+// model (src/render/aircraftModels/tejasModel.ts PYLONS / INTAKE_STATION; a test keeps them equal).
+// The gun: GSh-23 in its blister under the starboard intake.
 export const stations: readonly StationDef[] = [
-  { id: 'gun', posBodyM: { x: 3.5, y: -0.2, z: 0.3 }, accepts: ['gsh-23'], maxCount: 220 },
-  { id: 'wing-outer-l', posBodyM: { x: -3.2, y: 0.09, z: -3.3 }, accepts: ['asraam', 'r-73', 'derby'], maxCount: 2 },
-  { id: 'wing-outer-r', posBodyM: { x: -3.2, y: 0.09, z: 3.3 }, accepts: ['asraam', 'r-73', 'derby'], maxCount: 2 },
-  { id: 'wing-mid-l', posBodyM: { x: -2.6, y: 0.06, z: -2.5 }, accepts: ['astra-mk1', 'derby', 'r-73', 'asraam'], maxCount: 2 },
-  { id: 'wing-mid-r', posBodyM: { x: -2.6, y: 0.06, z: 2.5 }, accepts: ['astra-mk1', 'derby', 'r-73', 'asraam'], maxCount: 2 },
-  { id: 'wing-inner-l', posBodyM: { x: -1.8, y: 0.03, z: -1.8 }, accepts: ['tank-1200l', 'astra-mk1', 'derby'], maxCount: 1 },
-  { id: 'wing-inner-r', posBodyM: { x: -1.8, y: 0.03, z: 1.8 }, accepts: ['tank-1200l', 'astra-mk1', 'derby'], maxCount: 1 },
-  { id: 'centreline', posBodyM: { x: 0.3, y: -0.42, z: 0 }, accepts: ['tank-725l'], maxCount: 1 },
-  { id: 'intake-pod', posBodyM: { x: 1.2, y: -0.8, z: -0.5 }, accepts: [], maxCount: 1 },
+  { id: 'gun', posBodyM: { x: 2.15, y: -0.7, z: 0.78 }, accepts: ['gsh-23'], maxCount: 220 },
+  { id: 'wing-outer-l', posBodyM: { x: -2.6, y: -0.29, z: -3.42 }, accepts: ['asraam', 'r-73', 'derby'], maxCount: 2 },
+  { id: 'wing-outer-r', posBodyM: { x: -2.6, y: -0.29, z: 3.42 }, accepts: ['asraam', 'r-73', 'derby'], maxCount: 2 },
+  { id: 'wing-mid-l', posBodyM: { x: -1.9, y: -0.28, z: -2.66 }, accepts: ['astra-mk1', 'derby', 'r-73', 'asraam'], maxCount: 2 },
+  { id: 'wing-mid-r', posBodyM: { x: -1.9, y: -0.28, z: 2.66 }, accepts: ['astra-mk1', 'derby', 'r-73', 'asraam'], maxCount: 2 },
+  { id: 'wing-inner-l', posBodyM: { x: -0.95, y: -0.28, z: -1.68 }, accepts: ['tank-1200l', 'astra-mk1', 'derby'], maxCount: 1 },
+  { id: 'wing-inner-r', posBodyM: { x: -0.95, y: -0.28, z: 1.68 }, accepts: ['tank-1200l', 'astra-mk1', 'derby'], maxCount: 1 },
+  { id: 'centreline', posBodyM: { x: -0.35, y: -0.82, z: 0 }, accepts: ['tank-725l'], maxCount: 1 },
+  { id: 'intake-pod', posBodyM: { x: 1.25, y: -0.74, z: -0.74 }, accepts: [], maxCount: 1 },
 ];
 
 /**
@@ -128,26 +130,29 @@ export const sensors: AircraftSensors = {
 export const signature: AircraftSignature = { rcsNoseOnM2: 2.0, rcsBroadsideM2: 6.0, hitEllipsoidBodyM: { x: 6.6, y: 2.2, z: 4.1 } };
 
 // --- Landing gear, three legs (section 5.4). ---
-// The main legs sit 0.6 m behind the centre of gravity (cgOffsetBodyM.x = -0.15), 1.1 m below it: a
-// tip-back angle of ~27 deg, so the aircraft rests on its nose wheel (~12% of its weight) and can
+// The Tejas's real geometry (HAL: wheelbase 4.34 m, main track 2.2 m; height 4.4 m puts the
+// centre of gravity, at the fuselage centreline, ~1.7 m above the ground). The main legs sit 0.6 m
+// behind the centre of gravity (cgOffsetBodyM.x = -0.15): a tip-back angle of ~20 deg, more than the
+// ~15 deg tail-scrape angle, so the aircraft rests on its nose wheel (~14% of its weight) and can
 // land nose-high without sitting back on its tail. (They were 0.05 m behind it, which put the
 // wheels AHEAD of the centre of gravity at any landing attitude over ~3 deg: every nose-high
 // touchdown tipped over backwards, and the nearly unloaded nose wheel could barely steer.)
 export const gear: readonly GearDefinition[] = [
   {
     id: 'nose',
-    posBodyM: { x: 4.3, y: -1.1, z: 0 },
+    posBodyM: { x: 3.59, y: -1.7, z: 0 },
     maxCompressionM: 0.28,
     springNPerM: 250000,
     damperNPerMPerS: 26000,
     kineticFrictionCoefficient: 0.6,
     steerable: true,
     maxSteerAngleRad: 0.5236,
+    steeringWheelbaseM: 4.34,
     brakeCapable: false,
   },
   {
     id: 'mainLeft',
-    posBodyM: { x: -0.75, y: -1.1, z: -1.1 },
+    posBodyM: { x: -0.75, y: -1.7, z: -1.1 },
     maxCompressionM: 0.35,
     springNPerM: 450000,
     damperNPerMPerS: 35000,
@@ -174,7 +179,7 @@ export const gear: readonly GearDefinition[] = [
   },
   {
     id: 'mainRight',
-    posBodyM: { x: -0.75, y: -1.1, z: 1.1 },
+    posBodyM: { x: -0.75, y: -1.7, z: 1.1 },
     maxCompressionM: 0.35,
     springNPerM: 450000,
     damperNPerMPerS: 35000,

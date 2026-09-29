@@ -147,7 +147,7 @@ export const CameraMode = {
 export type CameraMode = (typeof CameraMode)[keyof typeof CameraMode];
 
 /** Eye position, body-frame metres from the player aircraft's origin (not CG), for CameraMode.Cockpit: the Tejas design eye point (as in src/render/cockpit/layouts/tejas.ts). */
-export const COCKPIT_EYE_OFFSET_BODY_M: Vec3Like = { x: 2.65, y: 1.2, z: 0 };
+export const COCKPIT_EYE_OFFSET_BODY_M: Vec3Like = { x: 3.53, y: 0.84, z: 0 };
 export const COCKPIT_VERTICAL_FOV_DEG = 75;
 
 /**

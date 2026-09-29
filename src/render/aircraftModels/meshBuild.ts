@@ -33,6 +33,11 @@ export const PART = {
   lightFormation: 19,
   lightStrobe: 20,
   lightLanding: 21,
+  /** Radome (light grey dielectric), canopy/windscreen frame, antennas, gear doors. */
+  radome: 22,
+  frame: 23,
+  antenna: 24,
+  door: 25,
 } as const;
 
 /** Monotone cubic through (xs ascending, ys). */

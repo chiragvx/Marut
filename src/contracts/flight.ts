@@ -208,6 +208,13 @@ export const TYRE_LATERAL_FRICTION_COEFFICIENT = 0.75;
 export const NWS_FULL_AUTHORITY_BELOW_MPS = 8;
 export const NWS_MIN_AUTHORITY_ABOVE_MPS = 45;
 export const NWS_MIN_AUTHORITY_FRAC = 0.2;
+/**
+ * The steering never asks for more sideways acceleration than this in a turn, m/s^2 (0.22 g): a
+ * tall fighter on a narrow track rolls over at ~0.65 g (the Tejas: 2.2 m track, centre of gravity
+ * ~1.7 m up), so real nose-wheel steering is scheduled down with speed. The main tyres slip a
+ * little in a turn (the tail steps out), so the turn itself runs ~1.5x this: near 0.35 g.
+ */
+export const NWS_MAX_LATERAL_ACCEL_MPS2 = 2.2;
 
 /** Lateral (cornering) stiffness gain, N per (m/s) of lateral slip velocity, used by the gear friction model before saturating at the leg's side-grip limit. */
 export const GEAR_LATERAL_STIFFNESS_N_PER_MPS = 50000;

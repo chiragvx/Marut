@@ -16,6 +16,7 @@ import {
   TYRE_LATERAL_FRICTION_COEFFICIENT,
   NWS_FULL_AUTHORITY_BELOW_MPS,
   NWS_MIN_AUTHORITY_ABOVE_MPS,
+  NWS_MAX_LATERAL_ACCEL_MPS2,
   NWS_MIN_AUTHORITY_FRAC,
 } from '../contracts/flight';
 import { Vec3, Quat, clamp, lerp, sign, rateLimitStep, clamp01 } from '../math';
@@ -110,7 +111,11 @@ export function computeGearLeg(
   Vec3.set(scratchRollDirWorld, scratchFwdWorld.x, 0, scratchFwdWorld.z);
   Vec3.normalize(scratchRollDirWorld, scratchRollDirWorld);
   if (legDef.steerable && inputs.nwsEnabled) {
-    const steerRad = inputs.yaw * legDef.maxSteerAngleRad * nwsAuthority(Math.hypot(scratchPointVelWorld.x, scratchPointVelWorld.z));
+    const gs = Math.hypot(scratchPointVelWorld.x, scratchPointVelWorld.z);
+    let maxRad = legDef.maxSteerAngleRad * nwsAuthority(gs);
+    // Lateral-acceleration cap: v^2 tan(delta) / wheelbase <= NWS_MAX_LATERAL_ACCEL_MPS2.
+    if (legDef.steeringWheelbaseM) maxRad = Math.min(maxRad, Math.atan((NWS_MAX_LATERAL_ACCEL_MPS2 * legDef.steeringWheelbaseM) / Math.max(gs * gs, 1e-6)));
+    const steerRad = inputs.yaw * maxRad;
     rotateAroundWorldY(scratchRollDirWorld, steerRad, scratchRollDirWorld);
   }
   scratchLateralDirWorld.x = scratchRollDirWorld.z;

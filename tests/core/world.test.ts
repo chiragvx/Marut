@@ -285,7 +285,7 @@ describe('World', () => {
       // Spawn height must be exactly the resting height on the runway surface, per the
       // runway-spawn formula (`runway.elevationM + RUNWAY_SPAWN_CLEARANCE_M`) -- pins the
       // position half of the fix alongside the gear half.
-      expect(state?.pos.y).toBeCloseTo(13.1, 10);
+      expect(state?.pos.y).toBeCloseTo(13.7, 10);
     });
 
     it('the spawn height leaves the gear legs at exactly zero penetration, not overtravel (see RUNWAY_SPAWN_CLEARANCE_M\'s doc comment for the ~70x-weight hard-stop launch bug this pins)', () => {
@@ -294,11 +294,11 @@ describe('World', () => {
       world.loadMission({ ...minimalMission(), playerStart: { airportId: 'konarak-coastal', runwayId: '09L', speedMps: 0 } });
       const playerId = world.getPlayerEntityId();
       const state = world.getEntityState(playerId);
-      // Every tejasGeometry.ts gear leg shares posBodyM.y = -1.1: wheel-contact world Y (level
-      // spawn attitude) is spawnY + (-1.1). penetrationM (landingGear.ts) = groundElevationM
+      // Every tejasGeometry.ts gear leg shares posBodyM.y = -1.7: wheel-contact world Y (level
+      // spawn attitude) is spawnY + (-1.7). penetrationM (landingGear.ts) = groundElevationM
       // (== runway.elevationM inside the flatten zone) - wheelY, and must be <= 0 (wheel at or
       // above ground, never already inside it) for a fresh, gear-down spawn.
-      const wheelY = state!.pos.y + -1.1;
+      const wheelY = state!.pos.y + -1.7;
       const penetrationM = fakeRunway().elevationM - wheelY;
       expect(penetrationM).toBeCloseTo(0, 10);
     });

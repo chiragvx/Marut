@@ -12,8 +12,8 @@ describe('cameraModes', () => {
   it('cockpit eye world position with identity player rotation', () => {
     const out = createCameraPose();
     computeCockpitPose({ x: 100, y: 200, z: 300 }, { x: 0, y: 0, z: 0, w: 1 }, out);
-    expect(out.pos.x).toBeCloseTo(102.65, 9);
-    expect(out.pos.y).toBeCloseTo(201.2, 9);
+    expect(out.pos.x).toBeCloseTo(103.53, 9);
+    expect(out.pos.y).toBeCloseTo(200.84, 9);
     expect(out.pos.z).toBeCloseTo(300, 9);
     expect(out.useLookAt).toBe(false);
   });

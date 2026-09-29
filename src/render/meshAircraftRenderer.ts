@@ -19,7 +19,7 @@
 import * as THREE from 'three';
 import { storeSlotAt, storeSlotCode, storeSlotCount, storeSlotTwin, type QuatLike, type Vec3Like } from '../contracts/core';
 import { AIRCRAFT_SHADOW_LAYER } from './sunShadows';
-import type { AircraftModelTemplate, ArticulatedPart } from './aircraftModels/tejasTestModel';
+import type { AircraftModelTemplate, ArticulatedPart } from './aircraftModels/tejasModel';
 import { buildStoreModels, TWIN_RAIL_FRAMES, type StoreModel } from './aircraftModels/stores';
 import { createAircraftLights } from './aircraftLights';
 import { EntityFlag } from '../contracts/core';
@@ -189,7 +189,7 @@ export function createMeshAircraftRenderer(root: THREE.Object3D, template: Aircr
     const airframe = new THREE.Group();
     airframe.position.x = template.offsetX;
     group.add(airframe);
-    const body = createAircraftBodyMaterial(shared, template.nozzleAxisY);
+    const body = createAircraftBodyMaterial(shared, template.nozzleAxisY, template.livery);
     const bodyMesh = new THREE.Mesh(template.body, body);
     bodyMesh.layers.enable(AIRCRAFT_SHADOW_LAYER);
     airframe.add(bodyMesh);
@@ -204,7 +204,7 @@ export function createMeshAircraftRenderer(root: THREE.Object3D, template: Aircr
       airframe.add(node);
       return { node, part, axis: new THREE.Vector3(...part.axis) };
     });
-    const flameMat = createAircraftFlameMaterial(shared, template.nozzleAxisY);
+    const flameMat = createAircraftFlameMaterial(shared, template.nozzleAxisY, template.nozzleExitX);
     flameMat.uniforms.uSeed.value = instances.length * 1.7;
     const flame = new THREE.Mesh(template.flame, flameMat);
     flame.visible = false;
@@ -215,6 +215,9 @@ export function createMeshAircraftRenderer(root: THREE.Object3D, template: Aircr
     return { root: group, parts, body, flameMat, flame, airframe, landingNode, assignedId: NO_ID, airbrake: 0, slat: 0, nozzle: 0 };
   }
 
+  const camWorld = { x: 0, y: 0, z: 0 };
+  const tmpCam = new THREE.Vector3();
+  const tmpQ = new THREE.Quaternion();
   return {
     beginFrame(dtSec, origin, cam, timeSec) {
       touched.fill(0);
@@ -224,6 +227,9 @@ export function createMeshAircraftRenderer(root: THREE.Object3D, template: Aircr
       shared.uOrigin.value.set(origin.x, origin.y, origin.z);
       shared.uCamRel.value.set(cam.x - origin.x, cam.y - origin.y, cam.z - origin.z);
       shared.uTime.value = timeSec % 3600;
+      camWorld.x = cam.x;
+      camWorld.y = cam.y;
+      camWorld.z = cam.z;
     },
 
     updateEntity(entityId, pos, rot, s, origin) {
@@ -253,6 +259,10 @@ export function createMeshAircraftRenderer(root: THREE.Object3D, template: Aircr
       }
 
       inst.root.visible = true;
+      // From inside this aircraft's canopy (the 3D cockpit), its exterior canopy frame isn't drawn.
+      tmpCam.set(camWorld.x - pos.x, camWorld.y - pos.y, camWorld.z - pos.z).applyQuaternion(tmpQ.set(-rot.x, -rot.y, -rot.z, rot.w));
+      const ci = template.canopyInterior;
+      inst.body.uniforms.uInterior.value = tmpCam.x > ci.min[0] && tmpCam.x < ci.max[0] && tmpCam.y > ci.min[1] && tmpCam.y < ci.max[1] && tmpCam.z > ci.min[2] && tmpCam.z < ci.max[2] ? 1 : 0;
       inst.root.position.set(pos.x - origin.x, pos.y - origin.y, pos.z - origin.z);
       inst.root.quaternion.set(rot.x, rot.y, rot.z, rot.w);
       for (const pn of inst.parts) {
@@ -270,7 +280,7 @@ export function createMeshAircraftRenderer(root: THREE.Object3D, template: Aircr
             break;
           case 'gear':
             angle = (1 - s.gearPos) * p.travelRad;
-            pn.node.visible = s.gearPos > 0.01;
+            pn.node.visible = p.keepVisible === true || s.gearPos > 0.01;
             break;
           case 'slat':
             angle = inst.slat * p.travelRad;

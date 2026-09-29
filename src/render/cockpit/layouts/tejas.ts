@@ -18,13 +18,14 @@
  * layout follows common fighter practice: gear handle low on the left, lighting and oxygen on the
  * right console, fuel and radio on the left, and so on.
  *
- * Cockpit frame: origin at the design eye point, which sits at layout (1.95, 1.20) of the
- * exterior model (tejasTestModel.ts), i.e. body x = 2.65.
+ * Cockpit frame: origin at the design eye point: station 4.02 m, 1.07 m above the radome tip, on
+ * the exterior model (tejasModel.ts), i.e. body (3.53, 0.84): 0.26 m under the canopy's apex and
+ * 0.3 m above its rail, 0.6 m behind the windscreen arch.
  */
 
 import * as THREE from 'three';
 import { LIGHT_MODES } from '../../../contracts/core';
-import { CANOPY_FRONT_X, LAYOUT_TO_BODY_X, canopyProfile } from '../../aircraftModels/tejasTestModel';
+import { CANOPY_FRONT_X, canopyProfile } from '../../aircraftModels/tejasModel';
 import { apEngaged, atEngaged } from '../avionics';
 import { box, facing, local, mul, oriented } from '../build';
 import type { CockpitKit, CockpitLayout } from '../index';
@@ -42,11 +43,11 @@ import { buildShell, type CanopySection } from '../components/structure';
 import { createUfcp } from '../components/ufcp';
 
 /** Design eye point, exterior layout frame. */
-const DEP_LAYOUT_X = 1.95;
-const DEP_Y = 1.2;
+const DEP_X = 3.53;
+const DEP_Y = 0.84;
 
 const canopyAt = (x: number): CanopySection => {
-  const p = canopyProfile(Math.min(CANOPY_FRONT_X, x + DEP_LAYOUT_X));
+  const p = canopyProfile(Math.min(CANOPY_FRONT_X, x + DEP_X));
   return { sillY: p.sillY - DEP_Y, topY: p.topY - DEP_Y, halfW: p.halfW, n: p.n };
 };
 
@@ -96,7 +97,7 @@ const blink = (c: CockpitContext, hz = 2): number => (Math.floor(c.timeSec * hz 
 
 export const TEJAS_COCKPIT: CockpitLayout = {
   name: 'Tejas Mk1A',
-  eyeBody: new THREE.Vector3(DEP_LAYOUT_X + LAYOUT_TO_BODY_X, DEP_Y, 0),
+  eyeBody: new THREE.Vector3(DEP_X, DEP_Y, 0),
   mfdPages: { L: 'SNSR', C: 'ENG', R: 'HSI' },
   build(kit: CockpitKit): CockpitComponent[] {
     const out: CockpitComponent[] = [];
@@ -106,7 +107,7 @@ export const TEJAS_COCKPIT: CockpitLayout = {
     // --- Shell and canopy. ---
     const shell = {
       canopy: canopyAt,
-      railY: -0.4,
+      railY: -0.3,
       floorY: -1.1,
       rearX: -0.62,
       frontX: 1.15,
@@ -117,13 +118,13 @@ export const TEJAS_COCKPIT: CockpitLayout = {
       panelX: 0.66,
       panelTopY: -0.2,
       panelBottomY: -0.64,
-      coamingEndX: 1.5,
-      coamingEndY: -0.3,
+      coamingEndX: 1.75,
+      coamingEndY: -0.43,
       coamingLipHalfWidth: 0.11,
-      canopyRearX: -0.85,
-      archX: 0.9,
-      windscreenEndX: CANOPY_FRONT_X - DEP_LAYOUT_X - 0.01,
-      fairingEndX: -1.5,
+      canopyRearX: -0.86,
+      archX: 0.62,
+      windscreenEndX: CANOPY_FRONT_X - DEP_X - 0.01,
+      fairingEndX: -1.6,
     };
     add(buildShell(shell, mats, batch, glassU));
 

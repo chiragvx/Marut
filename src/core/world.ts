@@ -96,7 +96,7 @@ const SIM_DT_SEC_LOCAL = 1 / 120; // avoid importing SIM_DT_SEC just to re-deriv
  * (zero initial gear-leg penetration) rather than already deep inside it.
  *
  * Derivation, tied to tejasGeometry.ts's actual GearDefinition data (all three legs share
- * `posBodyM.y = -1.1`): a spawn at `elevationM + 0.5` (the original, pre-this-fix value) put the
+ * `posBodyM.y`, then -1.1, now -1.7): a spawn at `elevationM + 0.5` (the original, pre-this-fix value) put the
  * wheel-contact reference point at `elevationM + 0.5 - 1.1 = elevationM - 0.6`, i.e. 0.6m BELOW
  * `env.groundElevationM` (which equals `elevationM` inside the airport's flatten zone) — a
  * `penetrationM` of 0.6m against a max gear-leg travel of only 0.28-0.35m
@@ -109,7 +109,7 @@ const SIM_DT_SEC_LOCAL = 1 / 120; // avoid importing SIM_DT_SEC just to re-deriv
  * doc comment) — with gear starting retracted, computeGearLeg always short-circuited to zero
  * force, so this force path never actually fired until that earlier fix exposed it.
  *
- * `elevationM - posBodyM.y` (i.e. `elevationM + 1.1`) is the exact zero-penetration point; this
+ * `elevationM - posBodyM.y` (i.e. `elevationM + 1.7`) is the exact zero-penetration point; this
  * lets gravity settle the gear into its natural, well-damped static compression (well within
  * travel — a rough static estimate is on the order of 0.1m) over the first few ticks instead of
  * either freefalling from a large gap (this project's earlier, now-fixed "always retracted"
@@ -119,7 +119,7 @@ const SIM_DT_SEC_LOCAL = 1 / 120; // avoid importing SIM_DT_SEC just to re-deriv
  * this project currently only ever spawns 'tejas-mk1') — revisit if/when a second aircraft type
  * with different gear geometry is added.
  */
-const RUNWAY_SPAWN_CLEARANCE_M = 1.1;
+const RUNWAY_SPAWN_CLEARANCE_M = 1.7;
 
 /** The aircraft the player flies unless the mission names another (MissionPlayerStart.aircraftId). */
 const PLAYER_DEFAULT_AIRCRAFT_ID = 'tejas-mk1a';

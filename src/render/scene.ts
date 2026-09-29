@@ -72,7 +72,11 @@ import { createGrade } from './postGrade';
 import { createSunShadows } from './sunShadows';
 import { TERRAIN_QUALITY_PROFILES, TERRAIN_WORLD_EXTENT_M } from '../contracts/terrain';
 import { createMeshAircraftRenderer } from './meshAircraftRenderer';
-import { buildTejasTestModel } from './aircraftModels/tejasTestModel';
+import { buildTejasModel } from './aircraftModels/tejasModel';
+import { LIVERY_MAP, tejasLiveryTexture } from './aircraftModels/tejasLivery';
+
+/** The Tejas with its livery (markings, panel lines). */
+const withLivery = <T extends { livery?: unknown }>(m: T): T => ({ ...m, livery: { texture: tejasLiveryTexture(), map: LIVERY_MAP } });
 import { createCockpitSystem, type CockpitSystem } from './cockpit';
 import { CockpitPass } from './cockpit/pass';
 import { TEJAS_COCKPIT } from './cockpit/layouts/tejas';
@@ -137,7 +141,7 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
   scene.add(aircraftRoot);
   // Solid articulated aircraft (a procedural Tejas until an art asset exists); it replaces the
   // original wireframe, so registerAircraftModel's WireframeModel is no longer drawn.
-  const aircraftRenderer = createMeshAircraftRenderer(aircraftRoot, buildTejasTestModel());
+  const aircraftRenderer = createMeshAircraftRenderer(aircraftRoot, withLivery(buildTejasModel()));
   const aircraftState = {
     elevonL: 0,
     elevonR: 0,
