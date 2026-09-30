@@ -67,23 +67,19 @@ const FCS_TRIM_INTEGRATE_MAX_ERROR_G = 0.5;
  * added, both when this constant was introduced and when it was split/slowed further.
  */
 const FCS_PITCH_STICK_SHAPE_RATE_PER_SEC = 1.0;
-const FCS_ROLL_STICK_SHAPE_RATE_PER_SEC = 2.0;
+/**
+ * Roll is quicker than pitch (1/8 s to full): play-testing found any real lag between pressing
+ * roll and the jet rolling felt unresponsive. The keyboard builds its roll demand gradually by
+ * itself (playerPilot.ts keyboardRollCommand), so this only has to take the edge off a
+ * snapped stick.
+ */
+const FCS_ROLL_STICK_SHAPE_RATE_PER_SEC = 8.0;
 
 /**
- * Time constant of the roll-rate command prefilter, s. The stick shaping above is a pure rate
- * limit: the demanded roll rate rose and fell along straight lines with sharp corners, so a held
- * roll snapped on and a released one stopped dead (play-test: "the roll is very aggressive").
- * A first-order prefilter after it rounds both corners the way a real FBW roll command path
- * does: the roll builds in smoothly, and on release it bleeds off instead of stopping with a jolt.
+ * Time constant of the roll-rate command prefilter, s: short, just enough to round the corners of
+ * a stepped demand without a felt delay on press or a coast on release.
  */
-const FCS_ROLL_RATE_CMD_TAU_SEC = 0.18;
-/**
- * The roll stick may return towards centre faster than it deflects (stick-fraction per second):
- * with the prefilter above already smoothing the stop, the slow onset rate on the way back only
- * made the jet coast on (~85 deg of extra bank after releasing a full roll) past the bank the
- * pilot let go at.
- */
-const FCS_ROLL_STICK_CENTRE_RATE_PER_SEC = 5.0;
+const FCS_ROLL_RATE_CMD_TAU_SEC = 0.05;
 
 /**
  * GROUND LAW ONLY now (the airborne limiter is the rate-path design documented at
@@ -584,9 +580,7 @@ export function stepFcs(
     filteredRollRateCmd[entityIndex] = 0;
   }
   shapedPitchStick[entityIndex] = rateLimitStep(readF64(shapedPitchStick, entityIndex), inputs.pitch, FCS_PITCH_STICK_SHAPE_RATE_PER_SEC, dtSub);
-  const rollStickPrev = readF64(shapedRollStick, entityIndex);
-  const rollTowardsCentre = Math.abs(inputs.roll) < Math.abs(rollStickPrev) && inputs.roll * rollStickPrev >= 0;
-  shapedRollStick[entityIndex] = rateLimitStep(rollStickPrev, inputs.roll, rollTowardsCentre ? FCS_ROLL_STICK_CENTRE_RATE_PER_SEC : FCS_ROLL_STICK_SHAPE_RATE_PER_SEC, dtSub);
+  shapedRollStick[entityIndex] = rateLimitStep(readF64(shapedRollStick, entityIndex), inputs.roll, FCS_ROLL_STICK_SHAPE_RATE_PER_SEC, dtSub);
   const pitchStickShaped = readF64(shapedPitchStick, entityIndex);
   const rollStickShaped = readF64(shapedRollStick, entityIndex);
 

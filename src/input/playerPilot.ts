@@ -32,8 +32,19 @@ import { DEFAULT_INPUT_MAP_DATA, loadInputMap, saveInputMapData, createInputMap 
 
 export const KEYBOARD_AXIS_RAMP_RATE_PER_SEC = 2.5;
 export const KEYBOARD_AXIS_CENTER_RATE_PER_SEC = 4.0;
-/** Roll keys ramp a little slower than the other axes: 0.6 s to full deflection. */
-export const KEYBOARD_ROLL_RAMP_RATE_PER_SEC = 1.7;
+/**
+ * Keyboard roll by how long the key has been held: a press rolls at once, gently (the base
+ * fraction of full roll rate), and the rate builds the longer it is held, reaching full after
+ * KEYBOARD_ROLL_BUILD_SEC. Releasing drops the demand straight to zero, so the jet stops rolling
+ * where the pilot let go instead of coasting on.
+ */
+export const KEYBOARD_ROLL_BASE = 0.15;
+export const KEYBOARD_ROLL_BUILD_SEC = 1.3;
+export function keyboardRollCommand(holdSec: number): number {
+  if (holdSec <= 0) return 0;
+  const u = Math.min(1, holdSec / KEYBOARD_ROLL_BUILD_SEC);
+  return KEYBOARD_ROLL_BASE + (1 - KEYBOARD_ROLL_BASE) * u * u;
+}
 
 /**
  * Keyboard roll and rudder response: 35% linear + 65% cubic. A key held for 0.2 s gives about a
@@ -114,7 +125,8 @@ export function createPlayerInputSystem(config: PlayerInputConfig): PlayerInputS
   // Persisted per-axis ramp state (one number per axis), and mouse-aim
   // recenter accumulator — all allocated once, mutated in place every call.
   let pitchAxis = 0;
-  let rollAxis = 0;
+  /** Seconds the current roll key has been held, signed by direction (0 when neither/both). */
+  let rollHold = 0;
   let yawAxis = 0;
   let throttleAxis = 0;
   let mouseStickX = 0;
@@ -348,17 +360,10 @@ export function createPlayerInputSystem(config: PlayerInputConfig): PlayerInputS
           0,
           dtSec
         );
-        rollAxis = updateKeyAxis(
-          rollAxis,
-          rawKeyboardHeldFor(axes.roll.negative),
-          rawKeyboardHeldFor(axes.roll.positive),
-          KEYBOARD_ROLL_RAMP_RATE_PER_SEC,
-          KEYBOARD_AXIS_CENTER_RATE_PER_SEC,
-          -1,
-          1,
-          0,
-          dtSec
-        );
+        const rollNeg = rawKeyboardHeldFor(axes.roll.negative);
+        const rollPos = rawKeyboardHeldFor(axes.roll.positive);
+        const rollDir = rollPos === rollNeg ? 0 : rollPos ? 1 : -1;
+        rollHold = rollDir === 0 ? 0 : Math.sign(rollHold) === rollDir ? rollHold + rollDir * dtSec : rollDir * dtSec;
         yawAxis = updateKeyAxis(
           yawAxis,
           rawKeyboardHeldFor(axes.yaw.negative),
@@ -383,9 +388,9 @@ export function createPlayerInputSystem(config: PlayerInputConfig): PlayerInputS
           dtSec
         );
         pitch = pitchAxis;
-        // Softer at small deflections, so a tap is a gentle roll or a small steering correction;
-        // full deflection still gives full authority.
-        roll = keyboardResponse(rollAxis);
+        roll = Math.sign(rollHold) * keyboardRollCommand(Math.abs(rollHold));
+        // Softer at small deflections, so a tap is a small steering correction; full deflection
+        // still gives full authority.
         yaw = keyboardResponse(yawAxis);
 
         if (d.mouse.enabled && mouseReader.isPointerLocked()) {
