@@ -400,8 +400,9 @@ export interface ShowcaseAircraft {
   afterburner: boolean;
   /** EntityFlags (lights). */
   flags: number;
-  /** Packed stores (core.ts STORES layout). */
+  /** Packed stores (core.ts STORES / STORES_B layout). */
   stores: number;
+  storesB: number;
   /** Ground height under it, world m (lights the landing light's pool). */
   groundY?: number;
 }

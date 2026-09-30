@@ -31,7 +31,9 @@ export interface CockpitFlight {
   elevonL: number;
   elevonR: number;
   rudder: number;
+  /** Packed stores (contracts/core.ts STORES / STORES_B). */
   stores: number;
+  storesB: number;
   /** The designated target, interpolated like the view (for conformal HUD symbols). */
   targetValid: boolean;
   targetPos: Vec3Like;

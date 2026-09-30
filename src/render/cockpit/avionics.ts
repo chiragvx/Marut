@@ -9,6 +9,7 @@
  */
 
 import { AutopilotFlag, EntityFlag, MAX_STORE_SLOTS, SnapshotHud, SnapshotTrack, SNAPSHOT_TRACK_STRIDE, STORE_IDS, storeSlotAt, storeSlotCode, storeSlotCount, type QuatLike, type Vec3Like } from '../../contracts/core';
+import { storeInfo, type StoreInfo } from '../../catalog';
 import type { CockpitFlight } from './types';
 
 export const MPS_TO_KT = 1.943844;
@@ -304,14 +305,9 @@ export function readTrack(hud: Float64Array, i: number, out: TrackView): TrackVi
 export const pad = (n: number, width: number): string => String(Math.round(n)).padStart(width, '0');
 export const fmtHdg = (deg: number): string => pad(((Math.round(deg) % 360) + 360) % 360 || 360, 3);
 
-/** Display names of the store codes (contracts/core STORE_IDS), and their kind. */
-export const STORE_NAMES: Readonly<Record<string, string>> = { asraam: 'ASRAAM', 'r-73': 'R-73', derby: 'DERBY', 'astra-mk1': 'ASTRA', 'tank-1200l': '1200 L', 'tank-725l': '725 L' };
-export function storeKind(code: number): 'ir' | 'radar' | 'tank' | '' {
-  const id = STORE_IDS[code] ?? '';
-  if (id === 'asraam' || id === 'r-73') return 'ir';
-  if (id === 'derby' || id === 'astra-mk1') return 'radar';
-  if (id.startsWith('tank')) return 'tank';
-  return '';
+/** A store code's (contracts/core STORE_IDS) catalogue display info, or undefined for nothing/unknown. */
+export function storeInfoByCode(code: number): StoreInfo | undefined {
+  return code > 0 ? storeInfo(STORE_IDS[code] ?? '') : undefined;
 }
 
 export interface StoreInventory {
@@ -324,28 +320,28 @@ export interface StoreInventory {
   slots: { code: number; count: number }[];
 }
 
-export function storeInventory(packed: number, out: StoreInventory): StoreInventory {
+export function storeInventory(packedA: number, packedB: number, out: StoreInventory): StoreInventory {
   out.ir = 0;
   out.radar = 0;
   out.tanks = 0;
   out.irName = '';
   out.radarName = '';
   for (let k = 0; k < MAX_STORE_SLOTS; k++) {
-    const slot = storeSlotAt(packed, k);
+    const slot = storeSlotAt(packedA, packedB, k);
     const code = storeSlotCode(slot);
     const count = storeSlotCount(slot);
     const s = out.slots[k] ?? (out.slots[k] = { code: 0, count: 0 });
     s.code = code;
     s.count = count;
-    const kind = storeKind(code);
-    const name = STORE_NAMES[STORE_IDS[code] ?? ''] ?? '';
-    if (kind === 'ir') {
+    const info = storeInfoByCode(code);
+    if (!info) continue;
+    if (info.kind === 'ir_missile') {
       out.ir += count;
-      if (count > 0 || !out.irName) out.irName ||= name;
-    } else if (kind === 'radar') {
+      if (count > 0 || !out.irName) out.irName ||= info.label;
+    } else if (info.kind === 'radar_missile') {
       out.radar += count;
-      if (count > 0 || !out.radarName) out.radarName ||= name;
-    } else if (kind === 'tank') out.tanks += count;
+      if (count > 0 || !out.radarName) out.radarName ||= info.label;
+    } else if (info.kind === 'fuel_tank') out.tanks += count;
   }
   return out;
 }

@@ -26,8 +26,9 @@ import {
   LockStateCode,
   MAX_STORE_SLOTS,
   STORE_IDS,
-  STORE_SLOT_RADIX,
+  StoreRack,
   packStoreSlot,
+  packStoreSlots,
 } from '../contracts/core';
 import type {
   AiDifficulty,
@@ -1162,7 +1163,11 @@ class WorldImpl implements World {
     }
     for (const [id, r] of this.aircraft) {
       const st = this.pool.get(id);
-      if (st) st.stores = this.packStores(id, r.aircraftDefId, st);
+      if (st) {
+        this.packStores(id, r.aircraftDefId, st, this.storesScratch);
+        st.stores = this.storesScratch.a;
+        st.storesB = this.storesScratch.b;
+      }
     }
     writeSnapshotBuffer(this.pool, playerId, this.tickInternal, this.simTimeSecInternal, hud, out);
   }
@@ -1195,26 +1200,30 @@ class WorldImpl implements World {
    * store on each station, with the missiles still on it (from combat) and the drop tanks only
    * while attached.
    */
-  private packStores(id: EntityId, defId: string, state: EntityState): number {
+  private readonly storesScratch = { a: 0, b: 0 };
+  private readonly storeSlotsScratch: number[] = [];
+
+  private packStores(id: EntityId, defId: string, state: EntityState, out: { a: number; b: number }): void {
+    const slots = this.storeSlotsScratch;
+    slots.length = 0;
     const def = getAircraftDefinition(defId);
-    if (!def?.stations) return 0;
-    const loadout = id === this.playerEntityIdInternal ? this.playerLoadout(defId) : getLoadout(def);
-    const combat = this.deps.combat as Partial<CombatPortWithStores>;
-    let packed = 0;
-    let scale = 1;
-    let k = 0;
-    for (const st of def.stations) {
-      if (st.id === 'gun') continue;
-      if (k++ >= MAX_STORE_SLOTS) break;
-      const fit = loadout?.fit[st.id];
-      const code = fit ? STORE_IDS.indexOf(fit.store) : -1;
-      if (fit && code > 0) {
-        const count = FUEL_TANKS[fit.store] ? ((state.dropTankCount ?? 0) > 0 ? fit.count : 0) : (combat.stationCount?.(id, st.id) ?? fit.count);
-        packed += packStoreSlot(code, count, fit.count >= 2) * scale;
+    if (def?.stations) {
+      const loadout = id === this.playerEntityIdInternal ? this.playerLoadout(defId) : getLoadout(def);
+      const combat = this.deps.combat as Partial<CombatPortWithStores>;
+      for (const st of def.stations) {
+        if (st.id === 'gun') continue;
+        if (slots.length >= MAX_STORE_SLOTS) break;
+        const fit = loadout?.fit[st.id];
+        const code = fit ? STORE_IDS.indexOf(fit.store) : -1;
+        if (fit && code > 0) {
+          const count = FUEL_TANKS[fit.store] ? ((state.dropTankCount ?? 0) > 0 ? fit.count : 0) : (combat.stationCount?.(id, st.id) ?? fit.count);
+          slots.push(packStoreSlot(code, count, fit.count >= 2 ? StoreRack.TwinRail : StoreRack.Single));
+        } else {
+          slots.push(0);
+        }
       }
-      scale *= STORE_SLOT_RADIX;
     }
-    return packed;
+    packStoreSlots(slots, out);
   }
 
   private findNearestIls(playerPos: Vec3Like) {

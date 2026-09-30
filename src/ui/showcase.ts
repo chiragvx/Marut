@@ -10,7 +10,7 @@
  */
 import type { AirportLayout, RunwayDef } from '../contracts/airport';
 import type { ShowcaseAircraft, ShowcaseFrame } from '../contracts/render';
-import { EntityFlag, STORE_IDS, STORE_SLOT_RADIX, packStoreSlot, type QuatLike, type Vec3Like } from '../contracts/core';
+import { EntityFlag, STORE_IDS, StoreRack, packStoreSlot, packStoreSlots, type QuatLike, type Vec3Like } from '../contracts/core';
 import { Quat } from '../math';
 import { buildAirfieldAids } from '../airport/airfieldAids';
 
@@ -21,18 +21,18 @@ export interface ShowcaseScene {
   frame(tSec: number): ShowcaseFrame;
 }
 
-/** The default CAP fit, packed for the snapshot's STORES field (slots: outer, middle, inner, centreline). */
-export function capStores(): number {
+/** The default CAP fit, packed for the snapshot's STORES / STORES_B fields (slots: outer, middle, inner, centreline). */
+export function capStores(): { a: number; b: number } {
   const code = (id: string): number => STORE_IDS.indexOf(id);
   const slots = [
-    packStoreSlot(code('asraam'), 2, true),
-    packStoreSlot(code('asraam'), 2, true),
-    packStoreSlot(code('astra-mk1'), 1, false),
-    packStoreSlot(code('astra-mk1'), 1, false),
-    packStoreSlot(code('tank-1200l'), 1, false),
-    packStoreSlot(code('tank-1200l'), 1, false),
+    packStoreSlot(code('asraam'), 2, StoreRack.TwinRail),
+    packStoreSlot(code('asraam'), 2, StoreRack.TwinRail),
+    packStoreSlot(code('astra-mk1'), 1, StoreRack.Single),
+    packStoreSlot(code('astra-mk1'), 1, StoreRack.Single),
+    packStoreSlot(code('tank-1200l'), 1, StoreRack.Single),
+    packStoreSlot(code('tank-1200l'), 1, StoreRack.Single),
   ];
-  return slots.reduce((sum, s, k) => sum + s * Math.pow(STORE_SLOT_RADIX, k), 0);
+  return packStoreSlots(slots, { a: 0, b: 0 });
 }
 
 interface RunwayFrame {
@@ -63,7 +63,8 @@ function at(f: RunwayFrame, along: number, right: number, up: number, out: Vec3L
 
 
 function makeAircraft(): ShowcaseAircraft {
-  return { id: 900001, pos: { x: 0, y: 0, z: 0 }, rot: { x: 0, y: 0, z: 0, w: 1 }, vel: { x: 0, y: 0, z: 0 }, gearPos: 1, throttle: 0.5, afterburner: false, flags: 0, stores: capStores() };
+  const stores = capStores();
+  return { id: 900001, pos: { x: 0, y: 0, z: 0 }, rot: { x: 0, y: 0, z: 0, w: 1 }, vel: { x: 0, y: 0, z: 0 }, gearPos: 1, throttle: 0.5, afterburner: false, flags: 0, stores: stores.a, storesB: stores.b };
 }
 
 const deg = Math.PI / 180;

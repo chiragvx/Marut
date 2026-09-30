@@ -231,7 +231,7 @@ export function createCockpitSystem(layout: CockpitLayout): CockpitSystem {
       ctx.speedUnit = aux.speedUnit;
       if (f.valid) {
         updateAvionics(av, avState, f, dtSec);
-        storeInventory(f.stores, inv);
+        storeInventory(f.stores, f.storesB, inv);
       }
       if (aux.loadSerial !== loadSerial) {
         loadSerial = aux.loadSerial;

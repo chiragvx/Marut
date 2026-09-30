@@ -282,6 +282,9 @@ export interface WeaponProfile {
   id: string;
   /** Display name, e.g. 'R-73'. */
   name: string;
+  /** HUD / stores-page label (e.g. 'ASTRA') and 3-letter station legend (e.g. 'AST'). Absent = derived from `name`. */
+  label?: string;
+  short?: string;
   kind: WeaponKind;
   /** Mass and drag area added to the aircraft per round/missile loaded (drag 0 for internal gun ammo). */
   carriageMassKg: number;

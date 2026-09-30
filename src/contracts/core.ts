@@ -268,10 +268,12 @@ export interface EntityState {
   dropTankShellKg?: number;
   dropTankDragAreaM2?: number;
   /**
-   * What the renderer should draw: an aircraft's packed stores (SnapshotEntity.STORES), refreshed by
-   * src/core each snapshot; a missile's store code, set at launch. Optional: absent means 0.
+   * What the renderer should draw: an aircraft's packed stores (SnapshotEntity.STORES = slots 0-3,
+   * STORES_B = slots 4-7), refreshed by src/core each snapshot; a missile's store code (in `stores`),
+   * set at launch. Optional: absent means 0.
    */
   stores?: number;
+  storesB?: number;
 
   /** Bitmask of EntityFlag. */
   flags: EntityFlags;
@@ -837,11 +839,13 @@ export const SnapshotEntity = {
   THROTTLE: 23,
   AFTERBURNER_ON: 24, // 0 or 1
   FLAGS: 25, // EntityFlags bitmask
-  /** Aircraft: its carried stores, packed per station (packStoreSlot); missile: its store code (STORE_IDS). */
+  /** Aircraft: its carried stores, packed per station (packStoreSlot), slots 0-3; missile: its store code (STORE_IDS). */
   STORES: 26,
+  /** Aircraft: stations 4-7 of its stores (same packing). */
+  STORES_B: 27,
 } as const;
-/** Floats per entity block. Keep in sync with the field count above (27). */
-export const ENTITY_STRIDE = 27;
+/** Floats per entity block. Keep in sync with the field count above (28). */
+export const ENTITY_STRIDE = 28;
 
 /**
  * Store ids (src/catalog) by code: the codes the snapshot's STORES field carries. 0 = nothing.
@@ -849,19 +853,41 @@ export const ENTITY_STRIDE = 27;
  */
 export const STORE_IDS: readonly string[] = ['', 'asraam', 'r-73', 'derby', 'astra-mk1', 'tank-1200l', 'tank-725l'];
 
+/** How a station carries its stores: one on the pylon, a twin missile rail, or a multiple ejector rack (bombs). */
+export const StoreRack = { Single: 0, TwinRail: 1, MultiRack: 2 } as const;
+export type StoreRack = (typeof StoreRack)[keyof typeof StoreRack];
+
 /**
- * An aircraft's STORES value holds up to MAX_STORE_SLOTS stations, in the order of its
- * AircraftDefinition.stations with the gun skipped; slot k is `packed / 64^k mod 64`: store code
- * (bits 0-2), stores left (bits 3-4, 0..3), twin-rail launcher (bit 5).
+ * An aircraft's stores ride in two snapshot fields, STORES (slots 0-3) and STORES_B (slots 4-7): one
+ * slot per station, in the order of its AircraftDefinition.stations with the gun skipped. Slot k is
+ * `field / 8192^(k mod 4) mod 8192` (13 bits, so four fit under 2^53): store code (bits 0-6, up to
+ * 127 store types), stores left (bits 7-10, 0..15), StoreRack (bits 11-12).
  */
 export const MAX_STORE_SLOTS = 8;
-export const STORE_SLOT_RADIX = 64;
-export const packStoreSlot = (code: number, count: number, twin: boolean): number => code + 8 * Math.min(3, Math.max(0, count)) + (twin ? 32 : 0);
-/** Slot k's 6 bits from a packed STORES value. */
-export const storeSlotAt = (packed: number, k: number): number => Math.floor(packed / Math.pow(STORE_SLOT_RADIX, k)) % STORE_SLOT_RADIX;
-export const storeSlotCode = (slot: number): number => slot & 7;
-export const storeSlotCount = (slot: number): number => (slot >> 3) & 3;
-export const storeSlotTwin = (slot: number): boolean => (slot & 32) !== 0;
+export const STORE_SLOTS_PER_FIELD = 4;
+export const STORE_SLOT_RADIX = 8192;
+export const MAX_STORE_CODE = 127;
+export const MAX_STORE_SLOT_COUNT = 15;
+export const packStoreSlot = (code: number, count: number, rack: StoreRack): number =>
+  (code & MAX_STORE_CODE) + 128 * Math.min(MAX_STORE_SLOT_COUNT, Math.max(0, count)) + 2048 * rack;
+/** Slot k's 13 bits from an aircraft's two packed fields. */
+export const storeSlotAt = (packedA: number, packedB: number, k: number): number =>
+  Math.floor((k < STORE_SLOTS_PER_FIELD ? packedA : packedB) / Math.pow(STORE_SLOT_RADIX, k % STORE_SLOTS_PER_FIELD)) % STORE_SLOT_RADIX;
+export const storeSlotCode = (slot: number): number => slot & MAX_STORE_CODE;
+export const storeSlotCount = (slot: number): number => (slot >> 7) & MAX_STORE_SLOT_COUNT;
+export const storeSlotRack = (slot: number): StoreRack => ((slot >> 11) & 3) as StoreRack;
+export const storeSlotTwin = (slot: number): boolean => storeSlotRack(slot) === StoreRack.TwinRail;
+/** Packs per-station slots (packStoreSlot values, at most MAX_STORE_SLOTS) into the two fields. */
+export function packStoreSlots(slots: readonly number[], out: { a: number; b: number }): { a: number; b: number } {
+  out.a = 0;
+  out.b = 0;
+  for (let k = 0; k < slots.length && k < MAX_STORE_SLOTS; k++) {
+    const v = slots[k]! * Math.pow(STORE_SLOT_RADIX, k % STORE_SLOTS_PER_FIELD);
+    if (k < STORE_SLOTS_PER_FIELD) out.a += v;
+    else out.b += v;
+  }
+  return out;
+}
 
 /** Float index (from the start of the WHOLE buffer) of entity block `i`'s field `field`. `field` is one of the SnapshotEntity.* offsets above. */
 export const entityFieldOffset = (entityIndex: number, field: number): number =>

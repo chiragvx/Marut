@@ -42,8 +42,9 @@ export interface MeshAircraftState {
   team: number;
   /** World velocity, m/s. */
   vel: Readonly<Vec3Like>;
-  /** Packed stores (contracts/core.ts STORES layout). */
+  /** Packed stores (contracts/core.ts STORES / STORES_B layout). */
   stores: number;
+  storesB: number;
   /** EntityFlags (exterior lights). */
   flags: number;
   /** Ground height under the aircraft, world metres, when known (for the landing light's pool). */
@@ -154,9 +155,9 @@ export function createMeshAircraftRenderer(root: THREE.Object3D, template: Aircr
   }
 
   /** Stores on one aircraft whose body -> render matrix is `body`. */
-  function putStores(body: THREE.Matrix4, packed: number): void {
+  function putStores(body: THREE.Matrix4, packedA: number, packedB: number): void {
     for (let k = 0; k < pylonFrames.length; k++) {
-      const slot = storeSlotAt(packed, k);
+      const slot = storeSlotAt(packedA, packedB, k);
       const code = storeSlotCode(slot);
       const model: StoreModel | undefined = storeModels.byCode[code];
       if (!model) continue;
@@ -299,9 +300,9 @@ export function createMeshAircraftRenderer(root: THREE.Object3D, template: Aircr
       inst.flame.visible = s.afterburner;
       inst.flameMat.uniforms.uAB.value = s.afterburner ? 1 : 0;
       inst.flameMat.uniforms.uNozzle.value = inst.nozzle;
-      if (s.stores > 0) {
+      if (s.stores > 0 || s.storesB > 0) {
         inst.root.updateMatrix();
-        putStores(inst.root.matrix, s.stores);
+        putStores(inst.root.matrix, s.stores, s.storesB);
       }
 
       // Exterior lights: the lamps (shader) and their glows, beam and pool (aircraftLights.ts).

@@ -84,10 +84,15 @@ describe('a custom fit in the running sim', () => {
     const snap = new Float64Array(SNAPSHOT_FLOATS);
     world.writeSnapshot(snap);
     const n = snap[SnapshotHeader.ENTITY_COUNT_OFFSET]!;
-    let packed = -1;
-    for (let i = 0; i < n; i++) if (snap[entityFieldOffset(i, SnapshotEntity.ID)] === id) packed = snap[entityFieldOffset(i, SnapshotEntity.STORES)]!;
+    let packedA = -1;
+    let packedB = -1;
+    for (let i = 0; i < n; i++) {
+      if (snap[entityFieldOffset(i, SnapshotEntity.ID)] !== id) continue;
+      packedA = snap[entityFieldOffset(i, SnapshotEntity.STORES)]!;
+      packedB = snap[entityFieldOffset(i, SnapshotEntity.STORES_B)]!;
+    }
     const slot = (k: number) => {
-      const s = storeSlotAt(packed, k);
+      const s = storeSlotAt(packedA, packedB, k);
       return [STORE_IDS[storeSlotCode(s)], storeSlotCount(s), storeSlotTwin(s)];
     };
     expect(slot(0)).toEqual(['r-73', 1, false]);

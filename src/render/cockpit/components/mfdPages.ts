@@ -10,7 +10,7 @@
 
 import { LockStateCode, SnapshotTrackFlag, TrackIdentityCode, WarningBit, WeaponKindCode } from '../../../contracts/core';
 import type { CockpitAction } from '../../../contracts/render';
-import { M_TO_FT, MPS_TO_KT, apEngaged, atEngaged, fmtHdg, readTrack, type TrackView } from '../avionics';
+import { M_TO_FT, MPS_TO_KT, apEngaged, atEngaged, fmtHdg, readTrack, storeInfoByCode, type TrackView } from '../avionics';
 import { font } from '../screen';
 import type { CockpitContext } from '../types';
 
@@ -587,8 +587,9 @@ const WPN: MfdPage = {
       const [px, py] = P(s.x, s.z);
       const code = slot?.code ?? 0;
       const count = slot?.count ?? 0;
-      const kind = code === 1 || code === 2 ? WeaponKindCode.ir_missile : code === 3 || code === 4 ? WeaponKindCode.radar_missile : -1;
-      const name = ['', 'ASR', 'R73', 'DBY', 'AST', 'TK', 'TK'][code] ?? '';
+      const info = storeInfoByCode(code);
+      const kind = info && info.kind !== 'fuel_tank' ? WeaponKindCode[info.kind] : -1;
+      const name = info?.short ?? '';
       const active = kind === sel && count > 0;
       g.strokeStyle = code ? C.grey : 'rgba(127,138,164,0.4)';
       g.lineWidth = 1;

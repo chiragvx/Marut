@@ -32,6 +32,7 @@ function flight(over: Partial<CockpitFlight> = {}): CockpitFlight {
     elevonR: 0,
     rudder: 0,
     stores: 0,
+    storesB: 0,
     targetValid: false,
     targetPos: { x: 0, y: 0, z: 0 },
     sunDir: { x: 0, y: 1, z: 0 },

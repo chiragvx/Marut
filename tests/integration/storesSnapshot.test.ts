@@ -14,11 +14,17 @@ import {
   STORE_IDS,
   SnapshotEntity,
   SnapshotHeader,
+  MAX_STORE_CODE,
+  MAX_STORE_SLOT_COUNT,
+  MAX_STORE_SLOTS,
+  StoreRack,
   entityFieldOffset,
   packStoreSlot,
+  packStoreSlots,
   storeSlotAt,
   storeSlotCode,
   storeSlotCount,
+  storeSlotRack,
   storeSlotTwin,
 } from '../../src/contracts/core';
 import { buildWorldDependencies, createWorld, resolveBuiltinMission } from '../../src/core';
@@ -43,29 +49,35 @@ function setup() {
     return Array.from({ length: n }, (_, i) => ({
       id: snap[entityFieldOffset(i, SnapshotEntity.ID)]!,
       kind: snap[entityFieldOffset(i, SnapshotEntity.KIND)]!,
-      stores: snap[entityFieldOffset(i, SnapshotEntity.STORES)]!,
+      stores: { a: snap[entityFieldOffset(i, SnapshotEntity.STORES)]!, b: snap[entityFieldOffset(i, SnapshotEntity.STORES_B)]! },
     }));
   };
   const player = () => entities().find((e) => e.id === id)!;
   return { world, id, entities, player };
 }
 
-const slot = (packed: number, k: number) => {
-  const s = storeSlotAt(packed, k);
+type Packed = { a: number; b: number };
+const slot = (packed: Packed, k: number) => {
+  const s = storeSlotAt(packed.a, packed.b, k);
   return { store: STORE_IDS[storeSlotCode(s)], count: storeSlotCount(s), twin: storeSlotTwin(s) };
 };
 
 describe('snapshot STORES field', () => {
-  test('packs and unpacks losslessly across all eight slots', () => {
-    let packed = 0;
-    for (let k = 0; k < 8; k++) packed += packStoreSlot(k % 7, k % 4, k % 2 === 1) * Math.pow(64, k);
-    expect(Number.isSafeInteger(packed)).toBe(true);
-    for (let k = 0; k < 8; k++) {
-      const s = storeSlotAt(packed, k);
-      expect([storeSlotCode(s), storeSlotCount(s), storeSlotTwin(s)]).toEqual([k % 7, k % 4, k % 2 === 1]);
+  test('packs and unpacks losslessly across all eight slots, at the largest code/count/rack', () => {
+    for (const [code, count, rack] of [[MAX_STORE_CODE, MAX_STORE_SLOT_COUNT, 3], [5, 6, StoreRack.MultiRack], [1, 0, StoreRack.Single]] as const) {
+      const slots = Array.from({ length: MAX_STORE_SLOTS }, (_, k) => packStoreSlot((code + k) % (MAX_STORE_CODE + 1), (count + k) % (MAX_STORE_SLOT_COUNT + 1), ((rack + k) % 4) as StoreRack));
+      const packed = packStoreSlots(slots, { a: 0, b: 0 });
+      expect(Number.isSafeInteger(packed.a) && Number.isSafeInteger(packed.b)).toBe(true);
+      for (let k = 0; k < MAX_STORE_SLOTS; k++) {
+        const s = storeSlotAt(packed.a, packed.b, k);
+        expect([storeSlotCode(s), storeSlotCount(s), storeSlotRack(s)]).toEqual([(code + k) % (MAX_STORE_CODE + 1), (count + k) % (MAX_STORE_SLOT_COUNT + 1), (rack + k) % 4]);
+      }
     }
-    expect(ENTITY_STRIDE).toBe(27);
+    expect(storeSlotTwin(packStoreSlot(3, 2, StoreRack.TwinRail))).toBe(true);
+    expect(storeSlotTwin(packStoreSlot(3, 2, StoreRack.MultiRack))).toBe(false);
+    expect(ENTITY_STRIDE).toBe(28);
     expect(entityFieldOffset(0, SnapshotEntity.STORES)).toBe(HEADER_FLOATS + 26);
+    expect(entityFieldOffset(0, SnapshotEntity.STORES_B)).toBe(HEADER_FLOATS + 27);
   });
 
   test('the player carries the CAP fit: twin ASRAAM outboard, Astra in the middle, tanks inboard', () => {
@@ -102,8 +114,8 @@ describe('snapshot STORES field', () => {
   test('a fired missile leaves its pylon and flies as its own store type', () => {
     const { world, id, player, entities } = setup();
     const before = player().stores;
-    const loaded = (p: number) => [0, 1, 2, 3].reduce((n, k) => n + slot(p, k).count, 0);
-    let missile: { stores: number } | undefined;
+    const loaded = (p: Packed) => [0, 1, 2, 3, 4, 5, 6, 7].reduce((n, k) => n + slot(p, k).count, 0);
+    let missile: { stores: Packed } | undefined;
     // Designate the bandit ahead, select the Astra (radar), and fire once locked (launch is lock-gated).
     for (let t = 0; t < 3600 && !missile; t++) {
       world.setPlayerInput(id, inputs({ cycleTarget: t % 120 === 1, cycleWeapon: t === 3, launch: t > 10 && t % 20 === 0 }));
@@ -112,6 +124,6 @@ describe('snapshot STORES field', () => {
     }
     expect(missile).toBeDefined();
     expect(loaded(player().stores)).toBe(loaded(before) - 1);
-    expect(['asraam', 'astra-mk1']).toContain(STORE_IDS[missile!.stores]);
+    expect(['asraam', 'astra-mk1']).toContain(STORE_IDS[missile!.stores.a]);
   });
 });

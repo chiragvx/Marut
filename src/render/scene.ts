@@ -154,6 +154,7 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
     team: 0,
     vel: { x: 0, y: 0, z: 0 },
     stores: 0,
+    storesB: 0,
     flags: 0,
     groundY: undefined as number | undefined,
   };
@@ -211,6 +212,7 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
     elevonR: 0,
     rudder: 0,
     stores: 0,
+    storesB: 0,
     targetValid: false,
     targetPos: { x: 0, y: 0, z: 0 },
     sunDir: { x: 0, y: 1, z: 0 },
@@ -622,6 +624,7 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
           st.team = 0;
           st.vel = a.vel;
           st.stores = a.stores;
+          st.storesB = a.storesB;
           st.flags = a.flags;
           st.groundY = a.groundY;
           aircraftRenderer.updateEntity(a.id, a.pos, a.rot, st, origin);
@@ -651,6 +654,7 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
         cf.elevonR = interpEntity.elevonR;
         cf.rudder = interpEntity.rudder;
         cf.stores = curr.stores[playerSlot]!;
+        cf.storesB = curr.storesB[playerSlot]!;
         structures.setServiceVehicles(
           playerServiceState === ServiceStateCode.Servicing ? { x: interpEntity.pos.x, y: interpEntity.pos.y - 1.15, z: interpEntity.pos.z, headingRad: playerHeadingRad } : null
         );
@@ -713,6 +717,7 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
           st.team = curr.team[i]!;
           st.vel = interpEntity.vel;
           st.stores = curr.stores[i]!;
+          st.storesB = curr.storesB[i]!;
           st.flags = flags;
           // The player's ground height (from the HUD's height above ground) lights the runway ahead.
           st.groundY = i === playerSlot ? interpEntity.pos.y - (curr.hud[SnapshotHud.ALT_AGL_M] ?? 0) : undefined;

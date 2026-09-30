@@ -74,6 +74,8 @@ const NO_GUN = { roundIntervalSec: 0, dispersionMrad: 0 } as const;
 export const GENERIC_GUN_PROFILE: WeaponProfile = {
   id: 'gsh-23',
   name: 'GSh-23',
+  label: 'GUN',
+  short: 'GUN',
   kind: WeaponKind.Gun,
   carriageMassKg: 0.34,
   carriageDragAreaM2: 0,
@@ -93,6 +95,8 @@ export const GENERIC_GUN_PROFILE: WeaponProfile = {
 export const GENERIC_IR_MISSILE_PROFILE: WeaponProfile = {
   id: 'r-73',
   name: 'R-73',
+  label: 'R-73',
+  short: 'R73',
   kind: WeaponKind.IrMissile,
   carriageMassKg: IR_MISSILE_MASS_KG,
   carriageDragAreaM2: 0.03,
@@ -125,6 +129,8 @@ export const GENERIC_IR_MISSILE_PROFILE: WeaponProfile = {
 export const GENERIC_RADAR_MISSILE_PROFILE: WeaponProfile = {
   id: 'derby',
   name: 'Derby',
+  label: 'DERBY',
+  short: 'DBY',
   kind: WeaponKind.RadarMissile,
   carriageMassKg: RADAR_MISSILE_MASS_KG,
   carriageDragAreaM2: 0.04,
@@ -183,6 +189,8 @@ const D2R = Math.PI / 180;
 export const ASRAAM: WeaponProfile = {
   id: 'asraam',
   name: 'ASRAAM',
+  label: 'ASRAAM',
+  short: 'ASR',
   kind: 'ir_missile',
   carriageMassKg: 88,
   carriageDragAreaM2: 0.025,
@@ -237,6 +245,8 @@ export const R73: WeaponProfile = {
   ...GENERIC_IR_MISSILE_PROFILE,
   id: 'r-73',
   name: 'R-73',
+  label: 'R-73',
+  short: 'R73',
   dragCoeff: 0.5,
   maxLifetimeSec: 35,
   motorBurnSec: 2.5,
@@ -281,6 +291,8 @@ export const R73: WeaponProfile = {
 export const ASTRA_MK1: WeaponProfile = {
   id: 'astra-mk1',
   name: 'Astra Mk1',
+  label: 'ASTRA',
+  short: 'AST',
   kind: 'radar_missile',
   carriageMassKg: 154,
   carriageDragAreaM2: 0.045,
@@ -328,6 +340,8 @@ export const DERBY: WeaponProfile = {
   ...GENERIC_RADAR_MISSILE_PROFILE,
   id: 'derby',
   name: 'Derby',
+  label: 'DERBY',
+  short: 'DBY',
   crossSectionM2: 0.0201,
   dragCoeff: 0.4,
   maxLifetimeSec: 80,
@@ -369,6 +383,9 @@ export const WEAPONS: Readonly<Record<string, WeaponProfile>> = {
 export interface FuelTankStore {
   id: string;
   name: string;
+  /** Stores-page names (see WeaponProfile.label/short). */
+  label: string;
+  short: string;
   capacityKg: number;
   emptyMassKg: number;
   dragAreaM2: number;
@@ -376,9 +393,9 @@ export interface FuelTankStore {
 
 export const FUEL_TANKS: Readonly<Record<string, FuelTankStore>> = {
   // Tejas 1200 L wing tank: 1200 L at ~0.80 kg/L = 960 kg; ~140 kg empty.
-  'tank-1200l': { id: 'tank-1200l', name: '1200 L tank', capacityKg: 960, emptyMassKg: 140, dragAreaM2: 0.075 },
+  'tank-1200l': { id: 'tank-1200l', name: '1200 L tank', label: '1200 L', short: 'TK', capacityKg: 960, emptyMassKg: 140, dragAreaM2: 0.075 },
   // Tejas 725 L centreline tank.
-  'tank-725l': { id: 'tank-725l', name: '725 L tank', capacityKg: 580, emptyMassKg: 95, dragAreaM2: 0.055 },
+  'tank-725l': { id: 'tank-725l', name: '725 L tank', label: '725 L', short: 'TK', capacityKg: 580, emptyMassKg: 95, dragAreaM2: 0.055 },
 };
 
 export type StoreKind = 'gun' | 'ir_missile' | 'radar_missile' | 'fuel_tank';
@@ -388,4 +405,32 @@ export function storeKind(id: string): StoreKind | undefined {
   const w = WEAPONS[id];
   if (w) return w.kind;
   return FUEL_TANKS[id] ? 'fuel_tank' : undefined;
+}
+
+/** What the displays show for a store: its kind, HUD/stores-page label and 3-letter short name. */
+export interface StoreInfo {
+  id: string;
+  kind: StoreKind;
+  label: string;
+  short: string;
+}
+
+const storeInfoCache = new Map<string, StoreInfo | null>();
+/** Display info for a catalogue store id, or undefined if the id is unknown. */
+export function storeInfo(id: string): StoreInfo | undefined {
+  let info = storeInfoCache.get(id);
+  if (info === undefined) {
+    const w = WEAPONS[id];
+    const t = FUEL_TANKS[id];
+    if (w) {
+      const label = w.label ?? w.name.toUpperCase();
+      info = { id, kind: w.kind, label, short: w.short ?? label.replace(/[^A-Z0-9]/g, '').slice(0, 3) };
+    } else if (t) {
+      info = { id, kind: 'fuel_tank', label: t.label, short: t.short };
+    } else {
+      info = null;
+    }
+    storeInfoCache.set(id, info);
+  }
+  return info ?? undefined;
 }
