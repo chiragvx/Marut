@@ -6,6 +6,7 @@
 
 import type { PilotContext, PilotInputs } from '../contracts/core';
 import type {
+  ControlRates,
   PlayerInputConfig,
   PlayerInputSystem,
   InputMapData,
@@ -55,6 +56,13 @@ export function keyboardResponse(x: number): number {
   return Math.sign(x) * (0.35 * a + 0.65 * a * a * a);
 }
 export const KEYBOARD_THROTTLE_RAMP_RATE_PER_SEC = 0.5;
+
+/** Control-rate settings range (Settings -> Controls), as multipliers. */
+export const CONTROL_RATE_MIN = 0.5;
+export const CONTROL_RATE_MAX = 1.5;
+export function clampControlRate(x: number): number {
+  return Number.isFinite(x) ? Math.min(CONTROL_RATE_MAX, Math.max(CONTROL_RATE_MIN, x)) : 1;
+}
 export const INPUT_MAX_DT_SEC = 0.25;
 export const REBIND_AXIS_THRESHOLD = 0.5;
 export const REBIND_BUTTON_THRESHOLD = 0.5;
@@ -146,6 +154,7 @@ export function createPlayerInputSystem(config: PlayerInputConfig): PlayerInputS
   let gearDownState = true;
   let airbrakeState = false;
   let alphaLimiterDisabledState = false;
+  const controlRates: ControlRates = { pitch: 1, roll: 1, yaw: 1 };
 
   const gearEdge = createEdgeDetector();
   const airbrakeEdge = createEdgeDetector();
@@ -522,6 +531,9 @@ export function createPlayerInputSystem(config: PlayerInputConfig): PlayerInputS
       // Nosewheel steering is always available (its strength fades with speed: src/physics/landingGear.ts).
       out.nwsEnabled = true;
       out.alphaLimiterDisabled = alphaLimiterDisabledState;
+      out.pitchRateScale = controlRates.pitch;
+      out.rollRateScale = controlRates.roll;
+      out.yawRateScale = controlRates.yaw;
     },
 
     getControlScheme(): InputControlSchemeType {
@@ -539,6 +551,14 @@ export function createPlayerInputSystem(config: PlayerInputConfig): PlayerInputS
     },
     setAlphaLimiterDisabled(disabled: boolean): void {
       alphaLimiterDisabledState = disabled;
+    },
+    getControlRates(): ControlRates {
+      return { ...controlRates };
+    },
+    setControlRates(rates: Readonly<ControlRates>): void {
+      controlRates.pitch = clampControlRate(rates.pitch);
+      controlRates.roll = clampControlRate(rates.roll);
+      controlRates.yaw = clampControlRate(rates.yaw);
     },
 
     setThrottle(frac: number): void {

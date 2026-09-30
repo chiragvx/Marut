@@ -474,6 +474,14 @@ export function computeGCommand(pitchStick: number, fcsLimits: Pick<FcsLimits, '
   return pitchStick >= 0 ? lerp(neutralG, fcsLimits.maxGLoadPos, pitchStick) : lerp(neutralG, fcsLimits.maxGLoadNeg, -pitchStick);
 }
 
+/**
+ * The pilot's control-rate setting (PilotInputs.pitchRateScale etc.), held to the 0.5..1.5 range
+ * the Settings screen offers; absent = the jet's standard response.
+ */
+function controlRateScale(x: number | undefined): number {
+  return x === undefined || !Number.isFinite(x) ? 1 : clamp(x, 0.5, 1.5);
+}
+
 /** Bank angle, rad (33deg), beyond which the neutral-stick reference stops compensating for bank. */
 const FCS_BANK_COMPENSATION_MAX_RAD = 0.5760;
 const COS_BANK_COMPENSATION_MAX = Math.cos(FCS_BANK_COMPENSATION_MAX_RAD);
@@ -579,7 +587,10 @@ export function stepFcs(
     shapedPitchRateCmd[entityIndex] = 0;
     filteredRollRateCmd[entityIndex] = 0;
   }
-  shapedPitchStick[entityIndex] = rateLimitStep(readF64(shapedPitchStick, entityIndex), inputs.pitch, FCS_PITCH_STICK_SHAPE_RATE_PER_SEC, dtSub);
+  // The pitch-rate setting scales the stick before the onset shaping, so the g still builds at the
+  // standard pace: more g for a given stick at 150%, but a full pull is exactly the standard one.
+  const pitchStickScaled = clamp(inputs.pitch * controlRateScale(inputs.pitchRateScale), -1, 1);
+  shapedPitchStick[entityIndex] = rateLimitStep(readF64(shapedPitchStick, entityIndex), pitchStickScaled, FCS_PITCH_STICK_SHAPE_RATE_PER_SEC, dtSub);
   shapedRollStick[entityIndex] = rateLimitStep(readF64(shapedRollStick, entityIndex), inputs.roll, FCS_ROLL_STICK_SHAPE_RATE_PER_SEC, dtSub);
   const pitchStickShaped = readF64(shapedPitchStick, entityIndex);
   const rollStickShaped = readF64(shapedRollStick, entityIndex);
@@ -751,7 +762,8 @@ export function stepFcs(
   elevonSymCmd = clamp(elevonSymCmd, -fcsLimits.maxElevonRad, fcsLimits.maxElevonRad);
 
   const pCmdPrev = readF64(filteredRollRateCmd, entityIndex);
-  filteredRollRateCmd[entityIndex] = pCmdPrev + (rollStickShaped * fcsLimits.maxRollRateRadS - pCmdPrev) * (1 - Math.exp(-dtSub / FCS_ROLL_RATE_CMD_TAU_SEC));
+  const pCmdTarget = rollStickShaped * fcsLimits.maxRollRateRadS * controlRateScale(inputs.rollRateScale);
+  filteredRollRateCmd[entityIndex] = pCmdPrev + (pCmdTarget - pCmdPrev) * (1 - Math.exp(-dtSub / FCS_ROLL_RATE_CMD_TAU_SEC));
   const pCmd = readF64(filteredRollRateCmd, entityIndex);
   const elevonDiffCmd = clamp(fcsLimits.rollRateGain * (pCmd - p), -fcsLimits.maxElevonRad, fcsLimits.maxElevonRad);
 
@@ -764,7 +776,7 @@ export function stepFcs(
   // yawRateGain itself went through the gain-constant review; only this direct term, inherited
   // from the same spec formula (docs/spec/02-flight-model.md section 4.9, also fixed there), was
   // never checked by that review for the reason explained above.
-  const rudderCmd = clamp(-inputs.yaw * fcsLimits.maxRudderRad - fcsLimits.yawRateGain * r, -fcsLimits.maxRudderRad, fcsLimits.maxRudderRad);
+  const rudderCmd = clamp(-inputs.yaw * controlRateScale(inputs.yawRateScale) * fcsLimits.maxRudderRad - fcsLimits.yawRateGain * r, -fcsLimits.maxRudderRad, fcsLimits.maxRudderRad);
 
   const healthL = damage.controlSurfaces.elevonL;
   const healthR = damage.controlSurfaces.elevonR;

@@ -168,6 +168,9 @@ function defaultPilotInputs(): PilotInputs {
     nwsEnabled: false,
     alphaLimiterDisabled: false,
     jettisonTanks: false,
+    pitchRateScale: 1,
+    rollRateScale: 1,
+    yawRateScale: 1,
   };
 }
 
@@ -654,6 +657,9 @@ class WorldImpl implements World {
     // Optional fields must be copied too: this field-by-field copy silently dropped both, so the
     // Settings "AoA limiter" toggle never reached the sim and drop tanks could not be jettisoned.
     target.alphaLimiterDisabled = inputs.alphaLimiterDisabled ?? false;
+    target.pitchRateScale = inputs.pitchRateScale ?? 1;
+    target.rollRateScale = inputs.rollRateScale ?? 1;
+    target.yawRateScale = inputs.yawRateScale ?? 1;
     target.jettisonTanks = inputs.jettisonTanks ?? false;
     target.lights = inputs.lights ?? 0;
     target.requestService = inputs.requestService ?? false;

@@ -459,6 +459,13 @@ export interface PlayerInputConfig {
   initialInputMapData?: InputMapData;
 }
 
+/** Per-axis control-rate multipliers, 0.5..1.5 (1 = the jet's standard response). */
+export interface ControlRates {
+  pitch: number;
+  roll: number;
+  yaw: number;
+}
+
 export interface PlayerInputSystem extends Pilot {
   readonly inputMap: InputMap;
 
@@ -477,6 +484,9 @@ export interface PlayerInputSystem extends Pilot {
 
   /** Whether update() writes PilotInputs.alphaLimiterDisabled=true (a player-facing Settings option; see that field's own doc comment). Defaults to false (limiter active). */
   isAlphaLimiterDisabled(): boolean;
+  /** Control-rate settings written into PilotInputs.pitchRateScale/rollRateScale/yawRateScale. Default 1 each. */
+  getControlRates(): ControlRates;
+  setControlRates(rates: Readonly<ControlRates>): void;
   /** Moves the throttle lever (keyboard/gamepad schemes): the autothrottle drives it while engaged. */
   setThrottle(frac: number): void;
   /** Sets the landing-gear lever (the G key toggles it): down for ground starts, up for air starts. */

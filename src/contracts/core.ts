@@ -365,6 +365,14 @@ export interface PilotInputs {
    * break; it lets alpha climb unbounded while the aero model keeps using the 22deg coefficients.
    */
   alphaLimiterDisabled?: boolean;
+  /**
+   * The pilot's control-rate settings (Settings -> Controls), multipliers, 0.5..1.5; absent = 1.
+   * Roll scales the full-stick roll rate; pitch scales the g a given stick deflection commands
+   * (full stick is still held to the g limits); yaw scales rudder per unit of input.
+   */
+  pitchRateScale?: number;
+  rollRateScale?: number;
+  yawRateScale?: number;
 }
 
 /** Aerodynamic/engine/nav telemetry for the aircraft a Pilot is flying, recomputed by src/physics every SIM_DT_SEC and handed to Pilot.update via PilotContext. */

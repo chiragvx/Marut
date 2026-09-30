@@ -217,6 +217,8 @@ export interface SettingsState {
   mouseEnabled?: boolean;
   /** First-flight hints in flight. Absent = on. */
   hintsEnabled?: boolean;
+  /** Control rates (multipliers 0.5..1.5). Absent = 1 each. */
+  controlRates?: { pitch: number; roll: number; yaw: number };
 }
 
 export interface SettingsCallbacks {

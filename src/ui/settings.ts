@@ -109,6 +109,21 @@ export const createSettingsScreen: CreateSettingsScreen = (container, initial, c
     current.mouseSensitivityMultiplier = Number(sensitivityInput.value);
     fireChange();
   });
+  // Control rates: how lively the jet is on each axis, 50-150% of its standard response.
+  const rates = { pitch: 1, roll: 1, yaw: 1, ...current.controlRates };
+  const rateSlider = (axis: 'pitch' | 'roll' | 'yaw', label: string): HTMLElement => {
+    const pct = (v: number): string => `${Math.round(v * 100)}%`;
+    const value = h('span', { className: 'tj-value', text: pct(rates[axis]) });
+    const input = h('input', { className: 'tj-range', attrs: { 'data-role': `rate-${axis}`, type: 'range', min: '0.5', max: '1.5', step: '0.05', 'aria-label': label } });
+    input.value = String(rates[axis]);
+    input.addEventListener('input', () => (value.textContent = pct(Number(input.value))));
+    input.addEventListener('change', () => {
+      rates[axis] = Number(input.value);
+      current.controlRates = { ...rates };
+      fireChange();
+    });
+    return row(label, h('span', { className: 'tj-row' }, input, value));
+  };
   const bindingRows = new Map<BindableAction, { row: HTMLElement; codeLabel: HTMLElement; button: HTMLButtonElement }>();
   const bindingsList = h('div', { className: 'tj-settings-bindings' });
   for (const action of Object.values(BindableActionEnum)) {
@@ -128,6 +143,10 @@ export const createSettingsScreen: CreateSettingsScreen = (container, initial, c
     row('Mouse sensitivity', h('span', { className: 'tj-row' }, sensitivityInput, sensitivityValue)),
     row('Invert mouse pitch', checkbox('On', current.invertPitch, (v) => { current.invertPitch = v; fireChange(); }, { 'data-role': 'invert-pitch' })),
     h('p', { className: 'tj-note', text: 'With the mouse on, click the view in flight to capture the pointer; Esc releases it.' }),
+    rateSlider('roll', 'Roll rate'),
+    rateSlider('pitch', 'Pitch rate'),
+    rateSlider('yaw', 'Yaw rate'),
+    h('p', { className: 'tj-note', text: 'How lively the jet is on each axis, for every control (keys, mouse, gamepad, touch). 100% is the Tejas as standard. Pitch changes how much g a partial pull asks for; a full pull is the same at every setting.' }),
     h('div', { className: 'tj-row', attrs: { style: 'justify-content: space-between' } }, h('span', { className: 'tj-label', text: 'Keys' }), button('Reset keys to defaults', () => callbacks.onResetDefaults(), 'default', { 'data-action': 'reset-defaults' })),
     bindingsList
   );

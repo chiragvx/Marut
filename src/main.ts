@@ -114,6 +114,8 @@ interface PersistedSettings {
   mouseSensitivity?: number;
   /** First-flight hints in flight (Settings -> Gameplay); missing = on. */
   hintsEnabled?: boolean;
+  /** Control rates, multipliers 0.5..1.5 (Settings -> Controls); missing = 1 each. */
+  controlRates?: { pitch: number; roll: number; yaw: number };
 }
 
 function loadPersistedSettings(): PersistedSettings | undefined {
@@ -128,6 +130,8 @@ function loadPersistedSettings(): PersistedSettings | undefined {
     if (parsed.weatherEnabled !== undefined && typeof parsed.weatherEnabled !== 'boolean') return undefined;
     if (parsed.weatherMode !== undefined && !(Object.values(WeatherMode) as string[]).includes(parsed.weatherMode)) delete parsed.weatherMode;
     if (parsed.timeOfDayH !== undefined && !(typeof parsed.timeOfDayH === 'number' && parsed.timeOfDayH >= 0 && parsed.timeOfDayH <= 24)) delete parsed.timeOfDayH;
+    const cr = parsed.controlRates;
+    if (cr !== undefined && !(typeof cr === 'object' && cr !== null && [cr.pitch, cr.roll, cr.yaw].every((v) => typeof v === 'number' && Number.isFinite(v)))) delete parsed.controlRates;
     return parsed as PersistedSettings;
   } catch {
     return undefined;
@@ -558,6 +562,7 @@ function showSettingsOverlay(): void {
     speedUnit: currentSpeedUnit,
     alphaLimiterEnabled: inputSystem ? !inputSystem.isAlphaLimiterDisabled() : true,
     hintsEnabled: persisted?.hintsEnabled ?? true,
+    controlRates: inputSystem ? inputSystem.getControlRates() : { pitch: 1, roll: 1, yaw: 1 },
   };
   const handle: SettingsScreenHandle = createSettingsScreen(uiRoot, initial, {
     onChange: (next) => {
@@ -568,6 +573,7 @@ function showSettingsOverlay(): void {
         alphaLimiterEnabled: next.alphaLimiterEnabled,
         mouseSensitivity: next.mouseSensitivityMultiplier,
         hintsEnabled: next.hintsEnabled ?? true,
+        ...(next.controlRates ? { controlRates: next.controlRates } : {}),
       });
       const tier = next.qualityOverride === 'auto' ? (loadPersistedSettings()?.cachedAutoTier ?? currentQualityTier) : next.qualityOverride;
       if (tier !== currentQualityTier) {
@@ -581,6 +587,7 @@ function showSettingsOverlay(): void {
       inputSystem?.setAlphaLimiterDisabled(!next.alphaLimiterEnabled);
       if (inputSystem) applyMouseSettings(next.mouseEnabled ?? false, next.mouseSensitivityMultiplier, next.invertPitch);
       hintsEnabled = next.hintsEnabled ?? true;
+      if (next.controlRates) inputSystem?.setControlRates(next.controlRates);
     },
     onRebindStart: (action) => {
       if (!inputSystem) return;
@@ -1341,6 +1348,7 @@ async function boot(): Promise<void> {
   await initWorkersAndRenderer(currentQualityTier);
   hud.setSpeedUnit(currentSpeedUnit);
   inputSystem.setAlphaLimiterDisabled((persisted?.alphaLimiterEnabled ?? true) === false);
+  if (persisted?.controlRates) inputSystem.setControlRates(persisted.controlRates);
   weatherMode = persisted?.weatherMode ?? (persisted?.weatherEnabled === false ? 'off' : 'clear');
   timeOfDayH = persisted?.timeOfDayH ?? 10.5;
   renderer.setTimeOfDay(timeOfDayH);
