@@ -257,6 +257,27 @@ function buildCanopy(): THREE.BufferGeometry[] {
     arch.push([X(st), p.sillY + (p.topY - p.sillY + 0.012) * sp(Math.sin(t), e), (p.halfW + 0.012) * sp(c, e)]);
   }
   for (let k = 0; k + 1 < arch.length; k++) out.push(cylinder(arch[k]!, arch[k + 1]!, 0.028, PART.frame, 8));
+  // Cockpit side walls: the fuselage is round, so at the canopy's width its skin is well below the
+  // sill. The walls rise from the skin to the canopy rail (the cockpit's flat-sided shoulders).
+  const wallXs = stations(CANOPY_ST[0], CANOPY_ST[1], 0.05);
+  for (const s of [-1, 1]) {
+    const across: [number, number][] = [
+      [0.004, 0],
+      [0.03, 0.35],
+      [0.055, 0.8],
+      [0.075, 1],
+    ];
+    const raw = grid(across.length - 1, wallXs.length - 1, (i, j) => {
+      const x = wallXs[j]!;
+      const p = canopyProfile(x);
+      const [dz, f] = across[i]!;
+      const z = p.halfW + dz;
+      // The foot sinks 1 cm into the skin so no seam shows; where the skin is above the sill the wall folds away inside it.
+      const foot = Math.min(p.sillY, bodyTopY(x, z) - 0.01);
+      return [x, p.sillY + (foot - p.sillY) * f, s * z];
+    });
+    out.push(geom(raw, PART.fuselage, (q) => [0, 0.3, s * 1]));
+  }
   // Canopy sill rails along both sides.
   for (const s of [-1, 1]) {
     const pts = range(CANOPY_ST[0] + 0.15, CANOPY_ST[1] - 0.05, 0.2).map((st): V3 => {
