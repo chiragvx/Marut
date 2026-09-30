@@ -62,6 +62,7 @@ import type {
   SimEvent,
   HeightSampler,
 } from './core';
+import type { WarheadProfile } from './ground';
 
 // -----------------------------------------------------------------------------
 // 1. Constants — general
@@ -319,6 +320,8 @@ export interface WeaponProfile {
    *  motor phase, the flat maxG limit, perfect instantaneous guidance, a fixed damage fraction). */
   flight?: MissileFlightProfile;
   lethality?: MissileLethality;
+  /** Explosive charge, for blast damage on the ground (contracts/ground.ts). Absent = no blast (gun rounds). */
+  warhead?: WarheadProfile;
   /** Published/validated launch envelope at ~10 km, launcher at Mach 0.9, non-manoeuvring target (m). For the AI and HUD cues. */
   envelope?: { rMaxHeadOnM: number; rMaxTailM: number; rNoEscapeM: number };
 }

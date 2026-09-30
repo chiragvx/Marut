@@ -25,7 +25,8 @@ export const createDebriefScreen: CreateDebriefScreen = (container, stats, callb
   const statTile = (label: string, value: string): HTMLElement => h('div', { className: 'tj-stat' }, h('span', { className: 'tj-label', text: label }), h('b', { text: value }));
   const tiles: (HTMLElement | false)[] = [
     statTile('Time', formatDuration(stats.durationSec)),
-    free ? false : statTile('Kills', String(stats.kills)),
+    free || (stats.kills === 0 && (stats.groundKills ?? 0) > 0) ? false : statTile('Kills', String(stats.kills)),
+    (stats.groundKills ?? 0) > 0 ? statTile('Ground targets', String(stats.groundKills)) : false,
     stats.missilesFired > 0 ? statTile('Missiles hit', `${stats.missilesHit} / ${stats.missilesFired}`) : false,
     stats.shotsFiredGun > 0 ? statTile('Gun hits', pct(stats.shotsHitGun, stats.shotsFiredGun)) : false,
     options.newBest ? statTile('Best time', 'New') : false,

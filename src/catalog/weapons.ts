@@ -236,6 +236,7 @@ export const ASRAAM: WeaponProfile = {
   },
   lethality: { fuzeReliability: 0.96, pkDirect: 0.95, pkAtLethalRadius: 0.4, lethalRadiusM: 9 },
   // Measured (.scratch/tune.ts): 35 km head-on / 16 km tail at 10 km; 14 / 6.5 km at 1 km.
+  warhead: { explosiveKg: 10 },
   envelope: { rMaxHeadOnM: 35000, rMaxTailM: 16000, rNoEscapeM: 14000 },
 };
 
@@ -280,6 +281,7 @@ export const R73: WeaponProfile = {
   },
   lethality: { fuzeReliability: 0.93, pkDirect: 0.9, pkAtLethalRadius: 0.3, lethalRadiusM: 8 },
   // Measured: 30 km head-on / 12 km tail at 10 km; 12 / 4.8 km at 1 km.
+  warhead: { explosiveKg: 7.4 },
   envelope: { rMaxHeadOnM: 30000, rMaxTailM: 12000, rNoEscapeM: 10000 },
 };
 
@@ -335,6 +337,7 @@ export const ASTRA_MK1: WeaponProfile = {
   },
   lethality: { fuzeReliability: 0.95, pkDirect: 0.95, pkAtLethalRadius: 0.35, lethalRadiusM: 12 },
   // Measured: 157 km head-on / 82 km tail at 10 km; 92 / 33 km at 1 km (both lofted).
+  warhead: { explosiveKg: 15 },
   envelope: { rMaxHeadOnM: 160000, rMaxTailM: 80000, rNoEscapeM: 70000 },
 };
 
@@ -370,6 +373,7 @@ export const DERBY: WeaponProfile = {
   },
   lethality: { fuzeReliability: 0.94, pkDirect: 0.93, pkAtLethalRadius: 0.3, lethalRadiusM: 10 },
   // Measured: 50 km head-on / 20 km tail at 10 km; 20 / 8 km at 1 km.
+  warhead: { explosiveKg: 23 },
   envelope: { rMaxHeadOnM: 50000, rMaxTailM: 20000, rNoEscapeM: 17000 },
 };
 
@@ -421,6 +425,7 @@ export const PYTHON_5: WeaponProfile = irMissile({
   },
   lethality: { fuzeReliability: 0.96, pkDirect: 0.95, pkAtLethalRadius: 0.4, lethalRadiusM: 8 },
   // Measured (.scratch/tune.ts): ~20 km head-on / 6 km tail at 10 km; 8 / 2.4 km at 1 km.
+  warhead: { explosiveKg: 11 },
   envelope: { rMaxHeadOnM: 20000, rMaxTailM: 6000, rNoEscapeM: 7000 },
 });
 
@@ -455,6 +460,7 @@ export const DERBY_ER: WeaponProfile = radarMissile({
   },
   lethality: { fuzeReliability: 0.95, pkDirect: 0.94, pkAtLethalRadius: 0.3, lethalRadiusM: 10 },
   // Measured: 99 km head-on / 33 km tail at 10 km; 34 / 14 km at 1 km.
+  warhead: { explosiveKg: 23 },
   envelope: { rMaxHeadOnM: 100000, rMaxTailM: 33000, rNoEscapeM: 30000 },
 });
 
@@ -496,6 +502,7 @@ export const PL_5E: WeaponProfile = irMissile({
   },
   lethality: { fuzeReliability: 0.92, pkDirect: 0.88, pkAtLethalRadius: 0.3, lethalRadiusM: 7 },
   // Measured: 16 km head-on / 4 km tail at 10 km; 7 / 1.8 km at 1 km.
+  warhead: { explosiveKg: 6 },
   envelope: { rMaxHeadOnM: 16000, rMaxTailM: 4000, rNoEscapeM: 5000 },
 });
 
@@ -535,6 +542,7 @@ export const AIM_9M: WeaponProfile = irMissile({
   },
   lethality: { fuzeReliability: 0.93, pkDirect: 0.9, pkAtLethalRadius: 0.3, lethalRadiusM: 8 },
   // Measured: 18 km head-on / 5 km tail at 10 km; 8 / 2.1 km at 1 km.
+  warhead: { explosiveKg: 9.4 },
   envelope: { rMaxHeadOnM: 18000, rMaxTailM: 5000, rNoEscapeM: 6000 },
 });
 
@@ -566,6 +574,7 @@ export const SD_10A: WeaponProfile = radarMissile({
   },
   lethality: { fuzeReliability: 0.93, pkDirect: 0.92, pkAtLethalRadius: 0.3, lethalRadiusM: 12 },
   // Measured: 69 km head-on / 21 km tail at 10 km; 25 / 9 km at 1 km.
+  warhead: { explosiveKg: 25 },
   envelope: { rMaxHeadOnM: 70000, rMaxTailM: 21000, rNoEscapeM: 20000 },
 });
 
@@ -597,6 +606,7 @@ export const AIM_120C: WeaponProfile = radarMissile({
   },
   lethality: { fuzeReliability: 0.95, pkDirect: 0.94, pkAtLethalRadius: 0.35, lethalRadiusM: 11 },
   // Measured: 107 km head-on / 36 km tail at 10 km; 40 / 15 km at 1 km.
+  warhead: { explosiveKg: 18 },
   envelope: { rMaxHeadOnM: 105000, rMaxTailM: 36000, rNoEscapeM: 35000 },
 });
 
@@ -628,6 +638,7 @@ export const PL_15E: WeaponProfile = radarMissile({
   },
   lethality: { fuzeReliability: 0.95, pkDirect: 0.95, pkAtLethalRadius: 0.35, lethalRadiusM: 12 },
   // Measured: 141 km head-on / 66 km tail at 10 km; 75 / 25 km at 1 km.
+  warhead: { explosiveKg: 25 },
   envelope: { rMaxHeadOnM: 145000, rMaxTailM: 66000, rNoEscapeM: 55000 },
 });
 

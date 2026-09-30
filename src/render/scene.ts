@@ -51,6 +51,8 @@ import { createRain } from './rain';
 import { createRunwayLights, setLightViewport } from './nightLights';
 import { createAirfieldPavement } from './airfieldPavement';
 import { createAirbaseStructures } from './airbaseStructures';
+import { createGroundUnitRenderer } from './groundUnits';
+import { createGroundEffects } from './groundEffects';
 import { createAirfieldSigns } from './airfieldSigns';
 import { createFarGround } from './farGround';
 import { getAtmosphereUniforms, setAtmosphereCamera, setAtmosphereHaze } from './atmosphere';
@@ -173,6 +175,8 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
   const effectsRoot = new THREE.Group();
   scene.add(effectsRoot);
   const effects = createEffectsSystem(effectsRoot);
+  const groundEffects = createGroundEffects(effectsRoot);
+  const viewSize = new THREE.Vector2();
 
 
   const skyFog = createSkyFogSystem(scene);
@@ -185,6 +189,9 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
   const runwayLights = createRunwayLights(scene);
   const pavement = createAirfieldPavement(scene);
   const structures = createAirbaseStructures(scene);
+  const groundUnits = createGroundUnitRenderer(scene);
+  const groundPos = { x: 0, y: 0, z: 0 };
+  const groundRot = { x: 0, y: 0, z: 0, w: 1 };
   const signs = createAirfieldSigns(scene);
   /** The player's ground-service state and heading from the latest snapshot (for the service vehicles). */
   let playerServiceState = 0;
@@ -327,6 +334,7 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
       features.uniforms.uSunDir.value.set(k.x, k.y, k.z);
       pavement.setSunDirection(k);
       structures.setSunDirection(k);
+      groundUnits.setSunDirection(k);
     }
     if (Math.abs(w.cumulus - lastCoverage) > 0.001 || Math.abs(w.cloudDark - lastDark) > 0.01) {
       lastCoverage = w.cumulus;
@@ -525,6 +533,8 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
 
     ingestEvents(events) {
       effects.ingestEvents(events);
+      groundEffects.ingestEvents(events);
+      for (const ev of events) if (ev.type === 'targetState') structures.setTargetState(ev.targetId, ev.state);
     },
 
     ingestTerrainChunk(msg) {
@@ -724,6 +734,16 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
         }
         aircraftRenderer.endFrame();
 
+        // Ground units (static for now: drawn at their current snapshot pose).
+        groundUnits.beginFrame();
+        for (let i = 0; i < curr.entityCount; i++) {
+          if (curr.kind[i] !== EntityKindCode.ground) continue;
+          groundPos.x = curr.posX[i]!; groundPos.y = curr.posY[i]!; groundPos.z = curr.posZ[i]!;
+          groundRot.x = curr.rotX[i]!; groundRot.y = curr.rotY[i]!; groundRot.z = curr.rotZ[i]!; groundRot.w = curr.rotW[i]!;
+          groundUnits.update(curr.stores[i]!, groundPos, groundRot, curr.flags[i]!, curr.team[i]!);
+        }
+        groundUnits.endFrame(origin, nowMs / 1000);
+
         // The designated target, interpolated like the view (for the 3D cockpit's HUD).
         cf.targetValid = false;
         if (mode === CameraMode.Cockpit3d) {
@@ -739,6 +759,8 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
 
         effects.syncFromSnapshot(snapshotBuf, f, origin);
         effects.tick(frameDtSec, origin);
+        renderer.getDrawingBufferSize(viewSize);
+        groundEffects.tick(frameDtSec, origin, viewSize.y, camera.fov);
         followOrigin(origin);
       }
 
@@ -801,12 +823,14 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
       runwayLights.dispose();
       pavement.dispose();
       structures.dispose();
+      groundUnits.dispose();
       signs.dispose();
       deck.dispose();
       rain.dispose();
       farGround.dispose();
       sunShadows.dispose();
       effects.dispose();
+      groundEffects.dispose();
       skyFog.dispose();
       renderer.dispose();
     },

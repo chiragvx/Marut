@@ -327,6 +327,8 @@ export interface DebriefStats {
   outcome: MissionOutcome;
   durationSec: number;
   kills: number;
+  /** Hostile ground units and structures the player destroyed. Absent = 0. */
+  groundKills?: number;
   /** 0 or 1 for the player aircraft. */
   deaths: number;
   shotsFiredGun: number;

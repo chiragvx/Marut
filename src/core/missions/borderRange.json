@@ -1,0 +1,32 @@
+{
+  "id": "border-range",
+  "name": "Range Day \u2014 Bathinda weapons range",
+  "seed": 1971,
+  "terrain": {
+    "seed": 1947,
+    "theatre": "border"
+  },
+  "airportIds": [
+    "bhisiana-afs",
+    "pafb-shahbaz"
+  ],
+  "playerStart": {
+    "pos": { "x": 27000, "y": 1700, "z": -12000 },
+    "headingRad": 0.1,
+    "speedMps": 200
+  },
+  "aiFlights": [],
+  "groundGroups": [
+    { "id": "range", "name": "Range targets", "team": 1, "template": "range-targets", "pos": { "x": 28000, "z": -25000 }, "headingRad": 0 },
+    { "id": "convoy", "name": "Convoy", "team": 1, "template": "convoy-supply", "pos": { "x": 29800, "z": -22500 }, "headingRad": 1.5708 }
+  ],
+  "weather": {
+    "windWorldMps": { "x": -1.5, "y": 0, "z": 0.5 },
+    "gustMps": 1,
+    "turbulence": 0.05
+  },
+  "objectives": [
+    { "id": "obj-convoy", "kind": "destroy_group", "description": "Strafe the convoy on the range road (destroy 6 of its 8 vehicles).", "params": { "group": "convoy", "fraction": 0.75 } },
+    { "id": "obj-range", "kind": "destroy_group", "description": "Destroy half of the range targets.", "params": { "group": "range", "fraction": 0.5 } }
+  ]
+}

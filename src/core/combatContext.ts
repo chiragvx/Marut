@@ -15,6 +15,7 @@
 import type { Contact, EntityId, PilotInputs } from '../contracts/core';
 import type { CombatTickContext } from '../contracts/sim';
 import type { LoadoutPreset } from '../contracts/aircraft';
+import type { GroundTargetSet } from '../ground';
 
 export interface WorldCombatTickContext extends CombatTickContext {
   readonly missionSeed: number;
@@ -26,6 +27,8 @@ export interface WorldCombatTickContext extends CombatTickContext {
   getAircraftDefId(id: EntityId): string | undefined;
   /** The store fit of a live aircraft (the player's preset or custom fit, from the mission), or undefined = its type's default. */
   getLoadout?(id: EntityId): LoadoutPreset | undefined;
+  /** The mission's ground targets (units and airbase structures): weapons hit and damage them. */
+  readonly ground?: GroundTargetSet;
 }
 
 /**

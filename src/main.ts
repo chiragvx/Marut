@@ -79,6 +79,7 @@ import { buildAirfieldAids } from './airport/airfieldAids';
 import { activeRunway, buildTaxiGraph, routeToRunway, routeToStand, type TaxiGraph } from './airport/taxiGraph';
 import { tejasDefinition } from './aircraft';
 import { isBuiltinMissionId, resolveBuiltinMission, type BuiltinMissionId } from './core/missions/index';
+import { GROUND_UNIT_TYPES } from './catalog';
 import { readSnapshotEntity, readSnapshotHeader } from './core/snapshotReader';
 import { buildKeyBindingsFromInputMap, isAxisRebindMiscapturePositive, targetForBindableAction } from './core/inputBindingsAdapter';
 
@@ -206,6 +207,7 @@ let latestSimTimeSec = 0;
 // comment: "no module owns a dedicated combat-stats aggregate... src/main.ts
 // is the natural place").
 let statKills = 0;
+let statGroundKills = 0;
 let statDeaths = 0;
 let statShotsFiredGun = 0;
 let statShotsHitGun = 0;
@@ -662,6 +664,11 @@ function showPauseMenu(): void {
   );
 }
 
+/** A ground target's name for messages: the unit type's, or the structure kind in words. */
+function groundTargetName(typeId: string): string {
+  return GROUND_UNIT_TYPES[typeId]?.name ?? typeId.replace(/_/g, ' ').replace(/^./, (c) => c.toUpperCase());
+}
+
 function showDebrief(ended: MissionEndedEvent): void {
   destroyCurrentScreen();
   appState = 'debrief';
@@ -671,6 +678,7 @@ function showDebrief(ended: MissionEndedEvent): void {
     outcome: ended.outcome === 'success' ? MissionOutcome.Success : ended.outcome === 'failure' ? MissionOutcome.Failure : MissionOutcome.Aborted,
     durationSec: Math.max(0, latestSimTimeSec - sessionStartSimTimeSec),
     kills: statKills,
+    groundKills: statGroundKills,
     deaths: statDeaths,
     shotsFiredGun: statShotsFiredGun,
     shotsHitGun: statShotsHitGun,
@@ -810,6 +818,11 @@ async function initWorkersAndRenderer(qualityTier: QualityTier): Promise<void> {
             flightOverlay?.message('Target destroyed');
           }
           if (ev.targetId === playerEntityId) statDeaths += 1;
+        } else if (ev.type === 'groundKill') {
+          if (ev.sourceId === playerEntityId && ev.team !== 0) {
+            statGroundKills += 1;
+            flightOverlay?.message(`${groundTargetName(ev.typeId)} destroyed`);
+          }
         }
       }
       const missionEnded = eventsMsg.events.find((x): x is MissionEndedEvent => x.type === 'missionEnded');
@@ -896,7 +909,7 @@ function buildSceneEnvironment(terrainParams: TerrainParams, airportLayouts: rea
     airfieldMasks: airportLayouts.map((a) => buildAirfieldMask(a)),
     structures: [
       ...airportLayouts.flatMap((a) =>
-        (a.structures ?? []).map((s) => ({ kind: s.kind, worldX: s.worldX, worldY: a.elevationM, worldZ: s.worldZ, headingRad: s.headingRad, widthM: s.widthM, lengthM: s.lengthM, heightM: s.heightM, side: a.side ?? 'neutral' }))
+        (a.structures ?? []).map((s) => ({ kind: s.kind, worldX: s.worldX, worldY: a.elevationM, worldZ: s.worldZ, headingRad: s.headingRad, widthM: s.widthM, lengthM: s.lengthM, heightM: s.heightM, side: a.side ?? 'neutral', targetId: `${a.id}:${s.id}` }))
       ),
       ...aidStructures,
     ],
@@ -1029,7 +1042,7 @@ function updateFlightOverlay(view: Float64Array): void {
   // Objective, or the nearest friendly base in Free Flight.
   if (flight.kind === 'mission') {
     const entry = missionEntry(flight.id);
-    o.setObjective('Objective', entry?.objective ?? '', `Destroyed ${statKills} / ${banditsTotal}`);
+    o.setObjective('Objective', entry?.objective ?? '', entry?.targets !== undefined ? `Destroyed ${statGroundKills} / ${entry.targets}` : `Destroyed ${statKills} / ${banditsTotal}`);
   } else if (lastPlayer.valid) {
     let best: AirportLayout | undefined;
     let bd = Infinity;
@@ -1276,6 +1289,7 @@ function launchMission(missionIn: Mission, opts: { title: string; airStart: bool
   currentMission = mission;
   playerEntityId = NO_ENTITY_ID;
   statKills = 0;
+  statGroundKills = 0;
   statDeaths = 0;
   statShotsFiredGun = 0;
   statShotsHitGun = 0;

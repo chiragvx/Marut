@@ -58,6 +58,7 @@ export const DEFAULT_ENTITY_POOL_CAPACITY: Readonly<Record<EntityKind, number>> 
   missile: 64,
   bullet: 240,
   effect: 64,
+  ground: 128,
 } as const;
 
 /** Ticks between emitted snapshots = SIM_HZ / SNAPSHOT_HZ, from core.ts's constants (120/60). Recomputed here as a literal so this file need not do arithmetic on imported consts. */
@@ -106,6 +107,8 @@ export interface EntityPoolCapacity {
   missile: number;
   bullet: number;
   effect: number;
+  /** Ground units. Optional: absent = 0 (no ground units). */
+  ground?: number;
 }
 
 /**
@@ -525,6 +528,7 @@ export interface MissionDescriptor {
   airportIds: readonly string[];
   playerStart: Mission['playerStart'];
   aiFlights: Mission['aiFlights'];
+  groundGroups?: Mission['groundGroups'];
   weather: Mission['weather'];
   objectives: Mission['objectives'];
 }

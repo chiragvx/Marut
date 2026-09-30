@@ -142,6 +142,9 @@ export function createCombatAdapter(): CombatPort & CombatPortWithContacts & Com
   const sensorEventsScratch: SimEvent[] = [];
   const fireEventsScratch: SimEvent[] = [];
   const hitEventsScratch: SimEvent[] = [];
+  const groundEventsScratch: SimEvent[] = [];
+  const prevPos = { x: 0, y: 0, z: 0 };
+  const impact = { x: 0, y: 0, z: 0 };
   const storesLoadScratch = { massKg: 0, dragAreaM2: 0 };
   /** Projectiles finished this tick, despawned only after the step loop (see that loop's comment). */
   const despawnScratch: EntityId[] = [];
@@ -404,7 +407,44 @@ export function createCombatAdapter(): CombatPort & CombatPortWithContacts & Com
           const track = owner && projectile.targetId !== undefined ? owner.tracks.get(projectile.targetId) : undefined;
           projectile.datalinkOk = track !== undefined && track.source === 'radar' && !track.memory;
         }
+        prevPos.x = state.pos.x; prevPos.y = state.pos.y; prevPos.z = state.pos.z;
         const result = stepProjectile(state, projectile, allEntities, ctx.sampler, combatEnv, dtSec, state);
+
+        // The ground: this tick's path through a ground target's box (before whatever else ended it),
+        // else a warhead going off on the terrain. Air hits are resolved below as before.
+        const ground = ctx.ground;
+        const prof = projectile.profile;
+        const airHit = result.outcome === ProjectileOutcome.DirectHit || result.outcome === ProjectileOutcome.ProximityDetonation;
+        if (ground && !airHit) {
+          const end = result.outcome === ProjectileOutcome.Flying ? state.pos : (result.impactPos ?? state.pos);
+          const hit = ground.segmentHit(prevPos, end);
+          const armed = projectile.distanceTravelledM >= (prof?.armDistanceM ?? 0);
+          groundEventsScratch.length = 0;
+          if (hit) {
+            impact.x = prevPos.x + (end.x - prevPos.x) * hit.t;
+            impact.y = prevPos.y + (end.y - prevPos.y) * hit.t;
+            impact.z = prevPos.z + (end.z - prevPos.z) * hit.t;
+            if (projectile.kind === 'bullet') {
+              ground.gunHit(hit.key, projectile.ownerId, groundEventsScratch);
+              groundEventsScratch.push({ type: 'groundImpact', pos: { x: impact.x, y: impact.y, z: impact.z }, explosiveKg: 0 });
+            } else if (prof?.warhead && armed) {
+              ground.blast(impact, prof.warhead, projectile.ownerId, groundEventsScratch, hit.key);
+              groundEventsScratch.push({ type: 'groundImpact', pos: { x: impact.x, y: impact.y, z: impact.z }, explosiveKg: prof.warhead.explosiveKg });
+            }
+            for (const ev of groundEventsScratch) eventsOut.push(ev);
+            resetProjectile(projectile);
+            freeProjectileIndices.push(poolIndex);
+            projectileIndexByEntityId.delete(state.id);
+            despawnScratch.push(state.id);
+            continue;
+          }
+          if (result.outcome === ProjectileOutcome.TerrainImpact && result.impactPos) {
+            const w = projectile.kind === 'bullet' ? undefined : prof?.warhead;
+            if (w && armed) ground.blast(result.impactPos, w, projectile.ownerId, groundEventsScratch);
+            groundEventsScratch.push({ type: 'groundImpact', pos: { x: result.impactPos.x, y: result.impactPos.y, z: result.impactPos.z }, explosiveKg: w && armed ? w.explosiveKg : 0 });
+            for (const ev of groundEventsScratch) eventsOut.push(ev);
+          }
+        }
         if (result.outcome === ProjectileOutcome.Flying) continue;
 
         if (result.outcome === ProjectileOutcome.DirectHit || result.outcome === ProjectileOutcome.ProximityDetonation) {

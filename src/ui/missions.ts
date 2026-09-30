@@ -39,7 +39,7 @@ export function createMissionList(
       'button',
       { className: 'tj-card', attrs: { type: 'button', 'data-mission': m.id } },
       h('span', { className: 'tj-card-title' }, h('span', { text: m.title }), status),
-      h('span', { className: 'tj-card-meta', text: `${base?.name ?? ''} · ${m.bandits} bandit${m.bandits === 1 ? '' : 's'}` }, base?.untested ? h('span', { className: 'tj-badge tj-badge--warn tj-badge--inline', text: UNTESTED_BADGE }) : false),
+      h('span', { className: 'tj-card-meta', text: `${base?.name ?? ''} · ${m.targets !== undefined ? `${m.targets} ground targets` : `${m.bandits} bandit${m.bandits === 1 ? '' : 's'}`}` }, base?.untested ? h('span', { className: 'tj-badge tj-badge--warn tj-badge--inline', text: UNTESTED_BADGE }) : false),
       h('span', { text: m.objective }),
       m.recommended ? h('span', { className: 'tj-label', text: 'Fly this one first' }) : false
     );

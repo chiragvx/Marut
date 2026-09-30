@@ -74,6 +74,8 @@
 // -----------------------------------------------------------------------------
 
 /** A successful result carrying `value`, or a failure carrying `error`. */
+import type { GroundImpactEvent, GroundKillEvent, MissionGroundGroup, TargetStateEvent } from './ground';
+
 export type Result<T, E = string> = { readonly ok: true; readonly value: T } | { readonly ok: false; readonly error: E };
 
 // -----------------------------------------------------------------------------
@@ -128,6 +130,8 @@ export const EntityKind = {
   Missile: 'missile',
   Bullet: 'bullet',
   Effect: 'effect',
+  /** Ground units: vehicles, launchers, radars, guns (contracts/ground.ts). */
+  Ground: 'ground',
 } as const;
 export type EntityKind = (typeof EntityKind)[keyof typeof EntityKind];
 
@@ -137,8 +141,9 @@ export const EntityKindCode: Record<EntityKind, number> = {
   missile: 1,
   bullet: 2,
   effect: 3,
+  ground: 4,
 } as const;
-export const EntityKindByCode: readonly EntityKind[] = ['aircraft', 'missile', 'bullet', 'effect'];
+export const EntityKindByCode: readonly EntityKind[] = ['aircraft', 'missile', 'bullet', 'effect', 'ground'];
 
 /** 0 = friendly/player side, 1 = hostile side. Exactly two teams; no neutrals. */
 export type Team = 0 | 1;
@@ -718,6 +723,10 @@ export const MissionObjectiveKind = {
   Land: 'land',
   ReachWaypoint: 'reach_waypoint',
   SurviveTime: 'survive_time',
+  /** Ground objectives (params: contracts/ground.ts GroundObjectiveKind). */
+  DestroyGroup: 'destroy_group',
+  DestroyStructures: 'destroy_structures',
+  ProtectGroup: 'protect_group',
 } as const;
 export type MissionObjectiveKind = (typeof MissionObjectiveKind)[keyof typeof MissionObjectiveKind];
 
@@ -778,6 +787,8 @@ export interface Mission<TTerrain = unknown, TAirport = unknown> {
   world: WorldConfig<TTerrain, TAirport>;
   playerStart: MissionPlayerStart;
   aiFlights: readonly MissionAiFlight[];
+  /** Ground units the mission places (contracts/ground.ts). Absent = none. */
+  groundGroups?: readonly MissionGroundGroup[];
   weather: WeatherConfig;
   objectives: readonly MissionObjective[];
 }
@@ -809,8 +820,8 @@ export interface Mission<TTerrain = unknown, TAirport = unknown> {
 //     it, or the pool will starve.
 // -----------------------------------------------------------------------------
 
-/** Hard cap on simultaneously alive entities (aircraft + missiles + bullets + effects combined). Sized generously; see 00-architecture.md performance section for the suggested per-kind budget. */
-export const MAX_ENTITIES = 400;
+/** Hard cap on simultaneously alive entities (aircraft + missiles + bullets + effects + ground units combined). Sized generously; see 00-architecture.md performance section for the suggested per-kind budget. */
+export const MAX_ENTITIES = 528;
 
 export const SnapshotHeader = {
   /** Monotonically increasing sim tick counter (integer, increments by 1 every SIM_DT_SEC). */
@@ -1160,6 +1171,9 @@ export type SimEvent =
   | LockLostEvent
   | WarningEvent
   | CountermeasureEvent
+  | TargetStateEvent
+  | GroundKillEvent
+  | GroundImpactEvent
   | MissionEndedEvent;
 
 /** A flare or chaff bundle released by an aircraft (for the renderer; the sim flies the decoy itself). */

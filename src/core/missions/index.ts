@@ -34,6 +34,7 @@ import punjabDogfightRaw from './punjabDogfight.json';
 import borderFreeFlightRaw from './borderFreeFlight.json';
 import borderInterceptRaw from './borderIntercept.json';
 import borderDuelRaw from './borderDuel.json';
+import borderRangeRaw from './borderRange.json';
 import rangpurAfbRaw from '../../airport/layouts/rangpur-afb.json';
 import konarakCoastalRaw from '../../airport/layouts/konarak-coastal.json';
 import insHansaRaw from '../../airport/layouts/ins-hansa.json';
@@ -67,6 +68,7 @@ export const loadMissionDescriptor: LoadMissionDescriptor = (
     world: { seed: descriptor.seed, terrain, airports },
     playerStart: descriptor.playerStart,
     aiFlights: descriptor.aiFlights,
+    ...(descriptor.groundGroups ? { groundGroups: descriptor.groundGroups } : {}),
     weather: descriptor.weather,
     objectives: descriptor.objectives,
   };
@@ -114,6 +116,7 @@ const BUILTIN_DESCRIPTORS = {
   'border-free': borderFreeFlightRaw as unknown as MissionDescriptor,
   'border-intercept': borderInterceptRaw as unknown as MissionDescriptor,
   'border-duel': borderDuelRaw as unknown as MissionDescriptor,
+  'border-range': borderRangeRaw as unknown as MissionDescriptor,
 } as const satisfies Readonly<Record<string, MissionDescriptor>>;
 
 export type BuiltinMissionId = keyof typeof BUILTIN_DESCRIPTORS;

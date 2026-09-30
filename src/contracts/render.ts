@@ -374,7 +374,7 @@ export interface SceneEnvironment {
   /** Airbases' paved surfaces as one mesh (src/airport/pavementGeometry.ts), drawn with markings. */
   pavement?: { positions: Float32Array; local: Float32Array; surf: Float32Array; extra: Float32Array; indices: Uint32Array };
   /** Airbase structures (contracts/airport.ts StructureDef, placed at their base's elevation). */
-  structures?: readonly { kind: string; worldX: number; worldY: number; worldZ: number; headingRad: number; widthM: number; lengthM: number; heightM: number; side: string }[];
+  structures?: readonly { kind: string; worldX: number; worldY: number; worldZ: number; headingRad: number; widthM: number; lengthM: number; heightM: number; side: string; /** Static target id ("<airportId>:<structureId>", contracts/ground.ts), for its damage state. */ targetId?: string }[];
   /** Per airbase: taxiway edge lights, floodlights, PAPIs and signs (src/airport/airfieldAids.ts). */
   airfieldAids?: readonly {
     groundY: number;

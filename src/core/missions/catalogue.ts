@@ -62,6 +62,8 @@ export interface MissionEntry {
   title: string;
   baseId: BaseId;
   bandits: number;
+  /** Ground targets to destroy (strike missions); shown instead of bandits when set. */
+  targets?: number;
   /** One line for the list. */
   objective: string;
   /** Two or three sentences for the briefing. */
@@ -87,6 +89,15 @@ export const MISSIONS: readonly MissionEntry[] = [
     bandits: 2,
     objective: 'Scramble from the shelters and stop two aircraft.',
     situation: 'Two JF-17s with SD-10A radar missiles are inbound from the west. You are in shelter HAS-7: taxi out (press H for taxi guidance), take off and destroy both.',
+  },
+  {
+    id: 'border-range',
+    title: 'Range Day',
+    baseId: 'bathinda',
+    bandits: 0,
+    targets: 19,
+    objective: 'Strafe a convoy and targets on the Bathinda range.',
+    situation: 'Weapons practice on the range north of Bathinda: a convoy of eight trucks on the range road and a spread of targets (trucks, armour, a bunker, buildings, a dummy SAM site). You start in the air to the south. Trucks die to a gun burst; armour and bunkers need bombs.',
   },
   {
     id: 'konkan-dogfight',

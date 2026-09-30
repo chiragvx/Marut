@@ -4,3 +4,4 @@
  */
 export * from './weapons';
 export * from './sensors';
+export * from './groundUnits';

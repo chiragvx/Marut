@@ -260,7 +260,7 @@ class KindStore {
   }
 }
 
-const KIND_ORDER: readonly EntityKind[] = [EntityKind.Aircraft, EntityKind.Missile, EntityKind.Bullet, EntityKind.Effect];
+const KIND_ORDER: readonly EntityKind[] = [EntityKind.Aircraft, EntityKind.Missile, EntityKind.Bullet, EntityKind.Effect, EntityKind.Ground];
 
 class EntityPoolImpl implements WorldEntityPool {
   readonly capacity: Readonly<EntityPoolCapacity>;
@@ -275,11 +275,13 @@ class EntityPoolImpl implements WorldEntityPool {
     const missileBase = aircraftBase + capacity.aircraft;
     const bulletBase = missileBase + capacity.missile;
     const effectBase = bulletBase + capacity.bullet;
+    const groundBase = effectBase + capacity.effect;
     this.stores = {
       aircraft: new KindStore(EntityKind.Aircraft, aircraftBase, capacity.aircraft, true),
       missile: new KindStore(EntityKind.Missile, missileBase, capacity.missile, false),
       bullet: new KindStore(EntityKind.Bullet, bulletBase, capacity.bullet, false),
       effect: new KindStore(EntityKind.Effect, effectBase, capacity.effect, false),
+      ground: new KindStore(EntityKind.Ground, groundBase, capacity.ground ?? 0, false),
     };
   }
 

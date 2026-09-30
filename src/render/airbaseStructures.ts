@@ -23,6 +23,7 @@ const VS = /* glsl */ `
   ${ATMOSPHERE_GLSL}
   attribute float aPart;
   attribute float iStyle;
+  attribute float iDamage;
   uniform float uTime;
   varying vec3 vWorld;
   varying vec3 vNormalW;
@@ -32,7 +33,9 @@ const VS = /* glsl */ `
   varying float vPart;
   varying float vStyle;
   varying float vSeed;
+  varying float vDamage;
   void main() {
+    vDamage = iDamage;
     vec3 scale = vec3(length(instanceMatrix[0].xyz), length(instanceMatrix[1].xyz), length(instanceMatrix[2].xyz));
     vec3 p = position;
     vec3 n = normal;
@@ -44,6 +47,10 @@ const VS = /* glsl */ `
       float s = sin(a);
       p.xz = mat2(c, s, -s, c) * p.xz;
       n.xz = mat2(c, s, -s, c) * n.xz;
+    }
+    if (iDamage > 1.5) {
+      // Destroyed: roof caved in, walls slumped (lower parts less, so it still sits on its footprint).
+      p.y *= 0.35 + 0.25 * fract(sin(dot(p.xz, vec2(3.1, 7.7))) * 97.0);
     }
     vec4 wp = instanceMatrix * vec4(p, 1.0);
     vWorld = wp.xyz;
@@ -71,6 +78,7 @@ const FS = /* glsl */ `
   varying float vPart;
   varying float vStyle;
   varying float vSeed;
+  varying float vDamage;
   float hash12(vec2 p) {
     vec3 p3 = fract(vec3(p.xyx) * 0.1031);
     p3 += dot(p3, p3.yzx + 33.33);
@@ -139,6 +147,13 @@ const FS = /* glsl */ `
       col = vTint * vec3(0.78, 0.80, 0.82) * (0.8 + 0.25 * stain);
       col *= 1.0 - 0.12 * step(0.9, fract(fc.x / 1.2)) * (1.0 - step(0.5, abs(vNormalL.y)));
     }
+    // Damage: scorched and soot-stained; destroyed = burnt out, no lights.
+    if (vDamage > 1.5) {
+      col = mix(vec3(0.05, 0.045, 0.04), vec3(0.22, 0.21, 0.2), stain * 0.7);
+      glow = vec3(0.0);
+    } else if (vDamage > 0.5) {
+      col *= mix(1.0, 0.35, smoothstep(0.35, 0.75, stain + 0.2 * vnoise(vWorld.xz / 2.3)));
+    }
     col *= 1.0 - 0.25 * uAtmWet;
     vec3 L = normalize(uSunDir);
     // Seen from behind (from inside a shelter): an interior, lit only dimly by bounced light.
@@ -154,6 +169,8 @@ const FS = /* glsl */ `
 
 export interface AirbaseStructures {
   setStructures(list: StructureList | undefined): void;
+  /** A static target's damage state (contracts/ground.ts TargetStateCode) by its target id. */
+  setTargetState(targetId: string, state: number): void;
   /**
    * The ground-service vehicles beside the player while it is refuelled and re-armed: a fuel bowser
    * on its right and a weapons trolley on its left (null hides them). y = ground level.
@@ -199,6 +216,8 @@ export function createAirbaseStructures(root: THREE.Object3D): AirbaseStructures
     side: THREE.DoubleSide,
   });
   let meshes: THREE.InstancedMesh[] = [];
+  /** Where each target's instance is: its mesh's damage attribute and index. */
+  const byTarget = new Map<string, { attr: THREE.InstancedBufferAttribute; index: number }>();
   const m4 = new THREE.Matrix4();
   const place = (mesh: THREE.InstancedMesh, x: number, y: number, z: number, h: number, w: number, l: number, ht: number): void => {
     const c = Math.cos(h);
@@ -210,6 +229,7 @@ export function createAirbaseStructures(root: THREE.Object3D): AirbaseStructures
   const vehicle = (kind: string, tint: [number, number, number]): THREE.InstancedMesh => {
     const geom = assets[kind]!.clone();
     geom.setAttribute('iStyle', new THREE.InstancedBufferAttribute(new Float32Array(1), 1));
+    geom.setAttribute('iDamage', new THREE.InstancedBufferAttribute(new Float32Array(1), 1));
     const mesh = new THREE.InstancedMesh(geom, mat, 1);
     mesh.setColorAt(0, new THREE.Color(...tint));
     mesh.frustumCulled = false;
@@ -229,6 +249,7 @@ export function createAirbaseStructures(root: THREE.Object3D): AirbaseStructures
         m.dispose();
       }
       meshes = [];
+      byTarget.clear();
       if (!list || list.length === 0) return;
       const byKind = new Map<string, StructureList[number][]>();
       for (const s of list) {
@@ -256,6 +277,11 @@ export function createAirbaseStructures(root: THREE.Object3D): AirbaseStructures
           style[i] = side === 'hostile' && (kind === 'shelter' || kind === 'hangar') ? 1 : 0;
         });
         geom.setAttribute('iStyle', new THREE.InstancedBufferAttribute(style, 1));
+        const damage = new THREE.InstancedBufferAttribute(new Float32Array(items.length), 1);
+        geom.setAttribute('iDamage', damage);
+        items.forEach((s, i) => {
+          if (s.targetId) byTarget.set(s.targetId, { attr: damage, index: i });
+        });
         mesh.instanceMatrix.needsUpdate = true;
         if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
         mesh.frustumCulled = false;
@@ -263,6 +289,12 @@ export function createAirbaseStructures(root: THREE.Object3D): AirbaseStructures
         group.add(mesh);
         meshes.push(mesh);
       }
+    },
+    setTargetState(targetId, state) {
+      const t = byTarget.get(targetId);
+      if (!t) return;
+      t.attr.setX(t.index, state);
+      t.attr.needsUpdate = true;
     },
     setServiceVehicles(at) {
       bowser.visible = cart.visible = !!at;

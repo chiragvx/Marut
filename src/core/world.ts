@@ -85,6 +85,8 @@ import { computeIlsDeviation, forwardWorldInto, rightWorldInto } from './hudTele
 import type { CombatPortWithContacts, CombatPortWithRearm, CombatPortWithStores } from './combatContext';
 import { applyAutopilotAction, autopilotFlags, createAutopilotState, stepAutopilot, type AutopilotState } from './autopilot';
 import { getAircraftDefinition, getLoadout, loadoutTanks, resolveLoadout, type TankLoad } from '../aircraft';
+import { GroundTargetSet, addAirbaseStructures, placeGroundGroups } from '../ground';
+import { GROUND_TYPE_IDS, GroundFlag, GroundObjectiveKind, TargetStateCode } from '../contracts/ground';
 import type { LoadoutPreset } from '../contracts/aircraft';
 import { FUEL_TANKS } from '../catalog';
 import type { AutopilotAction } from '../contracts/core';
@@ -259,6 +261,9 @@ class WorldImpl implements World {
   private playerEntityIdInternal: EntityId = NO_ENTITY_ID;
   private missionEndedThisLoad = false;
   private hostileAircraftIds = new Set<EntityId>();
+  /** Ground targets (units + airbase structures) and the ground-unit entities that mirror them. */
+  private ground = new GroundTargetSet();
+  private readonly groundUnits: { id: EntityId; key: number }[] = [];
   private windState: WindState = createWindState(0);
   private windWorldMpsScratch: Vec3Like = { x: 0, y: 0, z: 0 };
   private readonly combatCtx: WorldCombatTickContext;
@@ -327,6 +332,9 @@ class WorldImpl implements World {
       },
       getAircraftDefId(id: EntityId): string | undefined {
         return self.aircraft.get(id)?.aircraftDefId;
+      },
+      get ground(): GroundTargetSet {
+        return self.ground;
       },
       getLoadout(id: EntityId): LoadoutPreset | undefined {
         const rec = self.aircraft.get(id);
@@ -465,7 +473,60 @@ class WorldImpl implements World {
       }
     }
 
+    this.spawnGround(mission);
     this.missionEndedThisLoad = false;
+  }
+
+  /** Airbase structures become static targets; the mission's ground groups become ground-unit entities (and targets). */
+  private spawnGround(mission: Mission): void {
+    this.ground = new GroundTargetSet();
+    this.groundUnits.length = 0;
+    for (const a of (mission.world.airports ?? []) as readonly Partial<AirportLayout>[]) addAirbaseStructures(this.ground, a);
+    for (const u of placeGroundGroups(mission.groundGroups ?? [], this.deps.sampler)) {
+      const id = this.pool.allocate(EntityKind.Ground, u.team);
+      if (id === NO_ENTITY_ID) break;
+      const state = this.pool.get(id)!;
+      state.pos.x = u.x;
+      state.pos.y = u.groundY;
+      state.pos.z = u.z;
+      Quat.fromYawPitchRoll(u.headingRad, 0, 0, state.rot);
+      state.vel.x = 0;
+      state.vel.y = 0;
+      state.vel.z = 0;
+      state.hp = 100;
+      state.stores = Math.max(0, GROUND_TYPE_IDS.indexOf(u.type.id));
+      state.flags = 0;
+      const tg = this.ground.add({
+        entityId: id,
+        targetId: `unit:${u.groupId}:${u.index}`,
+        typeId: u.type.id,
+        groupId: u.groupId,
+        team: u.team,
+        armor: u.type.armor,
+        toughness: u.type.toughness,
+        burnSec: u.type.burnSec,
+        pos: { x: u.x, y: u.groundY + u.type.halfExtentsM.y, z: u.z },
+        headingRad: u.headingRad,
+        half: { ...u.type.halfExtentsM },
+      });
+      this.groundUnits.push({ id, key: tg.key });
+    }
+  }
+
+  /** Ground-unit entities follow their targets' damage (hit points, destroyed/burning/damaged flags). */
+  private syncGroundUnits(): void {
+    for (let i = 0; i < this.groundUnits.length; i++) {
+      const u = this.groundUnits[i]!;
+      const state = this.pool.get(u.id);
+      const tg = this.ground.targets[u.key];
+      if (!state || !tg) continue;
+      state.hp = Math.round(tg.hp * 100);
+      let f = state.flags & ~(GroundFlag.Destroyed | GroundFlag.Burning | GroundFlag.Damaged);
+      if (tg.state === TargetStateCode.Destroyed) f |= GroundFlag.Destroyed;
+      else if (tg.state === TargetStateCode.Damaged) f |= GroundFlag.Damaged;
+      if (tg.burnLeftSec > 0) f |= GroundFlag.Burning;
+      state.flags = f;
+    }
   }
 
   reset(): void {
@@ -850,6 +911,8 @@ class WorldImpl implements World {
 
     // Step 6: weapons/missiles/collisions/damage.
     this.deps.combat.step(SIM_DT_SEC_LOCAL, this.combatCtx, this.eventQueue);
+    this.ground.step(SIM_DT_SEC_LOCAL);
+    this.syncGroundUnits();
 
     // Step 7: ground service (refuel + re-arm) of the player.
     this.stepService(SIM_DT_SEC_LOCAL);
@@ -1008,6 +1071,13 @@ class WorldImpl implements World {
       return { outcome: MissionOutcome.Failure, objectivesCompleted: [] };
     }
 
+    // Protect objectives fail the mission as soon as too much of the group is lost.
+    for (const obj of mission.objectives) {
+      if (obj.kind !== GroundObjectiveKind.ProtectGroup) continue;
+      const c = this.ground.count((t) => t.groupId === obj.params.group && t.entityId >= 0);
+      const keep = typeof obj.params.fraction === 'number' ? obj.params.fraction : 0.5;
+      if (c.total > 0 && (c.total - c.destroyed) / c.total < keep) return { outcome: MissionOutcome.Failure, objectivesCompleted: [] };
+    }
     for (const obj of mission.objectives) {
       if (this.isObjectiveComplete(obj, playerState)) completed.push(obj.id);
     }
@@ -1047,6 +1117,21 @@ class WorldImpl implements World {
         const dz = playerState.pos.z - wz;
         return Math.sqrt(dx * dx + dy * dy + dz * dz) <= radiusM;
       }
+      case GroundObjectiveKind.DestroyGroup: {
+        const c = this.ground.count((t) => t.groupId === obj.params.group && t.entityId >= 0);
+        const need = typeof obj.params.fraction === 'number' ? obj.params.fraction : 1;
+        return c.total > 0 && c.destroyed >= Math.ceil(c.total * need - 1e-9);
+      }
+      case GroundObjectiveKind.DestroyStructures: {
+        const prefix = `${String(obj.params.airportId)}:`;
+        const group = obj.params.group;
+        const c = this.ground.count((t) => t.entityId < 0 && t.targetId.startsWith(prefix) && (group === undefined || t.groupId === group));
+        const need = typeof obj.params.fraction === 'number' ? obj.params.fraction : 1;
+        return c.total > 0 && c.destroyed >= Math.ceil(c.total * need - 1e-9);
+      }
+      case GroundObjectiveKind.ProtectGroup:
+        // Complete while held (failure is checked separately): it lets a strike end with success.
+        return true;
       case MissionObjectiveKind.SurviveTime: {
         const seconds = obj.params.seconds;
         if (typeof seconds !== 'number') return false;

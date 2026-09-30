@@ -5,6 +5,7 @@
  */
 import { describe, expect, test } from 'vitest';
 import {
+  MAX_ENTITIES,
   entityFieldOffset,
   HEADER_FLOATS,
   ENTITY_STRIDE,
@@ -86,13 +87,13 @@ describe('writeSnapshot', () => {
     hud.iasMps = 999; // must be ignored since there is no player this tick
     writeSnapshot(pool, NO_ENTITY_ID, 1, 0, hud, buf);
     expect(buf[SnapshotHeader.PLAYER_INDEX_OFFSET]).toBe(-1);
-    const hudBlockStart = HEADER_FLOATS + 400 * ENTITY_STRIDE;
+    const hudBlockStart = HEADER_FLOATS + MAX_ENTITIES * ENTITY_STRIDE;
     for (let f = 0; f < 27; f++) {
       expect(buf[hudBlockStart + f]).toBe(0);
     }
   });
 
   test('SNAPSHOT_FLOATS matches HEADER_FLOATS + MAX_ENTITIES*ENTITY_STRIDE + HUD_BLOCK_FLOATS', () => {
-    expect(SNAPSHOT_FLOATS).toBe(HEADER_FLOATS + 400 * ENTITY_STRIDE + 48 + 32 * 8); // HUD fields (to 48) + the player track list (32 x 8)
+    expect(SNAPSHOT_FLOATS).toBe(HEADER_FLOATS + MAX_ENTITIES * ENTITY_STRIDE + 48 + 32 * 8); // HUD fields (to 48) + the player track list (32 x 8)
   });
 });
