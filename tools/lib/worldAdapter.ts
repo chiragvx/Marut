@@ -170,7 +170,7 @@ export function adaptWorldToHandle(world: World): SimWorldHandle {
   const saveLocalFcsTrimState = (): void => {
     forEachOwnAircraftIndex((entityIndex) => {
       // Full slot state (FcsSlotState), not just trim/gLoad: see that interface's doc comment.
-      const saved = localFcsTrimState.get(entityIndex) ?? { trimIntegralRad: 0, lastGLoadRad: 0, shapedPitchStick: 0, shapedRollStick: 0, shapedPitchRateCmd: 0 };
+      const saved = localFcsTrimState.get(entityIndex) ?? { trimIntegralRad: 0, lastGLoadRad: 0, shapedPitchStick: 0, shapedRollStick: 0, shapedPitchRateCmd: 0, filteredRollRateCmd: 0 };
       localFcsTrimState.set(entityIndex, getFcsSlotState(entityIndex, saved));
     });
   };

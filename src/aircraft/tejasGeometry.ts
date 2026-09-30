@@ -197,7 +197,9 @@ export const fcsLimits: FcsLimits = {
   minAlphaRad: -0.20944,
   maxGLoadPos: 8.0,
   maxGLoadNeg: -3.0,
-  maxRollRateRadS: 5.236,
+  // 220 deg/s at full stick (was the spec's 300 deg/s, which play-testing found far too twitchy:
+  // a one-second hold rolled the jet ~150 deg).
+  maxRollRateRadS: 3.84,
   maxElevonRad: 0.436332,
   maxRudderRad: 0.349066,
   maxElevonRateRadS: 3.0,

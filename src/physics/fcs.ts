@@ -70,6 +70,22 @@ const FCS_PITCH_STICK_SHAPE_RATE_PER_SEC = 1.0;
 const FCS_ROLL_STICK_SHAPE_RATE_PER_SEC = 2.0;
 
 /**
+ * Time constant of the roll-rate command prefilter, s. The stick shaping above is a pure rate
+ * limit: the demanded roll rate rose and fell along straight lines with sharp corners, so a held
+ * roll snapped on and a released one stopped dead (play-test: "the roll is very aggressive").
+ * A first-order prefilter after it rounds both corners the way a real FBW roll command path
+ * does: the roll builds in smoothly, and on release it bleeds off instead of stopping with a jolt.
+ */
+const FCS_ROLL_RATE_CMD_TAU_SEC = 0.18;
+/**
+ * The roll stick may return towards centre faster than it deflects (stick-fraction per second):
+ * with the prefilter above already smoothing the stop, the slow onset rate on the way back only
+ * made the jet coast on (~85 deg of extra bank after releasing a full roll) past the bank the
+ * pilot let go at.
+ */
+const FCS_ROLL_STICK_CENTRE_RATE_PER_SEC = 5.0;
+
+/**
  * GROUND LAW ONLY now (the airborne limiter is the rate-path design documented at
  * FCS_ALPHA_LOOP_GAIN_PER_S). Kept for the ground law's rotation taper; history follows.
  *
@@ -357,6 +373,8 @@ const shapedPitchStick = new Float64Array(MAX_ENTITIES);
 const shapedRollStick = new Float64Array(MAX_ENTITIES);
 /** FCS_PITCH_RATE_CMD_ONSET_RAD_S2-limited target pitch rate for the airborne law's outer loop, module-private per-slot state like the above. */
 const shapedPitchRateCmd = new Float64Array(MAX_ENTITIES);
+/** FCS_ROLL_RATE_CMD_TAU_SEC-filtered roll rate command, rad/s; per-slot state like the above. */
+const filteredRollRateCmd = new Float64Array(MAX_ENTITIES);
 
 /** `noUncheckedIndexedAccess`-safe read of a Float64Array slot (never actually undefined for an in-range index; the array is fixed-size and zero-initialized). */
 function readF64(arr: Float64Array, index: number): number {
@@ -393,6 +411,7 @@ export function resetFcsTrimState(entityIndex: number): void {
   shapedPitchStick[entityIndex] = 0;
   shapedRollStick[entityIndex] = 0;
   shapedPitchRateCmd[entityIndex] = 0;
+  filteredRollRateCmd[entityIndex] = 0;
 }
 
 /**
@@ -428,6 +447,7 @@ export interface FcsSlotState {
   shapedPitchStick: number;
   shapedRollStick: number;
   shapedPitchRateCmd: number;
+  filteredRollRateCmd: number;
 }
 
 export function getFcsSlotState(entityIndex: number, out: FcsSlotState): FcsSlotState {
@@ -436,6 +456,7 @@ export function getFcsSlotState(entityIndex: number, out: FcsSlotState): FcsSlot
   out.shapedPitchStick = readF64(shapedPitchStick, entityIndex);
   out.shapedRollStick = readF64(shapedRollStick, entityIndex);
   out.shapedPitchRateCmd = readF64(shapedPitchRateCmd, entityIndex);
+  out.filteredRollRateCmd = readF64(filteredRollRateCmd, entityIndex);
   return out;
 }
 
@@ -445,6 +466,7 @@ export function setFcsSlotState(entityIndex: number, s: Readonly<FcsSlotState>):
   shapedPitchStick[entityIndex] = s.shapedPitchStick;
   shapedRollStick[entityIndex] = s.shapedRollStick;
   shapedPitchRateCmd[entityIndex] = s.shapedPitchRateCmd;
+  filteredRollRateCmd[entityIndex] = s.filteredRollRateCmd;
 }
 
 /**
@@ -559,9 +581,12 @@ export function stepFcs(
     shapedPitchStick[entityIndex] = 0;
     shapedRollStick[entityIndex] = 0;
     shapedPitchRateCmd[entityIndex] = 0;
+    filteredRollRateCmd[entityIndex] = 0;
   }
   shapedPitchStick[entityIndex] = rateLimitStep(readF64(shapedPitchStick, entityIndex), inputs.pitch, FCS_PITCH_STICK_SHAPE_RATE_PER_SEC, dtSub);
-  shapedRollStick[entityIndex] = rateLimitStep(readF64(shapedRollStick, entityIndex), inputs.roll, FCS_ROLL_STICK_SHAPE_RATE_PER_SEC, dtSub);
+  const rollStickPrev = readF64(shapedRollStick, entityIndex);
+  const rollTowardsCentre = Math.abs(inputs.roll) < Math.abs(rollStickPrev) && inputs.roll * rollStickPrev >= 0;
+  shapedRollStick[entityIndex] = rateLimitStep(rollStickPrev, inputs.roll, rollTowardsCentre ? FCS_ROLL_STICK_CENTRE_RATE_PER_SEC : FCS_ROLL_STICK_SHAPE_RATE_PER_SEC, dtSub);
   const pitchStickShaped = readF64(shapedPitchStick, entityIndex);
   const rollStickShaped = readF64(shapedRollStick, entityIndex);
 
@@ -731,7 +756,9 @@ export function stepFcs(
   }
   elevonSymCmd = clamp(elevonSymCmd, -fcsLimits.maxElevonRad, fcsLimits.maxElevonRad);
 
-  const pCmd = rollStickShaped * fcsLimits.maxRollRateRadS;
+  const pCmdPrev = readF64(filteredRollRateCmd, entityIndex);
+  filteredRollRateCmd[entityIndex] = pCmdPrev + (rollStickShaped * fcsLimits.maxRollRateRadS - pCmdPrev) * (1 - Math.exp(-dtSub / FCS_ROLL_RATE_CMD_TAU_SEC));
+  const pCmd = readF64(filteredRollRateCmd, entityIndex);
   const elevonDiffCmd = clamp(fcsLimits.rollRateGain * (pCmd - p), -fcsLimits.maxElevonRad, fcsLimits.maxElevonRad);
 
   // Negated, same bug class and same root cause as the ground pitch law above (found auditing
