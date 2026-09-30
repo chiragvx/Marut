@@ -37,6 +37,7 @@ import type { SnapshotEntityView } from './contracts/sim';
 import { createSceneRenderer } from './render';
 import { createHudRenderer } from './hud';
 import { buildHudAirbases } from './hud/airbaseMarkers';
+import { buildSteerpoints } from './hud/steerpoints';
 import { createPlayerInputSystem } from './input';
 import {
   createMainMenu,
@@ -973,7 +974,9 @@ function setupWorldView(mission: Mission, tier: QualityTier): void {
   const navDb = createAirportNavDb(airportLayouts);
   renderer.setNavDb(navDb);
   // The same ground the simulation flies over (airfields flattened), for keeping the camera above it.
-  renderer.setGroundHeight(createHeightSampler(terrainParams, flattenZones).heightAt);
+  const heightAt = createHeightSampler(terrainParams, flattenZones).heightAt;
+  renderer.setGroundHeight(heightAt);
+  hud.setSteerpoints(buildSteerpoints(mission.groundGroups ?? [], heightAt));
   renderer.setEnvironment(buildSceneEnvironment(terrainParams, airportLayouts, { x: mission.weather.windWorldMps.x, z: mission.weather.windWorldMps.z }));
   renderer.setWeather(weatherMode, newWeatherSeed());
 
@@ -1279,6 +1282,10 @@ function tickShowcase(dtSec: number): void {
 function launchMission(missionIn: Mission, opts: { title: string; airStart: boolean }): void {
   stopShowcase();
   const mission = applyWeatherSetting(applyDevStart(missionIn));
+  // An air start (a free-flight air start, a mission that starts in the air, or the dev ?start=):
+  // gear up and cruise power. Missions used to pass airStart: false and start airborne gear-down at idle.
+  const ps = mission.playerStart;
+  const airStart = opts.airStart || (ps.pos !== undefined && ps.runwayId === undefined && ps.parkingSpotId === undefined && (ps.speedMps ?? 0) > 0);
   destroyCurrentScreen();
   appState = 'loading';
   const loading = createLoadingScreen(uiRoot, { title: opts.title, eyebrow: 'Loading', tips: firstKeys() });
@@ -1292,10 +1299,10 @@ function launchMission(missionIn: Mission, opts: { title: string; airStart: bool
   lastTankFuelKg = -1;
   banditsTotal = missionIn.aiFlights.filter((f) => f.team === 1).reduce((n, f) => n + (f.count ?? 1), 0);
   // Gear lever and throttle to suit the start (the gear lever otherwise keeps the last flight's).
-  inputSystem.setGearDown(!opts.airStart);
+  inputSystem.setGearDown(!airStart);
   lightMode = DEFAULT_LIGHT_MODE;
   masterArm = true;
-  inputSystem.setThrottle(opts.airStart ? 0.8 : 0);
+  inputSystem.setThrottle(airStart ? 0.8 : 0);
 
   currentMission = mission;
   playerEntityId = NO_ENTITY_ID;
