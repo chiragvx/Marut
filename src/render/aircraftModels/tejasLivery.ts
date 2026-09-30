@@ -194,8 +194,8 @@ export function paintTejasLivery(serial = 'LA-5033'): HTMLCanvasElement {
       g.closePath();
       g.fill();
       // RESCUE: yellow arrow with black letters, pointing at the canopy release.
-      const r0 = p(3.05, 0.1);
-      const r1 = p(3.55, 0.1);
+      const r0 = p(3.05, 0.0);
+      const r1 = p(3.55, 0.0);
       const dir = r1[0] > r0[0] ? 1 : -1;
       g.fillStyle = YELLOW;
       g.beginPath();

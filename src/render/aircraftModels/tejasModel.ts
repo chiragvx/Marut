@@ -170,6 +170,14 @@ function bodyTopY(x: number, z: number): number {
   const a = Math.min(1, Math.abs(z) / s.w);
   return s.cy + s.hT * Math.pow(Math.max(0, 1 - Math.pow(a, s.nT)), 1 / s.nT);
 }
+/** Fuselage half-width at body height y (the flank), for placing things on it. */
+function bodySideZ(x: number, y: number): number {
+  const s = bodySec(x);
+  const up = y >= s.cy;
+  const a = Math.min(1, Math.abs(y - s.cy) / (up ? s.hT : s.hB));
+  const n = up ? s.nT : s.nB;
+  return s.w * Math.pow(Math.max(0, 1 - Math.pow(a, n)), 1 / n);
+}
 function bodyBottomY(x: number, z: number): number {
   const s = bodySec(x);
   const a = Math.min(1, Math.abs(z) / s.w);
@@ -611,12 +619,14 @@ function buildAntennas(): THREE.BufferGeometry[] {
   // Ventral blades under the centre fuselage.
   out.push(blade(6.3, bodyBottomY(X(6.3), 0) - YREF + 0.005, 0, 0.2, 0.13, -1));
   out.push(blade(10.6, bodyBottomY(X(10.6), 0) - YREF + 0.005, 0, 0.22, 0.14, -1));
-  // Missile-approach warning sensor domes: nose flanks and tail (Mk1A self-protection).
+  // Missile-approach warning sensor domes on the nose flanks (Mk1A self-protection), below the
+  // Tejas script and ahead of the roundel.
   for (const s of [-1, 1]) {
+    const flankZ = bodySideZ(X(2.7), Y(0.31));
     out.push(loft(stations(2.62, 2.78, 0.04), (x) => {
       const u = (ST(x) - 2.62) / 0.16;
       const r = 0.045 * Math.sqrt(Math.max(0.01, 1 - (2 * u - 1) * (2 * u - 1)));
-      return { cy: Y(0.42), cz: s * (0.52 + r * 0.4), w: r, hT: r, hB: r, n: 2 };
+      return { cy: Y(0.31), cz: s * (flankZ - 0.015 + r * 0.4), w: r, hT: r, hB: r, n: 2 };
     }, 12, PART.seeker));
   }
   return out;
@@ -673,8 +683,8 @@ function buildNavLights(): THREE.BufferGeometry {
 function buildFormationLights(): THREE.BufferGeometry {
   const strips: THREE.BufferGeometry[] = [];
   for (const s of [-1, 1]) {
-    const nose = bodySec(X(3.05));
-    strips.push(box([X(3.05), Y(0.18), s * (nose.w + 0.004)], [0.16, 0.018, 0.006], PART.lightFormation));
+    // Nose strip: under the dome, ahead of the roundel.
+    strips.push(box([X(2.95), Y(0.16), s * (bodySideZ(X(2.95), Y(0.16)) + 0.004)], [0.16, 0.018, 0.006], PART.lightFormation));
     const rear = 12.0;
     const rs = bodySec(X(rear));
     strips.push(box([X(rear), Y(0.45), s * (rs.w + 0.004)], [0.16, 0.018, 0.006], PART.lightFormation));
