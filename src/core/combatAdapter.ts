@@ -353,9 +353,13 @@ export function createCombatAdapter(): CombatPort & CombatPortWithContacts & Com
             if (targetState && targetDamage) {
               const wstate = weaponsStates.get(projectile.ownerId);
               const rng = wstate ? wstate.rng : { seedState: subSeed(ctx.missionSeed, 'combat:hit:' + state.id) };
+              const wasIntact = targetDamage.structurePct > 0;
               hitEventsScratch.length = 0;
-              resolveProjectileHit(result, projectile.ownerId, projectile.kind, targetState, targetDamage, rng, hitEventsScratch, projectile.profile);
+              const hit = resolveProjectileHit(result, projectile.ownerId, projectile.kind, targetState, targetDamage, rng, hitEventsScratch, projectile.profile);
               for (const ev of hitEventsScratch) eventsOut.push(ev);
+              // The kill, credited to the shooter (once: later hits on the wreck don't count). World
+              // turns the destroyed airframe into a crash on its next step.
+              if (hit.targetLethal && wasIntact) eventsOut.push({ type: 'kill', targetId, sourceId: projectile.ownerId });
             }
           }
         }

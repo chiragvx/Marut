@@ -31,3 +31,4 @@ export { missileKillProbability, pushExplosionEvent, resolveProjectileHit } from
 export * from '../contracts/combat';
 export { GENERIC_GUN_PROFILE, GENERIC_IR_MISSILE_PROFILE, GENERIC_RADAR_MISSILE_PROFILE, GENERIC_RADAR_PROFILE, defaultWeaponProfile, projectileProfile } from './weaponProfiles';
 export { isaDensityKgM3 } from './isaDensity';
+export { terrainLineOfSight, rayToGround, MAX_LOS_SAMPLES, DEFAULT_LOS_STEP_M } from './lineOfSight';
