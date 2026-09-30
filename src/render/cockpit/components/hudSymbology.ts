@@ -13,7 +13,7 @@
  * cues (breakaway cross). Units: knots and feet.
  */
 
-import { LockStateCode, SnapshotHud, WarningBit, WeaponKindCode, type Vec3Like } from '../../../contracts/core';
+import { AgModeCode, LockStateCode, SnapshotHud, WarningBit, WeaponKindCode, type Vec3Like } from '../../../contracts/core';
 import { GUN_MAX_EFFECTIVE_RANGE_M } from '../../../contracts/render';
 import { fmtHdg, storeInfoByCode, toBody, type StoreInventory } from '../avionics';
 import { DISPLAY_FONT } from '../screen';
@@ -537,6 +537,64 @@ export function drawHud(g: CanvasRenderingContext2D, P: HudProjector, ctx: Cockp
         g.lineTo(P.x, P.y + r);
         g.stroke();
       }
+    }
+  }
+
+  // --- Air-to-ground sight: CCIP pipper and bomb-fall line; CCRP designator, steering line, release cue. ---
+  if (av.agMode !== AgModeCode.None) {
+    const toward = (p: Vec3Like): boolean => {
+      vT.x = p.x - f.pos.x;
+      vT.y = p.y - f.pos.y;
+      vT.z = p.z - f.pos.z;
+      const len = Math.hypot(vT.x, vT.y, vT.z) || 1;
+      vT.x /= len;
+      vT.y /= len;
+      vT.z /= len;
+      toBody(f.rot, vT, vB);
+      return P.project(vB) && Math.hypot(P.x - cx, P.y - cy) < u(11.5);
+    };
+    fontPx(small);
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
+    if (av.agMode === AgModeCode.Ccip) {
+      if (toward(av.ccip)) {
+        const px = P.x;
+        const py = P.y;
+        if (fpmOk) {
+          g.beginPath();
+          g.moveTo(fxC, fyC);
+          g.lineTo(px, py);
+          g.stroke();
+        }
+        g.beginPath();
+        g.arc(px, py, u(0.7), 0, Math.PI * 2);
+        g.stroke();
+        g.fillRect(px - lw, py - lw, lw * 2, lw * 2);
+        g.textAlign = 'left';
+        g.fillText(av.agTimeSec.toFixed(1), px + u(0.9), py);
+      }
+      g.textAlign = 'center';
+      g.fillText('CCIP', cx - u(6), cy + u(6.3));
+    } else {
+      if (toward(av.spi)) {
+        const b = u(0.6);
+        g.strokeRect(P.x - b, P.y - b, b * 2, b * 2);
+        g.fillRect(P.x - lw, P.y - lw, lw * 2, lw * 2);
+      }
+      const x = fxC + Math.max(-u(7), Math.min(u(7), (av.agCrossM / 60) * u(1)));
+      g.beginPath();
+      g.moveTo(x, fyC - u(9));
+      g.lineTo(x, fyC + u(2));
+      g.stroke();
+      const cueY = fyC - Math.max(0, Math.min(u(8.5), av.agTimeSec * u(0.45)));
+      g.lineWidth = lw * 2.2;
+      g.beginPath();
+      g.moveTo(x - u(0.8), cueY);
+      g.lineTo(x + u(0.8), cueY);
+      g.stroke();
+      g.lineWidth = lw;
+      const rel = av.agTimeSec <= 0 && Math.floor(t * 6) % 2 === 0;
+      g.fillText(av.agTimeSec > 0 ? `REL ${av.agTimeSec.toFixed(1)}` : rel ? 'REL' : '', cx - u(6), cy + u(6.3));
     }
   }
 

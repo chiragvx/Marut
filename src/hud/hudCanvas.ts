@@ -37,6 +37,10 @@ import { createTaxiGuideState, drawTaxiGuide, setTaxiGuide as applyTaxiGuide } f
 import { drawAirbrakeIndicator, drawAltitudeTape, drawAoaGReadout, drawFuelIndicator, drawGearIndicator, drawHeadingTape, drawPowerIndicator, drawServiceStatus, drawSpeedTape } from './tapes';
 import { createScreenProjection, drawLeadSight, drawTargetBox, hasTarget } from './targetBox';
 import { drawWeaponStatus } from './weaponStatus';
+import { drawAgSight } from './agSight';
+
+const agPos = { x: 0, y: 0, z: 0 };
+const agVel = { x: 0, y: 0, z: 0 };
 import { drawWarnings } from './warnings';
 
 /**
@@ -242,6 +246,9 @@ export const createHudRenderer: CreateHudRenderer = (canvas, initialTier) => {
       }
 
       drawLeadSight(ctx, camera, hud, widthPx, heightPx);
+      agPos.x = curr.posX[playerSlot]!; agPos.y = curr.posY[playerSlot]!; agPos.z = curr.posZ[playerSlot]!;
+      agVel.x = curr.velX[playerSlot]!; agVel.y = curr.velY[playerSlot]!; agVel.z = curr.velZ[playerSlot]!;
+      drawAgSight(ctx, camera, hud, agPos, agVel, widthPx, heightPx, nowMs);
       drawWeaponStatus(ctx, hud, widthPx - 16, heightPx - 44);
       drawWarnings(ctx, hud, nowMs, widthPx * 0.5, heightPx * 0.28);
 

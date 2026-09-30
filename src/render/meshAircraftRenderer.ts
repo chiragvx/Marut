@@ -17,10 +17,10 @@
  * Every mesh also draws into the aircraft sun-shadow cascade (AIRCRAFT_SHADOW_LAYER).
  */
 import * as THREE from 'three';
-import { storeSlotAt, storeSlotCode, storeSlotCount, storeSlotTwin, type QuatLike, type Vec3Like } from '../contracts/core';
+import { StoreRack, storeSlotAt, storeSlotCode, storeSlotCount, storeSlotRack, storeSlotTwin, type QuatLike, type Vec3Like } from '../contracts/core';
 import { AIRCRAFT_SHADOW_LAYER } from './sunShadows';
 import type { AircraftModelTemplate, ArticulatedPart } from './aircraftModels/tejasModel';
-import { buildStoreModels, TWIN_RAIL_FRAMES, type StoreModel } from './aircraftModels/stores';
+import { buildStoreModels, BOMB_RACK_Z, TWIN_RAIL_FRAMES, type StoreModel } from './aircraftModels/stores';
 import { createAircraftLights } from './aircraftLights';
 import { EntityFlag } from '../contracts/core';
 import { createAircraftBodyMaterial, createAircraftFlameMaterial, createAircraftSharedUniforms, type AircraftBodyUniforms, type AircraftFlameUniforms } from './aircraftMaterial';
@@ -165,6 +165,25 @@ export function createMeshAircraftRenderer(root: THREE.Object3D, template: Aircr
       mA.multiplyMatrices(body, pylonFrames[k]!);
       if (model.kind === 'tank') {
         if (count > 0) put(storeBatches[code], mB.multiplyMatrices(mA, model.mount));
+        continue;
+      }
+      if (model.kind === 'pod') {
+        put(storeBatches[code], mB.multiplyMatrices(mA, model.mount));
+        continue;
+      }
+      if (model.kind === 'bomb') {
+        if (storeSlotRack(slot) !== StoreRack.MultiRack) {
+          if (count > 0) put(storeBatches[code], mB.multiplyMatrices(mA, model.mount));
+          continue;
+        }
+        // Twin carrier: bombs either side (the outboard one goes last).
+        const outboard = template.pylons[k]!.z >= 0 ? 1 : -1;
+        for (const side of [-1, 1]) {
+          if (count >= 2 || (count === 1 && side === outboard)) {
+            mB.makeTranslation(0, 0, side * BOMB_RACK_Z).premultiply(mA);
+            put(storeBatches[code], mC.multiplyMatrices(mB, model.mount));
+          }
+        }
         continue;
       }
       if (!storeSlotTwin(slot)) {

@@ -60,9 +60,11 @@ interface Layer {
   b: Float32Array;
   /** Rising particles slow their climb (smoke); falling ones feel gravity (debris dust). */
   drag: number;
+  /** How much lighter a particle gets over its life (1 = twice as light at the end). */
+  lighten: number;
 }
 
-function createLayer(root: THREE.Object3D, cap: number, additive: boolean, drag: number): Layer {
+function createLayer(root: THREE.Object3D, cap: number, additive: boolean, drag: number, lighten = 0): Layer {
   const geom = new THREE.BufferGeometry();
   geom.setAttribute('position', new THREE.BufferAttribute(new Float32Array(cap * 3), 3).setUsage(THREE.DynamicDrawUsage));
   geom.setAttribute('aSize', new THREE.BufferAttribute(new Float32Array(cap), 1).setUsage(THREE.DynamicDrawUsage));
@@ -82,7 +84,7 @@ function createLayer(root: THREE.Object3D, cap: number, additive: boolean, drag:
   points.renderOrder = additive ? 3 : 2;
   root.add(points);
   const f32 = () => new Float32Array(cap);
-  return { points, cap, n: 0, next: 0, x: new Float64Array(cap), y: new Float64Array(cap), z: new Float64Array(cap), vx: f32(), vy: f32(), vz: f32(), age: f32(), life: f32(), size0: f32(), size1: f32(), alpha: f32(), r: f32(), g: f32(), b: f32(), drag };
+  return { points, cap, n: 0, next: 0, x: new Float64Array(cap), y: new Float64Array(cap), z: new Float64Array(cap), vx: f32(), vy: f32(), vz: f32(), age: f32(), life: f32(), size0: f32(), size1: f32(), alpha: f32(), r: f32(), g: f32(), b: f32(), drag, lighten };
 }
 
 function emit(l: Layer, x: number, y: number, z: number, vx: number, vy: number, vz: number, life: number, size0: number, size1: number, alpha: number, r: number, g: number, b: number): void {
@@ -131,11 +133,12 @@ function stepLayer(l: Layer, dt: number, origin: Readonly<Vec3Like>, gravity: nu
     pos[i * 3 + 1] = l.y[i]! - origin.y;
     pos[i * 3 + 2] = l.z[i]! - origin.z;
     size[i] = l.size0[i]! + (l.size1[i]! - l.size0[i]!) * Math.sqrt(t);
-    // Fade in fast, out slowly.
+    // Fade in fast, out slowly; smoke and dust thin out and lighten as they spread.
     alpha[i] = l.alpha[i]! * Math.min(1, t * 8) * (1 - t) * (1 - t * 0.3);
-    col[i * 3] = l.r[i]!;
-    col[i * 3 + 1] = l.g[i]!;
-    col[i * 3 + 2] = l.b[i]!;
+    const lighten = 1 + l.lighten * t;
+    col[i * 3] = Math.min(1, l.r[i]! * lighten);
+    col[i * 3 + 1] = Math.min(1, l.g[i]! * lighten);
+    col[i * 3 + 2] = Math.min(1, l.b[i]! * lighten);
   }
   const g = l.points.geometry;
   g.setDrawRange(0, l.n);
@@ -165,8 +168,8 @@ export interface GroundEffects {
 const MAX_FIRES = 48;
 
 export function createGroundEffects(root: THREE.Object3D): GroundEffects {
-  const dust = createLayer(root, 700, false, 0.9);
-  const smoke = createLayer(root, 1400, false, 0.25);
+  const dust = createLayer(root, 700, false, 0.9, 0.3);
+  const smoke = createLayer(root, 1400, false, 0.15, 1.6);
   const fire = createLayer(root, 500, true, 1.5);
   const fires: Fire[] = [];
   let clock = 0;
@@ -180,7 +183,7 @@ export function createGroundEffects(root: THREE.Object3D): GroundEffects {
           const { x, y, z } = ev.pos;
           if (ev.explosiveKg <= 0) {
             // Gun round: a spurt of dust.
-            for (let k = 0; k < 2; k++) emit(dust, x, y + 0.3, z, (rnd() - 0.5) * 4, 4 + rnd() * 5, (rnd() - 0.5) * 4, 1.0 + rnd() * 0.6, 0.8, 3.5, 0.55, 0.55, 0.49, 0.40);
+            for (let k = 0; k < 2; k++) emit(dust, x, y + 0.3, z, (rnd() - 0.5) * 4, 4 + rnd() * 5, (rnd() - 0.5) * 4, 1.0 + rnd() * 0.6, 0.8, 3.5, 0.55, 0.62, 0.56, 0.46);
             continue;
           }
           const c = Math.cbrt(ev.explosiveKg);
@@ -189,9 +192,9 @@ export function createGroundEffects(root: THREE.Object3D): GroundEffects {
           for (let k = 0; k < 14; k++) {
             const a = rnd() * Math.PI * 2;
             const sp = (3 + rnd() * 9) * c * 0.5;
-            emit(dust, x, y + 1, z, Math.cos(a) * sp, (2 + rnd() * 7) * c * 0.6, Math.sin(a) * sp, 3 + rnd() * 3, 2 * c, 10 * c, 0.7, 0.42, 0.37, 0.31);
+            emit(dust, x, y + 1, z, Math.cos(a) * sp, (2 + rnd() * 7) * c * 0.6, Math.sin(a) * sp, 3 + rnd() * 3, 2 * c, 10 * c, 0.6, 0.58, 0.52, 0.43);
           }
-          for (let k = 0; k < 5; k++) emit(smoke, x + (rnd() - 0.5) * 2 * c, y + c, z + (rnd() - 0.5) * 2 * c, (rnd() - 0.5) * 2, 4 + rnd() * 3, (rnd() - 0.5) * 2, 6 + rnd() * 4, 4 * c, 14 * c, 0.5, 0.18, 0.17, 0.16);
+          for (let k = 0; k < 5; k++) emit(smoke, x + (rnd() - 0.5) * 2 * c, y + c, z + (rnd() - 0.5) * 2 * c, (rnd() - 0.5) * 2, 4 + rnd() * 3, (rnd() - 0.5) * 2, 6 + rnd() * 4, 4 * c, 14 * c, 0.45, 0.24, 0.22, 0.2);
         } else if (ev.type === 'groundKill') {
           if (ev.burnSec <= 0) continue;
           if (fires.length >= MAX_FIRES) fires.shift();
@@ -219,7 +222,8 @@ export function createGroundEffects(root: THREE.Object3D): GroundEffects {
         f.flameAcc += dt;
         while (f.smokeAcc >= 0.22) {
           f.smokeAcc -= 0.22;
-          emit(smoke, f.x + (rnd() - 0.5) * 2 * s, f.y + 1.5 * s, f.z + (rnd() - 0.5) * 2 * s, 1.5 + (rnd() - 0.5), 5 + rnd() * 3 * s, 0.6 + (rnd() - 0.5), 12 + rnd() * 6, 4 * s, 22 * s, 0.6, 0.12, 0.115, 0.11);
+          // Buoyant smoke: rises, drifts downwind (east here), spreads and greys as it climbs.
+          emit(smoke, f.x + (rnd() - 0.5) * 2 * s, f.y + 1.5 * s, f.z + (rnd() - 0.5) * 2 * s, 3 + (rnd() - 0.5), 4 + rnd() * 3 * s, 1 + (rnd() - 0.5), 14 + rnd() * 6, 4 * s, 32 * s, 0.65, 0.13, 0.125, 0.12);
         }
         while (f.flameAcc >= 0.07) {
           f.flameAcc -= 0.07;
@@ -230,7 +234,7 @@ export function createGroundEffects(root: THREE.Object3D): GroundEffects {
       const scale = viewportHeightPx / (2 * Math.tan((fovDeg * Math.PI) / 360));
       for (const l of [dust, smoke, fire]) (l.points.material as THREE.ShaderMaterial).uniforms['uScale']!.value = scale;
       stepLayer(dust, dt, origin, 3);
-      stepLayer(smoke, dt, origin, -0.4);
+      stepLayer(smoke, dt, origin, -1.3);
       stepLayer(fire, dt, origin, -2);
     },
 

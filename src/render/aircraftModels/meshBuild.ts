@@ -38,6 +38,8 @@ export const PART = {
   frame: 23,
   antenna: 24,
   door: 25,
+  /** Bombs: olive drab. */
+  bomb: 26,
 } as const;
 
 /** Monotone cubic through (xs ascending, ys). */

@@ -33,7 +33,7 @@
  * =============================================================================
  */
 
-import type { Vec3Like } from './core';
+import type { Vec3Like, WeaponKind } from './core';
 import type { Table2D } from './math';
 
 // -----------------------------------------------------------------------------
@@ -44,7 +44,8 @@ export interface Hardpoint {
   id: string;
   /** Body-frame mounting position, m. */
   posBodyM: Vec3Like;
-  type: 'gun' | 'ir_missile' | 'radar_missile' | 'fuel_tank';
+  /** The store's kind: a WeaponKind (core.ts), a drop tank, or a sensor pod. */
+  type: WeaponKind | 'fuel_tank' | 'pod';
 }
 
 /**

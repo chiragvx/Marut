@@ -13,7 +13,8 @@
   "playerStart": {
     "pos": { "x": 27000, "y": 1700, "z": -12000 },
     "headingRad": 0.1,
-    "speedMps": 200
+    "speedMps": 200,
+    "loadoutId": "cas"
   },
   "aiFlights": [],
   "groundGroups": [

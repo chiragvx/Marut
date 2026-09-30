@@ -196,6 +196,10 @@ const FS = /* glsl */ `
       // Radar missile radome.
       col = vec3(0.5, 0.51, 0.5);
       ks = 0.12;
+    } else if (part == 26) {
+      // Bombs: olive drab paint.
+      col = vec3(0.26, 0.28, 0.19);
+      ks = 0.1;
     } else if (part >= 10 && part <= 12) {
       // Navigation lights (uLightState.x).
       vec3 lc = part == 10 ? vec3(1.0, 0.12, 0.08) : part == 11 ? vec3(0.1, 1.0, 0.3) : vec3(1.0);

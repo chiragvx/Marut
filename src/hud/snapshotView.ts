@@ -39,6 +39,9 @@ export interface HudSnapshotFrame {
   rotY: Float32Array;
   rotZ: Float32Array;
   rotW: Float32Array;
+  velX: Float32Array;
+  velY: Float32Array;
+  velZ: Float32Array;
   /** Copy of the HUD_BLOCK_FLOATS-length HUD block, curr only in practice. */
   hud: Float64Array;
 }
@@ -61,6 +64,9 @@ export function createHudSnapshotFrame(): HudSnapshotFrame {
     rotY: new Float32Array(MAX_ENTITIES),
     rotZ: new Float32Array(MAX_ENTITIES),
     rotW: new Float32Array(MAX_ENTITIES),
+    velX: new Float32Array(MAX_ENTITIES),
+    velY: new Float32Array(MAX_ENTITIES),
+    velZ: new Float32Array(MAX_ENTITIES),
     hud: new Float64Array(HUD_BLOCK_FLOATS),
   };
 }
@@ -85,6 +91,9 @@ export function ingestHudSnapshotFrame(view: Float64Array, out: HudSnapshotFrame
     out.rotY[i] = view[entityFieldOffset(i, SnapshotEntity.ROT_Y)]!;
     out.rotZ[i] = view[entityFieldOffset(i, SnapshotEntity.ROT_Z)]!;
     out.rotW[i] = view[entityFieldOffset(i, SnapshotEntity.ROT_W)]!;
+    out.velX[i] = view[entityFieldOffset(i, SnapshotEntity.VEL_X)]!;
+    out.velY[i] = view[entityFieldOffset(i, SnapshotEntity.VEL_Y)]!;
+    out.velZ[i] = view[entityFieldOffset(i, SnapshotEntity.VEL_Z)]!;
     out.alive[i] = view[entityFieldOffset(i, SnapshotEntity.ALIVE)]!;
   }
 

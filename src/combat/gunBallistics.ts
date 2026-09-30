@@ -87,11 +87,11 @@ export const initProjectile: InitProjectile = (slot, spec, _simTimeSec) => {
   slot.ownerId = spec.ownerId;
   slot.targetId = spec.targetId ?? NO_ENTITY_ID;
   slot.ageSec = 0;
-  slot.guidance = spec.kind === ProjectileKind.Bullet ? ProjectileGuidanceMode.Ballistic
-    : spec.kind === ProjectileKind.IrMissile ? ProjectileGuidanceMode.IrHoming
-    : ProjectileGuidanceMode.RadarDatalink;
+  slot.guidance = spec.kind === ProjectileKind.IrMissile ? ProjectileGuidanceMode.IrHoming
+    : spec.kind === ProjectileKind.RadarMissile ? ProjectileGuidanceMode.RadarDatalink
+    : ProjectileGuidanceMode.Ballistic;
   slot.distanceTravelledM = 0;
-  slot.fuelFracRemaining = spec.kind === ProjectileKind.Bullet ? 0 : 1;
+  slot.fuelFracRemaining = spec.kind === ProjectileKind.Bullet || spec.kind === ProjectileKind.Bomb ? 0 : 1;
   slot.seekerLosDirBody.x = 1;
   slot.seekerLosDirBody.y = 0;
   slot.seekerLosDirBody.z = 0;
@@ -286,7 +286,9 @@ export const stepProjectile: StepProjectile = (state, projectile, candidates, sa
   const q = 0.5 * rho * speed * speed;
   let accelX = 0, accelY = -env.gravityMps2, accelZ = 0;
   if (speed > 1e-9) {
-    const dragAccelMag = q * cd * phys.crossSectionM2 / mass;
+    // A retarded bomb's tail opens shortly after release (much more drag).
+    const retard = prof.bomb && projectile.ageSec >= prof.bomb.retardAfterSec ? prof.bomb.retardCdA : 0;
+    const dragAccelMag = q * (cd * phys.crossSectionM2 + retard) / mass;
     accelX -= (velX / speed) * dragAccelMag;
     accelY -= (velY / speed) * dragAccelMag;
     accelZ -= (velZ / speed) * dragAccelMag;
@@ -475,7 +477,8 @@ export const stepProjectile: StepProjectile = (state, projectile, candidates, sa
       };
     }
 
-    if (kind !== ProjectileKind.Bullet) {
+    // Proximity fuzes: air-to-air missiles only (bombs and rockets fuze on impact).
+    if (kind === ProjectileKind.IrMissile || kind === ProjectileKind.RadarMissile) {
       const fuseRadius = prof.proximityFuseRadiusM;
       let bestProx: DetectableEntity | undefined;
       let bestProxDist = Infinity;

@@ -3,7 +3,20 @@
  * CombatStatus aggregation, and the top-level `fireWeapons` (gun trigger +
  * missile launch dispatch). See docs/spec/07-combat.md sections 4.1, 4.6.
  */
-import { LockState, NO_ENTITY_ID, WeaponKind, type CombatStatus, type EntityId } from '../contracts/core';
+import {
+  AgModeCode,
+  EntityFlag,
+  LockState,
+  NO_ENTITY_ID,
+  WeaponKind,
+  isAirToGroundKind,
+  type CombatStatus,
+  type EntityId,
+  type EntityState,
+  type HeightSampler,
+  type PilotInputs,
+  type SimEvent,
+} from '../contracts/core';
 import {
   MAX_SPAWN_REQUESTS_PER_TICK,
   ProjectileKind,
@@ -14,7 +27,9 @@ import {
   type WeaponsState,
   type WeaponStationRuntime,
   type WeaponsLoadout,
+  type ProjectileSpawnRequest,
 } from '../contracts/combat';
+import { ccrpSolution, predictImpact } from './agSight';
 import { Vec3, Quat, nextRange, type PrngState } from '../math';
 import { GENERIC_RADAR_PROFILE, defaultWeaponProfile } from './weaponProfiles';
 import { DECOYS_PER_PROGRAM, DECOY_PROGRAM_INTERVAL_SEC } from './countermeasures';
@@ -30,7 +45,15 @@ export function computeStoresLoad(state: Pick<WeaponsState, 'stations'>, out: { 
   for (let i = 0; i < state.stations.length; i++) {
     const st = state.stations[i]!;
     massKg += st.count * st.profile.carriageMassKg;
-    dragAreaM2 += st.count * st.profile.carriageDragAreaM2;
+    const rps = st.profile.roundsPerStore;
+    if (rps) {
+      // Pods: the empty pod's mass and drag stay whatever is left in it.
+      const pods = Math.ceil(st.maxCount / rps);
+      massKg += pods * (st.profile.storeShellKg ?? 0);
+      dragAreaM2 += pods * st.profile.carriageDragAreaM2;
+    } else {
+      dragAreaM2 += st.count * st.profile.carriageDragAreaM2;
+    }
   }
   out.massKg = massKg;
   out.dragAreaM2 = dragAreaM2;
@@ -75,6 +98,18 @@ export const createWeaponsState: CreateWeaponsState = (loadout: WeaponsLoadout, 
     prevChaff: false,
     flareRepeatSec: 0,
     chaffRepeatSec: 0,
+    agValid: false,
+    agImpact: { x: 0, y: 0, z: 0 },
+    agTofSec: 0,
+    spiValid: false,
+    spi: { x: 0, y: 0, z: 0 },
+    ccrpTimeToReleaseSec: Infinity,
+    ccrpCrossTrackM: 0,
+    designateRequest: false,
+    agSightDueSec: 0,
+    releasedThisPress: false,
+    rocketCooldownSec: 0,
+    nextRocketStation: 0,
     aimPointWorld: { x: 0, y: 0, z: 0 },
     aimPointValid: false,
     rng: createCombatRngState(rngSubSeed),
@@ -108,6 +143,21 @@ export const writeCombatStatus: WriteCombatStatus = (state, out: CombatStatus) =
   out.missileInboundWarning = state.missileInboundWarning;
   out.chaff = state.chaff;
   out.flares = state.flares;
+  // Air-to-ground sight: CCRP with a designated point, else CCIP while there is an impact solution.
+  const sighting = isAirToGroundKind(state.selectedWeapon) || gunGroundSight(state);
+  out.agMode = !sighting ? AgModeCode.None : state.spiValid && state.selectedWeapon !== WeaponKind.Gun ? AgModeCode.Ccrp : state.agValid ? AgModeCode.Ccip : AgModeCode.None;
+  if (!out.agImpactWorld) out.agImpactWorld = { x: 0, y: 0, z: 0 };
+  if (!out.spiWorld) out.spiWorld = { x: 0, y: 0, z: 0 };
+  out.agImpactWorld.x = state.agImpact.x;
+  out.agImpactWorld.y = state.agImpact.y;
+  out.agImpactWorld.z = state.agImpact.z;
+  out.spiValid = state.spiValid;
+  out.spiWorld.x = state.spi.x;
+  out.spiWorld.y = state.spi.y;
+  out.spiWorld.z = state.spi.z;
+  const t = out.agMode === AgModeCode.Ccrp ? state.ccrpTimeToReleaseSec : state.agTofSec;
+  out.agTimeSec = Number.isFinite(t) ? t : 0;
+  out.agCrossTrackM = out.agMode === AgModeCode.Ccrp ? state.ccrpCrossTrackM : 0;
   out.aimPointWorld.x = state.aimPointWorld.x;
   out.aimPointWorld.y = state.aimPointWorld.y;
   out.aimPointWorld.z = state.aimPointWorld.z;
@@ -221,9 +271,21 @@ export const fireWeapons: FireWeapons = (
     }
   }
 
+  // Weight on wheels: nothing but the gun leaves the aircraft on the ground (release interlock).
+  const onGround = (shooterState.flags & EntityFlag.OnGround) !== 0;
+
+  // --- Air-to-ground stores: bombs and rockets, no lock needed ---
+  state.rocketCooldownSec -= dtSec;
+  if (!inputs.launch) state.releasedThisPress = false;
+  if (!onGround && isAirToGroundKind(state.selectedWeapon)) {
+    releaseAirToGround(shooterId, shooterState, inputs, state, outRequests, outEvents);
+    state.prevLaunch = inputs.launch;
+    return;
+  }
+
   // --- Missiles: edge-triggered on `launch`, lock-gated ---
   const launchEdge = inputs.launch && !state.prevLaunch;
-  if (launchEdge && outRequests.length < MAX_SPAWN_REQUESTS_PER_TICK && lockedTarget && state.lockState === LockState.Locked) {
+  if (!onGround && launchEdge && outRequests.length < MAX_SPAWN_REQUESTS_PER_TICK && lockedTarget && state.lockState === LockState.Locked) {
     let station: WeaponStationRuntime | undefined;
     let ejectionSpeed = 0;
     let projectileKind: (typeof ProjectileKind)[keyof typeof ProjectileKind] | undefined;
@@ -280,6 +342,135 @@ export const fireWeapons: FireWeapons = (
 
   state.prevLaunch = inputs.launch;
 };
+
+/**
+ * Bombs and rockets. Bombs: CCIP (no designated point): one bomb per press of the release button;
+ * CCRP (a designated point): hold the button and the bomb goes when the solution reaches the release
+ * point (with the cross-track error inside CCRP_RELEASE_CROSS_M). Rockets: a ripple while held,
+ * alternating stations. Allocation-light (one request object per store released).
+ */
+function releaseAirToGround(shooterId: EntityId, shooter: EntityState, inputs: PilotInputs, state: WeaponsState, outRequests: ProjectileSpawnRequest[], outEvents: SimEvent[]): void {
+  if (!inputs.launch || outRequests.length >= MAX_SPAWN_REQUESTS_PER_TICK) return;
+  const kind = state.selectedWeapon;
+  if (kind === WeaponKind.Rocket) {
+    if (state.rocketCooldownSec > 0) return;
+    // Next loaded station with the selected pod, round robin.
+    const n = state.stations.length;
+    let st: WeaponStationRuntime | undefined;
+    for (let k = 0; k < n; k++) {
+      const c = state.stations[(state.nextRocketStation + k) % n]!;
+      if (c.profile.id === state.selectedStoreId && c.count > 0) {
+        st = c;
+        state.nextRocketStation = (state.nextRocketStation + k + 1) % n;
+        break;
+      }
+    }
+    if (!st) return;
+    const p = st.profile;
+    st.count -= 1;
+    state.rocketCooldownSec = Math.max(0, state.rocketCooldownSec) + p.roundIntervalSec;
+    Quat.rotate(shooter.rot, st.posBodyM, _muzzleOffsetW);
+    const disp = (p.dispersionMrad / 1000) * 2;
+    _dirBody.x = 1;
+    _dirBody.y = rngRange(state.rng, -disp, disp);
+    _dirBody.z = rngRange(state.rng, -disp, disp);
+    Vec3.normalize(_dirBody, _dirBody);
+    Quat.rotate(shooter.rot, _dirBody, _dirWorld);
+    pushStore(shooterId, shooter, st, _dirWorld.x * p.launchSpeedMps, _dirWorld.y * p.launchSpeedMps, _dirWorld.z * p.launchSpeedMps, ProjectileKind.Rocket, outRequests, outEvents, kind);
+    reselectIfEmpty(state);
+    return;
+  }
+  if (kind !== WeaponKind.Bomb) return;
+  if (state.releasedThisPress) return;
+  if (state.spiValid) {
+    // CCRP: wait for the release point.
+    if (!(state.ccrpTimeToReleaseSec <= 0 && Math.abs(state.ccrpCrossTrackM) <= CCRP_RELEASE_CROSS_M)) return;
+  }
+  const st = findStationWithStore(state.stations, state.selectedStoreId);
+  if (!st) return;
+  st.count -= 1;
+  state.releasedThisPress = true;
+  Quat.rotate(shooter.rot, st.posBodyM, _muzzleOffsetW);
+  // Ejected straight down off the rack (body -y).
+  Quat.rotate(shooter.rot, { x: 0, y: -1, z: 0 }, _dirWorld);
+  const v = st.profile.launchSpeedMps;
+  pushStore(shooterId, shooter, st, _dirWorld.x * v, _dirWorld.y * v, _dirWorld.z * v, ProjectileKind.Bomb, outRequests, outEvents, kind);
+  reselectIfEmpty(state);
+}
+
+/** CCRP releases only with the predicted impact within this of the designated point's track, m. */
+export const CCRP_RELEASE_CROSS_M = 60;
+
+function pushStore(shooterId: EntityId, shooter: EntityState, st: WeaponStationRuntime, dvx: number, dvy: number, dvz: number, kind: ProjectileKind, outRequests: ProjectileSpawnRequest[], outEvents: SimEvent[], weapon: WeaponKind): void {
+  outRequests.push({
+    kind,
+    ownerId: shooterId,
+    team: shooter.team,
+    posWorld: { x: shooter.pos.x + _muzzleOffsetW.x, y: shooter.pos.y + _muzzleOffsetW.y, z: shooter.pos.z + _muzzleOffsetW.z },
+    rotWorld: { x: shooter.rot.x, y: shooter.rot.y, z: shooter.rot.z, w: shooter.rot.w },
+    velWorld: { x: shooter.vel.x + dvx, y: shooter.vel.y + dvy, z: shooter.vel.z + dvz },
+    profile: st.profile,
+  });
+  outEvents.push({ type: 'missileLaunch', shooterId, missileId: NO_ENTITY_ID, weapon });
+}
+
+/** The gun is selected with no air target designated: it gets an air-to-ground (strafing) pipper. */
+function gunGroundSight(state: WeaponsState): boolean {
+  return state.selectedWeapon === WeaponKind.Gun && state.lockedTargetId === undefined;
+}
+
+/** Air-to-ground sight updates per second (the impact prediction integrates a whole fall). */
+export const AG_SIGHT_HZ = 40;
+const _fwdSight = { x: 0, y: 0, z: 0 };
+const _ccrp = { timeToReleaseSec: 0, crossTrackM: 0 };
+const _pred = { valid: false, impact: { x: 0, y: 0, z: 0 }, tofSec: 0 };
+
+/**
+ * The air-to-ground sight for the selected store (src/combat/agSight.ts): predicted impact, a
+ * pending designation (target key in A/G mode: the SPI goes where the pipper is), and the CCRP
+ * solution to the SPI. Runs at AG_SIGHT_HZ while an air-to-ground store is selected, and for the
+ * gun while no air target is designated (strafing pipper).
+ */
+export function updateAgSight(state: WeaponsState, shooter: EntityState, sampler: HeightSampler, densityAt: (altM: number) => number, dtSec: number): void {
+  const gun = gunGroundSight(state);
+  if (!isAirToGroundKind(state.selectedWeapon) && !gun) {
+    state.agValid = false;
+    state.designateRequest = false;
+    return;
+  }
+  state.agSightDueSec -= dtSec;
+  if (state.agSightDueSec > 0 && !state.designateRequest) return;
+  state.agSightDueSec = 1 / AG_SIGHT_HZ;
+  const st = findStationWithStore(state.stations, state.selectedStoreId) ?? state.stations.find((s) => s.profile.id === state.selectedStoreId);
+  if (!st) {
+    state.agValid = false;
+    return;
+  }
+  Quat.rotate(shooter.rot, { x: 1, y: 0, z: 0 }, _fwdSight);
+  predictImpact(st.profile, shooter.pos, shooter.vel, _fwdSight, sampler, densityAt, _pred);
+  state.agValid = _pred.valid;
+  state.agTofSec = _pred.tofSec;
+  state.agImpact.x = _pred.impact.x;
+  state.agImpact.y = _pred.impact.y;
+  state.agImpact.z = _pred.impact.z;
+  if (state.designateRequest) {
+    state.designateRequest = false;
+    if (state.agValid) {
+      state.spiValid = true;
+      state.spi.x = state.agImpact.x;
+      state.spi.y = state.agImpact.y;
+      state.spi.z = state.agImpact.z;
+    }
+  }
+  if (state.spiValid && state.agValid) {
+    ccrpSolution(state.agImpact, state.spi, shooter.vel, _ccrp);
+    state.ccrpTimeToReleaseSec = _ccrp.timeToReleaseSec;
+    state.ccrpCrossTrackM = _ccrp.crossTrackM;
+  } else {
+    state.ccrpTimeToReleaseSec = Infinity;
+    state.ccrpCrossTrackM = 0;
+  }
+}
 
 /**
  * How many flares and chaff bundles the pilot's keys release this tick: a program

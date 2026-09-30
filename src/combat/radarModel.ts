@@ -10,6 +10,7 @@ import {
   GRAVITY_MPS2,
   WarningBit,
   LockState,
+  isAirToGroundKind,
   type Vec3Like,
   type Contact,
   type SimEvent,
@@ -382,9 +383,15 @@ export const updateSensors: UpdateSensors = (
     state.lockBreakGraceRemainingSec = 0;
   }
 
+  // Air-to-ground stores: T designates the ground point under the pipper (agSight.ts) instead.
+  const airToGround = isAirToGroundKind(state.selectedWeapon);
+  if (cycleTargetEdge && airToGround) {
+    if (state.agValid) state.designateRequest = true;
+    else state.spiValid = false; // pipper off the ground: T clears the designation
+  }
   // Target designation: T steps through the non-friendly tracks nearest first (a stable order:
   // the next one further out than the current designation, wrapping round).
-  if (cycleTargetEdge) {
+  if (cycleTargetEdge && !airToGround) {
     let curRange = -1;
     for (let i = 0; i < outContacts.length; i++) if (outContacts[i]!.id === state.lockedTargetId) curRange = outContacts[i]!.rangeM;
     let next: Contact | undefined;
@@ -436,7 +443,7 @@ export const updateSensors: UpdateSensors = (
     }
   }
 
-  if (state.selectedWeapon === 'gun' || lockedEntity === undefined) {
+  if ((state.selectedWeapon !== 'ir_missile' && state.selectedWeapon !== 'radar_missile') || lockedEntity === undefined) {
     state.lockState = LockState.None;
     state.lockProgressSec = 0;
     state.lockBreakGraceRemainingSec = 0;

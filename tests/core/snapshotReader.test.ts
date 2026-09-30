@@ -9,7 +9,7 @@ function makeHud(): SnapshotHudView {
   return {
     iasMps: 123.4, tasMps: 130, mach: 0.4, altMslM: 5000, altAglM: 4500, aoaRad: 0.05, betaRad: -0.01,
     gLoad: 1.2, headingRad: 1.5, pitchRad: 0.1, rollRad: -0.2, vspeedMps: 3, fuelKg: 2000, thrustFrac: 0.6,
-    gearPos: 0, weaponIdx: 1, selectedStore: 4, selectedCount: 2, gunRounds: 180, chaff: 12, flares: 8, targetId: 7, targetRangeM: 4000, closureMps: 50, lockState: 2,
+    gearPos: 0, weaponIdx: 1, selectedStore: 4, selectedCount: 2, gunRounds: 180, chaff: 12, flares: 8, agMode: 1, ccipX: 10, ccipY: 20, ccipZ: 30, spiX: 1, spiY: 2, spiZ: 3, spiValid: 1, agTimeSec: 4.5, agCrossM: -12, targetId: 7, targetRangeM: 4000, closureMps: 50, lockState: 2,
     warningBits: 5, ilsLoc: 0.1, ilsGs: -0.1, pipperX: 10, pipperY: 20, pipperZ: 30, pipperValid: 1, tankFuelKg: 1500, serviceState: 2, serviceFuelFrac: 0.5, serviceArmFrac: 0.25, radarMode: 1, radarMaxRangeM: 200000, radarScanAzRad: 1, trackCount: 1, tracks: Float64Array.from({ length: 256 }, (_, k) => (k < 8 ? k + 1 : 0)),
   };
 }

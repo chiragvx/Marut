@@ -360,6 +360,17 @@ export interface SnapshotHudView {
   /** SnapshotHud.CHAFF / FLARES. */
   chaff: number;
   flares: number;
+  /** SnapshotHud.AG_MODE .. AG_CROSS_M (air-to-ground sight). */
+  agMode: number;
+  ccipX: number;
+  ccipY: number;
+  ccipZ: number;
+  spiX: number;
+  spiY: number;
+  spiZ: number;
+  spiValid: number;
+  agTimeSec: number;
+  agCrossM: number;
   targetId: EntityId;
   targetRangeM: number;
   closureMps: number;

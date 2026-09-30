@@ -37,8 +37,10 @@ const inputs = (over: Partial<PilotInputs> = {}): PilotInputs => ({
 /** Slot order = the Tejas's stations without the gun. */
 const SLOT = { outerL: 0, outerR: 1, midL: 2, midR: 3, innerL: 4, innerR: 5, centreline: 6 };
 
-function setup() {
-  const mission = resolveBuiltinMission('dogfight-1v1');
+function setup(airborne = false) {
+  const base = resolveBuiltinMission('dogfight-1v1');
+  // Stores leave the aircraft only in the air (weight-on-wheels release interlock).
+  const mission = airborne ? { ...base, playerStart: { pos: { x: 0, y: 3000, z: 0 }, headingRad: Math.atan2(8000, 6000), speedMps: 220 } } : base; // nose on the bandit
   const world = createWorld(buildWorldDependencies(mission));
   world.loadMission(mission);
   const id = world.getPlayerEntityId();
@@ -112,7 +114,7 @@ describe('snapshot STORES field', () => {
   });
 
   test('a fired missile leaves its pylon and flies as its own store type', () => {
-    const { world, id, player, entities } = setup();
+    const { world, id, player, entities } = setup(true);
     const before = player().stores;
     const loaded = (p: Packed) => [0, 1, 2, 3, 4, 5, 6, 7].reduce((n, k) => n + slot(p, k).count, 0);
     let missile: { stores: Packed } | undefined;

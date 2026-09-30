@@ -88,7 +88,7 @@ import { getAircraftDefinition, getLoadout, loadoutTanks, resolveLoadout, type T
 import { GroundTargetSet, addAirbaseStructures, placeGroundGroups } from '../ground';
 import { GROUND_TYPE_IDS, GroundFlag, GroundObjectiveKind, TargetStateCode } from '../contracts/ground';
 import type { LoadoutPreset } from '../contracts/aircraft';
-import { FUEL_TANKS } from '../catalog';
+import { FUEL_TANKS, WEAPONS } from '../catalog';
 import type { AutopilotAction } from '../contracts/core';
 
 const SIM_DT_SEC_LOCAL = 1 / 120; // avoid importing SIM_DT_SEC just to re-derive it; core.ts already fixes this at 1/120 (SIM_HZ)
@@ -270,7 +270,7 @@ class WorldImpl implements World {
   private readonly hudScratch: SnapshotHudView = {
     iasMps: 0, tasMps: 0, mach: 0, altMslM: 0, altAglM: 0, aoaRad: 0, betaRad: 0, gLoad: 0,
     headingRad: 0, pitchRad: 0, rollRad: 0, vspeedMps: 0, fuelKg: 0, thrustFrac: 0, gearPos: 0,
-    weaponIdx: 0, selectedStore: 0, selectedCount: 0, gunRounds: 0, chaff: 0, flares: 0, targetId: NO_ENTITY_ID, targetRangeM: 0, closureMps: 0, lockState: 0,
+    weaponIdx: 0, selectedStore: 0, selectedCount: 0, gunRounds: 0, chaff: 0, flares: 0, agMode: 0, ccipX: 0, ccipY: 0, ccipZ: 0, spiX: 0, spiY: 0, spiZ: 0, spiValid: 0, agTimeSec: 0, agCrossM: 0, targetId: NO_ENTITY_ID, targetRangeM: 0, closureMps: 0, lockState: 0,
     warningBits: 0, ilsLoc: 0, ilsGs: 0, pipperX: 0, pipperY: 0, pipperZ: 0, pipperValid: 0, tankFuelKg: -1,
     serviceState: 0, serviceFuelFrac: 0, serviceArmFrac: 0,
     radarMode: 0, radarMaxRangeM: 0, radarScanAzRad: 0, trackCount: 0, tracks: new Float64Array(MAX_SNAPSHOT_TRACKS * SNAPSHOT_TRACK_STRIDE),
@@ -1186,6 +1186,17 @@ class WorldImpl implements World {
       hud.gunRounds = rec.combat.ammoGun;
       hud.chaff = rec.combat.chaff ?? 0;
       hud.flares = rec.combat.flares ?? 0;
+      const c = rec.combat;
+      hud.agMode = c.agMode ?? 0;
+      hud.ccipX = c.agImpactWorld?.x ?? 0;
+      hud.ccipY = c.agImpactWorld?.y ?? 0;
+      hud.ccipZ = c.agImpactWorld?.z ?? 0;
+      hud.spiValid = c.spiValid ? 1 : 0;
+      hud.spiX = c.spiWorld?.x ?? 0;
+      hud.spiY = c.spiWorld?.y ?? 0;
+      hud.spiZ = c.spiWorld?.z ?? 0;
+      hud.agTimeSec = c.agTimeSec ?? 0;
+      hud.agCrossM = c.agCrossTrackM ?? 0;
       hud.targetId = rec.combat.lockedTargetId ?? NO_ENTITY_ID;
       // Range/closure to the designated target, straight from the two entity states (previously
       // hardcoded to 0, so the HUD target box always read "0M +0").
@@ -1312,8 +1323,11 @@ class WorldImpl implements World {
         const fit = loadout?.fit[st.id];
         const code = fit ? STORE_IDS.indexOf(fit.store) : -1;
         if (fit && code > 0) {
-          const count = FUEL_TANKS[fit.store] ? ((state.dropTankCount ?? 0) > 0 ? fit.count : 0) : (combat.stationCount?.(id, st.id) ?? fit.count);
-          slots.push(packStoreSlot(code, count, fit.count >= 2 ? StoreRack.TwinRail : StoreRack.Single));
+          const w = WEAPONS[fit.store];
+          // Tanks while attached; pods (rounds per store) as pods; others as stores left.
+          const count = FUEL_TANKS[fit.store] ? ((state.dropTankCount ?? 0) > 0 ? fit.count : 0) : w?.roundsPerStore ? fit.count : (combat.stationCount?.(id, st.id) ?? fit.count);
+          const rack = fit.count < 2 ? StoreRack.Single : w && (w.kind === 'ir_missile' || w.kind === 'radar_missile') ? StoreRack.TwinRail : StoreRack.MultiRack;
+          slots.push(packStoreSlot(code, count, rack));
         } else {
           slots.push(0);
         }

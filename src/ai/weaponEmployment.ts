@@ -18,6 +18,11 @@ const scratchEstimates: Record<WeaponKind, WeaponEnvelopeEstimate> = {
   gun: { weapon: WeaponKindValues.Gun, inEnvelope: false, quality: 0 },
   ir_missile: { weapon: WeaponKindValues.IrMissile, inEnvelope: false, quality: 0 },
   radar_missile: { weapon: WeaponKindValues.RadarMissile, inEnvelope: false, quality: 0 },
+  bomb: { weapon: WeaponKindValues.Bomb, inEnvelope: false, quality: 0 },
+  rocket: { weapon: WeaponKindValues.Rocket, inEnvelope: false, quality: 0 },
+  guided_bomb: { weapon: WeaponKindValues.GuidedBomb, inEnvelope: false, quality: 0 },
+  agm: { weapon: WeaponKindValues.Agm, inEnvelope: false, quality: 0 },
+  arm: { weapon: WeaponKindValues.Arm, inEnvelope: false, quality: 0 },
 };
 
 const scratchLeadPoint = { x: 0, y: 0, z: 0 };

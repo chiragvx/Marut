@@ -23,7 +23,7 @@ import type {
   SimSnapshotMessage,
   SimToMainMessage,
 } from './contracts/core';
-import type { MainToTerrainMessage, TerrainToMainMessage } from './contracts/core';
+import type { MainToTerrainMessage, SimEvent, TerrainToMainMessage } from './contracts/core';
 import type { MainToTerrainMessageExt, TerrainToMainMessageExt, AirportFlattenZone, TerrainParams } from './contracts/terrain';
 import type { AirportLayout } from './contracts/airport';
 import type { CameraState, CockpitAction, HudRenderer, SceneEnvironment, SceneRenderer, ShowcaseFrame } from './contracts/render';
@@ -367,7 +367,9 @@ function showBriefing(id: string): void {
   if (!entry) return showMissions();
   destroyCurrentScreen();
   appState = 'missionSelect';
-  const prefs = loadJson<{ difficulty?: AiDifficulty; loadout?: LoadoutSelection }>(STORAGE.missionPrefs) ?? {};
+  const prefs = loadJson<{ difficulty?: AiDifficulty; loadout?: LoadoutSelection; loadouts?: Record<string, LoadoutSelection> }>(STORAGE.missionPrefs) ?? {};
+  // Each mission remembers its own fit; the default is the mission's (a strike mission starts armed for it).
+  const missionDefault = resolveBuiltinMission(entry.id).playerStart.loadoutId;
   const difficulty: AiDifficulty = prefs.difficulty === 'rookie' || prefs.difficulty === 'ace' ? prefs.difficulty : 'veteran';
   const b = inputSystem.inputMap.data.keyboard.buttons;
   currentScreen = createBriefing(
@@ -378,12 +380,12 @@ function showBriefing(id: string): void {
       index,
       def: playerAircraft,
       difficulty,
-      loadout: prefs.loadout ?? {},
+      loadout: prefs.loadouts?.[entry.id] ?? (missionDefault ? { presetId: missionDefault } : {}),
       keys: { target: keyLabel(b.cycleTarget), launch: keyLabel(b.launch), weapon: keyLabel(b.cycleWeapon), gun: keyLabel(b.trigger) },
     },
     {
       onStart: (d, loadout) => {
-        saveJson(STORAGE.missionPrefs, { difficulty: d, loadout });
+        saveJson(STORAGE.missionPrefs, { difficulty: d, loadouts: { ...(prefs.loadouts ?? {}), [entry.id]: loadout } });
         launchFlight({ kind: 'mission', id: entry.id, difficulty: d, loadout });
       },
       onBack: showMissions,
@@ -486,8 +488,9 @@ function applyMouseSettings(enabled: boolean, sensitivity: number, invert: boole
   inputSystem.saveInputMap();
 }
 
-/** A preset or custom fit onto the mission's player start. */
+/** A preset or custom fit onto the mission's player start (no choice = the mission's own fit). */
 function withLoadout(m: Mission, sel: LoadoutSelection): Mission {
+  if (!sel.fit && !sel.presetId) return m;
   const { loadout: _l, loadoutId: _id, ...rest } = m.playerStart;
   void _l;
   void _id;
@@ -803,10 +806,11 @@ async function initWorkersAndRenderer(qualityTier: QualityTier): Promise<void> {
       for (const ev of eventsMsg.events) {
         if (ev.type === 'gunFire') statShotsFiredGun += 1;
         else if (ev.type === 'missileLaunch') {
-          statMissilesFired += 1;
+          const missile = ev.weapon !== 'bomb' && ev.weapon !== 'rocket' && ev.weapon !== 'guided_bomb';
+          if (missile) statMissilesFired += 1;
           if (ev.shooterId === playerEntityId) {
-            playerMissilesFired += 1;
-            flightOverlay?.message('Missile away');
+            if (missile) playerMissilesFired += 1;
+            if (ev.weapon !== 'rocket') flightOverlay?.message(missile ? 'Missile away' : 'Bomb away');
           }
         }
         else if (ev.type === 'hit') {
@@ -929,7 +933,14 @@ function applyDevStart(mission: Mission): Mission {
   if (v.length < 3 || v.some((n) => !Number.isFinite(n))) return mission;
   return {
     ...mission,
-    playerStart: { pos: { x: v[0]!, y: v[1]!, z: v[2]! }, headingRad: ((v[3] ?? 0) * Math.PI) / 180, speedMps: v[4] ?? 200 },
+    playerStart: {
+      ...(mission.playerStart.aircraftId ? { aircraftId: mission.playerStart.aircraftId } : {}),
+      ...(mission.playerStart.loadoutId ? { loadoutId: mission.playerStart.loadoutId } : {}),
+      ...(mission.playerStart.loadout ? { loadout: mission.playerStart.loadout } : {}),
+      pos: { x: v[0]!, y: v[1]!, z: v[2]! },
+      headingRad: ((v[3] ?? 0) * Math.PI) / 180,
+      speedMps: v[4] ?? 200,
+    },
   };
 }
 
@@ -1382,6 +1393,8 @@ async function boot(): Promise<void> {
       },
     });
   } else if (devMissionId()) {
+    // Dev aid: feed SimEvents straight to the renderer (e.g. groundImpact / groundKill to look at effects).
+    (globalThis as { __injectEvents?: (evs: SimEvent[]) => void }).__injectEvents = (evs) => renderer.ingestEvents(evs);
     // Dev aid (?mission=<id>, with ?start= / ?cam=): straight into a mission, starting as soon as it loads.
     devAutoStart = true;
     const id = devMissionId()!;

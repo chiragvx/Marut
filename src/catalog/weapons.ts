@@ -642,6 +642,105 @@ export const PL_15E: WeaponProfile = radarMissile({
   envelope: { rMaxHeadOnM: 145000, rMaxTailM: 66000, rNoEscapeM: 55000 },
 });
 
+// --- Air-to-ground stores (Tejas Mk1A integrations; public-data approximations). ---
+
+/** Shared shape of the unguided air-to-ground stores. */
+type AgFields = Omit<WeaponProfile, 'roundIntervalSec' | 'dispersionMrad' | 'motorBurnSec' | 'motorThrustN' | 'pnGain' | 'maxG' | 'proximityFuseRadiusM' | 'minLaunchRangeM' | 'damageFrac'> &
+  Partial<Pick<WeaponProfile, 'roundIntervalSec' | 'dispersionMrad' | 'motorBurnSec' | 'motorThrustN'>>;
+function agStore(p: AgFields): WeaponProfile {
+  return { roundIntervalSec: 0, dispersionMrad: 0, motorBurnSec: 0, motorThrustN: 0, pnGain: 0, maxG: 0, proximityFuseRadiusM: 0, minLaunchRangeM: 0, damageFrac: 1, ...p };
+}
+
+/**
+ * DRDO HSLD-450: 450 kg high-speed low-drag general-purpose bomb (integrated on the Tejas). ~0.4 m
+ * body, ~200 kg of explosive; released level or in a dive, from low to medium altitude.
+ */
+export const HSLD_450: WeaponProfile = agStore({
+  id: 'hsld-450',
+  name: 'HSLD-450',
+  label: 'HSLD 450',
+  short: '450',
+  kind: 'bomb',
+  carriageMassKg: 450,
+  carriageDragAreaM2: 0.07,
+  projectileMassKg: 450,
+  dragCoeff: 0.22,
+  crossSectionM2: 0.1257,
+  maxLifetimeSec: 120,
+  armDistanceM: 250,
+  launchSpeedMps: 2,
+  warhead: { explosiveKg: 200 },
+});
+
+/** DRDO HSLD-250: 250 kg high-speed low-drag bomb (~0.32 m body, ~110 kg explosive). */
+export const HSLD_250: WeaponProfile = agStore({
+  id: 'hsld-250',
+  name: 'HSLD-250',
+  label: 'HSLD 250',
+  short: '250',
+  kind: 'bomb',
+  carriageMassKg: 250,
+  carriageDragAreaM2: 0.05,
+  projectileMassKg: 250,
+  dragCoeff: 0.22,
+  crossSectionM2: 0.0804,
+  maxLifetimeSec: 120,
+  armDistanceM: 250,
+  launchSpeedMps: 2,
+  warhead: { explosiveKg: 110 },
+});
+
+/**
+ * 250 kg retarded bomb (the HSLD-250 with a ballute tail) for low-level laydown: the tail opens
+ * 0.3 s after release and the bomb falls steeply behind the aircraft, giving it time to get clear
+ * of the blast. Arms quickly (for 30-60 m releases).
+ */
+export const HSLD_250R: WeaponProfile = agStore({
+  id: 'hsld-250r',
+  name: 'HSLD-250 (retarded)',
+  label: 'HSLD 250R',
+  short: '250R',
+  kind: 'bomb',
+  carriageMassKg: 260,
+  carriageDragAreaM2: 0.06,
+  projectileMassKg: 260,
+  dragCoeff: 0.22,
+  crossSectionM2: 0.0804,
+  maxLifetimeSec: 120,
+  armDistanceM: 60,
+  launchSpeedMps: 2,
+  warhead: { explosiveKg: 110 },
+  bomb: { retardAfterSec: 0.3, retardCdA: 0.9 },
+});
+
+/**
+ * B-8M1 pod with 20 S-8 80 mm rockets (S-8KOM: shaped-charge / fragmentation, ~1.2 kg explosive).
+ * Fired in a ripple while the release button is held; ~600 m/s after a 0.7 s motor burn; a few
+ * mrad of dispersion. The pod stays on the pylon when empty.
+ */
+export const B8_S8: WeaponProfile = agStore({
+  id: 'b8m1',
+  name: 'B-8M1 rocket pod (S-8)',
+  label: 'S-8 RKT',
+  short: 'RKT',
+  kind: 'rocket',
+  roundsPerStore: 20,
+  storeShellKg: 160,
+  carriageMassKg: 11.3,
+  carriageDragAreaM2: 0.1,
+  projectileMassKg: 11.3,
+  dragCoeff: 0.35,
+  crossSectionM2: 0.005,
+  maxLifetimeSec: 20,
+  armDistanceM: 40,
+  launchSpeedMps: 30,
+  roundIntervalSec: 0.06,
+  dispersionMrad: 5,
+  motorBurnSec: 0.7,
+  motorThrustN: 9000,
+  warhead: { explosiveKg: 1.2 },
+});
+
 /** Every weapon store by catalogue id. */
 export const WEAPONS: Readonly<Record<string, WeaponProfile>> = {
   [GENERIC_GUN_PROFILE.id]: GENERIC_GUN_PROFILE,
@@ -656,6 +755,10 @@ export const WEAPONS: Readonly<Record<string, WeaponProfile>> = {
   [SD_10A.id]: SD_10A,
   [AIM_120C.id]: AIM_120C,
   [PL_15E.id]: PL_15E,
+  [HSLD_450.id]: HSLD_450,
+  [HSLD_250.id]: HSLD_250,
+  [HSLD_250R.id]: HSLD_250R,
+  [B8_S8.id]: B8_S8,
 };
 
 /** External fuel tanks: capacity, empty mass, drag area. */
@@ -677,7 +780,7 @@ export const FUEL_TANKS: Readonly<Record<string, FuelTankStore>> = {
   'tank-725l': { id: 'tank-725l', name: '725 L tank', label: '725 L', short: 'TK', capacityKg: 580, emptyMassKg: 95, dragAreaM2: 0.055 },
 };
 
-export type StoreKind = 'gun' | 'ir_missile' | 'radar_missile' | 'fuel_tank';
+export type StoreKind = WeaponKind | 'fuel_tank' | 'pod';
 
 /** The kind of a catalogue store, or undefined if the id is unknown. */
 export function storeKind(id: string): StoreKind | undefined {

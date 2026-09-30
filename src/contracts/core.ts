@@ -434,10 +434,22 @@ export const WeaponKind = {
   Gun: 'gun',
   IrMissile: 'ir_missile',
   RadarMissile: 'radar_missile',
+  /** Unguided free-fall bomb (low-drag or retarded). */
+  Bomb: 'bomb',
+  /** Unguided rockets (fired from a pod). */
+  Rocket: 'rocket',
+  /** Laser- or GPS/INS-guided bomb (may have a rocket booster, e.g. HAMMER). */
+  GuidedBomb: 'guided_bomb',
+  /** Air-to-ground missile. */
+  Agm: 'agm',
+  /** Anti-radiation missile (homes on radar emissions). */
+  Arm: 'arm',
 } as const;
 export type WeaponKind = (typeof WeaponKind)[keyof typeof WeaponKind];
-export const WeaponKindCode: Record<WeaponKind, number> = { gun: 0, ir_missile: 1, radar_missile: 2 } as const;
-export const WeaponKindByCode: readonly WeaponKind[] = ['gun', 'ir_missile', 'radar_missile'];
+export const WeaponKindCode: Record<WeaponKind, number> = { gun: 0, ir_missile: 1, radar_missile: 2, bomb: 3, rocket: 4, guided_bomb: 5, agm: 6, arm: 7 } as const;
+export const WeaponKindByCode: readonly WeaponKind[] = ['gun', 'ir_missile', 'radar_missile', 'bomb', 'rocket', 'guided_bomb', 'agm', 'arm'];
+/** Air-to-ground weapon kinds (the HUD shows ground-attack symbology when one is selected). */
+export const isAirToGroundKind = (k: WeaponKind): boolean => k === 'bomb' || k === 'rocket' || k === 'guided_bomb' || k === 'agm' || k === 'arm';
 
 /** Bitmask flags for HUD/RWR warnings. Combine with `|`; test with `&`. Stored as a plain number in SnapshotHud.WARNING_BITS (safe: all combinations fit well under 2^53). */
 export const WarningBit = {
@@ -530,6 +542,14 @@ export interface CombatStatus {
   /** Chaff bundles and flares left. Absent before the first combat update. */
   chaff?: number;
   flares?: number;
+  /** Air-to-ground sight (AgModeCode), predicted impact, the designated point (SPI), and the time
+   *  figure (CCIP: time of flight; CCRP: time to release) and cross-track error (CCRP, m, + = right). */
+  agMode?: number;
+  agImpactWorld?: Vec3Like;
+  spiValid?: boolean;
+  spiWorld?: Vec3Like;
+  agTimeSec?: number;
+  agCrossTrackM?: number;
   /**
    * World-space gun lead-computing-sight aim point for the current
    * `lockedTargetId`/selected contact, computed by src/combat's real
@@ -878,6 +898,7 @@ export const ENTITY_STRIDE = 28;
 export const STORE_IDS: readonly string[] = [
   '', 'asraam', 'r-73', 'derby', 'astra-mk1', 'tank-1200l', 'tank-725l',
   'python-5', 'derby-er', 'pl-5e', 'aim-9m', 'sd-10a', 'aim-120c', 'pl-15e',
+  'hsld-450', 'hsld-250', 'hsld-250r', 'b8m1',
 ];
 
 /** How a station carries its stores: one on the pylon, a twin missile rail, or a multiple ejector rack (bombs). */
@@ -990,8 +1011,20 @@ export const SnapshotHud = {
   /** Chaff bundles and flares left. */
   CHAFF: 44,
   FLARES: 45,
+  /** Air-to-ground sight: AgModeCode; predicted impact (CCIP) x/y/z; designated point (SPI) x/y/z and
+   *  1/0; time (CCIP time of flight / CCRP time to release, s); CCRP cross-track error, m (+ = right). */
+  AG_MODE: 46,
+  CCIP_X: 47,
+  CCIP_Y: 48,
+  CCIP_Z: 49,
+  SPI_X: 50,
+  SPI_Y: 51,
+  SPI_Z: 52,
+  SPI_VALID: 53,
+  AG_TIME_SEC: 54,
+  AG_CROSS_M: 55,
   /** Start of the player's track list: MAX_SNAPSHOT_TRACKS entries of SNAPSHOT_TRACK_STRIDE floats (SnapshotTrack). */
-  TRACKS_BASE: 48,
+  TRACKS_BASE: 64,
 } as const;
 
 /** SnapshotHud.AP_FLAGS bits. */
@@ -1042,7 +1075,10 @@ export const SnapshotTrackFlag = {
 export const RadarModeCode: Readonly<Record<RadarMode, number>> = { rws: 0, acm: 1 };
 
 /** Floats in the HUD block (fields above plus the track list). */
-export const HUD_BLOCK_FLOATS = 48 + MAX_SNAPSHOT_TRACKS * SNAPSHOT_TRACK_STRIDE;
+export const HUD_BLOCK_FLOATS = SnapshotHud.TRACKS_BASE + MAX_SNAPSHOT_TRACKS * SNAPSHOT_TRACK_STRIDE;
+
+/** SnapshotHud.AG_MODE: no air-to-ground sight; CCIP pipper (no valid solution = off the ground); CCRP (a designated point). */
+export const AgModeCode = { None: 0, Ccip: 1, Ccrp: 2 } as const;
 
 /**
  * Ground service state (SnapshotHud.SERVICE_STATE): None = not on a friendly stand/apron or not

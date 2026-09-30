@@ -17,7 +17,7 @@ import { STORE_IDS } from '../../contracts/core';
 import { PART, box, cap, circle, loft, merge, plate, range, type V3 } from './meshBuild';
 
 export interface StoreModel {
-  kind: 'missile' | 'tank';
+  kind: 'missile' | 'tank' | 'bomb' | 'pod';
   geometry: THREE.BufferGeometry;
   /** Store frame -> attach frame (origin at the rail top / pylon attach point). */
   mount: THREE.Matrix4;
@@ -161,6 +161,25 @@ const MISSILES: Record<string, MissileSpec> = {
   },
 };
 
+/** Free-fall bombs: body length/diameter, ogive nose length, and the tail (low-drag fins, or a retarded bomb's boxy ballute housing). */
+interface BombSpec {
+  len: number;
+  dia: number;
+  noseLen: number;
+  retarded: boolean;
+}
+const BOMBS: Record<string, BombSpec> = {
+  'hsld-450': { len: 3.3, dia: 0.4, noseLen: 0.9, retarded: false },
+  'hsld-250': { len: 2.7, dia: 0.32, noseLen: 0.75, retarded: false },
+  'hsld-250r': { len: 2.8, dia: 0.32, noseLen: 0.75, retarded: true },
+};
+/** Rocket pods: B-8M1 (20 x 80 mm), 2.75 m, 520 mm. */
+const PODS: Record<string, { len: number; dia: number }> = {
+  b8m1: { len: 2.75, dia: 0.52 },
+};
+/** Twin bomb carrier: the two bombs' centres either side of the pylon. */
+export const BOMB_RACK_Z = 0.23;
+
 const TANKS: Record<string, { len: number; dia: number; noseLen: number; tailLen: number }> = {
   'tank-1200l': { len: 4.0, dia: 0.72, noseLen: 1.3, tailLen: 1.1 },
   'tank-725l': { len: 3.8, dia: 0.52, noseLen: 1.1, tailLen: 1.0 },
@@ -222,6 +241,58 @@ function buildMissile(m: MissileSpec): THREE.BufferGeometry {
   return merge(parts);
 }
 
+/** Olive-drab bomb: ogive nose, parallel body with a yellow nose band, boat tail and cruciform fins (or a box tail). */
+function buildBomb(b: BombSpec): THREE.BufferGeometry {
+  const r = b.dia / 2;
+  const L = b.len;
+  const tail = 0.55 * L;
+  const radius = (d: number): number => {
+    if (d < b.noseLen) return Math.max(0.015, ogive(d, b.noseLen, r));
+    if (d > tail) return r - (r * 0.45) * Math.pow((d - tail) / (L - tail), 1.3);
+    return r;
+  };
+  const X = (d: number): number => L / 2 - d;
+  const segs: [number, number, number][] = [
+    [0, b.noseLen * 0.6, PART.bomb],
+    [b.noseLen * 0.6, b.noseLen * 0.6 + 0.06, PART.bandYellow],
+    [b.noseLen * 0.6 + 0.06, L, PART.bomb],
+  ];
+  const parts: THREE.BufferGeometry[] = segs.map(([d0, d1, part]) => {
+    const ds = d0 === 0 ? Array.from({ length: 9 }, (_, i) => d1 * Math.pow(i / 8, 1.6)) : range(d0, d1, 0.1);
+    return loft(ds.map(X).reverse(), (x) => circle(0, 0, radius(L / 2 - x)), 16, part);
+  });
+  parts.push(cap(X(L), circle(0, 0, radius(L)), 16, PART.dark, [-1, 0, 0]));
+  if (b.retarded) {
+    // The ballute housing: a square box round the tail.
+    parts.push(box([X(L - 0.25), 0, 0], [0.25, r * 1.05, r * 1.05], PART.bomb));
+  } else {
+    for (let k = 0; k < 4; k++) {
+      const phi = Math.PI / 4 + (k * Math.PI) / 2;
+      const c = Math.cos(phi);
+      const s = Math.sin(phi);
+      const map = (x: number, h: number, t: number): V3 => [x, (r * 0.6 + h) * s + t * c, (r * 0.6 + h) * c - t * s];
+      const span = r * 0.9;
+      const front = (h: number): number => X(L - 0.55) - 0.25 * (h / span);
+      const back = (h: number): number => front(h) - (0.5 - 0.2 * (h / span));
+      parts.push(plate(-0.01, span, front, back, () => 0.006, map, PART.bomb, 2, true));
+    }
+  }
+  return merge(parts);
+}
+
+/** Rocket pod: a cylinder with a rounded nose, the tube mouths a dark disc at the front. */
+function buildPod(p: { len: number; dia: number }): THREE.BufferGeometry {
+  const r = p.dia / 2;
+  const L = p.len;
+  const radius = (d: number): number => (d < 0.2 ? r * (0.82 + 0.18 * Math.sqrt(d / 0.2)) : d > L - 0.15 ? r * (1 - 0.3 * ((d - (L - 0.15)) / 0.15)) : r);
+  const xs = Array.from({ length: 21 }, (_, i) => -L / 2 + (L * i) / 20);
+  return merge([
+    loft(xs, (x) => circle(0, 0, radius(L / 2 - x)), 20, PART.pylon),
+    cap(L / 2, circle(0, 0, r * 0.82), 20, PART.dark, [1, 0, 0]),
+    cap(-L / 2, circle(0, 0, r * 0.7), 20, PART.dark, [-1, 0, 0]),
+  ]);
+}
+
 function buildTank(t: { len: number; dia: number; noseLen: number; tailLen: number }): THREE.BufferGeometry {
   const r = t.dia / 2;
   const L = t.len;
@@ -274,6 +345,10 @@ export function buildStoreModels(): StoreModels {
     if (m) return { kind: 'missile', geometry: buildMissile(m), mount: new THREE.Matrix4().makeTranslation(0.25, -(RAIL_DEPTH + 0.005 + m.dia / 2), 0) };
     const t = TANKS[id];
     if (t) return { kind: 'tank', geometry: buildTank(t), mount: new THREE.Matrix4().makeTranslation(0, -(0.03 + t.dia / 2), 0) };
+    const b = BOMBS[id];
+    if (b) return { kind: 'bomb', geometry: buildBomb(b), mount: new THREE.Matrix4().makeTranslation(0, -(0.05 + b.dia / 2), 0) };
+    const p = PODS[id];
+    if (p) return { kind: 'pod', geometry: buildPod(p), mount: new THREE.Matrix4().makeTranslation(0.1, -(0.04 + p.dia / 2), 0) };
     return undefined;
   });
   return { byCode, rail: buildRail(), twinRail: buildTwinRail() };
@@ -281,6 +356,6 @@ export function buildStoreModels(): StoreModels {
 
 /** Length and diameter of a store by id (for tests). */
 export function storeDimensions(id: string): { len: number; dia: number } | undefined {
-  const s = MISSILES[id] ?? TANKS[id];
+  const s = MISSILES[id] ?? TANKS[id] ?? BOMBS[id] ?? PODS[id];
   return s ? { len: s.len, dia: s.dia } : undefined;
 }

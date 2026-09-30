@@ -35,6 +35,7 @@ import {
   computeStoresLoad,
   countermeasureRelease,
   combatRand01,
+  updateAgSight,
   createDecoyPool,
   launchDecoy,
   stepDecoy,
@@ -81,7 +82,7 @@ function loadoutFor(defId: string | undefined, fit?: LoadoutPreset): WeaponsLoad
       const fit = preset.fit[st.id];
       const profile = fit ? WEAPONS[fit.store] : undefined;
       if (!fit || !profile || fit.count <= 0) continue;
-      stations.push({ hardpointId: st.id, posBodyM: st.posBodyM, weapon: profile.kind, maxCount: fit.count, profile });
+      stations.push({ hardpointId: st.id, posBodyM: st.posBodyM, weapon: profile.kind, maxCount: fit.count * (profile.roundsPerStore ?? 1), profile });
     }
   } else {
     stations.push({ hardpointId: 'gun', posBodyM: { x: 3.5, y: -0.2, z: 0.3 }, weapon: 'gun', maxCount: GUN_MAX_AMMO_ROUNDS });
@@ -330,6 +331,7 @@ export function createCombatAdapter(): CombatPort & CombatPortWithContacts & Com
         );
         for (const ev of sensorEventsScratch) eventsOut.push(ev);
 
+        updateAgSight(state, observer, ctx.sampler, isaDensityKgM3, dtSec);
         writeCombatStatus(state, mustGetCombatStatus(ctx, observer.id));
 
         const lockedTarget = state.lockedTargetId !== undefined ? findDetectable(allEntities, state.lockedTargetId) : undefined;

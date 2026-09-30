@@ -69,6 +69,13 @@ export interface Avionics {
   gunRounds: number;
   chaff: number;
   flares: number;
+  /** Air-to-ground sight (SnapshotHud.AG_*): mode, predicted impact, designated point, time, cross-track error. */
+  agMode: number;
+  ccip: Vec3Like;
+  spi: Vec3Like;
+  spiValid: boolean;
+  agTimeSec: number;
+  agCrossM: number;
   targetId: number;
   targetRangeM: number;
   closureMps: number;
@@ -95,7 +102,7 @@ export function createAvionics(): Avionics {
     nhPct: 0, nlPct: 0, ftitC: 0, nozzlePct: 0, oilPsi: 0, ffKgH: 0, ab: 0,
     fuelKg: 0, tankKg: -1, totalFuelKg: 0, enduranceMin: 0,
     gearPos: 1, gearDownCmd: true, onGround: true, airbrake: false, warnings: 0,
-    weaponIdx: 0, selectedStore: 0, selectedCount: 0, gunRounds: 0, chaff: 0, flares: 0, targetId: -1, targetRangeM: 0, closureMps: 0, lockState: 0, radarMode: 0, radarMaxRangeM: 0, radarScanAzRad: 0, trackCount: 0,
+    weaponIdx: 0, selectedStore: 0, selectedCount: 0, gunRounds: 0, chaff: 0, flares: 0, agMode: 0, ccip: { x: 0, y: 0, z: 0 }, spi: { x: 0, y: 0, z: 0 }, spiValid: false, agTimeSec: 0, agCrossM: 0, targetId: -1, targetRangeM: 0, closureMps: 0, lockState: 0, radarMode: 0, radarMaxRangeM: 0, radarScanAzRad: 0, trackCount: 0,
     apFlags: 0, apHdgDeg: 0, apAltFt: 0, apVsFpm: 0, apSpdKt: 0, ilsLoc: 0, ilsGs: 0,
   };
 }
@@ -264,6 +271,16 @@ export function updateAvionics(av: Avionics, st: AvionicsState, f: Readonly<Cock
   av.gunRounds = h[SnapshotHud.GUN_ROUNDS] ?? 0;
   av.chaff = h[SnapshotHud.CHAFF] ?? 0;
   av.flares = h[SnapshotHud.FLARES] ?? 0;
+  av.agMode = h[SnapshotHud.AG_MODE] ?? 0;
+  av.ccip.x = h[SnapshotHud.CCIP_X] ?? 0;
+  av.ccip.y = h[SnapshotHud.CCIP_Y] ?? 0;
+  av.ccip.z = h[SnapshotHud.CCIP_Z] ?? 0;
+  av.spi.x = h[SnapshotHud.SPI_X] ?? 0;
+  av.spi.y = h[SnapshotHud.SPI_Y] ?? 0;
+  av.spi.z = h[SnapshotHud.SPI_Z] ?? 0;
+  av.spiValid = (h[SnapshotHud.SPI_VALID] ?? 0) > 0.5;
+  av.agTimeSec = h[SnapshotHud.AG_TIME_SEC] ?? 0;
+  av.agCrossM = h[SnapshotHud.AG_CROSS_M] ?? 0;
   av.targetId = h[SnapshotHud.TARGET_ID] ?? -1;
   av.targetRangeM = h[SnapshotHud.TARGET_RANGE_M] ?? 0;
   av.closureMps = h[SnapshotHud.CLOSURE_MPS] ?? 0;

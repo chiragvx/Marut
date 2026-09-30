@@ -287,6 +287,8 @@ export function createEffectsSystem(root: THREE.Object3D): EffectsSystem {
           }
           if (ev.kind === 'chaff') spawnInPool(chaffPool, ev.pos, CHAFF_VISUAL_LIFE_SEC, 7);
         } else if (ev.type === 'missileLaunch') {
+          // Bombs fall without a smoke trail.
+          if (ev.weapon === 'bomb' || ev.weapon === 'guided_bomb') continue;
           let emitter = emitters.find((e) => e.missileId === ev.missileId);
           if (!emitter) {
             if (emitters.length < MAX_SMOKE_EMITTERS) {

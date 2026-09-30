@@ -68,7 +68,7 @@ export const resolveProjectileHit: ResolveProjectileHit = (
     if (u < pk) damageFrac = 1;
   }
 
-  const weapon = kind === ProjectileKind.Bullet ? WeaponKind.Gun : kind === ProjectileKind.IrMissile ? WeaponKind.IrMissile : WeaponKind.RadarMissile;
+  const weapon: WeaponKind = kind === ProjectileKind.Bullet ? WeaponKind.Gun : kind;
   const applyResult = applyHit(weapon, damageFrac, targetState, targetDamage, rng);
 
   const impact = result.impactPos ?? targetState.pos;

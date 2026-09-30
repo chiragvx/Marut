@@ -346,6 +346,11 @@ export const WEAPON_DISPLAY_LABEL: Readonly<Record<WeaponKind, string>> = {
   gun: 'GUN',
   ir_missile: 'IR',
   radar_missile: 'RDR',
+  bomb: 'BOMB',
+  rocket: 'RKT',
+  guided_bomb: 'GBU',
+  agm: 'AGM',
+  arm: 'ARM',
 } as const;
 
 // -----------------------------------------------------------------------------

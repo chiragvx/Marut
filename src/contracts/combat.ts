@@ -322,6 +322,13 @@ export interface WeaponProfile {
   lethality?: MissileLethality;
   /** Explosive charge, for blast damage on the ground (contracts/ground.ts). Absent = no blast (gun rounds). */
   warhead?: WarheadProfile;
+  /** Stores that carry several rounds (a rocket pod): rounds per store. The fit counts stores; the
+   *  station fires rounds. `carriageMassKg` is then per round, `carriageDragAreaM2` per store, and
+   *  `storeShellKg` the empty store's mass (it stays on the pylon). */
+  roundsPerStore?: number;
+  storeShellKg?: number;
+  /** Free-fall bombs: a retarding tail (ballute) that opens `retardAfterSec` after release and adds `retardCdA` (Cd x area, m^2) of drag. */
+  bomb?: { retardAfterSec: number; retardCdA: number };
   /** Published/validated launch envelope at ~10 km, launcher at Mach 0.9, non-manoeuvring target (m). For the AI and HUD cues. */
   envelope?: { rMaxHeadOnM: number; rMaxTailM: number; rNoEscapeM: number };
 }
@@ -498,6 +505,24 @@ export interface WeaponsState {
   prevChaff: boolean;
   flareRepeatSec: number;
   chaffRepeatSec: number;
+  /** Air-to-ground sight (src/combat/agSight.ts): the selected store's predicted impact (CCIP) and time of flight. */
+  agValid: boolean;
+  agImpact: Vec3Like;
+  agTofSec: number;
+  /** Designated ground point (SPI) and the CCRP solution to it. */
+  spiValid: boolean;
+  spi: Vec3Like;
+  ccrpTimeToReleaseSec: number;
+  ccrpCrossTrackM: number;
+  /** The target key was pressed with an air-to-ground store selected: designate at the next sight update. */
+  designateRequest: boolean;
+  /** Seconds until the next sight update (it runs at AG_SIGHT_HZ). */
+  agSightDueSec: number;
+  /** Release button: a bomb already released during this press (CCIP: one per press; CCRP: one on reaching the release point). */
+  releasedThisPress: boolean;
+  /** Rockets: seconds until the next round of the ripple, and which station fires next. */
+  rocketCooldownSec: number;
+  nextRocketStation: number;
   /**
    * World-space gun lead-computing-sight aim point against `lockedTargetId`
    * (or the currently-selected contact, if the pilot has cycled a target
@@ -676,6 +701,11 @@ export const ProjectileKind = {
   Bullet: 'bullet',
   IrMissile: 'ir_missile',
   RadarMissile: 'radar_missile',
+  Bomb: 'bomb',
+  Rocket: 'rocket',
+  GuidedBomb: 'guided_bomb',
+  Agm: 'agm',
+  Arm: 'arm',
 } as const;
 export type ProjectileKind = (typeof ProjectileKind)[keyof typeof ProjectileKind];
 
