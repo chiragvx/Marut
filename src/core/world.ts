@@ -127,6 +127,8 @@ const PLAYER_DEFAULT_AIRCRAFT_ID = 'tejas-mk1a';
 /** Ground service: empty-to-full refuelling time and full re-arming time, s (compressed from real life). */
 const REFUEL_FULL_SEC = 40;
 const REARM_SEC = 20;
+/** Above this height (m, reference point above the ground) no airframe hard point can reach the ground: skip the per-point terrain samples. */
+const AIRFRAME_CONTACT_CHECK_AGL_M = 7;
 /** How close to a parking spot counts as "on the stand", m. */
 const SERVICE_SPOT_RADIUS_M = 15;
 
@@ -817,6 +819,13 @@ class WorldImpl implements World {
         if (damage.structurePct > 0 && rec.telemetry.altAglM < TERRAIN_IMPACT_PENETRATION_M) {
           damage.structurePct = 0;
         }
+        // The airframe itself touching the ground (belly, nose, tail, a wing tip...) is a crash:
+        // only the wheels may carry the aircraft. Before this, nothing stopped a gear-up or
+        // banked-over jet sinking metres into the ground (the fallback above only fires at
+        // TERRAIN_IMPACT_PENETRATION_M below the centre of gravity).
+        if (damage.structurePct > 0 && this.airframeTouchesGround(state, rec.aircraftDefId, rec.telemetry.altAglM)) {
+          damage.structurePct = 0;
+        }
         // Water is a surface to the sampler (so gear, AI and radar all see it) but never a
         // runway: any contact with it, gear or not, is a crash.
         if (damage.structurePct > 0 && onGroundNow && this.deps.sampler.isWaterAt?.(state.pos.x, state.pos.z)) {
@@ -856,6 +865,22 @@ class WorldImpl implements World {
       }
     }
   }
+
+  /** Whether any of the aircraft's airframe hard points (AircraftDefinition.airframeContactPointsBodyM) is at or below the ground. */
+  private airframeTouchesGround(state: EntityState, aircraftDefId: string, altAglM: number): boolean {
+    const points = getAircraftDefinition(aircraftDefId)?.airframeContactPointsBodyM;
+    // No point is further than ~6.5 m from the reference point: skip the terrain samples when clear.
+    if (!points || altAglM > AIRFRAME_CONTACT_CHECK_AGL_M) return false;
+    const p = this.contactScratch;
+    for (const b of points) {
+      Quat.rotate(state.rot, b, p);
+      const x = state.pos.x + p.x;
+      const z = state.pos.z + p.z;
+      if (state.pos.y + p.y <= this.deps.sampler.heightAt(x, z)) return true;
+    }
+    return false;
+  }
+  private readonly contactScratch: Vec3Like = { x: 0, y: 0, z: 0 };
 
   /**
    * Refuel and re-arm the player while stopped (on its wheels, < 1 m/s, throttle idle) on a stand or

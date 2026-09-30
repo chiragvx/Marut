@@ -137,6 +137,40 @@ export const signature: AircraftSignature = { rcsNoseOnM2: 2.0, rcsBroadsideM2: 
 // land nose-high without sitting back on its tail. (They were 0.05 m behind it, which put the
 // wheels AHEAD of the centre of gravity at any landing attitude over ~3 deg: every nose-high
 // touchdown tipped over backwards, and the nearly unloaded nose wheel could barely steer.)
+/**
+ * Airframe hard points (AircraftDefinition.airframeContactPointsBodyM), taken off the exterior
+ * model (src/render/aircraftModels/tejasModel.ts; tests/render/tejasModel.test.ts keeps them on
+ * its skin). Parked on its wheels the belly clears the ground by ~0.9 m; on the main wheels the
+ * nozzle touches at ~14 deg nose-up, a wing tip at ~28 deg of bank.
+ */
+export const airframeContactPoints: readonly Vec3Like[] = [
+  // Radome tip and the belly, nose to tail (centreline).
+  { x: 7.5, y: -0.24, z: 0 },
+  { x: 6.5, y: -0.49, z: 0 },
+  { x: 4.5, y: -0.57, z: 0 },
+  { x: 2.5, y: -0.6, z: 0 },
+  { x: 0, y: -0.67, z: 0 },
+  { x: -2, y: -0.69, z: 0 },
+  { x: -4, y: -0.6, z: 0 },
+  { x: -5.5, y: -0.45, z: 0 },
+  // Intake undersides.
+  { x: 1.5, y: -0.72, z: -0.75 },
+  { x: 1.5, y: -0.72, z: 0.75 },
+  { x: -1, y: -0.68, z: -0.6 },
+  { x: -1, y: -0.68, z: 0.6 },
+  // Wing tips and trailing edge.
+  { x: -3.12, y: -0.04, z: -4.1 },
+  { x: -3.12, y: -0.04, z: 4.1 },
+  { x: -3.6, y: -0.02, z: -3.0 },
+  { x: -3.6, y: -0.02, z: 3.0 },
+  { x: -3.95, y: 0.0, z: -1.6 },
+  { x: -3.95, y: 0.0, z: 1.6 },
+  // Top: canopy, spine, fin tip (inverted or rolled over).
+  { x: 3.55, y: 1.1, z: 0 },
+  { x: -1.5, y: 0.87, z: 0 },
+  { x: -5.55, y: 2.77, z: 0 },
+];
+
 export const gear: readonly GearDefinition[] = [
   {
     id: 'nose',

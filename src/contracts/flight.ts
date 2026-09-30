@@ -216,8 +216,34 @@ export const NWS_MIN_AUTHORITY_FRAC = 0.2;
  */
 export const NWS_MAX_LATERAL_ACCEL_MPS2 = 2.2;
 
-/** Lateral (cornering) stiffness gain, N per (m/s) of lateral slip velocity, used by the gear friction model before saturating at the leg's side-grip limit. */
-export const GEAR_LATERAL_STIFFNESS_N_PER_MPS = 50000;
+/**
+ * Tyre side force (landingGear.ts), a fraction of the leg's normal force set by the slip angle (the
+ * angle between where the wheel points and where it is going): it builds linearly to the peak
+ * TYRE_LATERAL_FRICTION_COEFFICIENT at TYRE_PEAK_SLIP_ANGLE_RAD, then falls to the sliding value
+ * by TYRE_FULL_SLIDE_SLIP_ANGLE_RAD, like a real tyre's cornering curve.
+ *
+ * It used to be a fixed stiffness per unit sideways speed, the same for every wheel whatever its
+ * load. The lightly loaded nose wheel, 3.7 m ahead of the centre of gravity, then out-gripped the
+ * mains 0.6 m behind it, so the jet steered itself off the runway at speed. With the real ~1.7 m
+ * gear height, the tyre side forces then rolled it over. A load-proportional force keeps each
+ * wheel's pull in step with the weight on it.
+ */
+export const TYRE_PEAK_SLIP_ANGLE_RAD = 0.1;
+export const TYRE_FULL_SLIDE_SLIP_ANGLE_RAD = 0.35;
+/** Sliding tyre side friction (fully skidding sideways), below the ~0.65 g the jet tips over at. */
+export const TYRE_SLIDING_LATERAL_FRICTION_COEFFICIENT = 0.5;
+/** Slip angle uses at least this rolling speed, m/s, so a parked or creeping wheel still holds (grip without a speed singularity). */
+export const TYRE_SLIP_MIN_ROLL_SPEED_MPS = 1;
+
+/**
+ * The nose wheel castors at speed, as on real jets (nose-wheel steering is a taxi aid): its side
+ * force fades from full at NOSEWHEEL_CASTOR_START_MPS to NOSEWHEEL_CASTOR_SIDE_FORCE_FRAC by
+ * NOSEWHEEL_CASTOR_FULL_MPS, leaving the main wheels, behind the centre of gravity, to keep the
+ * jet tracking straight on its take-off and landing runs. Steering there is by rudder.
+ */
+export const NOSEWHEEL_CASTOR_START_MPS = 15;
+export const NOSEWHEEL_CASTOR_FULL_MPS = 40;
+export const NOSEWHEEL_CASTOR_SIDE_FORCE_FRAC = 0.2;
 
 /**
  * Target pitch rate, rad/s, full aft stick commands during the on-ground rotation law (used
@@ -254,3 +280,20 @@ export const GROUND_DEROTATION_RATE_RAD_S = 0.0698;
 export const GROUND_DEROTATION_END_RAD = 0.0175;
 export const GROUND_DEROTATION_FADE_RAD = 0.0524;
 export const GROUND_DEROTATION_STICK_DEADBAND = 0.3;
+
+/**
+ * Ground law tail-strike protection. On the main wheels the nozzle touches the runway at ~14 deg
+ * nose-up, less with the struts compressed by a firm landing, and the airframe touching the ground
+ * is a crash. So on the wheels, back stick cannot hold the nose above ~11 deg:
+ * - the pitch-rate command is held to GROUND_PITCH_LIMIT_GAIN_PER_S * (limit - pitch attitude);
+ * - above (limit - GROUND_PITCH_LIMIT_ONSET_RAD) the elevons are pushed nose-down directly, by
+ *   GROUND_PITCH_LIMIT_ELEVON_PER_RAD per rad over plus GROUND_PITCH_LIMIT_ELEVON_PER_RAD_S per
+ *   rad/s of nose-up rate. The rate law alone was too weak against the unstable airframe's pitch-up
+ *   at landing speeds: the nose kept rising ~2 deg/s into the runway.
+ * Take-off rotation lifts off at ~10.5 deg.
+ */
+export const GROUND_PITCH_LIMIT_RAD = 0.2007;
+export const GROUND_PITCH_LIMIT_GAIN_PER_S = 2.0;
+export const GROUND_PITCH_LIMIT_ONSET_RAD = 0.035;
+export const GROUND_PITCH_LIMIT_ELEVON_PER_RAD = 8;
+export const GROUND_PITCH_LIMIT_ELEVON_PER_RAD_S = 1.5;

@@ -4,7 +4,7 @@ import { buildTejasModel, INTAKE_STATION, NOSE_TIP_X, NOZZLE_EXIT_X, PYLONS, win
 import { nozzleTarget, slatDroopTarget } from '../../src/render/meshAircraftRenderer';
 import { buildStoreModels, storeDimensions } from '../../src/render/aircraftModels/stores';
 import { STORE_IDS } from '../../src/contracts/core';
-import { gear, stations, wingAreaM2 as dataWingArea, wingSpanM } from '../../src/aircraft/tejasGeometry';
+import { airframeContactPoints, gear, stations, wingAreaM2 as dataWingArea, wingSpanM } from '../../src/aircraft/tejasGeometry';
 
 const model = buildTejasModel();
 const part = (name: string): ArticulatedPart => model.parts.find((p) => p.name === name)!;
@@ -116,6 +116,34 @@ describe('tejasModel: matches src/aircraft', () => {
     }
     const l = stations.find((s) => s.id === 'intake-pod')!;
     expect([l.posBodyM.x, l.posBodyM.y, l.posBodyM.z]).toEqual(INTAKE_STATION);
+  });
+});
+
+describe('tejasModel: airframe contact points (ground-contact crash, src/core/world.ts)', () => {
+  // The skin: the body plus the control surfaces at rest (the elevons carry the wing's trailing edge).
+  const skin = [model.body, ...model.parts.filter((q) => q.driver !== 'gear').map((q) => q.geometry)].map((g) => g.getAttribute('position'));
+  const nearest = (q: { x: number; y: number; z: number }): number => {
+    let best = Infinity;
+    for (const p of skin) for (let i = 0; i < p.count; i++) best = Math.min(best, Math.hypot(p.getX(i) - q.x, p.getY(i) - q.y, p.getZ(i) - q.z));
+    return best;
+  };
+
+  it('each lies on the model skin', () => {
+    for (const q of airframeContactPoints) expect(nearest(q), `${q.x},${q.y},${q.z}`).toBeLessThan(0.3);
+  });
+
+  it('parked, none is near the ground; the tail and wing tips touch at the real angles', () => {
+    const groundY = gear[0]!.posBodyM.y + 0.08;
+    const main = gear.find((g) => g.id === 'mainRight')!.posBodyM;
+    expect(Math.min(...airframeContactPoints.map((q) => q.y)) - groundY).toBeGreaterThan(0.8);
+    // Tail-strike angle on the main wheels: the lowest aft point's rise over its run behind them.
+    const tail = airframeContactPoints.reduce((a, b) => (Math.atan2(b.y - groundY, main.x - b.x) < Math.atan2(a.y - groundY, main.x - a.x) && b.x < main.x ? b : a));
+    const tailDeg = (Math.atan2(tail.y - groundY, main.x - tail.x) * 180) / Math.PI;
+    expect(tailDeg).toBeGreaterThan(13);
+    expect(tailDeg).toBeLessThan(16);
+    const tip = airframeContactPoints.reduce((a, b) => (b.z > a.z ? b : a));
+    const tipDeg = (Math.atan2(tip.y - groundY, tip.z - main.z) * 180) / Math.PI;
+    expect(tipDeg).toBeGreaterThan(24);
   });
 });
 

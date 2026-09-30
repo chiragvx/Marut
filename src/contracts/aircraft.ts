@@ -286,4 +286,10 @@ export interface AircraftDefinition {
   engine: EngineTables;
   gear: readonly GearDefinition[];
   fcsLimits: FcsLimits;
+  /**
+   * Hard points on the airframe's skin, body frame, m: belly, nose, nozzle, wing tips and trailing
+   * edge, fin tip, canopy. Any of them touching the ground is a crash (src/core/world.ts); only the
+   * wheels may touch it. Optional: without them, only the terrain-impact fallback applies.
+   */
+  airframeContactPointsBodyM?: readonly Vec3Like[];
 }

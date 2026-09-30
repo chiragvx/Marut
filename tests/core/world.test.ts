@@ -389,15 +389,27 @@ describe('World', () => {
       expect(world.getEntityState(playerId)!.pos).toEqual(posAtCrash); // frozen, not still falling
     });
 
-    it('a small negative altAglM (e.g. gear-compression slop) never triggers it', () => {
+    it('sitting low (gear-compression slop) with the belly still clear never triggers it', () => {
+      // The Tejas belly is ~0.7 m below its reference point: at 1 m up it just clears the ground.
       const world = createWorld(baseDeps(makeFallingFlightModel()));
-      world.loadMission({ ...minimalMission(), playerStart: { pos: { x: 0, y: -1, z: 0 }, headingRad: 0, speedMps: 0 } });
+      world.loadMission({ ...minimalMission(), playerStart: { pos: { x: 0, y: 1, z: 0 }, headingRad: 0, speedMps: 0 } });
       const playerId = world.getPlayerEntityId();
 
       for (let i = 0; i < 60; i++) world.stepOnce();
 
       expect(world.getEntityState(playerId)?.alive).toBe(true);
       expect(world.getDamageState(playerId)?.structurePct).toBe(1);
+    });
+
+    it('the airframe touching the ground (belly, gear up) is a crash, well before the deep fallback', () => {
+      const world = createWorld(baseDeps(makeFallingFlightModel()));
+      world.loadMission({ ...minimalMission(), playerStart: { pos: { x: 0, y: 0.5, z: 0 }, headingRad: 0, speedMps: 0 } });
+      const playerId = world.getPlayerEntityId();
+
+      world.stepOnce();
+
+      expect(world.getEntityState(playerId)?.alive).toBe(false);
+      expect(world.getDamageState(playerId)?.structurePct).toBe(0);
     });
   });
 });

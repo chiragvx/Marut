@@ -65,7 +65,9 @@ describe('ground handling', () => {
 
   test('the tyres grip: full steering at taxi speed turns without sliding', () => {
     const r = steer(6, 1);
-    expect(r.turnedDeg).toBeGreaterThan(30);
+    // ~30 deg in 2 s. The nose tyre's side grip follows its (light) load, so it steers with a few
+    // degrees of slip angle, a little wider than the old fixed-stiffness tyres (33 deg).
+    expect(r.turnedDeg).toBeGreaterThan(27);
     expect(r.slideDeg).toBeLessThan(10);
   });
 

@@ -6,14 +6,21 @@
  * Allocation-free: all scratch Vec3s are module-level, reused every call.
  */
 import type { EntityState, PilotInputs, Vec3Like, QuatLike } from '../contracts/core';
+import { EntityFlag } from '../contracts/core';
 import type { GearDefinition } from '../contracts/aircraft';
 import type { Environment } from '../contracts/flight';
 import {
   GEAR_CONTACT_GEARPOS_THRESHOLD,
   ROLLING_RESISTANCE_COEFFICIENT,
   GEAR_HARD_STOP_STIFFNESS_MULTIPLIER,
-  GEAR_LATERAL_STIFFNESS_N_PER_MPS,
   TYRE_LATERAL_FRICTION_COEFFICIENT,
+  TYRE_SLIDING_LATERAL_FRICTION_COEFFICIENT,
+  TYRE_PEAK_SLIP_ANGLE_RAD,
+  TYRE_FULL_SLIDE_SLIP_ANGLE_RAD,
+  TYRE_SLIP_MIN_ROLL_SPEED_MPS,
+  NOSEWHEEL_CASTOR_START_MPS,
+  NOSEWHEEL_CASTOR_FULL_MPS,
+  NOSEWHEEL_CASTOR_SIDE_FORCE_FRAC,
   NWS_FULL_AUTHORITY_BELOW_MPS,
   NWS_MIN_AUTHORITY_ABOVE_MPS,
   NWS_MAX_LATERAL_ACCEL_MPS2,
@@ -54,6 +61,14 @@ function rotateAroundWorldY(v: Readonly<Vec3Like>, angleRad: number, out: Vec3Li
   out.y = v.y;
   out.z = x * s + z * c;
   return out;
+}
+
+/** Tyre side friction coefficient at a slip angle, rad: linear to the peak, then falling to the sliding value. */
+export function tyreSideFrictionCoef(slipRad: number): number {
+  const a = Math.abs(slipRad);
+  if (a <= TYRE_PEAK_SLIP_ANGLE_RAD) return (TYRE_LATERAL_FRICTION_COEFFICIENT * a) / TYRE_PEAK_SLIP_ANGLE_RAD;
+  const t = clamp((a - TYRE_PEAK_SLIP_ANGLE_RAD) / (TYRE_FULL_SLIDE_SLIP_ANGLE_RAD - TYRE_PEAK_SLIP_ANGLE_RAD), 0, 1);
+  return lerp(TYRE_LATERAL_FRICTION_COEFFICIENT, TYRE_SLIDING_LATERAL_FRICTION_COEFFICIENT, t);
 }
 
 /** Nosewheel steering authority (0..1 of the full angle) at a ground speed, m/s. */
@@ -128,8 +143,12 @@ export function computeGearLeg(
 
   const longCoef = legDef.brakeCapable ? lerp(ROLLING_RESISTANCE_COEFFICIENT, legDef.kineticFrictionCoefficient, inputs.brakes) : ROLLING_RESISTANCE_COEFFICIENT;
   const Flong = Math.abs(vRoll) < 1e-4 ? 0 : -sign(vRoll) * longCoef * normalForceMag;
-  const latLimit = TYRE_LATERAL_FRICTION_COEFFICIENT * normalForceMag;
-  const Flat = -clamp(vLat * GEAR_LATERAL_STIFFNESS_N_PER_MPS, -latLimit, latLimit);
+  const slipRad = Math.atan2(Math.abs(vLat), Math.max(Math.abs(vRoll), TYRE_SLIP_MIN_ROLL_SPEED_MPS));
+  let Flat = -sign(vLat) * tyreSideFrictionCoef(slipRad) * normalForceMag;
+  if (legDef.steerable) {
+    const gs = Math.hypot(scratchPointVelWorld.x, scratchPointVelWorld.z);
+    Flat *= lerp(1, NOSEWHEEL_CASTOR_SIDE_FORCE_FRAC, clamp((gs - NOSEWHEEL_CASTOR_START_MPS) / (NOSEWHEEL_CASTOR_FULL_MPS - NOSEWHEEL_CASTOR_START_MPS), 0, 1));
+  }
 
   Vec3.scale(scratchRollDirWorld, Flong, scratchFrictionForceWorld);
   Vec3.addScaled(scratchFrictionForceWorld, scratchLateralDirWorld, Flat, scratchFrictionForceWorld);
@@ -147,8 +166,13 @@ export function computeGearLeg(
  * Moves `out.gearPos` toward `inputs.gearDown ? 1 : 0` at a fixed rate,
  * EXCEPT `damage.gearHealthPct <= 0` forces it toward 0 regardless of
  * `inputs.gearDown` (4.8).
+ *
+ * Weight-on-wheels interlock: while any wheel is carrying weight (`EntityFlag.OnGround`), the gear
+ * stays locked down whatever the lever says, as on the real jet. A lever raised on the ground
+ * retracts the gear once the aircraft is airborne.
  */
 export function stepGearPos(out: EntityState, inputs: PilotInputs, gearHealthPct: number, dtSub: number): void {
-  const target = gearHealthPct <= 0 ? 0 : inputs.gearDown ? 1 : 0;
+  const weightOnWheels = (out.flags & EntityFlag.OnGround) !== 0;
+  const target = gearHealthPct <= 0 ? 0 : inputs.gearDown || weightOnWheels ? 1 : 0;
   out.gearPos = clamp01(rateLimitStep(out.gearPos, target, GEAR_TRAVEL_RATE_PER_SEC, dtSub));
 }

@@ -19,6 +19,11 @@ import {
   GROUND_DEROTATION_RATE_RAD_S,
   GROUND_DEROTATION_END_RAD,
   GROUND_DEROTATION_FADE_RAD,
+  GROUND_PITCH_LIMIT_RAD,
+  GROUND_PITCH_LIMIT_GAIN_PER_S,
+  GROUND_PITCH_LIMIT_ONSET_RAD,
+  GROUND_PITCH_LIMIT_ELEVON_PER_RAD,
+  GROUND_PITCH_LIMIT_ELEVON_PER_RAD_S,
   GROUND_DEROTATION_STICK_DEADBAND,
 } from '../contracts/flight';
 import { Quat, clamp, lerp, rateLimitStep, bodyRateP, bodyRateQ, bodyRateR } from '../math';
@@ -746,6 +751,7 @@ export function stepFcs(
     const pitchAttRad = Math.asin(clamp(scratchBodyAxis.y, -1, 1));
     const released = 1 - Math.min(1, Math.abs(pitchStickShaped) / GROUND_DEROTATION_STICK_DEADBAND);
     qCmdGround -= GROUND_DEROTATION_RATE_RAD_S * released * clamp((pitchAttRad - GROUND_DEROTATION_END_RAD) / GROUND_DEROTATION_FADE_RAD, 0, 1);
+    qCmdGround = Math.min(qCmdGround, GROUND_PITCH_LIMIT_GAIN_PER_S * (GROUND_PITCH_LIMIT_RAD - pitchAttRad));
     if (!inputs.alphaLimiterDisabled && alphaAnticipated > fcsLimits.maxAlphaRad) {
       const overshootRad = alphaAnticipated - fcsLimits.maxAlphaRad;
       const blend = clamp(overshootRad / ALPHA_LIMIT_BLEND_RAD, 0, 1);
@@ -758,6 +764,14 @@ export function stepFcs(
     // q overshooting the 10deg/s target by 3x+ (past 30-40deg/s) while STILL on the ground and
     // well before any ground/air transition, ruling out the transition handoff as the cause.
     elevonSymCmd = gainSchedule * fcsLimits.pitchRateGain * (qCmdGround - q);
+    // Tail-strike protection (GROUND_PITCH_LIMIT_RAD's doc comment): a direct nose-down push once
+    // the attitude nears the limit. The rate law's gain is the sign reference (it drives nose-down
+    // for a negative rate error).
+    const excess = pitchAttRad - (GROUND_PITCH_LIMIT_RAD - GROUND_PITCH_LIMIT_ONSET_RAD);
+    if (excess > 0) {
+      const push = GROUND_PITCH_LIMIT_ELEVON_PER_RAD * excess + GROUND_PITCH_LIMIT_ELEVON_PER_RAD_S * Math.max(0, q);
+      elevonSymCmd = fcsLimits.pitchRateGain < 0 ? Math.max(elevonSymCmd, push) : Math.min(elevonSymCmd, -push);
+    }
   }
   elevonSymCmd = clamp(elevonSymCmd, -fcsLimits.maxElevonRad, fcsLimits.maxElevonRad);
 

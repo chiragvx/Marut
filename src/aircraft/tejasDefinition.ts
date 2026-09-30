@@ -17,6 +17,7 @@ import {
   meanChordM,
   hardpoints,
   gear,
+  airframeContactPoints,
   fcsLimits,
   stations,
   loadouts,
@@ -54,4 +55,5 @@ export const tejasDefinition: AircraftDefinition = {
   engine,
   gear,
   fcsLimits,
+  airframeContactPointsBodyM: airframeContactPoints,
 };
