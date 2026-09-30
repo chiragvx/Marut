@@ -270,7 +270,7 @@ class WorldImpl implements World {
   private readonly hudScratch: SnapshotHudView = {
     iasMps: 0, tasMps: 0, mach: 0, altMslM: 0, altAglM: 0, aoaRad: 0, betaRad: 0, gLoad: 0,
     headingRad: 0, pitchRad: 0, rollRad: 0, vspeedMps: 0, fuelKg: 0, thrustFrac: 0, gearPos: 0,
-    weaponIdx: 0, selectedStore: 0, selectedCount: 0, gunRounds: 0, chaff: 0, flares: 0, agMode: 0, ccipX: 0, ccipY: 0, ccipZ: 0, spiX: 0, spiY: 0, spiZ: 0, spiValid: 0, agTimeSec: 0, agCrossM: 0, targetId: NO_ENTITY_ID, targetRangeM: 0, closureMps: 0, lockState: 0,
+    weaponIdx: 0, selectedStore: 0, selectedCount: 0, gunRounds: 0, chaff: 0, flares: 0, agMode: 0, ccipX: 0, ccipY: 0, ccipZ: 0, spiX: 0, spiY: 0, spiZ: 0, spiValid: 0, agTimeSec: 0, agCrossM: 0, podFlags: 0, podX: 0, podY: 0, podZ: 0, podFovDeg: 0, podRangeM: 0, dlz: 0, targetId: NO_ENTITY_ID, targetRangeM: 0, closureMps: 0, lockState: 0,
     warningBits: 0, ilsLoc: 0, ilsGs: 0, pipperX: 0, pipperY: 0, pipperZ: 0, pipperValid: 0, tankFuelKg: -1,
     serviceState: 0, serviceFuelFrac: 0, serviceArmFrac: 0,
     radarMode: 0, radarMaxRangeM: 0, radarScanAzRad: 0, trackCount: 0, tracks: new Float64Array(MAX_SNAPSHOT_TRACKS * SNAPSHOT_TRACK_STRIDE),
@@ -734,6 +734,11 @@ class WorldImpl implements World {
     target.radarModeCycle = inputs.radarModeCycle ?? false;
     target.dispenseFlare = inputs.dispenseFlare ?? false;
     target.dispenseChaff = inputs.dispenseChaff ?? false;
+    target.podSlewX = inputs.podSlewX ?? 0;
+    target.podSlewY = inputs.podSlewY ?? 0;
+    target.podZoom = inputs.podZoom ?? false;
+    target.podTrack = inputs.podTrack ?? false;
+    target.laser = inputs.laser ?? false;
     target.throttleActive = inputs.throttleActive ?? false;
   }
 
@@ -1197,6 +1202,13 @@ class WorldImpl implements World {
       hud.spiZ = c.spiWorld?.z ?? 0;
       hud.agTimeSec = c.agTimeSec ?? 0;
       hud.agCrossM = c.agCrossTrackM ?? 0;
+      hud.podFlags = c.podFlags ?? 0;
+      hud.podX = c.podPoint?.x ?? 0;
+      hud.podY = c.podPoint?.y ?? 0;
+      hud.podZ = c.podPoint?.z ?? 0;
+      hud.podFovDeg = c.podFovDeg ?? 0;
+      hud.podRangeM = c.podRangeM ?? 0;
+      hud.dlz = c.dlz ?? 0;
       hud.targetId = rec.combat.lockedTargetId ?? NO_ENTITY_ID;
       // Range/closure to the designated target, straight from the two entity states (previously
       // hardcoded to 0, so the HUD target box always read "0M +0").

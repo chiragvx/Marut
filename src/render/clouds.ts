@@ -192,6 +192,8 @@ const PUFF_FS = /* glsl */ `
     float camD = length(vCentre - uAtmCamPos);
     float a = t.a * vMisc.z * baseCut * smoothstep(0.0, 1.0, (camD - vRadius * 0.6) / (vRadius * 1.2)) * (1.0 - smoothstep(uFadeEnd * 0.85, uFadeEnd, camD));
     if (a < 0.004) discard;
+    // FLIR: clouds are cold (and opaque to it).
+    if (uAtmThermal > 0.5) col = vec3(0.1) * atmLightLevel();
     gl_FragColor = vec4(col, a);
   }
 `;

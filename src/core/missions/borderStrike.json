@@ -1,0 +1,28 @@
+{
+  "id": "border-strike",
+  "name": "Precision Strike \u2014 PAF Shahbaz fuel depot",
+  "seed": 1999,
+  "terrain": {
+    "seed": 1947,
+    "theatre": "border"
+  },
+  "airportIds": [
+    "bhisiana-afs",
+    "pafb-shahbaz"
+  ],
+  "playerStart": {
+    "pos": { "x": -2000, "y": 4500, "z": 6000 },
+    "headingRad": 4.54,
+    "speedMps": 220,
+    "loadoutId": "precision"
+  },
+  "aiFlights": [],
+  "weather": {
+    "windWorldMps": { "x": -1.5, "y": 0, "z": 0.5 },
+    "gustMps": 1,
+    "turbulence": 0.05
+  },
+  "objectives": [
+    { "id": "obj-depot", "kind": "destroy_structures", "description": "Destroy the four fuel tanks of the PAF Shahbaz fuel depot.", "params": { "airportId": "pafb-shahbaz", "group": "fuel-depot", "fraction": 0.8 } }
+  ]
+}

@@ -106,6 +106,7 @@ const FS = /* glsl */ `
       float shade = mix(0.95, 0.62, thick) * (1.0 - 0.45 * uDark * (0.5 + thick));
       col = vec3(0.78, 0.80, 0.84) * shade * (uAtmAmbSky * 1.15 + uAtmSunCol * 0.6);
     }
+    if (uAtmThermal > 0.5) col = vec3(0.1) * atmLightLevel();
     gl_FragColor = vec4(atmApply(col, vWorld), a);
   }
 `;

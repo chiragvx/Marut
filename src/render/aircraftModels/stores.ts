@@ -172,10 +172,15 @@ const BOMBS: Record<string, BombSpec> = {
   'hsld-450': { len: 3.3, dia: 0.4, noseLen: 0.9, retarded: false },
   'hsld-250': { len: 2.7, dia: 0.32, noseLen: 0.75, retarded: false },
   'hsld-250r': { len: 2.8, dia: 0.32, noseLen: 0.75, retarded: true },
+  // Guided bombs: the Griffin kit on a 1000 lb body (long, with its seeker nose and canards read as
+  // the ogive), the HAMMER's 250 kg body with its rocket tail.
+  'griffin-lgb': { len: 4.3, dia: 0.36, noseLen: 1.1, retarded: false },
+  'hammer-250': { len: 3.1, dia: 0.32, noseLen: 0.8, retarded: false },
 };
 /** Rocket pods: B-8M1 (20 x 80 mm), 2.75 m, 520 mm. */
 const PODS: Record<string, { len: number; dia: number }> = {
   b8m1: { len: 2.75, dia: 0.52 },
+  litening: { len: 2.2, dia: 0.406 },
 };
 /** Twin bomb carrier: the two bombs' centres either side of the pylon. */
 export const BOMB_RACK_Z = 0.23;

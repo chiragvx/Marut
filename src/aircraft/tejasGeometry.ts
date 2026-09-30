@@ -54,10 +54,10 @@ export const stations: readonly StationDef[] = [
   { id: 'wing-outer-r', posBodyM: { x: -2.6, y: -0.29, z: 3.42 }, accepts: ['asraam', 'python-5', 'r-73', 'derby'], maxCount: 2 },
   { id: 'wing-mid-l', posBodyM: { x: -1.9, y: -0.28, z: -2.66 }, accepts: ['astra-mk1', 'derby-er', 'derby', 'python-5', 'r-73', 'asraam', 'hsld-250', 'hsld-250r', 'b8m1'], maxCount: 2 },
   { id: 'wing-mid-r', posBodyM: { x: -1.9, y: -0.28, z: 2.66 }, accepts: ['astra-mk1', 'derby-er', 'derby', 'python-5', 'r-73', 'asraam', 'hsld-250', 'hsld-250r', 'b8m1'], maxCount: 2 },
-  { id: 'wing-inner-l', posBodyM: { x: -0.95, y: -0.28, z: -1.68 }, accepts: ['tank-1200l', 'astra-mk1', 'derby-er', 'derby', 'hsld-450', 'hsld-250', 'hsld-250r'], maxCount: 1 },
-  { id: 'wing-inner-r', posBodyM: { x: -0.95, y: -0.28, z: 1.68 }, accepts: ['tank-1200l', 'astra-mk1', 'derby-er', 'derby', 'hsld-450', 'hsld-250', 'hsld-250r'], maxCount: 1 },
-  { id: 'centreline', posBodyM: { x: -0.35, y: -0.82, z: 0 }, accepts: ['tank-725l', 'hsld-450', 'hsld-250'], maxCount: 1 },
-  { id: 'intake-pod', posBodyM: { x: 1.25, y: -0.74, z: -0.74 }, accepts: [], maxCount: 1 },
+  { id: 'wing-inner-l', posBodyM: { x: -0.95, y: -0.28, z: -1.68 }, accepts: ['tank-1200l', 'astra-mk1', 'derby-er', 'derby', 'hsld-450', 'hsld-250', 'hsld-250r', 'griffin-lgb', 'hammer-250'], maxCount: 1 },
+  { id: 'wing-inner-r', posBodyM: { x: -0.95, y: -0.28, z: 1.68 }, accepts: ['tank-1200l', 'astra-mk1', 'derby-er', 'derby', 'hsld-450', 'hsld-250', 'hsld-250r', 'griffin-lgb', 'hammer-250'], maxCount: 1 },
+  { id: 'centreline', posBodyM: { x: -0.35, y: -0.82, z: 0 }, accepts: ['tank-725l', 'hsld-450', 'hsld-250', 'griffin-lgb'], maxCount: 1 },
+  { id: 'intake-pod', posBodyM: { x: 1.25, y: -0.74, z: -0.74 }, accepts: ['litening'], maxCount: 1 },
 ];
 
 /**
@@ -131,6 +131,36 @@ export const loadouts: readonly LoadoutPreset[] = [
       'wing-mid-r': { store: 'hsld-250', count: 2 },
       'wing-inner-l': { store: 'hsld-450', count: 1 },
       'wing-inner-r': { store: 'hsld-450', count: 1 },
+    },
+  },
+  {
+    id: 'precision',
+    name: 'Precision strike: 2x Griffin LGB, Litening pod, 2x ASRAAM, 2x Astra, 725 L',
+    fit: {
+      gun: { store: 'gsh-23', count: 220 },
+      'wing-outer-l': { store: 'asraam', count: 1 },
+      'wing-outer-r': { store: 'asraam', count: 1 },
+      'wing-mid-l': { store: 'astra-mk1', count: 1 },
+      'wing-mid-r': { store: 'astra-mk1', count: 1 },
+      'wing-inner-l': { store: 'griffin-lgb', count: 1 },
+      'wing-inner-r': { store: 'griffin-lgb', count: 1 },
+      centreline: { store: 'tank-725l', count: 1 },
+      'intake-pod': { store: 'litening', count: 1 },
+    },
+  },
+  {
+    id: 'standoff',
+    name: 'Stand-off: 2x HAMMER, Litening pod, 2x ASRAAM, 2x Astra, 725 L',
+    fit: {
+      gun: { store: 'gsh-23', count: 220 },
+      'wing-outer-l': { store: 'asraam', count: 1 },
+      'wing-outer-r': { store: 'asraam', count: 1 },
+      'wing-mid-l': { store: 'astra-mk1', count: 1 },
+      'wing-mid-r': { store: 'astra-mk1', count: 1 },
+      'wing-inner-l': { store: 'hammer-250', count: 1 },
+      'wing-inner-r': { store: 'hammer-250', count: 1 },
+      centreline: { store: 'tank-725l', count: 1 },
+      'intake-pod': { store: 'litening', count: 1 },
     },
   },
   {

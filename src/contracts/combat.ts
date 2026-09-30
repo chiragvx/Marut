@@ -329,6 +329,8 @@ export interface WeaponProfile {
   storeShellKg?: number;
   /** Free-fall bombs: a retarding tail (ballute) that opens `retardAfterSec` after release and adds `retardCdA` (Cd x area, m^2) of drag. */
   bomb?: { retardAfterSec: number; retardCdA: number };
+  /** Guided bombs: how they find the target, and their launch envelope for the DLZ cue. */
+  guided?: GuidedWeaponProfile;
   /** Published/validated launch envelope at ~10 km, launcher at Mach 0.9, non-manoeuvring target (m). For the AI and HUD cues. */
   envelope?: { rMaxHeadOnM: number; rMaxTailM: number; rNoEscapeM: number };
 }
@@ -360,6 +362,36 @@ export interface MissileFlightProfile {
   loftRad?: number;
   /** After burnout, below this speed the missile can no longer manoeuvre to intercept and self-destructs, m/s. */
   minSpeedMps?: number;
+}
+
+/** Guided bombs / air-to-ground missiles. */
+export interface GuidedWeaponProfile {
+  /** 'laser': homes on a laser spot (a friendly designator lasing a point) inside its seeker cone;
+   *  'gps': flies to the coordinates designated at release (GPS/INS), with a small error. */
+  seeker: 'laser' | 'gps';
+  /** Laser seeker's field of regard, half-angle, deg (laser only). */
+  seekerHalfAngleDeg?: number;
+  /** Circular error of the GPS/INS solution, m (1 sigma). */
+  gpsErrorM?: number;
+  /** Launch envelope: maximum range at sea level and its gain per km of release altitude, m. */
+  rangeSeaLevelM: number;
+  rangePerKmAltM: number;
+}
+
+/** A sensor pod (targeting pod) carried on a station: FLIR/TV, laser designator/rangefinder. */
+export interface SensorPodProfile {
+  id: string;
+  name: string;
+  label: string;
+  short: string;
+  massKg: number;
+  dragAreaM2: number;
+  /** Fields of view (wide, medium, narrow), deg. */
+  fovsDeg: readonly number[];
+  /** Laser designation / ranging range, m. */
+  laserRangeM: number;
+  /** The pod can't look above this elevation in the aircraft's frame (it hangs under the intake), deg. */
+  maxUpDeg: number;
 }
 
 /** What the warhead does: fuze reliability and kill probability by miss distance. */
@@ -442,6 +474,8 @@ export interface WeaponStationSpec {
 
 export interface WeaponsLoadout {
   stations: readonly WeaponStationSpec[];
+  /** Targeting pod carried (on its station), if any. */
+  pod?: SensorPodProfile;
   /** The aircraft's radar. Absent = the generic radar (the RADAR_* constants). */
   radar?: RadarProfile;
   /** Chaff bundles and flares carried (AircraftSensors.countermeasures). Absent = none. */
@@ -520,9 +554,13 @@ export interface WeaponsState {
   agSightDueSec: number;
   /** Release button: a bomb already released during this press (CCIP: one per press; CCRP: one on reaching the release point). */
   releasedThisPress: boolean;
+  /** The selected guided weapon's launch zone to the SPI (DlzCode). */
+  dlz: number;
   /** Rockets: seconds until the next round of the ripple, and which station fires next. */
   rocketCooldownSec: number;
   nextRocketStation: number;
+  /** Targeting pod (src/combat/targetingPod.ts), when carried. */
+  pod?: PodState;
   /**
    * World-space gun lead-computing-sight aim point against `lockedTargetId`
    * (or the currently-selected contact, if the pilot has cycled a target
@@ -540,6 +578,29 @@ export interface WeaponsState {
 }
 
 export type CreateWeaponsState = (loadout: WeaponsLoadout, rngSubSeed: number) => WeaponsState;
+
+/** A targeting pod's state: where it looks (a ground point), how, and whether it is lasing. */
+export interface PodState {
+  profile: SensorPodProfile;
+  /** The ground point under the crosshair (the pod is ground-stabilised on it). */
+  point: Vec3Like;
+  pointValid: boolean;
+  /** Point track on a ground unit (the point follows it); NO_ENTITY_ID = area/inertial track. */
+  trackId: EntityId;
+  /** The pod's point is the designated point (SPI) while designating. */
+  designating: boolean;
+  fovIndex: number;
+  /** Lasing now (manual or automatic for a laser-guided bomb). */
+  laser: boolean;
+  /** Line of sight blocked (gimbal limit or terrain). */
+  masked: boolean;
+  rangeM: number;
+  prevZoom: boolean;
+  prevTrack: boolean;
+  /** Seconds until the next terrain line-of-sight check, and its result. */
+  losDueSec: number;
+  terrainMasked: boolean;
+}
 
 /** Aggregates `WeaponsState` into the public `CombatStatus` shape `core.ts`'s `PilotContext.combat` and the snapshot HUD block are built from. Writes into `out` in place; never allocates. */
 export type WriteCombatStatus = (state: WeaponsState, out: CombatStatus) => void;
@@ -722,6 +783,8 @@ export interface ProjectileSpawnRequest {
   targetId?: EntityId;
   /** The fired store's profile. Absent = the generic profile for `kind`. */
   profile?: WeaponProfile;
+  /** Guided bombs (GPS): the coordinates to fly to. */
+  targetPoint?: Vec3Like;
   /** Seed for this projectile's own random stream (guidance noise, fuze). */
   rngSeed?: number;
 }
@@ -772,6 +835,8 @@ export const ProjectileGuidanceMode = {
   RadarActive: 'radar_active',
   /** Guidance permanently gave up this shot (seeker FOV exceeded for IR, or PN saturated too long for radar, or target died) — flight continues ballistic to `stepProjectile`'s `'expired'`/`'terrainImpact'` outcome, never regains guidance. */
   Lost: 'lost',
+  /** Guided bomb / AGM steering to a point (GPS coordinates or a laser spot). */
+  PointGuided: 'point_guided',
 } as const;
 export type ProjectileGuidanceMode = (typeof ProjectileGuidanceMode)[keyof typeof ProjectileGuidanceMode];
 
@@ -807,6 +872,9 @@ export interface ProjectileState {
   /** Datalink: set by the caller each tick (the launcher still holds the target in track), and the time since the last update. */
   datalinkOk?: boolean;
   datalinkAgeSec?: number;
+  /** Guided bombs / AGMs: the point it steers to (GPS coordinates, or the laser spot it sees) and whether it has one this tick. */
+  targetPoint?: Vec3Like;
+  targetPointValid?: boolean;
 }
 
 export type CreateProjectilePool = (size: number) => ProjectileState[];

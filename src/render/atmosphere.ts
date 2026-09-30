@@ -46,6 +46,9 @@ export interface AtmosphereUniforms {
   uAtmLights: { value: number };
   /** Rain-wet ground, 0..1. */
   uAtmWet: { value: number };
+  /** Thermal (FLIR) picture: 1 while the targeting pod view is shown. Heat sources draw by their
+   *  temperature, and infrared sees through haze much better. */
+  uAtmThermal: { value: number };
 }
 
 let shared: AtmosphereUniforms | undefined;
@@ -66,6 +69,7 @@ export function getAtmosphereUniforms(): AtmosphereUniforms {
       uAtmAmbGround: { value: new THREE.Color(0.3, 0.27, 0.22) },
       uAtmLights: { value: 0 },
       uAtmWet: { value: 0 },
+      uAtmThermal: { value: 0 },
     };
   }
   return shared;
@@ -133,6 +137,7 @@ export const ATMOSPHERE_GLSL = /* glsl */ `
   uniform vec3 uAtmAmbGround;
   uniform float uAtmLights;
   uniform float uAtmWet;
+  uniform float uAtmThermal;
   // Overall light level relative to a clear midday (~1 by day, ~0.05 on a moonlit night): for
   // surfaces whose colour is authored already lit (water, clouds' skylight, unlit markings).
   vec3 atmLightLevel() {
@@ -163,7 +168,8 @@ export const ATMOSPHERE_GLSL = /* glsl */ `
     float a = uAtmHazeParams.x * exp(-(uAtmCamPos.y - uAtmHazeParams.z) / uAtmHazeParams.y);
     float k = d.y / uAtmHazeParams.y;
     float f = abs(k) > 1e-4 ? (1.0 - exp(-k)) / k : 1.0;
-    return exp(-(a * dist * f + uAtmHazeParams.w * dist));
+    // Infrared sees through haze far better than the eye.
+    return exp(-(a * dist * f + uAtmHazeParams.w * dist) * (uAtmThermal > 0.5 ? 0.3 : 1.0));
   }
   // Sky colour looking along dir: haze at the horizon, blending to the zenith colour overhead.
   vec3 atmSky(vec3 dir) {

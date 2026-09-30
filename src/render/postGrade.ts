@@ -26,7 +26,7 @@ const GRADE_UNIFORMS_GLSL = /* glsl */ `
   uniform float uAspect;
   uniform float uTime;
   uniform vec3 uSun;
-  uniform vec4 uAmount; // x unused, y unused, z grain, w glare
+  uniform vec4 uAmount; // x thermal (0 off, 1 white-hot, 2 black-hot), y thermal gain, z grain, w glare
 `;
 
 const VERTEX = /* glsl */ `
@@ -59,6 +59,15 @@ const GRADE_GLSL = /* glsl */ `
     return fract((p3.x + p3.y) * p3.z);
   }
   vec3 gradeColor(vec3 c, vec2 uv) {
+    if (uAmount.x > 0.5) {
+      // Targeting pod FLIR: a grey heat picture. The scene's brightness (normalised to the light
+      // level, so it works at night) stands in for the ground's temperature; heat sources are drawn
+      // hot by their own shaders. Contrast stretch, polarity, sensor noise.
+      float t = clamp((gLuma(c) * uAmount.y - 0.1) * 1.3, 0.0, 1.0);
+      if (uAmount.x > 1.5) t = 1.0 - t;
+      t += (gHash(gl_FragCoord.xy + fract(uTime * 7.13) * 419.0) - 0.5) * 0.06;
+      return vec3(clamp(t, 0.0, 1.0));
+    }
     float l = gLuma(c);
     float sat0 = max(max(c.r, c.g), c.b) - min(min(c.r, c.g), c.b);
     float haze = smoothstep(0.45, 0.7, l) * (1.0 - smoothstep(0.05, 0.18, sat0));
@@ -143,6 +152,8 @@ export interface GradeController {
   setGlare(amount: number): void;
   setAntialias(on: boolean): void;
   setTier(tier: 'low' | 'medium' | 'high' | 'ultra'): void;
+  /** Thermal picture: 0 off, 1 white-hot, 2 black-hot; gain = 1 / the scene's light level. */
+  setThermal(mode: number, gain: number): void;
 }
 
 export function createGrade(): GradeController {
@@ -173,6 +184,12 @@ export function createGrade(): GradeController {
     },
     setTier(tier) {
       setAll('uAmount', (u) => ((u.value as THREE.Vector4).z = tier === 'low' ? 0.6 : 1));
+    },
+    setThermal(mode, gain) {
+      setAll('uAmount', (u) => {
+        (u.value as THREE.Vector4).x = mode;
+        (u.value as THREE.Vector4).y = gain;
+      });
     },
     setGlare(amount) {
       setAll('uAmount', (u) => ((u.value as THREE.Vector4).w = amount));

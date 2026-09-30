@@ -141,7 +141,10 @@ export function createMeshAircraftRenderer(root: THREE.Object3D, template: Aircr
   const landingPivot = template.parts.find((p) => p.name === template.landingPart)?.pivot ?? [0, 0, 0];
 
   /** Each pylon's attach frame in the aircraft's body frame. */
-  const pylonFrames = template.pylons.map((p) => new THREE.Matrix4().makeTranslation(p.x + template.offsetX, p.attachY, p.z));
+  const pylonFrames = [
+    ...template.pylons.map((p) => new THREE.Matrix4().makeTranslation(p.x + template.offsetX, p.attachY, p.z)),
+    ...(template.podMounts ?? []).map(([x, y, z]) => new THREE.Matrix4().makeTranslation(x + template.offsetX, y, z)),
+  ];
   const mA = new THREE.Matrix4();
   const mB = new THREE.Matrix4();
   const mC = new THREE.Matrix4();

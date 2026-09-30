@@ -350,6 +350,12 @@ export interface PilotInputs {
   /** Countermeasure keys held (edge-detected: each press releases one flare / chaff program). Optional: absent = not held. */
   dispenseFlare?: boolean;
   dispenseChaff?: boolean;
+  /** Targeting pod: slew rates (-1..1, + = right / up in the pod picture), zoom and track keys (edge-detected), laser key (held). Optional: absent = idle. */
+  podSlewX?: number;
+  podSlewY?: number;
+  podZoom?: boolean;
+  podTrack?: boolean;
+  laser?: boolean;
   /** The pilot is moving the throttle this frame (keys/buttons held, slider dragged): disconnects the autothrottle. Optional: absent = no. */
   throttleActive?: boolean;
   /** Gun trigger held. */
@@ -550,6 +556,12 @@ export interface CombatStatus {
   spiWorld?: Vec3Like;
   agTimeSec?: number;
   agCrossTrackM?: number;
+  /** Targeting pod (PodFlag bits, point, field of view, slant range) and the guided weapon's launch zone (DlzCode). */
+  podFlags?: number;
+  podPoint?: Vec3Like;
+  podFovDeg?: number;
+  podRangeM?: number;
+  dlz?: number;
   /**
    * World-space gun lead-computing-sight aim point for the current
    * `lockedTargetId`/selected contact, computed by src/combat's real
@@ -899,6 +911,7 @@ export const STORE_IDS: readonly string[] = [
   '', 'asraam', 'r-73', 'derby', 'astra-mk1', 'tank-1200l', 'tank-725l',
   'python-5', 'derby-er', 'pl-5e', 'aim-9m', 'sd-10a', 'aim-120c', 'pl-15e',
   'hsld-450', 'hsld-250', 'hsld-250r', 'b8m1',
+  'litening', 'griffin-lgb', 'hammer-250',
 ];
 
 /** How a station carries its stores: one on the pylon, a twin missile rail, or a multiple ejector rack (bombs). */
@@ -1023,6 +1036,15 @@ export const SnapshotHud = {
   SPI_VALID: 53,
   AG_TIME_SEC: 54,
   AG_CROSS_M: 55,
+  /** Targeting pod: PodFlag bits; its point x/y/z; field of view (deg); slant range (m); the
+   *  selected guided weapon's launch zone (DlzCode). */
+  POD_FLAGS: 56,
+  POD_X: 57,
+  POD_Y: 58,
+  POD_Z: 59,
+  POD_FOV_DEG: 60,
+  POD_RANGE_M: 61,
+  DLZ: 62,
   /** Start of the player's track list: MAX_SNAPSHOT_TRACKS entries of SNAPSHOT_TRACK_STRIDE floats (SnapshotTrack). */
   TRACKS_BASE: 64,
 } as const;
@@ -1076,6 +1098,11 @@ export const RadarModeCode: Readonly<Record<RadarMode, number>> = { rws: 0, acm:
 
 /** Floats in the HUD block (fields above plus the track list). */
 export const HUD_BLOCK_FLOATS = SnapshotHud.TRACKS_BASE + MAX_SNAPSHOT_TRACKS * SNAPSHOT_TRACK_STRIDE;
+
+/** SnapshotHud.POD_FLAGS bits. */
+export const PodFlag = { Carried: 1, PointValid: 2, PointTrack: 4, Designating: 8, Laser: 16, Masked: 32 } as const;
+/** SnapshotHud.DLZ: no guided weapon selected / no designated point; out of range; in range. */
+export const DlzCode = { None: 0, OutOfRange: 1, InRange: 2 } as const;
 
 /** SnapshotHud.AG_MODE: no air-to-ground sight; CCIP pipper (no valid solution = off the ground); CCRP (a designated point). */
 export const AgModeCode = { None: 0, Ccip: 1, Ccrp: 2 } as const;

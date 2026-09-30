@@ -249,6 +249,8 @@ const FRAGMENT_SHADER = /* glsl */ `
   // sunVis = sun visibility at the surface (1 lit, 0 in the shadow of a cloud, the aircraft, a tree
   // or a house): shade takes away the sun glint and the sunlit glow of the water body and foam.
   vec3 waterShade(vec3 w, vec3 rel, float px, float depth, float shoreDist, float kind, float sunVis) {
+    // FLIR: water is cool by day (dark white-hot), without glints or reflections.
+    if (uAtmThermal > 0.5) return vec3(0.12) * atmLightLevel();
     vec3 V = normalize(rel);
     float t = uTime;
     vec2 g = vec2(0.0);

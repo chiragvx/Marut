@@ -6,6 +6,7 @@
 // 3.2 Weapon stations & loadout
 export { createWeaponsState, writeCombatStatus, createCombatRngState, fireWeapons, computeStoresLoad, cycleSelectedStore, findStationWithStore, countermeasureRelease, combatRand01, updateAgSight, CCRP_RELEASE_CROSS_M, AG_SIGHT_HZ } from './weaponStation';
 export { predictImpact, ccrpSolution } from './agSight';
+export { createPodState, updatePod } from './targetingPod';
 export * from './countermeasures';
 
 // 3.3 Damage

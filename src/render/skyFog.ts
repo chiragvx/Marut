@@ -90,6 +90,8 @@ export function createSkyFogSystem(scene: THREE.Scene): SkyFogSystem {
             col += vec3(0.85, 0.9, 1.0) * star * uStars * smoothstep(0.02, 0.3, d.y);
           }
         }
+        // FLIR: a cold sky.
+        if (uAtmThermal > 0.5) col = vec3(0.06) * atmLightLevel();
         gl_FragColor = vec4(col, 1.0);
       }
     `,

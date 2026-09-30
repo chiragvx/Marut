@@ -371,6 +371,14 @@ export interface SnapshotHudView {
   spiValid: number;
   agTimeSec: number;
   agCrossM: number;
+  /** SnapshotHud.POD_* and DLZ. */
+  podFlags: number;
+  podX: number;
+  podY: number;
+  podZ: number;
+  podFovDeg: number;
+  podRangeM: number;
+  dlz: number;
   targetId: EntityId;
   targetRangeM: number;
   closureMps: number;

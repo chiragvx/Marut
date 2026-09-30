@@ -7,6 +7,8 @@
  */
 import type { CameraState, HudSteerpoint } from '../contracts/render';
 import type { MissionGroundGroup } from '../contracts/ground';
+import type { MissionObjective } from '../contracts/core';
+import type { AirportLayout } from '../contracts/airport';
 import { SITE_TEMPLATES } from '../catalog/groundUnits';
 import { HEADING_TAPE_PX_PER_DEG } from './tapes';
 import { createScreenProjection, projectWorldToScreen } from './targetBox';
@@ -42,6 +44,27 @@ export function buildSteerpoints(groups: readonly MissionGroundGroup[], heightAt
     const x = g.pos.x + dx * fx + dz * rx;
     const z = g.pos.z + dx * fz + dz * rz;
     out.push({ name: g.name ?? (g.template ? SITE_TEMPLATES[g.template]?.name : undefined) ?? g.id, x, y: heightAt(x, z), z });
+  }
+  return out;
+}
+
+/**
+ * Steerpoints for a mission's structure objectives (destroy_structures): the centre of the matching
+ * airbase structures (that airport, that layout group), named after the group.
+ */
+export function buildStructureSteerpoints(objectives: readonly MissionObjective[], layouts: readonly AirportLayout[]): HudSteerpoint[] {
+  const out: HudSteerpoint[] = [];
+  for (const o of objectives) {
+    if (o.kind !== 'destroy_structures') continue;
+    const a = layouts.find((l) => l.id === o.params.airportId);
+    if (!a) continue;
+    const group = o.params.group;
+    const ss = (a.structures ?? []).filter((s) => group === undefined || s.group === group);
+    if (ss.length === 0) continue;
+    const x = ss.reduce((n, s) => n + s.worldX, 0) / ss.length;
+    const z = ss.reduce((n, s) => n + s.worldZ, 0) / ss.length;
+    const name = typeof group === 'string' ? `${a.name} ${group.replace(/-/g, ' ')}` : a.name;
+    out.push({ name, x, y: a.elevationM, z });
   }
   return out;
 }

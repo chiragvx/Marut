@@ -387,7 +387,11 @@ export const updateSensors: UpdateSensors = (
   const airToGround = isAirToGroundKind(state.selectedWeapon);
   if (cycleTargetEdge && airToGround) {
     if (state.agValid) state.designateRequest = true;
-    else state.spiValid = false; // pipper off the ground: T clears the designation
+    else {
+      // Pipper off the ground: T clears the designation (and the pod stops designating).
+      state.spiValid = false;
+      if (state.pod) state.pod.designating = false;
+    }
   }
   // Target designation: T steps through the non-friendly tracks nearest first (a stable order:
   // the next one further out than the current designation, wrapping round).

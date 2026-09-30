@@ -8,7 +8,7 @@
  * exports of modules 04/08/09/11 rather than a contracts/*.ts file).
  */
 
-import { AutopilotFlag, EntityFlag, HUD_BLOCK_START, LIGHT_MODES, LockStateCode, NO_ENTITY_ID, ServiceStateCode, SnapshotHud, SpeedUnit, WarningBit, WeaponKindCode, WeatherMode, type AutopilotAction } from './contracts/core';
+import { AutopilotFlag, EntityFlag, HUD_BLOCK_START, LIGHT_MODES, LockStateCode, NO_ENTITY_ID, PodFlag, ServiceStateCode, SnapshotHud, SpeedUnit, WarningBit, WeaponKindCode, WeatherMode, type AutopilotAction } from './contracts/core';
 import type {
   AiDifficulty,
   EntityId,
@@ -26,6 +26,7 @@ import type {
 import type { MainToTerrainMessage, SimEvent, TerrainToMainMessage } from './contracts/core';
 import type { MainToTerrainMessageExt, TerrainToMainMessageExt, AirportFlattenZone, TerrainParams } from './contracts/terrain';
 import type { AirportLayout } from './contracts/airport';
+import { CameraMode } from './contracts/render';
 import type { CameraState, CockpitAction, HudRenderer, SceneEnvironment, SceneRenderer, ShowcaseFrame } from './contracts/render';
 import type { PlayerInputSystem } from './contracts/input';
 import { RebindDeviceKind } from './contracts/input';
@@ -37,7 +38,7 @@ import type { SnapshotEntityView } from './contracts/sim';
 import { createSceneRenderer } from './render';
 import { createHudRenderer } from './hud';
 import { buildHudAirbases } from './hud/airbaseMarkers';
-import { buildSteerpoints } from './hud/steerpoints';
+import { buildSteerpoints, buildStructureSteerpoints } from './hud/steerpoints';
 import { createPlayerInputSystem } from './input';
 import {
   createMainMenu,
@@ -422,6 +423,9 @@ function controlGroups(): ControlGroup[] {
         { keys: [L(b.cycleWeapon)], label: 'Next weapon' },
         { keys: [L(b.trigger)], label: 'Gun (hold)' },
         { keys: [L(b.flare), L(b.chaff)], label: 'Flares / chaff' },
+        { keys: [L(m.podView)], label: 'Targeting pod view (arrows slew)' },
+        { keys: [L(b.podTrack), L(b.podZoom)], label: 'Pod track / designate, zoom' },
+        { keys: [L(b.laser), L(m.podPolarity)], label: 'Laser (hold), white/black-hot' },
         { keys: [L(b.radarMode)], label: 'Radar mode' },
         { keys: [L(m.radarRangeDown), L(m.radarRangeUp)], label: 'Radar range' },
       ],
@@ -976,7 +980,7 @@ function setupWorldView(mission: Mission, tier: QualityTier): void {
   // The same ground the simulation flies over (airfields flattened), for keeping the camera above it.
   const heightAt = createHeightSampler(terrainParams, flattenZones).heightAt;
   renderer.setGroundHeight(heightAt);
-  hud.setSteerpoints(buildSteerpoints(mission.groundGroups ?? [], heightAt));
+  hud.setSteerpoints([...buildSteerpoints(mission.groundGroups ?? [], heightAt), ...buildStructureSteerpoints(mission.objectives, airportLayouts)]);
   renderer.setEnvironment(buildSceneEnvironment(terrainParams, airportLayouts, { x: mission.weather.windWorldMps.x, z: mission.weather.windWorldMps.z }));
   renderer.setWeather(weatherMode, newWeatherSeed());
 
@@ -1048,6 +1052,7 @@ function hintKeys(): HintKeys {
 
 /** Objective tracker, warnings-as-messages and hints, from the latest snapshot's HUD block. */
 function updateFlightOverlay(view: Float64Array): void {
+  lastPodFlags = view[HUD_BLOCK_START + SnapshotHud.POD_FLAGS] ?? 0;
   const o = flightOverlay;
   const flight = currentFlight;
   if (!o || !flight || !currentMission || (appState !== 'gameplay' && appState !== 'paused')) return;
@@ -1302,6 +1307,7 @@ function launchMission(missionIn: Mission, opts: { title: string; airStart: bool
   inputSystem.setGearDown(!airStart);
   lightMode = DEFAULT_LIGHT_MODE;
   masterArm = true;
+  if (podView) togglePodView();
   inputSystem.setThrottle(airStart ? 0.8 : 0);
 
   currentMission = mission;
@@ -1471,6 +1477,9 @@ function frame(nowMs: number): void {
       pilotInputsScratch.trigger = false;
       pilotInputsScratch.launch = false;
     }
+    // In the pod view the arrow keys slew the pod (they look round in the other views).
+    pilotInputsScratch.podSlewX = podView ? (lookKeys.has('ArrowRight') ? 1 : 0) - (lookKeys.has('ArrowLeft') ? 1 : 0) : 0;
+    pilotInputsScratch.podSlewY = podView ? (lookKeys.has('ArrowUp') ? 1 : 0) - (lookKeys.has('ArrowDown') ? 1 : 0) : 0;
     simWorker.postMessage({ type: 'input', entityId: playerEntityId, inputs: pilotInputsScratch } as const);
   }
   if (appState !== 'gameplay' && cockpitTip && cockpitTip.style.display !== 'none') hideCockpitTip();
@@ -1646,7 +1655,7 @@ function wireFreeLook(): void {
 
 /** Arrow keys held: keep looking round. */
 function tickLookKeys(dtSec: number): void {
-  if (lookKeys.size === 0 || appState !== 'gameplay' || !renderer) return;
+  if (lookKeys.size === 0 || appState !== 'gameplay' || !renderer || podView) return;
   const r = LOOK_KEY_RAD_PER_SEC * dtSec;
   const yaw = (lookKeys.has('ArrowLeft') ? r : 0) - (lookKeys.has('ArrowRight') ? r : 0);
   const pitch = (lookKeys.has('ArrowUp') ? -r : 0) + (lookKeys.has('ArrowDown') ? r : 0);
@@ -1688,6 +1697,12 @@ function wireMetaActionsOnce(): void {
       hud.cycleRadarRange(action === 'radarRangeUp' ? 1 : -1);
     } else if (AUTOPILOT_KEYS.has(action) && appState === 'gameplay') {
       autopilotKey(action, repeat === true);
+    } else if (action === 'podView' && appState === 'gameplay') {
+      togglePodView();
+    } else if (action === 'podPolarity' && appState === 'gameplay' && podView) {
+      podPolarity = podPolarity === 1 ? 2 : 1;
+      renderer.setThermalPolarity(podPolarity);
+      pushPodDisplay();
     } else if (action === 'cameraCycle' && appState === 'gameplay') {
       // SceneRenderer.setCameraMode cycling is a small local rotation this
       // shell owns directly (module 08 exposes the setter, not a cycle
@@ -1780,7 +1795,38 @@ const CAMERA_MODE_NAMES: Record<(typeof CAMERA_MODE_CYCLE)[number], string> = {
   flyby: 'Fly-by',
 };
 let cameraModeIndex = 0;
+/** Targeting pod picture showing (a camera mode outside the V cycle); the arrow keys slew the pod then. */
+let podView = false;
+let podPolarity: 1 | 2 = 1;
+/** POD_FLAGS from the latest snapshot (is a pod carried?). */
+let lastPodFlags = 0;
+function pushPodDisplay(): void {
+  const b = inputSystem.inputMap.data.keyboard.buttons;
+  const m = inputSystem.inputMap.data.keyboard.meta;
+  hud.setPodDisplay(podPolarity, { track: keyLabel(b.podTrack), zoom: keyLabel(b.podZoom), laser: keyLabel(b.laser), view: keyLabel(m.podView) });
+}
+function togglePodView(): void {
+  if (!podView && !(lastPodFlags & PodFlag.Carried)) {
+    flightOverlay?.message('No targeting pod fitted');
+    return;
+  }
+  podView = !podView;
+  if (podView) {
+    renderer.setCameraMode(CameraMode.Tgp);
+    hud.setOverlayMode('pod');
+    pushPodDisplay();
+    hideCockpitTip();
+  } else {
+    const m = CAMERA_MODE_CYCLE[cameraModeIndex]!;
+    renderer.setCameraMode(m);
+    hud.setOverlayMode(m === 'cockpit3d' ? 'helmet' : 'full');
+  }
+}
 function cycleCameraMode(): void {
+  if (podView) {
+    togglePodView();
+    return;
+  }
   cameraModeIndex = (cameraModeIndex + 1) % CAMERA_MODE_CYCLE.length;
   const m = CAMERA_MODE_CYCLE[cameraModeIndex]!;
   renderer.setCameraMode(m);

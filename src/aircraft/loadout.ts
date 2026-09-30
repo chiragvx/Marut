@@ -7,7 +7,7 @@
  * impossible aircraft. The gun always keeps its default load.
  */
 import type { AircraftDefinition, LoadoutPreset } from '../contracts/aircraft';
-import { FUEL_TANKS, WEAPONS } from '../catalog';
+import { FUEL_TANKS, SENSOR_PODS, WEAPONS } from '../catalog';
 import { getLoadout } from './registry';
 
 export type LoadoutFit = LoadoutPreset['fit'];
@@ -17,12 +17,12 @@ export const CUSTOM_LOADOUT_ID = 'custom';
 
 /** A store the game can draw and simulate (a catalogue weapon or fuel tank). */
 export function isBuiltStore(id: string): boolean {
-  return WEAPONS[id] !== undefined || FUEL_TANKS[id] !== undefined;
+  return WEAPONS[id] !== undefined || FUEL_TANKS[id] !== undefined || SENSOR_PODS[id] !== undefined;
 }
 
 /** Display name of a store. */
 export function storeName(id: string): string {
-  return WEAPONS[id]?.name ?? FUEL_TANKS[id]?.name ?? id;
+  return WEAPONS[id]?.name ?? FUEL_TANKS[id]?.name ?? SENSOR_PODS[id]?.name ?? id;
 }
 
 /** `fit` with every entry the aircraft cannot carry removed, and the gun's default load kept. */
@@ -87,6 +87,8 @@ export function loadoutMassKg(preset: LoadoutPreset | undefined): number {
     if (w && w.kind !== 'gun') kg += f.count * w.carriageMassKg;
     const tank = FUEL_TANKS[f.store];
     if (tank) kg += f.count * (tank.capacityKg + tank.emptyMassKg);
+    const pod = SENSOR_PODS[f.store];
+    if (pod) kg += pod.massKg;
   }
   return kg;
 }

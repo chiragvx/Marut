@@ -163,6 +163,10 @@ export const LogicalButton = {
   /** Countermeasures: release a flare / chaff program (PilotInputs.dispenseFlare / dispenseChaff), raw held state. */
   Flare: 'flare',
   Chaff: 'chaff',
+  /** Targeting pod: zoom (field of view), track/designate (point track <-> area track), laser (held). */
+  PodZoom: 'podZoom',
+  PodTrack: 'podTrack',
+  Laser: 'laser',
 } as const;
 export type LogicalButton = (typeof LogicalButton)[keyof typeof LogicalButton];
 
@@ -193,6 +197,9 @@ export const MetaAction = {
   ApSpdUp: 'apSpdUp',
   /** Exterior lights: next mode (LIGHT_MODES). */
   LightsCycle: 'lightsCycle',
+  /** Targeting pod picture on/off (a camera view; the arrow keys then slew the pod), and its polarity. */
+  PodView: 'podView',
+  PodPolarity: 'podPolarity',
 } as const;
 export type MetaAction = (typeof MetaAction)[keyof typeof MetaAction];
 

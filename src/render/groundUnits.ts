@@ -23,13 +23,13 @@ const VS = /* glsl */ `
   ${ATMOSPHERE_GLSL}
   attribute float aPart;
   attribute vec3 aPivot;
-  attribute vec3 iState; // x: state (0 intact, 1 damaged, 2 destroyed), y: team, z: radar transmitting
+  attribute vec4 iState; // x: state (0 intact, 1 damaged, 2 destroyed), y: team, z: radar transmitting, w: heat (0..1; 2 = burning)
   uniform float uTime;
   varying vec3 vWorld;
   varying vec3 vNormalW;
   varying vec3 vLocal;
   varying float vPart;
-  varying vec3 vState;
+  varying vec4 vState;
   varying float vSeed;
   void main() {
     vec3 p = position;
@@ -68,7 +68,7 @@ const FS = /* glsl */ `
   varying vec3 vNormalW;
   varying vec3 vLocal;
   varying float vPart;
-  varying vec3 vState;
+  varying vec4 vState;
   varying float vSeed;
   float hash12(vec2 p) {
     vec3 p3 = fract(vec3(p.xyx) * 0.1031);
@@ -120,6 +120,13 @@ const FS = /* glsl */ `
     float diff = max(ndl, 0.0) * cloudShadow(vWorld) * sunShadow(vWorld, ndl);
     vec3 ambient = mix(uAtmAmbGround, uAtmAmbSky, 0.5 + 0.5 * n.y);
     col = col * (ambient + uAtmSunCol * diff);
+    if (uAtmThermal > 0.5) {
+      // FLIR: the unit glows by its heat (engine, electronics); hottest where it burns; the engine
+      // deck and exhaust (lower rear) hotter than the rest.
+      float heat = vState.w > 1.5 ? 1.0 : mix(0.45, 0.95, vState.w) * (0.85 + 0.15 * smoothstep(1.2, 0.2, vLocal.y));
+      if (vState.x > 1.5 && vState.w < 1.5) heat = 0.4;
+      col = vec3(heat) * 1.4;
+    }
     gl_FragColor = vec4(atmApply(col, vWorld), 1.0);
   }
 `;
@@ -156,6 +163,8 @@ export function createGroundUnitRenderer(root: THREE.Object3D): GroundUnitRender
     fragmentShader: FS,
   });
   const batches = new Map<string, Batch>();
+  /** Each unit type's heat (catalogue), by type code, for the thermal picture. */
+  const heatByCode = GROUND_TYPE_IDS.map((id) => GROUND_UNIT_TYPES[id]?.heat ?? 0.4);
   const batchByCode: (Batch | undefined)[] = GROUND_TYPE_IDS.map((id) => {
     const model = GROUND_UNIT_TYPES[id]?.model;
     const geom = model ? models.byModel.get(model) : undefined;
@@ -163,7 +172,7 @@ export function createGroundUnitRenderer(root: THREE.Object3D): GroundUnitRender
     let b = batches.get(model);
     if (!b) {
       const g = geom.clone();
-      const state = new THREE.InstancedBufferAttribute(new Float32Array(MAX_PER_MODEL * 3), 3);
+      const state = new THREE.InstancedBufferAttribute(new Float32Array(MAX_PER_MODEL * 4), 4);
       state.setUsage(THREE.DynamicDrawUsage);
       g.setAttribute('iState', state);
       const mesh = new THREE.InstancedMesh(g, mat, MAX_PER_MODEL);
@@ -192,7 +201,7 @@ export function createGroundUnitRenderer(root: THREE.Object3D): GroundUnitRender
       m4.compose(v.set(pos.x, pos.y, pos.z), q.set(rot.x, rot.y, rot.z, rot.w), one);
       b.mesh.setMatrixAt(b.n, m4);
       const state = flags & GroundFlag.Destroyed ? 2 : flags & GroundFlag.Damaged ? 1 : 0;
-      b.state.setXYZ(b.n, state, team, flags & GroundFlag.Emitting ? 1 : 0);
+      b.state.setXYZW(b.n, state, team, flags & GroundFlag.Emitting ? 1 : 0, flags & GroundFlag.Burning ? 2 : (heatByCode[code] ?? 0.4));
       b.n++;
     },
     endFrame(origin, timeSec) {

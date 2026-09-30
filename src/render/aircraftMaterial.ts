@@ -235,6 +235,8 @@ const FS = /* glsl */ `
     float fres = pow(1.0 - max(dot(n, V), 0.0), 5.0);
     vec3 env = atmSky(reflect(-V, n));
     col = col * (amb + uAtmSunCol * diff) + uAtmSunCol * spec + env * refl * (0.4 + 3.0 * fres) + glow;
+    // FLIR: a warm airframe; the nozzle and engine white-hot, more so with power.
+    if (uAtmThermal > 0.5) col = vec3(part == 6 || part == 7 ? 1.6 : 0.8 + 0.3 * uThrottle);
     gl_FragColor = vec4(atmApply(col, vWorld), 1.0);
   }
 `;

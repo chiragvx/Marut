@@ -5,6 +5,8 @@
  */
 import {
   AgModeCode,
+  DlzCode,
+  PodFlag,
   EntityFlag,
   LockState,
   NO_ENTITY_ID,
@@ -30,6 +32,7 @@ import {
   type ProjectileSpawnRequest,
 } from '../contracts/combat';
 import { ccrpSolution, predictImpact } from './agSight';
+import { createPodState } from './targetingPod';
 import { Vec3, Quat, nextRange, type PrngState } from '../math';
 import { GENERIC_RADAR_PROFILE, defaultWeaponProfile } from './weaponProfiles';
 import { DECOYS_PER_PROGRAM, DECOY_PROGRAM_INTERVAL_SEC } from './countermeasures';
@@ -54,6 +57,11 @@ export function computeStoresLoad(state: Pick<WeaponsState, 'stations'>, out: { 
     } else {
       dragAreaM2 += st.count * st.profile.carriageDragAreaM2;
     }
+  }
+  const pod = (state as Partial<WeaponsState>).pod;
+  if (pod) {
+    massKg += pod.profile.massKg;
+    dragAreaM2 += pod.profile.dragAreaM2;
   }
   out.massKg = massKg;
   out.dragAreaM2 = dragAreaM2;
@@ -110,6 +118,8 @@ export const createWeaponsState: CreateWeaponsState = (loadout: WeaponsLoadout, 
     releasedThisPress: false,
     rocketCooldownSec: 0,
     nextRocketStation: 0,
+    dlz: DlzCode.None,
+    ...(loadout.pod ? { pod: createPodState(loadout.pod) } : {}),
     aimPointWorld: { x: 0, y: 0, z: 0 },
     aimPointValid: false,
     rng: createCombatRngState(rngSubSeed),
@@ -158,6 +168,17 @@ export const writeCombatStatus: WriteCombatStatus = (state, out: CombatStatus) =
   const t = out.agMode === AgModeCode.Ccrp ? state.ccrpTimeToReleaseSec : state.agTofSec;
   out.agTimeSec = Number.isFinite(t) ? t : 0;
   out.agCrossTrackM = out.agMode === AgModeCode.Ccrp ? state.ccrpCrossTrackM : 0;
+  const pod = state.pod;
+  out.podFlags = !pod ? 0 : PodFlag.Carried | (pod.pointValid ? PodFlag.PointValid : 0) | (pod.trackId !== NO_ENTITY_ID ? PodFlag.PointTrack : 0) | (pod.designating ? PodFlag.Designating : 0) | (pod.laser ? PodFlag.Laser : 0) | (pod.masked ? PodFlag.Masked : 0);
+  if (!out.podPoint) out.podPoint = { x: 0, y: 0, z: 0 };
+  if (pod) {
+    out.podPoint.x = pod.point.x;
+    out.podPoint.y = pod.point.y;
+    out.podPoint.z = pod.point.z;
+    out.podFovDeg = pod.profile.fovsDeg[pod.fovIndex] ?? 0;
+    out.podRangeM = pod.rangeM;
+  }
+  out.dlz = state.dlz;
   out.aimPointWorld.x = state.aimPointWorld.x;
   out.aimPointWorld.y = state.aimPointWorld.y;
   out.aimPointWorld.z = state.aimPointWorld.z;
@@ -380,9 +401,17 @@ function releaseAirToGround(shooterId: EntityId, shooter: EntityState, inputs: P
     reselectIfEmpty(state);
     return;
   }
-  if (kind !== WeaponKind.Bomb) return;
+  if (kind !== WeaponKind.Bomb && kind !== WeaponKind.GuidedBomb) return;
   if (state.releasedThisPress) return;
-  if (state.spiValid) {
+  const guided = kind === WeaponKind.GuidedBomb;
+  const gps = guided && findStationWithStore(state.stations, state.selectedStoreId)?.profile.guided?.seeker === 'gps';
+  if (gps) {
+    // GPS/INS: needs coordinates (a designated point); goes on the press, from anywhere (the DLZ cue says whether it can reach).
+    if (!state.spiValid) return;
+  } else if (guided) {
+    // Laser-guided: goes on the press (it steers the rest of the way onto the spot; the DLZ cue says
+    // whether it can reach the designated point). Without a designation it is aimed like a bomb (CCIP).
+  } else if (state.spiValid) {
     // CCRP: wait for the release point.
     if (!(state.ccrpTimeToReleaseSec <= 0 && Math.abs(state.ccrpCrossTrackM) <= CCRP_RELEASE_CROSS_M)) return;
   }
@@ -394,7 +423,8 @@ function releaseAirToGround(shooterId: EntityId, shooter: EntityState, inputs: P
   // Ejected straight down off the rack (body -y).
   Quat.rotate(shooter.rot, { x: 0, y: -1, z: 0 }, _dirWorld);
   const v = st.profile.launchSpeedMps;
-  pushStore(shooterId, shooter, st, _dirWorld.x * v, _dirWorld.y * v, _dirWorld.z * v, ProjectileKind.Bomb, outRequests, outEvents, kind);
+  pushStore(shooterId, shooter, st, _dirWorld.x * v, _dirWorld.y * v, _dirWorld.z * v, kind === WeaponKind.GuidedBomb ? ProjectileKind.GuidedBomb : ProjectileKind.Bomb, outRequests, outEvents, kind);
+  if (gps) outRequests[outRequests.length - 1]!.targetPoint = { x: state.spi.x, y: state.spi.y, z: state.spi.z };
   reselectIfEmpty(state);
 }
 
@@ -460,7 +490,25 @@ export function updateAgSight(state: WeaponsState, shooter: EntityState, sampler
       state.spi.x = state.agImpact.x;
       state.spi.y = state.agImpact.y;
       state.spi.z = state.agImpact.z;
+      // The pod slaves to a HUD designation.
+      if (state.pod) {
+        state.pod.point.x = state.spi.x;
+        state.pod.point.y = state.spi.y;
+        state.pod.point.z = state.spi.z;
+        state.pod.pointValid = true;
+        state.pod.trackId = NO_ENTITY_ID;
+        state.pod.designating = true;
+      }
     }
+  }
+  // Launch zone of a guided weapon to the designated point: its range grows with release height.
+  const g = st.profile.guided;
+  if (g && state.spiValid) {
+    const range = Math.hypot(state.spi.x - shooter.pos.x, state.spi.z - shooter.pos.z);
+    const rMax = g.rangeSeaLevelM + (g.rangePerKmAltM * Math.max(0, shooter.pos.y - state.spi.y)) / 1000;
+    state.dlz = range <= rMax ? DlzCode.InRange : DlzCode.OutOfRange;
+  } else {
+    state.dlz = DlzCode.None;
   }
   if (state.spiValid && state.agValid) {
     ccrpSolution(state.agImpact, state.spi, shooter.vel, _ccrp);

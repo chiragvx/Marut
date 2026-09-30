@@ -20,6 +20,7 @@ import {
   CameraMode,
   COCKPIT3D_VERTICAL_FOV_DEG,
   COCKPIT_VERTICAL_FOV_DEG,
+  POD_MOUNT_BODY_M,
   EXTERNAL_VERTICAL_FOV_DEG,
   FLYBY_VERTICAL_FOV_DEG,
   RENDER_QUALITY_TABLE,
@@ -90,6 +91,7 @@ const FOV_BY_MODE: Readonly<Record<CameraMode, number>> = {
   [CameraMode.Chase]: CHASE_VERTICAL_FOV_DEG,
   [CameraMode.External]: EXTERNAL_VERTICAL_FOV_DEG,
   [CameraMode.Flyby]: FLYBY_VERTICAL_FOV_DEG,
+  [CameraMode.Tgp]: 18,
 };
 
 export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) => {
@@ -99,6 +101,7 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
   let renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' });
   let composer = new EffectComposer(renderer);
   let renderPass = new RenderPass(scene, camera);
+  let thermalPolarity: 1 | 2 = 1;
   let grade = createGrade();
   // The 3D cockpit, drawn over the world in its own pass (src/render/cockpit); built on first use.
   const cockpitPass = new CockpitPass();
@@ -436,6 +439,10 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
       if (m === CameraMode.Cockpit3d) ensureCockpit();
     },
 
+    setThermalPolarity(p) {
+      thermalPolarity = p;
+    },
+
     lookCockpit(dYaw, dPitch, dFov) {
       if (mode === CameraMode.Cockpit3d) cockpit?.look(dYaw, dPitch, dFov);
     },
@@ -685,10 +692,21 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
           cameraPose.rot.w = qWorldCam.w;
           cameraPose.useLookAt = false;
           fovDeg = hp.fovDeg;
+        } else if (mode === CameraMode.Tgp) {
+          // The pod: from its mount under the intake, looking at its point, with its field of view.
+          rotateVecByQuat(interpEntity.rot, POD_MOUNT_BODY_M, vEyeWorld);
+          cameraPose.pos.x = interpEntity.pos.x + vEyeWorld.x;
+          cameraPose.pos.y = interpEntity.pos.y + vEyeWorld.y;
+          cameraPose.pos.z = interpEntity.pos.z + vEyeWorld.z;
+          cameraPose.lookAt.x = curr.hud[SnapshotHud.POD_X] ?? 0;
+          cameraPose.lookAt.y = curr.hud[SnapshotHud.POD_Y] ?? 0;
+          cameraPose.lookAt.z = curr.hud[SnapshotHud.POD_Z] ?? 0;
+          cameraPose.useLookAt = true;
+          fovDeg = Math.max(0.3, curr.hud[SnapshotHud.POD_FOV_DEG] || 18);
         } else {
           computeCameraPose(mode, interpEntity.pos, interpEntity.rot, interpEntity.vel, cameraModeState, frameDtSec, cameraPose, minOffsetY);
         }
-        if (mode !== CameraMode.Cockpit && mode !== CameraMode.Cockpit3d && groundHeightAt) keepAboveGround(cameraPose, groundHeightAt, CAMERA_MIN_GROUND_CLEARANCE_M);
+        if (mode !== CameraMode.Cockpit && mode !== CameraMode.Cockpit3d && mode !== CameraMode.Tgp && groundHeightAt) keepAboveGround(cameraPose, groundHeightAt, CAMERA_MIN_GROUND_CLEARANCE_M);
         if (debugCam) {
           // Dev aid (?cam=x,y,z,lookX,lookY,lookZ): a fixed camera anywhere, for checking scenery.
           cameraPose.pos.x = debugCam[0]!;
@@ -711,7 +729,7 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
           }
           if (curr.alive[i] !== 1 || curr.kind[i] !== EntityKindCode.aircraft) continue;
           // No cockpit interior yet: from the cockpit, the player's own jet is not drawn.
-          if (i === playerSlot && mode === CameraMode.Cockpit && !debugCam) continue;
+          if (i === playerSlot && (mode === CameraMode.Cockpit || mode === CameraMode.Tgp) && !debugCam) continue;
           interpolateEntity(snapshotBuf, i, f, interpEntity);
           const flags = curr.flags[i]!;
           const st = aircraftState;
@@ -767,6 +785,15 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
       camera.updateMatrixWorld(true);
       updateSky(frameDtSec, nowMs / 1000);
       grade.update(nowMs, camera, getAtmosphereUniforms().uAtmSunDir.value);
+      // The pod's FLIR picture: heat sources by their shaders, the rest by brightness normalised to
+      // the light level (so it works at night).
+      {
+        const u = getAtmosphereUniforms();
+        const thermal = mode === CameraMode.Tgp && !showcase;
+        u.uAtmThermal.value = thermal ? 1 : 0;
+        const light = 0.2126 * (u.uAtmAmbSky.value.r + 0.8 * u.uAtmSunCol.value.r) + 0.7152 * (u.uAtmAmbSky.value.g + 0.8 * u.uAtmSunCol.value.g) + 0.0722 * (u.uAtmAmbSky.value.b + 0.8 * u.uAtmSunCol.value.b);
+        grade.setThermal(thermal ? thermalPolarity : 0, 1 / Math.max(0.05, light / 0.95));
+      }
       // Wrapped so float precision in the water animation never degrades over a long session.
       terrainConsumer.setTime((nowMs / 1000) % 3600);
       scratchProjMatrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);

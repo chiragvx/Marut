@@ -100,6 +100,15 @@ export const MISSIONS: readonly MissionEntry[] = [
     situation: 'Weapons practice on the range north of Bathinda: a convoy of eight trucks on the range road and a spread of targets (trucks, armour, a bunker, buildings, a dummy SAM site). You start in the air to the south. Trucks die to a gun burst; armour and bunkers need bombs.',
   },
   {
+    id: 'border-strike',
+    title: 'Precision Strike',
+    baseId: 'bathinda',
+    bandits: 0,
+    targets: 5,
+    objective: 'Laser-guided bombs on the PAF Shahbaz fuel depot.',
+    situation: 'You are over the border at 4,500 m with two Griffin LGBs and the Litening pod. Shahbaz lies 28 km west. Press Y for the pod picture, slew it onto the fuel tanks with the arrow keys, I to track and designate, then release inside the launch zone (IN RNG): the pod lases for the bombs by itself. The depot has five targets (four tanks and a building); destroying four completes the strike.',
+  },
+  {
     id: 'konkan-dogfight',
     title: 'Sea Duel',
     baseId: 'hansa',

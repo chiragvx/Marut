@@ -28,7 +28,8 @@ export const INPUT_MAP_STORAGE_KEY = 'tejas.inputMap.v1';
 // 6 -> 7 for the radar mode (M) and radar range ([ / ]) keys; 7 -> 8 for the autopilot keys.
 // 9 -> 10: flares (F) and chaff (C). From 10 on, new actions are added by migrateInputMapData's
 // generic step (default key if the player isn't already using it), so bumps need no bespoke code.
-export const INPUT_MAP_VERSION = 10;
+// 10 -> 11: targeting pod (Y view, U zoom, I track, K laser, N polarity).
+export const INPUT_MAP_VERSION = 11;
 
 /**
  * The literal default binding/tuning data, matching 09-input.md section 5.1 (throttle keys
@@ -66,6 +67,9 @@ export const DEFAULT_INPUT_MAP_DATA: InputMapData = {
       radarMode: 'KeyM',
       flare: 'KeyF',
       chaff: 'KeyC',
+      podZoom: 'KeyU',
+      podTrack: 'KeyI',
+      laser: 'KeyK',
     },
     meta: {
       cameraCycle: 'KeyV',
@@ -85,6 +89,8 @@ export const DEFAULT_INPUT_MAP_DATA: InputMapData = {
       apSpdDown: 'Digit7',
       apSpdUp: 'Digit8',
       lightsCycle: 'KeyL',
+      podView: 'KeyY',
+      podPolarity: 'KeyN',
     },
   },
   gamepad: {
@@ -110,6 +116,9 @@ export const DEFAULT_INPUT_MAP_DATA: InputMapData = {
       radarMode: null,
       flare: null,
       chaff: null,
+      podZoom: null,
+      podTrack: null,
+      laser: null,
     },
     meta: {
       cameraCycle: { buttonIndex: 11 },
@@ -128,6 +137,8 @@ export const DEFAULT_INPUT_MAP_DATA: InputMapData = {
       apSpdDown: null,
       apSpdUp: null,
       lightsCycle: null,
+      podView: null,
+      podPolarity: null,
     },
     deadzone: 0.12,
     stickCurveExponent: 1.6,

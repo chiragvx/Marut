@@ -112,6 +112,18 @@ export const initProjectile: InitProjectile = (slot, spec, _simTimeSec) => {
   slot.noiseAgeSec = 1e9;
   slot.datalinkOk = true;
   slot.datalinkAgeSec = 1e9;
+  // Guided bombs: GPS coordinates given at release (with the solution's error); laser bombs get
+  // their point from a laser spot each tick (the caller sets it).
+  if (!slot.targetPoint) slot.targetPoint = { x: 0, y: 0, z: 0 };
+  slot.targetPointValid = false;
+  const tp = spec.targetPoint;
+  if (tp) {
+    const err = spec.profile?.guided?.gpsErrorM ?? 0;
+    slot.targetPoint.x = tp.x + gauss(slot) * err;
+    slot.targetPoint.y = tp.y;
+    slot.targetPoint.z = tp.z + gauss(slot) * err;
+    slot.targetPointValid = true;
+  }
 };
 
 // -----------------------------------------------------------------------------
@@ -216,6 +228,7 @@ function velocityAlignQuat(velX: number, velY: number, velZ: number, out: QuatLi
 }
 
 const _noisyTarget: Vec3Like = { x: 0, y: 0, z: 0 };
+const ZERO_VEL: Vec3Like = { x: 0, y: 0, z: 0 };
 const _loftTarget: Vec3Like = { x: 0, y: 0, z: 0 };
 
 /** The projectile's own random stream (mulberry32), [0, 1). */
@@ -258,7 +271,9 @@ export const stepProjectile: StepProjectile = (state, projectile, candidates, sa
   }
 
   // 2. Guidance-mode transition (sense).
-  if (kind === ProjectileKind.IrMissile) {
+  if (kind === ProjectileKind.GuidedBomb) {
+    projectile.guidance = projectile.targetPointValid ? ProjectileGuidanceMode.PointGuided : ProjectileGuidanceMode.Ballistic;
+  } else if (kind === ProjectileKind.IrMissile) {
     updateIrGuidance(projectile, state.rot, state.pos, targetEntity, dtSec, prof);
   } else if (kind === ProjectileKind.RadarMissile) {
     updateRadarMissileGuidance(projectile, state.rot, state.pos, targetEntity, prof);
@@ -317,14 +332,16 @@ export const stepProjectile: StepProjectile = (state, projectile, candidates, sa
   }
 
   // 5. Proportional-navigation lateral accel (guided kinds actively homing/datalinked only).
+  const pointGuided = projectile.guidance === ProjectileGuidanceMode.PointGuided && projectile.targetPoint !== undefined;
   const guidanceActive = projectile.guidance === ProjectileGuidanceMode.IrHoming
     || projectile.guidance === ProjectileGuidanceMode.RadarDatalink
-    || projectile.guidance === ProjectileGuidanceMode.RadarActive;
+    || projectile.guidance === ProjectileGuidanceMode.RadarActive
+    || pointGuided;
 
   if (guidanceActive) {
-    let tPos: Vec3Like = targetEntity ? targetEntity.pos : projectile.lastKnownTargetPos;
-    let tVel: Vec3Like = targetEntity ? targetEntity.vel : projectile.lastKnownTargetVel;
-    if (fl) {
+    let tPos: Vec3Like = pointGuided ? projectile.targetPoint! : targetEntity ? targetEntity.pos : projectile.lastKnownTargetPos;
+    let tVel: Vec3Like = pointGuided ? ZERO_VEL : targetEntity ? targetEntity.vel : projectile.lastKnownTargetVel;
+    if (fl && !pointGuided) {
       // What the missile actually knows. Mid-course (radar datalink): the launcher's radar track,
       // sent every datalinkIntervalSec with an angular error that grows with range, and
       // extrapolated in between (inertial flight if the launcher drops the track). Terminal
@@ -396,6 +413,18 @@ export const stepProjectile: StepProjectile = (state, projectile, candidates, sa
       projectile.guidance = ProjectileGuidanceMode.Lost;
     } else {
       computePnAccel(_missilePosScratch, _missileVelScratch, tPos, tVel, gain, maxAccel, _pnAccel);
+      if (pointGuided) {
+        // Guided bombs fly against gravity: the wings hold 1 g of lift on top of the steering
+        // command (within what they can make), so the bomb glides instead of sinking under it.
+        _pnAccel.y += env.gravityMps2;
+        const m = Math.hypot(_pnAccel.x, _pnAccel.y, _pnAccel.z);
+        if (m > maxAccel) {
+          const k = maxAccel / m;
+          _pnAccel.x *= k;
+          _pnAccel.y *= k;
+          _pnAccel.z *= k;
+        }
+      }
       if (fl && projectile.accelLat) {
         // Autopilot/airframe lag, then induced drag for the lift being pulled.
         const a = projectile.accelLat;

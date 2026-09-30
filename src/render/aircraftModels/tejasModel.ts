@@ -935,6 +935,8 @@ export interface AircraftModelTemplate {
   nozzleExitX: number;
   /** Store stations with pylons, in store-slot order (see PYLONS). */
   pylons: readonly Pylon[];
+  /** Flush pod mounts after the pylons in store-slot order (station L under the intake): attach points, body frame. */
+  podMounts?: readonly V3[];
   /** Exterior light positions (LIGHTS); `landing` is carried by the part named by `landingPart`. */
   lights: typeof LIGHTS;
   landingPart: string;
@@ -1019,6 +1021,7 @@ export function buildTejasModel(): AircraftModelTemplate {
     nozzleAxisY: NOZZLE_AXIS_Y,
     nozzleExitX: NOZZLE_EXIT_X,
     pylons: PYLONS,
+    podMounts: [INTAKE_STATION],
     lights: LIGHTS,
     landingPart: 'noseGear',
     canopyInterior: { min: [X(CANOPY_ST[1]), Y(0.55), -0.45], max: [X(CANOPY_ST[0]), Y(1.34), 0.45] },

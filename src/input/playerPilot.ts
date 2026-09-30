@@ -164,6 +164,8 @@ export function createPlayerInputSystem(config: PlayerInputConfig): PlayerInputS
   const radarRangeUpEdge = createEdgeDetector();
   const radarRangeDownEdge = createEdgeDetector();
   const lightsCycleEdge = createEdgeDetector();
+  const podViewEdge = createEdgeDetector();
+  const podPolarityEdge = createEdgeDetector();
   const apKeys = new Map<MetaActionType, { held: boolean; heldSec: number; acc: number }>();
   for (const a of AP_META_ACTIONS) apKeys.set(a, { held: false, heldSec: 0, acc: 0 });
   let prevTouchThrottle = -1;
@@ -461,6 +463,9 @@ export function createPlayerInputSystem(config: PlayerInputConfig): PlayerInputS
       const rawRadarMode = rawButtonHeld(LogicalButton.RadarMode, scheme);
       const rawFlare = rawButtonHeld(LogicalButton.Flare, scheme);
       const rawChaff = rawButtonHeld(LogicalButton.Chaff, scheme);
+      const rawPodZoom = rawButtonHeld(LogicalButton.PodZoom, scheme);
+      const rawPodTrack = rawButtonHeld(LogicalButton.PodTrack, scheme);
+      const rawLaser = rawButtonHeld(LogicalButton.Laser, scheme);
 
       // Internal toggles (persisted level, edge-triggered).
       const rawGear = rawButtonHeld(LogicalButton.GearToggle, scheme);
@@ -489,6 +494,12 @@ export function createPlayerInputSystem(config: PlayerInputConfig): PlayerInputS
       }
       if (lightsCycleEdge.risingEdge(rawButtonHeld(MetaAction.LightsCycle, scheme))) {
         for (const handler of metaHandlers) handler(MetaAction.LightsCycle);
+      }
+      if (podViewEdge.risingEdge(rawButtonHeld(MetaAction.PodView, scheme))) {
+        for (const handler of metaHandlers) handler(MetaAction.PodView);
+      }
+      if (podPolarityEdge.risingEdge(rawButtonHeld(MetaAction.PodPolarity, scheme))) {
+        for (const handler of metaHandlers) handler(MetaAction.PodPolarity);
       }
       // Autopilot keys: once per press; the bug adjusters also repeat while held.
       for (const a of AP_META_ACTIONS) {
@@ -527,6 +538,9 @@ export function createPlayerInputSystem(config: PlayerInputConfig): PlayerInputS
       out.radarModeCycle = rawRadarMode;
       out.dispenseFlare = rawFlare;
       out.dispenseChaff = rawChaff;
+      out.podZoom = rawPodZoom;
+      out.podTrack = rawPodTrack;
+      out.laser = rawLaser;
       out.throttleActive = throttleActive;
       out.trigger = rawTrigger;
       out.launch = rawLaunch;

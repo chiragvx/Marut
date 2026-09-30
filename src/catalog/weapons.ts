@@ -64,6 +64,7 @@ import {
   RADAR_SCAN_EL_HALF_ANGLE_RAD,
   RADAR_TRACK_HALF_ANGLE_RAD,
   type RadarProfile,
+  type SensorPodProfile,
   type WeaponProfile,
 } from '../contracts/combat';
 
@@ -741,6 +742,78 @@ export const B8_S8: WeaponProfile = agStore({
   warhead: { explosiveKg: 1.2 },
 });
 
+/** Shared shape of guided bombs (they keep pnGain/maxG and have a flight profile). */
+type GuidedFields = Omit<WeaponProfile, 'roundIntervalSec' | 'dispersionMrad' | 'proximityFuseRadiusM' | 'minLaunchRangeM' | 'damageFrac' | 'motorBurnSec' | 'motorThrustN'> &
+  Partial<Pick<WeaponProfile, 'motorBurnSec' | 'motorThrustN'>>;
+function guidedStore(p: GuidedFields): WeaponProfile {
+  return { roundIntervalSec: 0, dispersionMrad: 0, proximityFuseRadiusM: 0, minLaunchRangeM: 0, damageFrac: 1, motorBurnSec: 0, motorThrustN: 0, ...p };
+}
+
+/**
+ * Griffin laser-guided bomb (1000 lb class; IAF service, cleared on the Tejas): a semi-active laser
+ * seeker and canards on a 450 kg bomb. Released like a bomb (CCIP/CCRP) and steered onto a friendly
+ * laser spot (the Litening pod lases it automatically in the last seconds of the fall).
+ */
+export const GRIFFIN_LGB: WeaponProfile = guidedStore({
+  id: 'griffin-lgb',
+  name: 'Griffin LGB (1000 lb)',
+  label: 'GRIFFIN',
+  short: 'LGB',
+  kind: 'guided_bomb',
+  carriageMassKg: 480,
+  carriageDragAreaM2: 0.09,
+  projectileMassKg: 480,
+  dragCoeff: 0.24,
+  crossSectionM2: 0.1257,
+  maxLifetimeSec: 150,
+  armDistanceM: 300,
+  launchSpeedMps: 2,
+  pnGain: 3,
+  maxG: 4,
+  warhead: { explosiveKg: 200 },
+  guided: { seeker: 'laser', seekerHalfAngleDeg: 25, rangeSeaLevelM: 5000, rangePerKmAltM: 1300 },
+  flight: {
+    sustainBurnSec: 0, sustainThrustN: 0, propellantMassKg: 0, liftAreaM2: 0.45, clMax: 1.2, inducedDragK: 0.25,
+    waveDragRise: 0.3, autopilotTauSec: 0.4, seekerNoiseMrad: 1.5, seekerUpdateSec: 0.05,
+  },
+});
+
+/**
+ * Safran HAMMER (AASM, 250 kg class) with GPS/INS guidance and a rocket booster (Tejas Mk1A
+ * integration): a stand-off weapon that flies to the coordinates designated at release, out to
+ * ~15 km from low level and ~70 km from high altitude.
+ */
+export const HAMMER_250: WeaponProfile = guidedStore({
+  id: 'hammer-250',
+  name: 'HAMMER (250 kg, GPS/INS)',
+  label: 'HAMMER',
+  short: 'HMR',
+  kind: 'guided_bomb',
+  carriageMassKg: 340,
+  carriageDragAreaM2: 0.07,
+  projectileMassKg: 340,
+  dragCoeff: 0.22,
+  crossSectionM2: 0.0804,
+  maxLifetimeSec: 300,
+  armDistanceM: 300,
+  launchSpeedMps: 2,
+  motorBurnSec: 6,
+  motorThrustN: 4500,
+  pnGain: 3,
+  maxG: 6,
+  warhead: { explosiveKg: 125 },
+  guided: { seeker: 'gps', gpsErrorM: 5, rangeSeaLevelM: 15000, rangePerKmAltM: 5500 },
+  flight: {
+    sustainBurnSec: 0, sustainThrustN: 0, propellantMassKg: 45, liftAreaM2: 0.6, clMax: 1.4, inducedDragK: 0.2,
+    waveDragRise: 0.4, autopilotTauSec: 0.3, seekerNoiseMrad: 0, seekerUpdateSec: 0.1,
+  },
+});
+
+/** Sensor pods by catalogue id. Rafael Litening III (Tejas Mk1A): FLIR/CCD, laser designator/rangefinder. */
+export const SENSOR_PODS: Readonly<Record<string, SensorPodProfile>> = {
+  litening: { id: 'litening', name: 'Litening III targeting pod', label: 'LITENING', short: 'TGP', massKg: 208, dragAreaM2: 0.05, fovsDeg: [18.4, 3.5, 1.0], laserRangeM: 20000, maxUpDeg: 5 },
+};
+
 /** Every weapon store by catalogue id. */
 export const WEAPONS: Readonly<Record<string, WeaponProfile>> = {
   [GENERIC_GUN_PROFILE.id]: GENERIC_GUN_PROFILE,
@@ -759,6 +832,8 @@ export const WEAPONS: Readonly<Record<string, WeaponProfile>> = {
   [HSLD_250.id]: HSLD_250,
   [HSLD_250R.id]: HSLD_250R,
   [B8_S8.id]: B8_S8,
+  [GRIFFIN_LGB.id]: GRIFFIN_LGB,
+  [HAMMER_250.id]: HAMMER_250,
 };
 
 /** External fuel tanks: capacity, empty mass, drag area. */
@@ -786,6 +861,7 @@ export type StoreKind = WeaponKind | 'fuel_tank' | 'pod';
 export function storeKind(id: string): StoreKind | undefined {
   const w = WEAPONS[id];
   if (w) return w.kind;
+  if (SENSOR_PODS[id]) return 'pod';
   return FUEL_TANKS[id] ? 'fuel_tank' : undefined;
 }
 
@@ -804,7 +880,10 @@ export function storeInfo(id: string): StoreInfo | undefined {
   if (info === undefined) {
     const w = WEAPONS[id];
     const t = FUEL_TANKS[id];
-    if (w) {
+    const pod = SENSOR_PODS[id];
+    if (pod) {
+      info = { id, kind: 'pod', label: pod.label, short: pod.short };
+    } else if (w) {
       const label = w.label ?? w.name.toUpperCase();
       info = { id, kind: w.kind, label, short: w.short ?? label.replace(/[^A-Z0-9]/g, '').slice(0, 3) };
     } else if (t) {

@@ -39,6 +39,7 @@ import { drawAirbrakeIndicator, drawAltitudeTape, drawAoaGReadout, drawFuelIndic
 import { createScreenProjection, drawLeadSight, drawTargetBox, hasTarget } from './targetBox';
 import { drawWeaponStatus } from './weaponStatus';
 import { drawAgSight } from './agSight';
+import { drawPodDisplay } from './podDisplay';
 
 const agPos = { x: 0, y: 0, z: 0 };
 const agVel = { x: 0, y: 0, z: 0 };
@@ -107,7 +108,9 @@ export const createHudRenderer: CreateHudRenderer = (canvas, initialTier) => {
   let steerpoints: readonly HudSteerpoint[] = [];
   let playerOnGround = false;
   // 'helmet': only the helmet-mounted display's symbols over the world (3D cockpit view).
-  let overlayMode: 'full' | 'helmet' = 'full';
+  let overlayMode: 'full' | 'helmet' | 'pod' = 'full';
+  let podPolarity: 1 | 2 = 1;
+  let podKeys = { track: 'I', zoom: 'U', laser: 'K', view: 'Y' };
 
   const api: HudRenderer = {
     setOverlayMode(m) {
@@ -172,6 +175,11 @@ export const createHudRenderer: CreateHudRenderer = (canvas, initialTier) => {
       steerpoints = points;
     },
 
+    setPodDisplay(polarity, keys) {
+      podPolarity = polarity;
+      podKeys = keys;
+    },
+
     setDebugSurfacesEnabled(enabled) {
       debugSurfacesEnabled = enabled;
     },
@@ -184,6 +192,13 @@ export const createHudRenderer: CreateHudRenderer = (canvas, initialTier) => {
       const playerSlot = curr.playerSlot;
       if (playerSlot < 0) return;
       const hud = curr.hud;
+
+      if (overlayMode === 'pod') {
+        drawPodDisplay(ctx, hud, widthPx, heightPx, nowMs, podPolarity, podKeys);
+        drawWarnings(ctx, hud, nowMs, widthPx * 0.5, heightPx * 0.2);
+        lastNowMs = nowMs;
+        return;
+      }
 
       if (overlayMode === 'helmet') {
         // Helmet-mounted display: world-referenced cues only (the cockpit's HUD and displays carry the rest).

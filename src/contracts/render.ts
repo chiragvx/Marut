@@ -143,7 +143,11 @@ export const CameraMode = {
   Chase: 'chase',
   External: 'external',
   Flyby: 'flyby',
+  /** The targeting pod's picture (FLIR): from the pod under the intake, looking at the pod's point, with its field of view. */
+  Tgp: 'tgp',
 } as const;
+/** The targeting pod's mount, body frame (station L under the port intake). */
+export const POD_MOUNT_BODY_M: Vec3Like = { x: 1.25, y: -0.95, z: -0.74 };
 export type CameraMode = (typeof CameraMode)[keyof typeof CameraMode];
 
 /** Eye position, body-frame metres from the player aircraft's origin (not CG), for CameraMode.Cockpit: the Tejas design eye point (as in src/render/cockpit/layouts/tejas.ts). */
@@ -489,6 +493,8 @@ export interface SceneRenderer {
   resize(widthPx: number, heightPx: number, devicePixelRatio: number): void;
   setQualityTier(tier: QualityTier): void;
   setCameraMode(mode: CameraMode): void;
+  /** The targeting pod picture's polarity: 1 white-hot, 2 black-hot. */
+  setThermalPolarity(polarity: 1 | 2): void;
   /** Ground (or water) height under a point, world metres, for keeping the outside views above it; null = no ground. Call on each world load. */
   setGroundHeight(heightAt: ((x: number, z: number) => number) | null): void;
   /**
@@ -589,7 +595,9 @@ export interface HudRenderer {
    * over the world (target box, airbase markers, taxi guidance, warnings), for the 3D cockpit, whose
    * own HUD and displays carry the rest.
    */
-  setOverlayMode(mode: 'full' | 'helmet'): void;
+  setOverlayMode(mode: 'full' | 'helmet' | 'pod'): void;
+  /** Targeting pod picture: its polarity and the key labels shown as hints. */
+  setPodDisplay(polarity: 1 | 2, keys: { track: string; zoom: string; laser: string; view: string }): void;
   resize(widthPx: number, heightPx: number, devicePixelRatio: number): void;
   setQualityTier(tier: QualityTier): void;
   /** Display unit for the airspeed tape only; defaults to 'ms' (SnapshotHud.IAS_MPS's own wire unit) until called. */

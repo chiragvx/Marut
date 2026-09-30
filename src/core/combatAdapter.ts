@@ -20,7 +20,7 @@ import type { LoadoutPreset } from '../contracts/aircraft';
 import type { CombatPortWithContacts, CombatPortWithRearm, CombatPortWithStores, WorldCombatTickContext } from './combatContext';
 import { subSeed } from './seed';
 import { getAircraftDefinition, getLoadout } from '../aircraft';
-import { RADARS, WEAPONS } from '../catalog';
+import { RADARS, SENSOR_PODS, WEAPONS } from '../catalog';
 import { isaDensityKgM3 } from '../combat/isaDensity';
 import {
   createWeaponsState,
@@ -36,6 +36,7 @@ import {
   countermeasureRelease,
   combatRand01,
   updateAgSight,
+  updatePod,
   createDecoyPool,
   launchDecoy,
   stepDecoy,
@@ -58,6 +59,7 @@ import type {
   ProjectileSpawnRequest,
   RadarSignature,
   ProjectileState,
+  SensorPodProfile,
   WeaponsLoadout,
   WeaponsState,
   WeaponStationSpec,
@@ -77,9 +79,11 @@ function loadoutFor(defId: string | undefined, fit?: LoadoutPreset): WeaponsLoad
   const def = defId ? getAircraftDefinition(defId) : undefined;
   const preset = fit ?? (def ? getLoadout(def) : undefined);
   const stations: WeaponStationSpec[] = [];
+  let pod: SensorPodProfile | undefined;
   if (def?.stations && preset) {
     for (const st of def.stations) {
       const fit = preset.fit[st.id];
+      if (fit && SENSOR_PODS[fit.store]) pod = SENSOR_PODS[fit.store];
       const profile = fit ? WEAPONS[fit.store] : undefined;
       if (!fit || !profile || fit.count <= 0) continue;
       stations.push({ hardpointId: st.id, posBodyM: st.posBodyM, weapon: profile.kind, maxCount: fit.count * (profile.roundsPerStore ?? 1), profile });
@@ -89,7 +93,7 @@ function loadoutFor(defId: string | undefined, fit?: LoadoutPreset): WeaponsLoad
   }
   const radar = def?.sensors?.radar ? RADARS[def.sensors.radar] : undefined;
   const cm = def?.sensors?.countermeasures;
-  const out: WeaponsLoadout = { stations, ...(radar ? { radar } : {}), ...(cm ? { countermeasures: cm } : {}) };
+  const out: WeaponsLoadout = { stations, ...(radar ? { radar } : {}), ...(cm ? { countermeasures: cm } : {}), ...(pod ? { pod } : {}) };
   loadoutCache.set(key, out);
   return out;
 }
@@ -102,6 +106,9 @@ function defaultCombatEnvironment(): CombatEnvironment {
 }
 
 const EMPTY_CONTACTS: readonly Contact[] = [];
+/** A laser-guided bomb's owner lases for it in its last seconds of flight; its seeker sees a spot out to this range. */
+const LASE_TERMINAL_SEC = 12;
+const LASER_SEEKER_RANGE_M = 15000;
 /** Flares and chaff in the air at once, all aircraft together. */
 const MAX_DECOYS = 96;
 const RIGHT_BODY = { x: 0, y: 0, z: 1 };
@@ -154,6 +161,11 @@ export function createCombatAdapter(): CombatPort & CombatPortWithContacts & Com
   const decoyDetectables: DetectableEntity[] = decoys.map(() => ({ id: NO_ENTITY_ID, team: 0, kind: EntityKind.Effect, pos: { x: 0, y: 0, z: 0 }, vel: { x: 0, y: 0, z: 0 }, rot: { x: 0, y: 0, z: 0, w: 1 }, alive: true }));
   let decoySerial = 0;
   const releaseScratch = { flares: 0, chaff: 0 };
+  /** Laser spots this tick (pods lasing), by team; and the aircraft whose laser-guided bombs are in the terminal phase (lase for them). */
+  const laserSpots: { team: number; x: number; y: number; z: number }[] = [];
+  let laserSpotCount = 0;
+  let autoLaseOwners = new Set<EntityId>();
+  let autoLaseNext = new Set<EntityId>();
   const rightScratch = { x: 0, y: 0, z: 0 };
 
   /** Releases `n` decoys of `kind` from `owner` and gives each enemy missile guiding on it a chance to take the bait. */
@@ -331,6 +343,25 @@ export function createCombatAdapter(): CombatPort & CombatPortWithContacts & Com
         );
         for (const ev of sensorEventsScratch) eventsOut.push(ev);
 
+        // Targeting pod: slewed / tracking / lasing; while designating, its point is the SPI.
+        if (state.pod) {
+          const pod = state.pod;
+          if (updatePod(pod, observer, inputs, allEntities, ctx.sampler, autoLaseOwners.has(observer.id), dtSec) && pod.pointValid) {
+            state.spiValid = true;
+            state.spi.x = pod.point.x;
+            state.spi.y = pod.point.y;
+            state.spi.z = pod.point.z;
+          }
+          if (pod.laser) {
+            let spot = laserSpots[laserSpotCount];
+            if (!spot) laserSpots.push((spot = { team: 0, x: 0, y: 0, z: 0 }));
+            laserSpotCount++;
+            spot.team = observer.team;
+            spot.x = pod.point.x;
+            spot.y = pod.point.y;
+            spot.z = pod.point.z;
+          }
+        }
         updateAgSight(state, observer, ctx.sampler, isaDensityKgM3, dtSec);
         writeCombatStatus(state, mustGetCombatStatus(ctx, observer.id));
 
@@ -390,6 +421,42 @@ export function createCombatAdapter(): CombatPort & CombatPortWithContacts & Com
         // (effects.ts, keyed on missileId) never found the missile.
         for (const ev of fireEventsScratch) eventsOut.push(ev);
       }
+
+      // Laser-guided bombs: steer to a friendly laser spot inside the seeker's cone (none = fall
+      // ballistic); an owner's bomb in its last LASE_TERMINAL_SEC makes that owner's pod lase.
+      autoLaseNext.clear();
+      for (let i = 0; i < liveCount; i++) {
+        const e = ctx.liveAt(i);
+        if (e.kind !== EntityKind.Missile) continue;
+        const pi = projectileIndexByEntityId.get(e.id);
+        if (pi === undefined) continue;
+        const p = projectilePool[pi]!;
+        const g = p.profile?.guided;
+        if (p.kind !== 'guided_bomb' || g?.seeker !== 'laser' || !p.targetPoint) continue;
+        const fall = e.pos.y - ctx.sampler.heightAt(e.pos.x, e.pos.z);
+        if (fall / Math.max(20, -e.vel.y) < LASE_TERMINAL_SEC) autoLaseNext.add(p.ownerId);
+        p.targetPointValid = false;
+        const sp = Math.hypot(e.vel.x, e.vel.y, e.vel.z) || 1;
+        const cosCone = Math.cos(((g.seekerHalfAngleDeg ?? 20) * Math.PI) / 180);
+        let bestCos = cosCone;
+        for (let k = 0; k < laserSpotCount; k++) {
+          const s = laserSpots[k]!;
+          if (s.team !== e.team) continue;
+          const dx = s.x - e.pos.x, dy = s.y - e.pos.y, dz = s.z - e.pos.z;
+          const d = Math.hypot(dx, dy, dz);
+          if (d > LASER_SEEKER_RANGE_M || d < 1) continue;
+          const c = (dx * e.vel.x + dy * e.vel.y + dz * e.vel.z) / (d * sp);
+          if (c >= bestCos) {
+            bestCos = c;
+            p.targetPoint.x = s.x;
+            p.targetPoint.y = s.y;
+            p.targetPoint.z = s.z;
+            p.targetPointValid = true;
+          }
+        }
+      }
+      [autoLaseOwners, autoLaseNext] = [autoLaseNext, autoLaseOwners];
+      laserSpotCount = 0;
 
       // Step every live projectile. Finished projectiles are despawned only AFTER this loop:
       // ctx.despawn swap-removes from the pool's dense list, so despawning mid-loop both skips the
