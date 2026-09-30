@@ -525,7 +525,6 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
 
     ingestEvents(events) {
       effects.ingestEvents(events);
-      if (cockpit && snapshotBuf.hasData && snapshotBuf.curr.playerSlot >= 0) cockpit.ingestEvents(events, snapshotBuf.curr.id[snapshotBuf.curr.playerSlot]!);
     },
 
     ingestTerrainChunk(msg) {

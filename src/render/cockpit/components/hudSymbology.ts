@@ -15,7 +15,7 @@
 
 import { LockStateCode, SnapshotHud, WarningBit, WeaponKindCode, type Vec3Like } from '../../../contracts/core';
 import { GUN_MAX_EFFECTIVE_RANGE_M } from '../../../contracts/render';
-import { fmtHdg, toBody, type StoreInventory } from '../avionics';
+import { fmtHdg, storeInfoByCode, toBody, type StoreInventory } from '../avionics';
 import { DISPLAY_FONT } from '../screen';
 import type { CockpitContext } from '../types';
 
@@ -428,15 +428,8 @@ export function drawHud(g: CanvasRenderingContext2D, P: HudProjector, ctx: Cockp
   g.textBaseline = 'middle';
   const wy = cy + u(6.3);
   const wx = cx - u(8.2);
-  let wLabel = 'GUN';
-  let wCount = ex.gunRounds;
-  if (wpn === WeaponKindCode.ir_missile) {
-    wLabel = ex.inv.irName || 'SRM';
-    wCount = ex.inv.ir;
-  } else if (wpn === WeaponKindCode.radar_missile) {
-    wLabel = ex.inv.radarName || 'MRM';
-    wCount = ex.inv.radar;
-  }
+  const wLabel = wpn === WeaponKindCode.gun ? 'GUN' : storeInfoByCode(av.selectedStore)?.label ?? 'WPN';
+  const wCount = wpn === WeaponKindCode.gun ? ex.gunRounds : av.selectedCount;
   g.fillText(`${wLabel} ${wCount}`, wx, wy);
   g.fillText(aux.masterArm ? 'ARM' : 'SAFE', wx, wy + u(0.95));
   if (av.radarMode === 1) g.fillText('ACM', wx, wy - u(0.95));

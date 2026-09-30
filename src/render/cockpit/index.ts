@@ -11,7 +11,7 @@
  */
 
 import * as THREE from 'three';
-import { EntityFlag, SpeedUnit, type SimEvent } from '../../contracts/core';
+import { EntityFlag, SpeedUnit } from '../../contracts/core';
 import type { CockpitAction, CockpitAuxState, CockpitHover, CockpitPilotControls } from '../../contracts/render';
 import { createAvionics, createAvionicsState, createStoreInventory, storeInventory, toBody, updateAvionics } from './avionics';
 import { Batcher, PanelAtlas, createMaterials, type CockpitMaterials } from './build';
@@ -51,7 +51,6 @@ export interface CockpitSystem {
   recenter(): void;
   setControls(c: Readonly<CockpitPilotControls>): void;
   setAux(a: Readonly<CockpitAuxState>): void;
-  ingestEvents(events: readonly SimEvent[], playerId: number): void;
   /** Pointer at normalised device coords (null = none): hover and click. */
   pointer(ndcX: number | null, ndcY: number, click: boolean, cssX: number, cssY: number): { action: CockpitAction | null; hover: CockpitHover | null };
   /** Shadow map on/off and size by quality tier. */
@@ -133,7 +132,7 @@ export function createCockpitSystem(layout: CockpitLayout): CockpitSystem {
   const avState = createAvionicsState();
   const inv = createStoreInventory();
   const pilot: CockpitPilotControls = { pitch: 0, roll: 0, yaw: 0, throttle: 0, afterburner: false, brakes: 0, trigger: false };
-  const aux: CockpitAuxState = { masterArm: true, lightMode: '', speedUnit: SpeedUnit.Knots, gunRoundsFull: 0, loadSerial: -1 };
+  const aux: CockpitAuxState = { masterArm: true, lightMode: '', speedUnit: SpeedUnit.Knots };
   const local: CockpitLocalState = {
     mfdPage: { ...layout.mfdPages },
     hudDeclutter: 0,
@@ -145,8 +144,6 @@ export function createCockpitSystem(layout: CockpitLayout): CockpitSystem {
     ufcpField: 'hdg',
     warnAck: 0,
   };
-  let gunRounds = 0;
-  let loadSerial = -1;
   let lastFlight: CockpitFlight | null = null;
   const failed = new Set<CockpitComponent>();
 
@@ -233,11 +230,7 @@ export function createCockpitSystem(layout: CockpitLayout): CockpitSystem {
         updateAvionics(av, avState, f, dtSec);
         storeInventory(f.stores, f.storesB, inv);
       }
-      if (aux.loadSerial !== loadSerial) {
-        loadSerial = aux.loadSerial;
-        gunRounds = aux.gunRoundsFull;
-      }
-      ctx.gunRounds = gunRounds;
+      ctx.gunRounds = av.gunRounds;
       // Master warning/caution: a press acknowledges what is showing; new warnings light it again.
       local.warnAck &= av.warnings;
       ctx.unackedWarnings = av.warnings & ~local.warnAck;
@@ -306,10 +299,6 @@ export function createCockpitSystem(layout: CockpitLayout): CockpitSystem {
 
     setAux(a) {
       Object.assign(aux, a);
-    },
-
-    ingestEvents(events, playerId) {
-      for (const e of events) if (e.type === 'gunFire' && e.shooterId === playerId) gunRounds = Math.max(0, gunRounds - 1);
     },
 
     pointer(ndcX, ndcY, click, cssX, cssY) {

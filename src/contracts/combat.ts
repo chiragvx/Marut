@@ -458,6 +458,9 @@ export interface WeaponsState {
   prevRadarModeCycle: boolean;
   /** Track file by entity id (radar/visual detections, with memory and identity). */
   tracks: Map<EntityId, TrackRecord>;
+  /** The selected store's catalogue id (WeaponProfile.id): the pilot selects by store, so two
+   *  missile types of one kind are separate selections. `selectedWeapon` is its kind. */
+  selectedStoreId: string;
   selectedWeapon: WeaponKind;
   /** Seconds until the gun may fire its next round; counts down, reset to GUN_ROUND_INTERVAL_SEC on every round fired. */
   gunCooldownSec: number;

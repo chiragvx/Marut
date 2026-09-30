@@ -53,6 +53,7 @@ export const createWeaponsState: CreateWeaponsState = (loadout: WeaponsLoadout, 
     radarMode: 'rws',
     prevRadarModeCycle: false,
     tracks: new Map(),
+    selectedStoreId: stations.length > 0 ? stations[0]!.profile.id : '',
     selectedWeapon: stations.length > 0 ? stations[0]!.weapon : WeaponKind.Gun,
     gunCooldownSec: 0,
     prevLaunch: false,
@@ -72,9 +73,10 @@ export const createWeaponsState: CreateWeaponsState = (loadout: WeaponsLoadout, 
 };
 
 export const writeCombatStatus: WriteCombatStatus = (state, out: CombatStatus) => {
-  let ammoGun = 0, missilesIr = 0, missilesRadar = 0, irRangeM = 0, radarRangeM = 0;
+  let ammoGun = 0, missilesIr = 0, missilesRadar = 0, irRangeM = 0, radarRangeM = 0, selectedCount = 0;
   for (let i = 0; i < state.stations.length; i++) {
     const st = state.stations[i]!;
+    if (st.profile.id === state.selectedStoreId) selectedCount += st.count;
     const reach = st.count > 0 ? (st.profile.envelope?.rMaxHeadOnM ?? 0) : 0;
     if (st.weapon === WeaponKind.Gun) ammoGun += st.count;
     else if (st.weapon === WeaponKind.IrMissile) { missilesIr += st.count; irRangeM = Math.max(irRangeM, reach); }
@@ -83,6 +85,8 @@ export const writeCombatStatus: WriteCombatStatus = (state, out: CombatStatus) =
   out.irMissileRangeM = irRangeM;
   out.radarMissileRangeM = radarRangeM;
   out.selectedWeapon = state.selectedWeapon;
+  out.selectedStoreId = state.selectedStoreId;
+  out.selectedStoreCount = selectedCount;
   out.radarMode = state.radarMode;
   out.radarMaxRangeM = state.radar.maxRangeM;
   out.radarScanAzRad = state.radar.scanAzHalfAngleRad;
@@ -105,6 +109,42 @@ function findStationWithAmmo(stations: readonly WeaponStationRuntime[], weapon: 
     if (st.weapon === weapon && st.count > 0) return st;
   }
   return undefined;
+}
+
+/** The next loaded station carrying store `storeId`, or undefined. */
+export function findStationWithStore(stations: readonly WeaponStationRuntime[], storeId: string): WeaponStationRuntime | undefined {
+  for (let i = 0; i < stations.length; i++) {
+    const st = stations[i]!;
+    if (st.profile.id === storeId && st.count > 0) return st;
+  }
+  return undefined;
+}
+
+/**
+ * Steps the selection to the next store type (in station order) that has anything left, wrapping
+ * round; the gun is one of them. Resets lock progress, since the stores' sensors differ. Returns
+ * false (selection unchanged) when nothing is loaded.
+ */
+export function cycleSelectedStore(state: WeaponsState): boolean {
+  const n = state.stations.length;
+  let cur = -1;
+  for (let i = 0; i < n; i++) if (state.stations[i]!.profile.id === state.selectedStoreId) { cur = i; break; }
+  for (let step = 1; step <= n; step++) {
+    const st = state.stations[(Math.max(cur, 0) + (cur < 0 ? step - 1 : step)) % n]!;
+    if (st.count <= 0 || st.profile.id === state.selectedStoreId) continue;
+    // First station of this store type after the current one: select it.
+    state.selectedStoreId = st.profile.id;
+    state.selectedWeapon = st.weapon;
+    return true;
+  }
+  return false;
+}
+
+/** After a store type runs out, move to another loaded store of the same kind (e.g. Derby after the Astras), if any. */
+function reselectIfEmpty(state: WeaponsState): void {
+  if (findStationWithStore(state.stations, state.selectedStoreId)) return;
+  const next = findStationWithAmmo(state.stations, state.selectedWeapon);
+  if (next) state.selectedStoreId = next.profile.id;
 }
 
 // Scratch (allocation-free).
@@ -177,8 +217,9 @@ export const fireWeapons: FireWeapons = (
     let ejectionSpeed = 0;
     let projectileKind: (typeof ProjectileKind)[keyof typeof ProjectileKind] | undefined;
 
+    const selected = findStationWithStore(state.stations, state.selectedStoreId) ?? findStationWithAmmo(state.stations, state.selectedWeapon);
     if (state.selectedWeapon === WeaponKind.RadarMissile) {
-      station = findStationWithAmmo(state.stations, WeaponKind.RadarMissile);
+      station = selected;
       ejectionSpeed = station ? station.profile.launchSpeedMps : 0;
       projectileKind = ProjectileKind.RadarMissile;
     } else if (state.selectedWeapon === WeaponKind.IrMissile) {
@@ -186,7 +227,7 @@ export const fireWeapons: FireWeapons = (
       const dy = lockedTarget.pos.y - shooterState.pos.y;
       const dz = lockedTarget.pos.z - shooterState.pos.z;
       const rangeM = Math.sqrt(dx * dx + dy * dy + dz * dz);
-      const irStation = findStationWithAmmo(state.stations, WeaponKind.IrMissile);
+      const irStation = selected;
       if (irStation && rangeM >= irStation.profile.minLaunchRangeM) {
         station = irStation;
         ejectionSpeed = irStation.profile.launchSpeedMps;
@@ -222,6 +263,7 @@ export const fireWeapons: FireWeapons = (
       // `missileId` field in place once that id exists, before the event is
       // broadcast onward.
       outEvents.push({ type: 'missileLaunch', shooterId, missileId: NO_ENTITY_ID, weapon: state.selectedWeapon });
+      reselectIfEmpty(state);
     }
   }
 

@@ -1,53 +1,21 @@
 /**
  * src/hud/weaponStatus.ts
  *
- * Selected-weapon readout + locally-tracked ammo counters, event-driven
- * decrement. 08-render.md section 4.9 / section 6.3 (SimEvent-driven, not
- * carried in the 60 Hz snapshot).
+ * Selected-weapon readout: the selected store and how many are left, from the
+ * snapshot's HUD block (SELECTED_STORE / SELECTED_COUNT / GUN_ROUNDS).
  */
 
-import { LockStateByCode, NO_ENTITY_ID, SnapshotHud, WeaponKind, WeaponKindByCode, type EntityId, type LockState, type SimEvent } from '../contracts/core';
+import { LockStateByCode, NO_ENTITY_ID, STORE_IDS, SnapshotHud, WeaponKind, WeaponKindByCode, type LockState } from '../contracts/core';
 import { WEAPON_DISPLAY_LABEL } from '../contracts/render';
+import { storeInfo } from '../catalog';
 
-export interface WeaponStatusState {
-  ammoGun: number;
-  missilesIr: number;
-  missilesRadar: number;
-  /** Missile type labels (undefined = the generic IR / RDR). */
-  irName: string | undefined;
-  radarName: string | undefined;
-}
-
-export function createWeaponStatusState(): WeaponStatusState {
-  return { ammoGun: 0, missilesIr: 0, missilesRadar: 0, irName: undefined, radarName: undefined };
-}
-
-export function setWeaponLoadout(state: WeaponStatusState, ammoGun: number, missilesIr: number, missilesRadar: number, names?: { ir?: string; radar?: string }): void {
-  state.ammoGun = ammoGun;
-  state.missilesIr = missilesIr;
-  state.missilesRadar = missilesRadar;
-  state.irName = names?.ir;
-  state.radarName = names?.radar;
-}
-
-/** Only events whose shooter id matches the player's own EntityId decrement the player's ammo display. */
-export function ingestWeaponEvents(state: WeaponStatusState, events: readonly SimEvent[], playerId: EntityId): void {
-  for (let i = 0; i < events.length; i++) {
-    const ev = events[i]!;
-    if (ev.type === 'gunFire' && ev.shooterId === playerId) {
-      state.ammoGun = Math.max(0, state.ammoGun - 1);
-    } else if (ev.type === 'missileLaunch' && ev.shooterId === playerId) {
-      if (ev.weapon === WeaponKind.IrMissile) state.missilesIr = Math.max(0, state.missilesIr - 1);
-      else if (ev.weapon === WeaponKind.RadarMissile) state.missilesRadar = Math.max(0, state.missilesRadar - 1);
-    }
-  }
-}
-
-export function drawWeaponStatus(ctx: CanvasRenderingContext2D, hud: Float64Array, state: WeaponStatusState, xPx: number, yPx: number): void {
+/** The selected store's label and count, straight from the snapshot (SELECTED_STORE / SELECTED_COUNT). */
+export function drawWeaponStatus(ctx: CanvasRenderingContext2D, hud: Float64Array, xPx: number, yPx: number): void {
   const weaponIdx = hud[SnapshotHud.WEAPON_IDX]!;
   const kind = WeaponKindByCode[weaponIdx] ?? WeaponKind.Gun;
-  const label = (kind === WeaponKind.IrMissile ? state.irName : kind === WeaponKind.RadarMissile ? state.radarName : undefined) ?? WEAPON_DISPLAY_LABEL[kind];
-  const ammoText = kind === WeaponKind.Gun ? `${state.ammoGun}` : kind === WeaponKind.IrMissile ? `${state.missilesIr}` : `${state.missilesRadar}`;
+  const code = hud[SnapshotHud.SELECTED_STORE] ?? 0;
+  const label = (code > 0 ? storeInfo(STORE_IDS[code] ?? '')?.label : undefined) ?? WEAPON_DISPLAY_LABEL[kind];
+  const ammoText = `${Math.round(kind === WeaponKind.Gun ? hud[SnapshotHud.GUN_ROUNDS] ?? 0 : hud[SnapshotHud.SELECTED_COUNT] ?? 0)}`;
 
   ctx.save();
   ctx.fillStyle = '#40ff60';

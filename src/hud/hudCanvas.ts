@@ -18,7 +18,7 @@
 
 import { drawAirbaseMarkers, drawAirbaseTape } from './airbaseMarkers';
 import { drawAutopilotBugs, drawAutopilotStatus } from './autopilotHud';
-import { EntityFlag, NO_ENTITY_ID, SnapshotEntity, SnapshotHud, SpeedUnit, WarningBit, entityFieldOffset, type QualityTier } from '../contracts/core';
+import { EntityFlag, SnapshotEntity, SnapshotHud, SpeedUnit, WarningBit, entityFieldOffset, type QualityTier } from '../contracts/core';
 import { RENDER_QUALITY_TABLE, type CameraState, type CreateHudRenderer, type HudAirbase, type HudRenderer } from '../contracts/render';
 
 import { drawLadder } from './ladder';
@@ -36,7 +36,7 @@ import {
 import { createTaxiGuideState, drawTaxiGuide, setTaxiGuide as applyTaxiGuide } from './taxiGuide';
 import { drawAirbrakeIndicator, drawAltitudeTape, drawAoaGReadout, drawFuelIndicator, drawGearIndicator, drawHeadingTape, drawPowerIndicator, drawServiceStatus, drawSpeedTape } from './tapes';
 import { createScreenProjection, drawLeadSight, drawTargetBox, hasTarget } from './targetBox';
-import { createWeaponStatusState, drawWeaponStatus, ingestWeaponEvents, setWeaponLoadout as applyWeaponLoadout } from './weaponStatus';
+import { drawWeaponStatus } from './weaponStatus';
 import { drawWarnings } from './warnings';
 
 /**
@@ -76,7 +76,6 @@ export const createHudRenderer: CreateHudRenderer = (canvas, initialTier) => {
 
   const buf = createHudSnapshotDoubleBuffer();
   const interpTarget = createInterpolatedHudEntity();
-  const weaponState = createWeaponStatusState();
   const taxiGuide = createTaxiGuideState();
   let radarRangeIndex = 3; // 80 km
   let lastNowMs = 0;
@@ -145,15 +144,6 @@ export const createHudRenderer: CreateHudRenderer = (canvas, initialTier) => {
         playerRudderRad = view[entityFieldOffset(pSlot, SnapshotEntity.RUDDER)] ?? 0;
         playerOnGround = ((view[entityFieldOffset(pSlot, SnapshotEntity.FLAGS)] ?? 0) & EntityFlag.OnGround) !== 0;
       }
-    },
-
-    ingestEvents(events) {
-      const playerId = buf.curr.playerSlot >= 0 ? buf.curr.id[buf.curr.playerSlot]! : NO_ENTITY_ID;
-      ingestWeaponEvents(weaponState, events, playerId);
-    },
-
-    setWeaponLoadout(ammoGun, missilesIr, missilesRadar, names) {
-      applyWeaponLoadout(weaponState, ammoGun, missilesIr, missilesRadar, names);
     },
 
     cycleRadarRange(dir) {
@@ -252,7 +242,7 @@ export const createHudRenderer: CreateHudRenderer = (canvas, initialTier) => {
       }
 
       drawLeadSight(ctx, camera, hud, widthPx, heightPx);
-      drawWeaponStatus(ctx, hud, weaponState, widthPx - 16, heightPx - 44);
+      drawWeaponStatus(ctx, hud, widthPx - 16, heightPx - 44);
       drawWarnings(ctx, hud, nowMs, widthPx * 0.5, heightPx * 0.28);
 
       if (debugSurfacesEnabled) {

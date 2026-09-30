@@ -78,9 +78,6 @@ import { buildAirfieldMask } from './airport/airfieldMask';
 import { buildAirfieldAids } from './airport/airfieldAids';
 import { activeRunway, buildTaxiGraph, routeToRunway, routeToStand, type TaxiGraph } from './airport/taxiGraph';
 import { tejasDefinition } from './aircraft';
-import { getAircraftDefinition } from './aircraft/registry';
-import { resolveLoadout, type LoadoutFit } from './aircraft/loadout';
-import { WEAPONS } from './catalog';
 import { isBuiltinMissionId, resolveBuiltinMission, type BuiltinMissionId } from './core/missions/index';
 import { readSnapshotEntity, readSnapshotHeader } from './core/snapshotReader';
 import { buildKeyBindingsFromInputMap, isAxisRebindMiscapturePositive, targetForBindableAction } from './core/inputBindingsAdapter';
@@ -193,7 +190,6 @@ let masterArm = true;
 /** One-shot presses from cockpit controls, added to the next frame's pilot inputs (frames left). */
 const cockpitPulse = { cycleWeapon: 0, cycleTarget: 0, radarModeCycle: 0, jettisonTanks: 0, requestService: 0 };
 /** Bumped at every spawn and rearm, so the cockpit starts counting gun rounds again. */
-let loadSerial = 0;
 let lightMode = DEFAULT_LIGHT_MODE;
 /** Objective tracker, event messages and hints over the HUD (src/ui/flightOverlay.ts). */
 let flightOverlay: FlightOverlay | undefined;
@@ -781,7 +777,6 @@ async function initWorkersAndRenderer(qualityTier: QualityTier): Promise<void> {
       }
       // A completed ground service re-arms: reset the HUD's locally counted ammunition.
       const service = view[HUD_BLOCK_START + SnapshotHud.SERVICE_STATE] ?? 0;
-      if (service === ServiceStateCode.Complete && lastServiceState !== ServiceStateCode.Complete) setPlayerFullLoad();
       const serviceWas = lastServiceState;
       lastServiceState = service;
       // The autothrottle drives the throttle lever (so taking over, or disengaging, never jumps).
@@ -796,7 +791,6 @@ async function initWorkersAndRenderer(qualityTier: QualityTier): Promise<void> {
     if (msg.type === 'events') {
       const eventsMsg = msg as SimEventsMessage;
       renderer.ingestEvents(eventsMsg.events);
-      hud.ingestEvents(eventsMsg.events);
       for (const ev of eventsMsg.events) {
         if (ev.type === 'gunFire') statShotsFiredGun += 1;
         else if (ev.type === 'missileLaunch') {
@@ -1292,8 +1286,6 @@ function launchMission(missionIn: Mission, opts: { title: string; airStart: bool
 
   setupWorldView(mission, currentQualityTier);
 
-  playerFullLoad = fullLoadFor(mission.playerStart.aircraftId, mission.playerStart.loadoutId, mission.playerStart.loadout);
-  setPlayerFullLoad();
   hud.setTaxiGuide(null);
   hud.setAirbases(buildHudAirbases(mission.world.airports as readonly AirportLayout[]));
   lastPlayer.valid = false;
@@ -1671,29 +1663,6 @@ function wireMetaActionsOnce(): void {
 }
 wireMetaActionsOnce();
 
-/** The player's full weapon load (their aircraft's loadout preset), for the HUD's ammunition counters. */
-interface FullLoad { gun: number; ir: number; radar: number; irName?: string; radarName?: string }
-let playerFullLoad: FullLoad = { gun: 0, ir: 0, radar: 0 };
-function fullLoadFor(aircraftId: string | undefined, loadoutId: string | undefined, custom?: LoadoutFit): FullLoad {
-  const out: FullLoad = { gun: 0, ir: 0, radar: 0 };
-  const def = getAircraftDefinition(aircraftId ?? 'tejas-mk1a');
-  const preset = def ? resolveLoadout(def, loadoutId, custom) : undefined;
-  if (!preset) return out;
-  for (const fit of Object.values(preset.fit)) {
-    const w = fit ? WEAPONS[fit.store] : undefined;
-    if (!w || !fit) continue;
-    if (w.kind === 'gun') out.gun += fit.count;
-    else if (w.kind === 'ir_missile') { out.ir += fit.count; out.irName ??= w.name.toUpperCase(); }
-    else if (w.kind === 'radar_missile') { out.radar += fit.count; out.radarName ??= w.name.toUpperCase().replace(' MK1', ''); }
-  }
-  return out;
-}
-function setPlayerFullLoad(): void {
-  const f = playerFullLoad;
-  loadSerial += 1;
-  pushCockpitAux();
-  hud.setWeaponLoadout(f.gun, f.ir, f.radar, { ...(f.irName ? { ir: f.irName } : {}), ...(f.radarName ? { radar: f.radarName } : {}) });
-}
 let lastServiceState = 0;
 
 /**
@@ -1807,8 +1776,6 @@ function pushCockpitAux(): void {
       : {}),
     bases: airports.map((a) => ({ name: a.name, x: a.referenceWorldX, z: a.referenceWorldZ, hostile: a.side === 'hostile' })),
     ...(currentMission ? { missionName: currentMission.name } : {}),
-    gunRoundsFull: playerFullLoad.gun,
-    loadSerial,
   });
 }
 

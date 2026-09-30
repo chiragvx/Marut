@@ -350,6 +350,10 @@ export interface SnapshotHudView {
   thrustFrac: number;
   gearPos: number;
   weaponIdx: number;
+  /** SnapshotHud.SELECTED_STORE / SELECTED_COUNT / GUN_ROUNDS. */
+  selectedStore: number;
+  selectedCount: number;
+  gunRounds: number;
   targetId: EntityId;
   targetRangeM: number;
   closureMps: number;

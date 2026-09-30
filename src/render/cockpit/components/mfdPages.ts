@@ -588,9 +588,8 @@ const WPN: MfdPage = {
       const code = slot?.code ?? 0;
       const count = slot?.count ?? 0;
       const info = storeInfoByCode(code);
-      const kind = info && info.kind !== 'fuel_tank' ? WeaponKindCode[info.kind] : -1;
       const name = info?.short ?? '';
-      const active = kind === sel && count > 0;
+      const active = code === av.selectedStore && count > 0;
       g.strokeStyle = code ? C.grey : 'rgba(127,138,164,0.4)';
       g.lineWidth = 1;
       g.beginPath();
@@ -611,8 +610,8 @@ const WPN: MfdPage = {
       if (code) text(g, String(count), bx + bw / 2, by + 32, 14, active ? '#001a08' : C.white);
     });
     // Selected weapon and status.
-    const selName = sel === WeaponKindCode.gun ? 'GUN' : sel === WeaponKindCode.ir_missile ? inv.irName || 'SRM' : inv.radarName || 'MRM';
-    const selCount = sel === WeaponKindCode.gun ? `${ctx.gunRounds} RDS` : String(sel === WeaponKindCode.ir_missile ? inv.ir : inv.radar);
+    const selName = sel === WeaponKindCode.gun ? 'GUN' : storeInfoByCode(av.selectedStore)?.label ?? '---';
+    const selCount = sel === WeaponKindCode.gun ? `${ctx.gunRounds} RDS` : String(av.selectedCount);
     boxed(g, `${selName}  ${selCount}`, cx, H - 92, 20, C.green);
     text(g, `GUN ${ctx.gunRounds}`, 60, H - 60, 15, C.white, 'left');
     text(g, `SRM ${inv.ir}   MRM ${inv.radar}`, cx, H - 60, 15, C.white);

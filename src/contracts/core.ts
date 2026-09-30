@@ -498,7 +498,11 @@ export interface Contact {
 }
 
 export interface CombatStatus {
+  /** The selected store's weapon kind. */
   selectedWeapon: WeaponKind;
+  /** The selected store (catalogue id, e.g. 'astra-mk1', 'gsh-23') and how many of it are left on the aircraft. Absent before the first combat update. */
+  selectedStoreId?: string;
+  selectedStoreCount?: number;
   /** The radar's mode, instrumented range and search half-angle (absent before the first sensor update). */
   radarMode?: RadarMode;
   radarMaxRangeM?: number;
@@ -956,6 +960,10 @@ export const SnapshotHud = {
   AP_VS_MPS: 38,
   AP_SPD_MPS: 39,
   AP_THROTTLE: 40,
+  /** The selected store's code (STORE_IDS; 0 = the gun or nothing), the number of it left, and the gun's rounds left. */
+  SELECTED_STORE: 41,
+  SELECTED_COUNT: 42,
+  GUN_ROUNDS: 43,
   /** Start of the player's track list: MAX_SNAPSHOT_TRACKS entries of SNAPSHOT_TRACK_STRIDE floats (SnapshotTrack). */
   TRACKS_BASE: 48,
 } as const;

@@ -4,7 +4,7 @@
  */
 
 // 3.2 Weapon stations & loadout
-export { createWeaponsState, writeCombatStatus, createCombatRngState, fireWeapons, computeStoresLoad } from './weaponStation';
+export { createWeaponsState, writeCombatStatus, createCombatRngState, fireWeapons, computeStoresLoad, cycleSelectedStore, findStationWithStore } from './weaponStation';
 
 // 3.3 Damage
 export { createDamageState, applyHit, rollSubsystemHit, subsystemHitFromU01 } from './subsystemDamage';

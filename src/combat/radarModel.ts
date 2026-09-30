@@ -52,6 +52,7 @@ import { Vec3, Quat, clamp, lerp } from '../math';
 import { computeLeadSolution } from './leadComputingSight';
 import { irDetectionRangeM } from './irMissileSeeker';
 import { GENERIC_GUN_PROFILE, GENERIC_IR_MISSILE_PROFILE } from './weaponProfiles';
+import { cycleSelectedStore } from './weaponStation';
 
 export const radarDetectionRangeM: RadarDetectionRangeM = (rcsM2, radar) => {
   const raw = (radar?.referenceRangeM ?? RADAR_REFERENCE_RANGE_M) * Math.pow(rcsM2 / (radar?.referenceRcsM2 ?? RADAR_REFERENCE_RCS_M2), 0.25);
@@ -217,9 +218,19 @@ export const updateSensors: UpdateSensors = (
   Quat.rotate(observer.rot, WORLD_UP_BODY, _upW);
   // This aircraft's radar, IR seeker (the first IR station's missile) and gun muzzle velocity.
   const radar = state.radar;
+  // The IR seeker: the selected missile's, else the first IR station's (loaded first).
   let irSeeker = GENERIC_IR_MISSILE_PROFILE.ir!;
   let gunMuzzleMps = GENERIC_GUN_PROFILE.launchSpeedMps;
+  let irFound = false;
   for (let i = 0; i < state.stations.length; i++) {
+    const st = state.stations[i]!;
+    if (st.weapon === 'ir_missile' && st.profile.ir && st.profile.id === state.selectedStoreId) {
+      irSeeker = st.profile.ir;
+      irFound = true;
+      break;
+    }
+  }
+  for (let i = 0; i < state.stations.length && !irFound; i++) {
     const st = state.stations[i]!;
     if (st.weapon === 'ir_missile' && st.profile.ir) {
       irSeeker = st.profile.ir;
@@ -365,16 +376,7 @@ export const updateSensors: UpdateSensors = (
   if (radarModeEdge) state.radarMode = state.radarMode === 'rws' ? 'acm' : 'rws';
 
   if (cycleWeaponEdge) {
-    const kinds: (typeof state.selectedWeapon)[] = [];
-    for (let i = 0; i < state.stations.length; i++) {
-      const st = state.stations[i]!;
-      if (st.count > 0 && !kinds.includes(st.weapon)) kinds.push(st.weapon);
-    }
-    if (kinds.length > 0) {
-      const curIdx = kinds.indexOf(state.selectedWeapon);
-      const nextIdx = curIdx < 0 ? 0 : (curIdx + 1) % kinds.length;
-      state.selectedWeapon = kinds[nextIdx]!;
-    }
+    cycleSelectedStore(state);
     state.lockState = LockState.Searching;
     state.lockProgressSec = 0;
     state.lockBreakGraceRemainingSec = 0;
