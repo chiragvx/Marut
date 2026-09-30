@@ -160,6 +160,9 @@ export const LogicalButton = {
   Service: 'service',
   /** Radar mode (PilotInputs.radarModeCycle: RWS <-> ACM), passed through as raw held state. */
   RadarMode: 'radarMode',
+  /** Countermeasures: release a flare / chaff program (PilotInputs.dispenseFlare / dispenseChaff), raw held state. */
+  Flare: 'flare',
+  Chaff: 'chaff',
 } as const;
 export type LogicalButton = (typeof LogicalButton)[keyof typeof LogicalButton];
 

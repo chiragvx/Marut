@@ -17,7 +17,8 @@
   "aiFlights": [
     {
       "id": "bandit-1",
-      "aircraftId": "tejas-mk1a",
+      "aircraftId": "f-16",
+      "loadoutId": "cap",
       "team": 1,
       "difficulty": "veteran",
       "startPos": {

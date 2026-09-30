@@ -354,6 +354,9 @@ export interface SnapshotHudView {
   selectedStore: number;
   selectedCount: number;
   gunRounds: number;
+  /** SnapshotHud.CHAFF / FLARES. */
+  chaff: number;
+  flares: number;
   targetId: EntityId;
   targetRangeM: number;
   closureMps: number;

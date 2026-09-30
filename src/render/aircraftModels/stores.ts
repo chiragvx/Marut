@@ -2,8 +2,9 @@
  * src/render/aircraftModels/stores.ts — procedural models of the stores the Tejas carries, to
  * public dimensions: ASRAAM (2.90 m, 166 mm, no mid-body wings, small tail fins), R-73 (2.93 m,
  * 170 mm, nose canards, tail wings), Derby (3.62 m, 160 mm, canards, tail fins), Astra Mk1 (3.57 m,
- * 178 mm, long mid-body strakes, tail fins), the 1200 L wing tank and the 725 L centreline tank;
- * plus single and twin-rail launchers.
+ * 178 mm, long mid-body strakes, tail fins), Python-5, I-Derby ER, and the hostile PL-5E II,
+ * AIM-9M, SD-10A, AIM-120C-5 and PL-15E; the 1200 L wing tank and the 725 L centreline tank; plus
+ * single and twin-rail launchers.
  *
  * Each store's geometry is centred on its own axis (x forward), so a missile in flight is drawn
  * about its entity position; `mount` hangs it from a rail or pylon whose attach point is the origin
@@ -78,6 +79,85 @@ const MISSILES: Record<string, MissileSpec> = {
       { at: 3.1, rootChord: 0.44, tipChord: 0.22, span: 0.17, sweep: 0.15 },
     ],
     bands: [0.9, 2.0],
+  },
+  // Newer and hostile missiles (public dimensions; fin layouts from photographs).
+  'python-5': {
+    len: 3.1,
+    dia: 0.16,
+    seeker: 'ir',
+    noseLen: 0,
+    fins: [
+      { at: 0.22, rootChord: 0.14, tipChord: 0.04, span: 0.08, sweep: 0.1 },
+      { at: 0.45, rootChord: 0.2, tipChord: 0.06, span: 0.11, sweep: 0.13 },
+      { at: 2.6, rootChord: 0.46, tipChord: 0.24, span: 0.19, sweep: 0.17 },
+    ],
+    bands: [0.7, 1.4],
+  },
+  'derby-er': {
+    len: 3.62,
+    dia: 0.16,
+    seeker: 'radar',
+    noseLen: 0.45,
+    fins: [
+      { at: 0.55, rootChord: 0.2, tipChord: 0.06, span: 0.1, sweep: 0.12 },
+      { at: 3.14, rootChord: 0.42, tipChord: 0.24, span: 0.16, sweep: 0.13 },
+    ],
+    bands: [0.95, 1.9],
+  },
+  'pl-5e': {
+    len: 2.89,
+    dia: 0.127,
+    seeker: 'ir',
+    noseLen: 0,
+    fins: [
+      { at: 0.28, rootChord: 0.2, tipChord: 0.05, span: 0.12, sweep: 0.14 },
+      { at: 2.45, rootChord: 0.38, tipChord: 0.18, span: 0.2, sweep: 0.15 },
+    ],
+    bands: [0.55, 1.15],
+  },
+  'aim-9m': {
+    len: 2.87,
+    dia: 0.127,
+    seeker: 'ir',
+    noseLen: 0,
+    fins: [
+      { at: 0.3, rootChord: 0.24, tipChord: 0.02, span: 0.13, sweep: 0.21 },
+      { at: 2.42, rootChord: 0.42, tipChord: 0.18, span: 0.2, sweep: 0.17 },
+    ],
+    bands: [0.6, 1.2],
+  },
+  'sd-10a': {
+    len: 3.85,
+    dia: 0.203,
+    seeker: 'radar',
+    noseLen: 0.55,
+    fins: [
+      { at: 1.45, rootChord: 0.62, tipChord: 0.22, span: 0.2, sweep: 0.3 },
+      { at: 3.35, rootChord: 0.45, tipChord: 0.22, span: 0.18, sweep: 0.15 },
+    ],
+    bands: [0.95, 2.1],
+  },
+  'aim-120c': {
+    len: 3.66,
+    dia: 0.178,
+    seeker: 'radar',
+    noseLen: 0.5,
+    fins: [
+      { at: 1.5, rootChord: 0.34, tipChord: 0.12, span: 0.13, sweep: 0.16 },
+      { at: 3.2, rootChord: 0.4, tipChord: 0.2, span: 0.16, sweep: 0.14 },
+    ],
+    bands: [0.9, 1.9],
+  },
+  'pl-15e': {
+    len: 3.99,
+    dia: 0.203,
+    seeker: 'radar',
+    noseLen: 0.6,
+    fins: [
+      { at: 1.2, rootChord: 1.6, tipChord: 1.45, span: 0.05, sweep: 0.08 },
+      { at: 3.62, rootChord: 0.32, tipChord: 0.2, span: 0.1, sweep: 0.1 },
+    ],
+    bands: [1.0, 2.2],
   },
 };
 

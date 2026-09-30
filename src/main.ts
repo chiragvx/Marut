@@ -416,6 +416,7 @@ function controlGroups(): ControlGroup[] {
         { keys: [L(b.launch)], label: 'Fire missile (after LOCK)' },
         { keys: [L(b.cycleWeapon)], label: 'Next weapon' },
         { keys: [L(b.trigger)], label: 'Gun (hold)' },
+        { keys: [L(b.flare), L(b.chaff)], label: 'Flares / chaff' },
         { keys: [L(b.radarMode)], label: 'Radar mode' },
         { keys: [L(m.radarRangeDown), L(m.radarRangeUp)], label: 'Radar range' },
       ],

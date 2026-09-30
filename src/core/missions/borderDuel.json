@@ -18,7 +18,8 @@
   "aiFlights": [
     {
       "id": "bandit-1",
-      "aircraftId": "tejas-mk1a",
+      "aircraftId": "jf-17",
+      "loadoutId": "bvr",
       "team": 1,
       "difficulty": "rookie",
       "startPos": {

@@ -459,6 +459,8 @@ export function createPlayerInputSystem(config: PlayerInputConfig): PlayerInputS
       const rawJettison = rawButtonHeld(LogicalButton.JettisonTanks, scheme);
       const rawService = rawButtonHeld(LogicalButton.Service, scheme);
       const rawRadarMode = rawButtonHeld(LogicalButton.RadarMode, scheme);
+      const rawFlare = rawButtonHeld(LogicalButton.Flare, scheme);
+      const rawChaff = rawButtonHeld(LogicalButton.Chaff, scheme);
 
       // Internal toggles (persisted level, edge-triggered).
       const rawGear = rawButtonHeld(LogicalButton.GearToggle, scheme);
@@ -523,6 +525,8 @@ export function createPlayerInputSystem(config: PlayerInputConfig): PlayerInputS
       out.jettisonTanks = rawJettison;
       out.requestService = rawService;
       out.radarModeCycle = rawRadarMode;
+      out.dispenseFlare = rawFlare;
+      out.dispenseChaff = rawChaff;
       out.throttleActive = throttleActive;
       out.trigger = rawTrigger;
       out.launch = rawLaunch;

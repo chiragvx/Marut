@@ -23,6 +23,7 @@ export function drawWeaponStatus(ctx: CanvasRenderingContext2D, hud: Float64Arra
   ctx.textAlign = 'right';
   ctx.fillText(label, xPx, yPx);
   ctx.fillText(ammoText, xPx, yPx + 16);
+  ctx.fillText(`C ${Math.round(hud[SnapshotHud.CHAFF] ?? 0)}  F ${Math.round(hud[SnapshotHud.FLARES] ?? 0)}`, xPx, yPx + 32);
   const lockState = LockStateByCode[hud[SnapshotHud.LOCK_STATE]!] ?? 'none';
   const cue = missileLockCue(kind, lockState, hud[SnapshotHud.TARGET_ID]! !== NO_ENTITY_ID);
   if (cue) {

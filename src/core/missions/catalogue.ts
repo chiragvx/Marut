@@ -77,7 +77,7 @@ export const MISSIONS: readonly MissionEntry[] = [
     baseId: 'bathinda',
     bandits: 1,
     objective: 'Meet one intruder over the Punjab plains.',
-    situation: 'One intruder has crossed the border and is heading for Bathinda. Take off from runway 13 and shoot it down before it reaches the base.',
+    situation: 'A PAF JF-17 (PL-5E II and SD-10A) has crossed the border and is heading for Bathinda. Take off from runway 13 and shoot it down before it reaches the base. It carries flares and chaff: expect it to decoy your missiles.',
     recommended: true,
   },
   {
@@ -86,7 +86,7 @@ export const MISSIONS: readonly MissionEntry[] = [
     baseId: 'bathinda',
     bandits: 2,
     objective: 'Scramble from the shelters and stop two aircraft.',
-    situation: 'Two hostile aircraft are inbound from the west. You are in shelter HAS-7: taxi out (press H for taxi guidance), take off and destroy both.',
+    situation: 'Two JF-17s with SD-10A radar missiles are inbound from the west. You are in shelter HAS-7: taxi out (press H for taxi guidance), take off and destroy both.',
   },
   {
     id: 'konkan-dogfight',
@@ -94,7 +94,7 @@ export const MISSIONS: readonly MissionEntry[] = [
     baseId: 'hansa',
     bandits: 1,
     objective: 'Shoot down one aircraft over the Arabian Sea.',
-    situation: 'A single hostile fighter is working off the Goa coast. Take off from INS Hansa, find it on radar and shoot it down.',
+    situation: 'A single F-16 (AIM-9M and AIM-120C) is working off the Goa coast. Take off from INS Hansa, find it on radar and shoot it down. Beam its AMRAAMs and drop chaff (C); flares (F) against Sidewinders.',
   },
 ];
 

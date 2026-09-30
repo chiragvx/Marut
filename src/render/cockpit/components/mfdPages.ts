@@ -615,6 +615,7 @@ const WPN: MfdPage = {
     boxed(g, `${selName}  ${selCount}`, cx, H - 92, 20, C.green);
     text(g, `GUN ${ctx.gunRounds}`, 60, H - 60, 15, C.white, 'left');
     text(g, `SRM ${inv.ir}   MRM ${inv.radar}`, cx, H - 60, 15, C.white);
+    text(g, `CHF ${Math.round(av.chaff)}   FLR ${Math.round(av.flares)}`, cx, H - 36, 15, C.white);
     text(g, ctx.aux.masterArm ? 'ARM' : 'SAFE', W - 60, H - 60, 17, ctx.aux.masterArm ? C.red : C.green, 'right', true);
   },
 };

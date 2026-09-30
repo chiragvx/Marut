@@ -26,7 +26,9 @@ export const INPUT_MAP_STORAGE_KEY = 'tejas.inputMap.v1';
 // Bumped 2 -> 3 when the jettisonTanks button (J) was added, for the same reason.
 // Bumped 4 -> 5 when the service button (R: refuel + re-arm) was added; 5 -> 6 for taxi guidance (H);
 // 6 -> 7 for the radar mode (M) and radar range ([ / ]) keys; 7 -> 8 for the autopilot keys.
-export const INPUT_MAP_VERSION = 9;
+// 9 -> 10: flares (F) and chaff (C). From 10 on, new actions are added by migrateInputMapData's
+// generic step (default key if the player isn't already using it), so bumps need no bespoke code.
+export const INPUT_MAP_VERSION = 10;
 
 /**
  * The literal default binding/tuning data, matching 09-input.md section 5.1 (throttle keys
@@ -62,6 +64,8 @@ export const DEFAULT_INPUT_MAP_DATA: InputMapData = {
       jettisonTanks: 'KeyJ',
       service: 'KeyR',
       radarMode: 'KeyM',
+      flare: 'KeyF',
+      chaff: 'KeyC',
     },
     meta: {
       cameraCycle: 'KeyV',
@@ -104,6 +108,8 @@ export const DEFAULT_INPUT_MAP_DATA: InputMapData = {
       jettisonTanks: { buttonIndex: 13 },
       service: { buttonIndex: 14 },
       radarMode: null,
+      flare: null,
+      chaff: null,
     },
     meta: {
       cameraCycle: { buttonIndex: 11 },
@@ -185,6 +191,29 @@ function migrateInputMapData(value: unknown): unknown {
     v.keyboard.meta.lightsCycle = used.includes('KeyL') ? null : 'KeyL';
     v.gamepad.meta.lightsCycle = null;
     v.version = 9;
+  }
+  // v9+ -> current: every button/meta action the saved map lacks gets its default key when the
+  // player isn't already using that key (else stays unbound), and no gamepad button.
+  const gp = v.gamepad as { buttons?: Record<string, unknown>; meta?: Record<string, unknown> } | undefined;
+  if (typeof v.version === 'number' && v.version >= 9 && v.version < INPUT_MAP_VERSION && v.keyboard?.buttons && v.keyboard.meta && gp?.buttons && gp.meta) {
+    const kb = v.keyboard;
+    const used = new Set([
+      ...Object.values(kb.meta ?? {}),
+      ...Object.values(kb.buttons ?? {}),
+      ...Object.values(kb.axes ?? {}).flatMap((a) => [a.negative, a.positive]),
+    ]);
+    const defaults = DEFAULT_INPUT_MAP_DATA.keyboard;
+    for (const [group, defs] of [['buttons', defaults.buttons], ['meta', defaults.meta]] as const) {
+      const saved = kb[group]!;
+      const savedPad = gp[group]!;
+      for (const [action, key] of Object.entries(defs as Record<string, string | null>)) {
+        if (action in saved) continue;
+        saved[action] = key && !used.has(key) ? key : null;
+        if (key) used.add(key);
+        if (!(action in savedPad)) savedPad[action] = null;
+      }
+    }
+    v.version = INPUT_MAP_VERSION;
   }
   return value;
 }

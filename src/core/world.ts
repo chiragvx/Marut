@@ -237,6 +237,8 @@ interface AircraftRecord {
   wasOnGround: boolean;
   wasStructureAlive: boolean;
   pilotCtx: PilotContext | undefined; // only AI aircraft get a reused PilotContext
+  /** AI aircraft: the mission's fit for its flight (the player's comes from playerStart). Absent = the type's default. */
+  loadout?: LoadoutPreset;
 }
 
 const EMPTY_CONTACTS: readonly [] = [];
@@ -263,7 +265,7 @@ class WorldImpl implements World {
   private readonly hudScratch: SnapshotHudView = {
     iasMps: 0, tasMps: 0, mach: 0, altMslM: 0, altAglM: 0, aoaRad: 0, betaRad: 0, gLoad: 0,
     headingRad: 0, pitchRad: 0, rollRad: 0, vspeedMps: 0, fuelKg: 0, thrustFrac: 0, gearPos: 0,
-    weaponIdx: 0, selectedStore: 0, selectedCount: 0, gunRounds: 0, targetId: NO_ENTITY_ID, targetRangeM: 0, closureMps: 0, lockState: 0,
+    weaponIdx: 0, selectedStore: 0, selectedCount: 0, gunRounds: 0, chaff: 0, flares: 0, targetId: NO_ENTITY_ID, targetRangeM: 0, closureMps: 0, lockState: 0,
     warningBits: 0, ilsLoc: 0, ilsGs: 0, pipperX: 0, pipperY: 0, pipperZ: 0, pipperValid: 0, tankFuelKg: -1,
     serviceState: 0, serviceFuelFrac: 0, serviceArmFrac: 0,
     radarMode: 0, radarMaxRangeM: 0, radarScanAzRad: 0, trackCount: 0, tracks: new Float64Array(MAX_SNAPSHOT_TRACKS * SNAPSHOT_TRACK_STRIDE),
@@ -329,7 +331,7 @@ class WorldImpl implements World {
       getLoadout(id: EntityId): LoadoutPreset | undefined {
         const rec = self.aircraft.get(id);
         if (!rec) return undefined;
-        return id === self.playerEntityIdInternal ? self.playerLoadout(rec.aircraftDefId) : undefined;
+        return id === self.playerEntityIdInternal ? self.playerLoadout(rec.aircraftDefId) : rec.loadout;
       },
     };
   }
@@ -457,6 +459,8 @@ class WorldImpl implements World {
         const rec = this.aircraft.get(entityId);
         if (rec) {
           rec.pilotCtx = this.buildPilotContext(entityId, rec);
+          const def = getAircraftDefinition(flight.aircraftId);
+          if (def && (flight.loadoutId || flight.loadout)) rec.loadout = resolveLoadout(def, flight.loadoutId, flight.loadout);
         }
       }
     }
@@ -667,6 +671,8 @@ class WorldImpl implements World {
     target.lights = inputs.lights ?? 0;
     target.requestService = inputs.requestService ?? false;
     target.radarModeCycle = inputs.radarModeCycle ?? false;
+    target.dispenseFlare = inputs.dispenseFlare ?? false;
+    target.dispenseChaff = inputs.dispenseChaff ?? false;
     target.throttleActive = inputs.throttleActive ?? false;
   }
 
@@ -1093,6 +1099,8 @@ class WorldImpl implements World {
       hud.selectedStore = Math.max(0, STORE_IDS.indexOf(rec.combat.selectedStoreId ?? ''));
       hud.selectedCount = rec.combat.selectedStoreCount ?? 0;
       hud.gunRounds = rec.combat.ammoGun;
+      hud.chaff = rec.combat.chaff ?? 0;
+      hud.flares = rec.combat.flares ?? 0;
       hud.targetId = rec.combat.lockedTargetId ?? NO_ENTITY_ID;
       // Range/closure to the designated target, straight from the two entity states (previously
       // hardcoded to 0, so the HUD target box always read "0M +0").
@@ -1211,7 +1219,7 @@ class WorldImpl implements World {
     slots.length = 0;
     const def = getAircraftDefinition(defId);
     if (def?.stations) {
-      const loadout = id === this.playerEntityIdInternal ? this.playerLoadout(defId) : getLoadout(def);
+      const loadout = id === this.playerEntityIdInternal ? this.playerLoadout(defId) : (this.aircraft.get(id)?.loadout ?? getLoadout(def));
       const combat = this.deps.combat as Partial<CombatPortWithStores>;
       for (const st of def.stations) {
         if (st.id === 'gun') continue;

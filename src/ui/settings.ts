@@ -45,6 +45,8 @@ export const ACTION_LABELS: Readonly<Record<BindableAction, string>> = {
   cycleWeapon: 'Next weapon',
   cycleTarget: 'Next target',
   jettisonTanks: 'Drop tanks',
+  flare: 'Flares',
+  chaff: 'Chaff',
   service: 'Refuel and rearm',
   noseWheelSteer: 'Nosewheel steering',
   pauseToggle: 'Pause',

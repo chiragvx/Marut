@@ -33,7 +33,17 @@ import {
   resetProjectile,
   initProjectile,
   computeStoresLoad,
+  countermeasureRelease,
+  combatRand01,
+  createDecoyPool,
+  launchDecoy,
+  stepDecoy,
+  flareSeductionChance,
+  chaffSeductionChance,
+  DECOY_ID_BASE,
+  type Decoy,
 } from '../combat';
+import { Quat } from '../math';
 import {
   GUN_MAX_AMMO_ROUNDS,
   IR_MAX_AMMO_MISSILES,
@@ -77,7 +87,8 @@ function loadoutFor(defId: string | undefined, fit?: LoadoutPreset): WeaponsLoad
     stations.push({ hardpointId: 'gun', posBodyM: { x: 3.5, y: -0.2, z: 0.3 }, weapon: 'gun', maxCount: GUN_MAX_AMMO_ROUNDS });
   }
   const radar = def?.sensors?.radar ? RADARS[def.sensors.radar] : undefined;
-  const out: WeaponsLoadout = radar ? { stations, radar } : { stations };
+  const cm = def?.sensors?.countermeasures;
+  const out: WeaponsLoadout = { stations, ...(radar ? { radar } : {}), ...(cm ? { countermeasures: cm } : {}) };
   loadoutCache.set(key, out);
   return out;
 }
@@ -90,6 +101,9 @@ function defaultCombatEnvironment(): CombatEnvironment {
 }
 
 const EMPTY_CONTACTS: readonly Contact[] = [];
+/** Flares and chaff in the air at once, all aircraft together. */
+const MAX_DECOYS = 96;
+const RIGHT_BODY = { x: 0, y: 0, z: 1 };
 
 /** An aircraft type's radar signature and hit ellipsoid (cached). */
 const signatureCache = new Map<string, { radar: RadarSignature; hitEllipsoidBodyM: Vec3Like } | null>();
@@ -131,6 +145,39 @@ export function createCombatAdapter(): CombatPort & CombatPortWithContacts & Com
   const storesLoadScratch = { massKg: 0, dragAreaM2: 0 };
   /** Projectiles finished this tick, despawned only after the step loop (see that loop's comment). */
   const despawnScratch: EntityId[] = [];
+  // Flares and chaff in the air: flown here, shown to missiles as extra (kind 'effect') entities.
+  const decoys: Decoy[] = createDecoyPool(MAX_DECOYS);
+  const decoyDetectables: DetectableEntity[] = decoys.map(() => ({ id: NO_ENTITY_ID, team: 0, kind: EntityKind.Effect, pos: { x: 0, y: 0, z: 0 }, vel: { x: 0, y: 0, z: 0 }, rot: { x: 0, y: 0, z: 0, w: 1 }, alive: true }));
+  let decoySerial = 0;
+  const releaseScratch = { flares: 0, chaff: 0 };
+  const rightScratch = { x: 0, y: 0, z: 0 };
+
+  /** Releases `n` decoys of `kind` from `owner` and gives each enemy missile guiding on it a chance to take the bait. */
+  function releaseDecoys(kind: 'flare' | 'chaff', n: number, owner: EntityState, rng: { seedState: number }, liveCount: number, ctx: WorldCombatTickContext, eventsOut: EventQueue): void {
+    Quat.rotate(owner.rot, RIGHT_BODY, rightScratch);
+    for (let k = 0; k < n; k++) {
+      let d: Decoy | undefined;
+      for (let i = 0; i < decoys.length; i++) if (!decoys[i]!.active) { d = decoys[i]; break; }
+      if (!d) return;
+      launchDecoy(d, DECOY_ID_BASE + (decoySerial++ % DECOY_ID_BASE), kind, owner.id, owner.pos, owner.vel, rightScratch, k % 2 === 0 ? -1 : 1);
+      eventsOut.push({ type: 'countermeasure', entityId: owner.id, kind, pos: { x: d.pos.x, y: d.pos.y, z: d.pos.z }, vel: { x: d.vel.x, y: d.vel.y, z: d.vel.z } });
+      for (let i = 0; i < liveCount; i++) {
+        const e = ctx.liveAt(i);
+        if (e.kind !== EntityKind.Missile) continue;
+        const pi = projectileIndexByEntityId.get(e.id);
+        if (pi === undefined) continue;
+        const p = projectilePool[pi]!;
+        if (p.targetId !== owner.id) continue;
+        let chance = 0;
+        if (kind === 'flare' && p.kind === 'ir_missile' && p.guidance === 'ir_homing') {
+          chance = flareSeductionChance(p.profile?.ir?.flareResistance, e.pos, owner.pos, owner.vel, owner.afterburnerOn);
+        } else if (kind === 'chaff' && p.kind === 'radar_missile' && p.guidance === 'radar_active') {
+          chance = chaffSeductionChance(p.profile?.radar?.chaffResistance, e.pos, owner.pos, owner.vel);
+        }
+        if (chance > 0 && combatRand01(rng) < chance) p.targetId = d.id;
+      }
+    }
+  }
 
   function ensureDetectableCapacity(n: number): void {
     while (detectableScratch.length < n) {
@@ -148,6 +195,8 @@ export function createCombatAdapter(): CombatPort & CombatPortWithContacts & Com
         const target = f >= 1 ? st.maxCount : Math.floor(st.maxCount * f);
         if (st.count < target) st.count = target;
       }
+      w.chaff = Math.max(w.chaff, f >= 1 ? w.chaffMax : Math.floor(w.chaffMax * f));
+      w.flares = Math.max(w.flares, f >= 1 ? w.flaresMax : Math.floor(w.flaresMax * f));
     },
 
     armedFrac(id: EntityId): number {
@@ -217,6 +266,16 @@ export function createCombatAdapter(): CombatPort & CombatPortWithContacts & Com
         }
         allEntitiesScratch[i] = d;
       }
+      // Decoys in the air (flown on, burnt-out ones freed), after the real entities.
+      for (let i = 0; i < decoys.length; i++) {
+        const dc = decoys[i]!;
+        if (!dc.active || !stepDecoy(dc, dtSec)) continue;
+        const dd = decoyDetectables[i]!;
+        dd.id = dc.id;
+        dd.pos.x = dc.pos.x; dd.pos.y = dc.pos.y; dd.pos.z = dc.pos.z;
+        dd.vel.x = dc.vel.x; dd.vel.y = dc.vel.y; dd.vel.z = dc.vel.z;
+        allEntitiesScratch.push(dd);
+      }
       const allEntities = allEntitiesScratch;
 
       // Discover new aircraft; create their WeaponsState.
@@ -276,6 +335,9 @@ export function createCombatAdapter(): CombatPort & CombatPortWithContacts & Com
         fireWeapons(observer.id, observer, damage, lockedTarget, inputs, state, ctx.simTimeSec, dtSec, outRequestsScratch, fireEventsScratch);
         // Carried weapons' mass/drag for the flight model, from the counts left after this tick's
         // firing (EntityState.storesMassKg/storesDragAreaM2's doc comment).
+        countermeasureRelease(state, inputs.dispenseFlare ?? false, inputs.dispenseChaff ?? false, dtSec, releaseScratch);
+        if (releaseScratch.flares > 0) releaseDecoys('flare', releaseScratch.flares, observer, state.rng, liveCount, ctx, eventsOut);
+        if (releaseScratch.chaff > 0) releaseDecoys('chaff', releaseScratch.chaff, observer, state.rng, liveCount, ctx, eventsOut);
         computeStoresLoad(state, storesLoadScratch);
         observer.storesMassKg = storesLoadScratch.massKg;
         observer.storesDragAreaM2 = storesLoadScratch.dragAreaM2;

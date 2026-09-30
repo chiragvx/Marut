@@ -50,12 +50,12 @@ export const meanChordM = wingAreaM2 / wingSpanM;
 // The gun: GSh-23 in its blister under the starboard intake.
 export const stations: readonly StationDef[] = [
   { id: 'gun', posBodyM: { x: 2.15, y: -0.7, z: 0.78 }, accepts: ['gsh-23'], maxCount: 220 },
-  { id: 'wing-outer-l', posBodyM: { x: -2.6, y: -0.29, z: -3.42 }, accepts: ['asraam', 'r-73', 'derby'], maxCount: 2 },
-  { id: 'wing-outer-r', posBodyM: { x: -2.6, y: -0.29, z: 3.42 }, accepts: ['asraam', 'r-73', 'derby'], maxCount: 2 },
-  { id: 'wing-mid-l', posBodyM: { x: -1.9, y: -0.28, z: -2.66 }, accepts: ['astra-mk1', 'derby', 'r-73', 'asraam'], maxCount: 2 },
-  { id: 'wing-mid-r', posBodyM: { x: -1.9, y: -0.28, z: 2.66 }, accepts: ['astra-mk1', 'derby', 'r-73', 'asraam'], maxCount: 2 },
-  { id: 'wing-inner-l', posBodyM: { x: -0.95, y: -0.28, z: -1.68 }, accepts: ['tank-1200l', 'astra-mk1', 'derby'], maxCount: 1 },
-  { id: 'wing-inner-r', posBodyM: { x: -0.95, y: -0.28, z: 1.68 }, accepts: ['tank-1200l', 'astra-mk1', 'derby'], maxCount: 1 },
+  { id: 'wing-outer-l', posBodyM: { x: -2.6, y: -0.29, z: -3.42 }, accepts: ['asraam', 'python-5', 'r-73', 'derby'], maxCount: 2 },
+  { id: 'wing-outer-r', posBodyM: { x: -2.6, y: -0.29, z: 3.42 }, accepts: ['asraam', 'python-5', 'r-73', 'derby'], maxCount: 2 },
+  { id: 'wing-mid-l', posBodyM: { x: -1.9, y: -0.28, z: -2.66 }, accepts: ['astra-mk1', 'derby-er', 'derby', 'python-5', 'r-73', 'asraam'], maxCount: 2 },
+  { id: 'wing-mid-r', posBodyM: { x: -1.9, y: -0.28, z: 2.66 }, accepts: ['astra-mk1', 'derby-er', 'derby', 'python-5', 'r-73', 'asraam'], maxCount: 2 },
+  { id: 'wing-inner-l', posBodyM: { x: -0.95, y: -0.28, z: -1.68 }, accepts: ['tank-1200l', 'astra-mk1', 'derby-er', 'derby'], maxCount: 1 },
+  { id: 'wing-inner-r', posBodyM: { x: -0.95, y: -0.28, z: 1.68 }, accepts: ['tank-1200l', 'astra-mk1', 'derby-er', 'derby'], maxCount: 1 },
   { id: 'centreline', posBodyM: { x: -0.35, y: -0.82, z: 0 }, accepts: ['tank-725l'], maxCount: 1 },
   { id: 'intake-pod', posBodyM: { x: 1.25, y: -0.74, z: -0.74 }, accepts: [], maxCount: 1 },
 ];

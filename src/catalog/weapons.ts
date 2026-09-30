@@ -218,6 +218,8 @@ export const ASRAAM: WeaponProfile = {
     detectRangeTailOnM: 20000,
     detectRangeHeadOnM: 9000,
     afterburnerRangeMult: 1.3,
+    // Imaging seeker: sees shape, not just a hot point.
+    flareResistance: 0.85,
   },
   flight: {
     sustainBurnSec: 0,
@@ -261,6 +263,7 @@ export const R73: WeaponProfile = {
     detectRangeTailOnM: 12000,
     detectRangeHeadOnM: 4500,
     afterburnerRangeMult: 1.5,
+    flareResistance: 0.5,
   },
   flight: {
     sustainBurnSec: 0,
@@ -311,7 +314,7 @@ export const ASTRA_MK1: WeaponProfile = {
   proximityFuseRadiusM: 12,
   damageFrac: 0.65,
   minLaunchRangeM: 1000,
-  radar: { maxRangeM: 160000, activeSeekerRangeM: 20000, activeSeekerHalfAngleRad: 20 * D2R, gSaturationLostSec: 2.5 },
+  radar: { maxRangeM: 160000, activeSeekerRangeM: 20000, activeSeekerHalfAngleRad: 20 * D2R, gSaturationLostSec: 2.5, chaffResistance: 0.7 },
   flight: {
     // Long low-thrust sustain (dual-pulse-like energy management): ~250 kN s total, Isp ~300 s.
     sustainBurnSec: 32,
@@ -348,7 +351,7 @@ export const DERBY: WeaponProfile = {
   motorBurnSec: 5,
   motorThrustN: 18000,
   maxG: 40,
-  radar: { maxRangeM: 50000, activeSeekerRangeM: 12000, activeSeekerHalfAngleRad: 20 * D2R, gSaturationLostSec: 2 },
+  radar: { maxRangeM: 50000, activeSeekerRangeM: 12000, activeSeekerHalfAngleRad: 20 * D2R, gSaturationLostSec: 2, chaffResistance: 0.6 },
   flight: {
     sustainBurnSec: 0,
     sustainThrustN: 0,
@@ -370,6 +373,264 @@ export const DERBY: WeaponProfile = {
   envelope: { rMaxHeadOnM: 50000, rMaxTailM: 20000, rNoEscapeM: 17000 },
 };
 
+/** Shared shape of the newer missiles (the realism fields are filled per missile). */
+type MissileSpecFields = Omit<WeaponProfile, 'kind' | 'roundIntervalSec' | 'dispersionMrad' | 'damageFrac'> & { damageFrac?: number };
+function irMissile(p: MissileSpecFields): WeaponProfile {
+  return { kind: 'ir_missile', roundIntervalSec: 0, dispersionMrad: 0, damageFrac: 0.6, ...p };
+}
+function radarMissile(p: MissileSpecFields): WeaponProfile {
+  return { kind: 'radar_missile', roundIntervalSec: 0, dispersionMrad: 0, damageFrac: 0.65, ...p };
+}
+
+/**
+ * Rafael Python-5, integrated on the Tejas Mk1. Public data: 105 kg, 160 mm, 3.1 m; dual-waveband
+ * imaging IR seeker with lock-on-after-launch and near-spherical coverage (+-100 deg); ~20 km.
+ */
+export const PYTHON_5: WeaponProfile = irMissile({
+  id: 'python-5',
+  name: 'Python-5',
+  label: 'PYTHON',
+  short: 'PY5',
+  carriageMassKg: 105,
+  carriageDragAreaM2: 0.03,
+  projectileMassKg: 105,
+  dragCoeff: 0.55,
+  crossSectionM2: 0.0201,
+  maxLifetimeSec: 40,
+  armDistanceM: 150,
+  launchSpeedMps: 20,
+  motorBurnSec: 2.6,
+  motorThrustN: 16500,
+  pnGain: 4,
+  maxG: 60,
+  proximityFuseRadiusM: 8,
+  minLaunchRangeM: 250,
+  ir: {
+    acquireHalfAngleRad: 60 * D2R,
+    trackHalfAngleRad: 100 * D2R,
+    gimbalRateRadS: 16,
+    lockTimeSec: 0.5,
+    detectRangeTailOnM: 18000,
+    detectRangeHeadOnM: 8000,
+    afterburnerRangeMult: 1.3,
+    flareResistance: 0.9,
+  },
+  flight: {
+    sustainBurnSec: 0, sustainThrustN: 0, propellantMassKg: 35, liftAreaM2: 0.24, clMax: 3, inducedDragK: 0.25,
+    waveDragRise: 0.6, autopilotTauSec: 0.12, seekerNoiseMrad: 0.3, seekerUpdateSec: 0.02, minSpeedMps: 400,
+  },
+  lethality: { fuzeReliability: 0.96, pkDirect: 0.95, pkAtLethalRadius: 0.4, lethalRadiusM: 8 },
+  // Measured (.scratch/tune.ts): ~20 km head-on / 6 km tail at 10 km; 8 / 2.4 km at 1 km.
+  envelope: { rMaxHeadOnM: 20000, rMaxTailM: 6000, rNoEscapeM: 7000 },
+});
+
+/**
+ * Rafael I-Derby ER, the Mk1A's planned extended-range BVR missile: the Derby airframe with a
+ * dual-pulse motor and a solid-state AESA seeker; ~100 km.
+ */
+export const DERBY_ER: WeaponProfile = radarMissile({
+  id: 'derby-er',
+  name: 'I-Derby ER',
+  label: 'DERBY ER',
+  short: 'DER',
+  carriageMassKg: 125,
+  carriageDragAreaM2: 0.04,
+  projectileMassKg: 125,
+  dragCoeff: 0.4,
+  crossSectionM2: 0.0201,
+  maxLifetimeSec: 130,
+  armDistanceM: 300,
+  launchSpeedMps: 25,
+  motorBurnSec: 5,
+  motorThrustN: 18000,
+  pnGain: 4,
+  maxG: 40,
+  proximityFuseRadiusM: 10,
+  minLaunchRangeM: 1000,
+  radar: { maxRangeM: 100000, activeSeekerRangeM: 18000, activeSeekerHalfAngleRad: 25 * D2R, gSaturationLostSec: 2.5, chaffResistance: 0.75 },
+  flight: {
+    sustainBurnSec: 15, sustainThrustN: 3200, propellantMassKg: 55, liftAreaM2: 0.25, clMax: 2.5, inducedDragK: 0.3,
+    waveDragRise: 0.55, autopilotTauSec: 0.2, seekerNoiseMrad: 0.8, seekerUpdateSec: 0.05, datalinkIntervalSec: 1.0,
+    datalinkErrMrad: 2.5, loftRad: 0.45, minSpeedMps: 380,
+  },
+  lethality: { fuzeReliability: 0.95, pkDirect: 0.94, pkAtLethalRadius: 0.3, lethalRadiusM: 10 },
+  // Measured: 99 km head-on / 33 km tail at 10 km; 34 / 14 km at 1 km.
+  envelope: { rMaxHeadOnM: 100000, rMaxTailM: 33000, rNoEscapeM: 30000 },
+});
+
+// --- Hostile missiles (PAF fits: JF-17 with PL-5E II / SD-10A / PL-15E, F-16 with AIM-9M / AIM-120C-5). ---
+
+/** PL-5E II: 83 kg, 127 mm, 2.9 m; all-aspect IR, +-40 deg off-boresight; ~16 km. */
+export const PL_5E: WeaponProfile = irMissile({
+  id: 'pl-5e',
+  name: 'PL-5E II',
+  label: 'PL-5E',
+  short: 'PL5',
+  carriageMassKg: 83,
+  carriageDragAreaM2: 0.022,
+  projectileMassKg: 83,
+  dragCoeff: 0.55,
+  crossSectionM2: 0.01267,
+  maxLifetimeSec: 35,
+  armDistanceM: 150,
+  launchSpeedMps: 20,
+  motorBurnSec: 2.4,
+  motorThrustN: 9500,
+  pnGain: 3.5,
+  maxG: 40,
+  proximityFuseRadiusM: 7,
+  minLaunchRangeM: 400,
+  ir: {
+    acquireHalfAngleRad: 20 * D2R,
+    trackHalfAngleRad: 40 * D2R,
+    gimbalRateRadS: 10,
+    lockTimeSec: 1.0,
+    detectRangeTailOnM: 11000,
+    detectRangeHeadOnM: 4000,
+    afterburnerRangeMult: 1.5,
+    flareResistance: 0.45,
+  },
+  flight: {
+    sustainBurnSec: 0, sustainThrustN: 0, propellantMassKg: 26, liftAreaM2: 0.18, clMax: 2.8, inducedDragK: 0.3,
+    waveDragRise: 0.6, autopilotTauSec: 0.15, seekerNoiseMrad: 0.7, seekerUpdateSec: 0.02, minSpeedMps: 400,
+  },
+  lethality: { fuzeReliability: 0.92, pkDirect: 0.88, pkAtLethalRadius: 0.3, lethalRadiusM: 7 },
+  // Measured: 16 km head-on / 4 km tail at 10 km; 7 / 1.8 km at 1 km.
+  envelope: { rMaxHeadOnM: 16000, rMaxTailM: 4000, rNoEscapeM: 5000 },
+});
+
+/** AIM-9M Sidewinder: 86 kg, 127 mm, 2.87 m; all-aspect cooled IR seeker with IRCCM; ~18 km. */
+export const AIM_9M: WeaponProfile = irMissile({
+  id: 'aim-9m',
+  name: 'AIM-9M',
+  label: 'AIM-9M',
+  short: '9M',
+  carriageMassKg: 86,
+  carriageDragAreaM2: 0.022,
+  projectileMassKg: 86,
+  dragCoeff: 0.52,
+  crossSectionM2: 0.01267,
+  maxLifetimeSec: 35,
+  armDistanceM: 150,
+  launchSpeedMps: 20,
+  motorBurnSec: 2.2,
+  motorThrustN: 11000,
+  pnGain: 4,
+  maxG: 35,
+  proximityFuseRadiusM: 8,
+  minLaunchRangeM: 400,
+  ir: {
+    acquireHalfAngleRad: 15 * D2R,
+    trackHalfAngleRad: 40 * D2R,
+    gimbalRateRadS: 10,
+    lockTimeSec: 1.0,
+    detectRangeTailOnM: 12000,
+    detectRangeHeadOnM: 4500,
+    afterburnerRangeMult: 1.5,
+    flareResistance: 0.6,
+  },
+  flight: {
+    sustainBurnSec: 0, sustainThrustN: 0, propellantMassKg: 27, liftAreaM2: 0.18, clMax: 2.8, inducedDragK: 0.3,
+    waveDragRise: 0.6, autopilotTauSec: 0.15, seekerNoiseMrad: 0.6, seekerUpdateSec: 0.02, minSpeedMps: 400,
+  },
+  lethality: { fuzeReliability: 0.93, pkDirect: 0.9, pkAtLethalRadius: 0.3, lethalRadiusM: 8 },
+  // Measured: 18 km head-on / 5 km tail at 10 km; 8 / 2.1 km at 1 km.
+  envelope: { rMaxHeadOnM: 18000, rMaxTailM: 5000, rNoEscapeM: 6000 },
+});
+
+/** SD-10A (PL-12 export): 199 kg, 203 mm, 3.85 m; active radar with datalink; ~70 km. */
+export const SD_10A: WeaponProfile = radarMissile({
+  id: 'sd-10a',
+  name: 'SD-10A',
+  label: 'SD-10A',
+  short: 'SD10',
+  carriageMassKg: 199,
+  carriageDragAreaM2: 0.05,
+  projectileMassKg: 199,
+  dragCoeff: 0.3,
+  crossSectionM2: 0.0324,
+  maxLifetimeSec: 100,
+  armDistanceM: 300,
+  launchSpeedMps: 25,
+  motorBurnSec: 5,
+  motorThrustN: 22000,
+  pnGain: 4,
+  maxG: 38,
+  proximityFuseRadiusM: 12,
+  minLaunchRangeM: 1000,
+  radar: { maxRangeM: 70000, activeSeekerRangeM: 15000, activeSeekerHalfAngleRad: 20 * D2R, gSaturationLostSec: 2, chaffResistance: 0.55 },
+  flight: {
+    sustainBurnSec: 4, sustainThrustN: 4000, propellantMassKg: 80, liftAreaM2: 0.35, clMax: 2.4, inducedDragK: 0.3,
+    waveDragRise: 0.55, autopilotTauSec: 0.2, seekerNoiseMrad: 1.2, seekerUpdateSec: 0.05, datalinkIntervalSec: 1.0,
+    datalinkErrMrad: 3, loftRad: 0.3, minSpeedMps: 400,
+  },
+  lethality: { fuzeReliability: 0.93, pkDirect: 0.92, pkAtLethalRadius: 0.3, lethalRadiusM: 12 },
+  // Measured: 69 km head-on / 21 km tail at 10 km; 25 / 9 km at 1 km.
+  envelope: { rMaxHeadOnM: 70000, rMaxTailM: 21000, rNoEscapeM: 20000 },
+});
+
+/** AIM-120C-5 AMRAAM: 157 kg, 178 mm, 3.66 m; active radar, datalink, lofted; ~105 km. */
+export const AIM_120C: WeaponProfile = radarMissile({
+  id: 'aim-120c',
+  name: 'AIM-120C-5',
+  label: 'AIM-120C',
+  short: '120',
+  carriageMassKg: 157,
+  carriageDragAreaM2: 0.045,
+  projectileMassKg: 157,
+  dragCoeff: 0.28,
+  crossSectionM2: 0.0249,
+  maxLifetimeSec: 130,
+  armDistanceM: 300,
+  launchSpeedMps: 25,
+  motorBurnSec: 6,
+  motorThrustN: 20000,
+  pnGain: 4,
+  maxG: 40,
+  proximityFuseRadiusM: 11,
+  minLaunchRangeM: 1000,
+  radar: { maxRangeM: 105000, activeSeekerRangeM: 18000, activeSeekerHalfAngleRad: 22 * D2R, gSaturationLostSec: 2.5, chaffResistance: 0.75 },
+  flight: {
+    sustainBurnSec: 7, sustainThrustN: 3600, propellantMassKg: 70, liftAreaM2: 0.3, clMax: 2.5, inducedDragK: 0.25,
+    waveDragRise: 0.5, autopilotTauSec: 0.2, seekerNoiseMrad: 0.9, seekerUpdateSec: 0.05, datalinkIntervalSec: 1.0,
+    datalinkErrMrad: 2, loftRad: 0.5, minSpeedMps: 380,
+  },
+  lethality: { fuzeReliability: 0.95, pkDirect: 0.94, pkAtLethalRadius: 0.35, lethalRadiusM: 11 },
+  // Measured: 107 km head-on / 36 km tail at 10 km; 40 / 15 km at 1 km.
+  envelope: { rMaxHeadOnM: 105000, rMaxTailM: 36000, rNoEscapeM: 35000 },
+});
+
+/** PL-15E: 210 kg, 203 mm, ~4 m; dual-pulse motor, AESA seeker, two-way datalink; ~145 km. */
+export const PL_15E: WeaponProfile = radarMissile({
+  id: 'pl-15e',
+  name: 'PL-15E',
+  label: 'PL-15E',
+  short: 'PL15',
+  carriageMassKg: 210,
+  carriageDragAreaM2: 0.05,
+  projectileMassKg: 210,
+  dragCoeff: 0.28,
+  crossSectionM2: 0.0324,
+  maxLifetimeSec: 170,
+  armDistanceM: 300,
+  launchSpeedMps: 25,
+  motorBurnSec: 5,
+  motorThrustN: 34000,
+  pnGain: 4,
+  maxG: 40,
+  proximityFuseRadiusM: 12,
+  minLaunchRangeM: 1000,
+  radar: { maxRangeM: 145000, activeSeekerRangeM: 22000, activeSeekerHalfAngleRad: 25 * D2R, gSaturationLostSec: 2.5, chaffResistance: 0.75 },
+  flight: {
+    sustainBurnSec: 25, sustainThrustN: 4600, propellantMassKg: 105, liftAreaM2: 0.36, clMax: 2.4, inducedDragK: 0.25,
+    waveDragRise: 0.45, autopilotTauSec: 0.2, seekerNoiseMrad: 0.9, seekerUpdateSec: 0.05, datalinkIntervalSec: 1.0,
+    datalinkErrMrad: 2, loftRad: 0.6, minSpeedMps: 350,
+  },
+  lethality: { fuzeReliability: 0.95, pkDirect: 0.95, pkAtLethalRadius: 0.35, lethalRadiusM: 12 },
+  // Measured: 141 km head-on / 66 km tail at 10 km; 75 / 25 km at 1 km.
+  envelope: { rMaxHeadOnM: 145000, rMaxTailM: 66000, rNoEscapeM: 55000 },
+});
+
 /** Every weapon store by catalogue id. */
 export const WEAPONS: Readonly<Record<string, WeaponProfile>> = {
   [GENERIC_GUN_PROFILE.id]: GENERIC_GUN_PROFILE,
@@ -377,6 +638,13 @@ export const WEAPONS: Readonly<Record<string, WeaponProfile>> = {
   [R73.id]: R73,
   [ASTRA_MK1.id]: ASTRA_MK1,
   [DERBY.id]: DERBY,
+  [PYTHON_5.id]: PYTHON_5,
+  [DERBY_ER.id]: DERBY_ER,
+  [PL_5E.id]: PL_5E,
+  [AIM_9M.id]: AIM_9M,
+  [SD_10A.id]: SD_10A,
+  [AIM_120C.id]: AIM_120C,
+  [PL_15E.id]: PL_15E,
 };
 
 /** External fuel tanks: capacity, empty mass, drag area. */

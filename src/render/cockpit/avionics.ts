@@ -67,6 +67,8 @@ export interface Avionics {
   selectedStore: number;
   selectedCount: number;
   gunRounds: number;
+  chaff: number;
+  flares: number;
   targetId: number;
   targetRangeM: number;
   closureMps: number;
@@ -93,7 +95,7 @@ export function createAvionics(): Avionics {
     nhPct: 0, nlPct: 0, ftitC: 0, nozzlePct: 0, oilPsi: 0, ffKgH: 0, ab: 0,
     fuelKg: 0, tankKg: -1, totalFuelKg: 0, enduranceMin: 0,
     gearPos: 1, gearDownCmd: true, onGround: true, airbrake: false, warnings: 0,
-    weaponIdx: 0, selectedStore: 0, selectedCount: 0, gunRounds: 0, targetId: -1, targetRangeM: 0, closureMps: 0, lockState: 0, radarMode: 0, radarMaxRangeM: 0, radarScanAzRad: 0, trackCount: 0,
+    weaponIdx: 0, selectedStore: 0, selectedCount: 0, gunRounds: 0, chaff: 0, flares: 0, targetId: -1, targetRangeM: 0, closureMps: 0, lockState: 0, radarMode: 0, radarMaxRangeM: 0, radarScanAzRad: 0, trackCount: 0,
     apFlags: 0, apHdgDeg: 0, apAltFt: 0, apVsFpm: 0, apSpdKt: 0, ilsLoc: 0, ilsGs: 0,
   };
 }
@@ -260,6 +262,8 @@ export function updateAvionics(av: Avionics, st: AvionicsState, f: Readonly<Cock
   av.selectedStore = h[SnapshotHud.SELECTED_STORE] ?? 0;
   av.selectedCount = h[SnapshotHud.SELECTED_COUNT] ?? 0;
   av.gunRounds = h[SnapshotHud.GUN_ROUNDS] ?? 0;
+  av.chaff = h[SnapshotHud.CHAFF] ?? 0;
+  av.flares = h[SnapshotHud.FLARES] ?? 0;
   av.targetId = h[SnapshotHud.TARGET_ID] ?? -1;
   av.targetRangeM = h[SnapshotHud.TARGET_RANGE_M] ?? 0;
   av.closureMps = h[SnapshotHud.CLOSURE_MPS] ?? 0;

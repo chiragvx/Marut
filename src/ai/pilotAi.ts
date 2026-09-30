@@ -56,6 +56,9 @@ function defaultFlightGoal(): FlightGoal {
   };
 }
 
+
+/** Seconds between the AI's flare + chaff programs while a missile is inbound, by difficulty. */
+const COUNTERMEASURE_INTERVAL_SEC: Readonly<Record<AiPilotSpawnParams['difficulty'], number>> = { rookie: 2.5, veteran: 1.2, ace: 0.8 };
 class AiPilotImpl implements AiPilot {
   private readonly diffProfile: AiDifficultyProfile;
   private readonly rng: PrngState;
@@ -95,6 +98,8 @@ class AiPilotImpl implements AiPilot {
   private readonly jinkState: JinkState = createJinkState();
   private readonly steerToGoalFn = createSteerToGoal();
   private readonly formationScratchVec3 = { x: 0, y: 0, z: 0 };
+  /** Seconds until the next countermeasure program while a missile warning is noticed. */
+  private countermeasureTimerSec = 0;
 
   // Shallow, per-instance, reused "perceived" view of PilotContext: every
   // field aliases the real ctx's field except `contacts`, which is this
@@ -183,6 +188,13 @@ class AiPilotImpl implements AiPilot {
 
     decideWeaponEmployment(ctx, target, this.diffProfile, this.timeInStateSec, dtSec, this.weaponEmploymentState, this.rng, out);
     out.cycleTarget = target?.id !== prevTargetId;
+    // Countermeasures: once the missile warning is noticed, flares and chaff together every
+    // COUNTERMEASURE_INTERVAL_SEC (a one-tick press each, since the keys are edge-detected).
+    this.countermeasureTimerSec -= dtSec;
+    const dispense = missileWarningNoticed && this.countermeasureTimerSec <= 0;
+    if (dispense) this.countermeasureTimerSec = COUNTERMEASURE_INTERVAL_SEC[this.params.difficulty];
+    out.dispenseFlare = dispense;
+    out.dispenseChaff = dispense;
     out.nwsEnabled = undefined;
     out.alphaLimiterDisabled = undefined;
 

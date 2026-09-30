@@ -27,4 +27,42 @@ export const RADARS: Readonly<Record<string, RadarProfile>> = {
     acmRangeM: 18000,
     trackMemorySec: 5,
   },
+  // NRIET KLJ-7A AESA (JF-17 Block III). Public figures: ~170 km instrumented, ~120 km against a
+  // 5 m^2 target, +-60 deg electronic scan.
+  'klj-7a': {
+    ...GENERIC_RADAR_PROFILE,
+    id: 'klj-7a',
+    name: 'KLJ-7A',
+    referenceRangeM: 120000,
+    referenceRcsM2: 5,
+    maxRangeM: 170000,
+    scanAzHalfAngleRad: (60 * Math.PI) / 180,
+    scanElHalfAngleRad: (35 * Math.PI) / 180,
+    trackHalfAngleRad: (60 * Math.PI) / 180,
+    lockTimeSec: 1.8,
+    maxTracks: 15,
+    iffRangeM: 100000,
+    nctrRangeM: 40000,
+    acmRangeM: 15000,
+    trackMemorySec: 4,
+  },
+  // Northrop Grumman AN/APG-68(V)9 (F-16 Block 52), mechanically scanned. Public figures: ~150 km
+  // instrumented, ~105 km against a 5 m^2 target; slower locks than an AESA.
+  'apg-68': {
+    ...GENERIC_RADAR_PROFILE,
+    id: 'apg-68',
+    name: 'AN/APG-68(V)9',
+    referenceRangeM: 105000,
+    referenceRcsM2: 5,
+    maxRangeM: 150000,
+    scanAzHalfAngleRad: (60 * Math.PI) / 180,
+    scanElHalfAngleRad: (30 * Math.PI) / 180,
+    trackHalfAngleRad: (60 * Math.PI) / 180,
+    lockTimeSec: 2.5,
+    maxTracks: 10,
+    iffRangeM: 100000,
+    nctrRangeM: 40000,
+    acmRangeM: 15000,
+    trackMemorySec: 4,
+  },
 };

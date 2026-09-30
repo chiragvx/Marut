@@ -54,6 +54,13 @@ describe.each([
   ['r-73', 30000],
   ['astra-mk1', 160000],
   ['derby', 50000],
+  ['python-5', 20000],
+  ['derby-er', 100000],
+  ['pl-5e', 16000],
+  ['aim-9m', 18000],
+  ['sd-10a', 70000],
+  ['aim-120c', 105000],
+  ['pl-15e', 145000],
 ])('%s envelope', (id, rMaxHeadOnM) => {
   const p = WEAPONS[id]!;
 

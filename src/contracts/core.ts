@@ -342,6 +342,9 @@ export interface PilotInputs {
   requestService?: boolean;
   /** Radar mode key held (edge-detected: cycles RWS <-> ACM). Optional: absent = not held. */
   radarModeCycle?: boolean;
+  /** Countermeasure keys held (edge-detected: each press releases one flare / chaff program). Optional: absent = not held. */
+  dispenseFlare?: boolean;
+  dispenseChaff?: boolean;
   /** The pilot is moving the throttle this frame (keys/buttons held, slider dragged): disconnects the autothrottle. Optional: absent = no. */
   throttleActive?: boolean;
   /** Gun trigger held. */
@@ -519,6 +522,9 @@ export interface CombatStatus {
   rwrWarning: boolean;
   /** RWR: a missile launch was detected against self and is still considered inbound. */
   missileInboundWarning: boolean;
+  /** Chaff bundles and flares left. Absent before the first combat update. */
+  chaff?: number;
+  flares?: number;
   /**
    * World-space gun lead-computing-sight aim point for the current
    * `lockedTargetId`/selected contact, computed by src/combat's real
@@ -742,6 +748,9 @@ export interface MissionAiFlight {
   /** Patrol anchor/radius for this flight while in TacticalState.Patrol (contracts/ai.ts). Required, per module 06's own contract, unless every non-leader member of this flight is given a formation slot (formation index > 0 always follows the flight's own index-0 leader — see 10-core-worker.md section 4.2). */
   patrolCenterWorld?: Vec3Like;
   patrolRadiusM?: number;
+  /** The flight's store fit: a LoadoutPreset.id of `aircraftId`, or a custom station -> store fit (takes precedence). Absent = the type's default loadout. */
+  loadoutId?: string;
+  loadout?: Readonly<Record<string, { store: string; count: number }>>;
 }
 
 export interface MissionPlayerStart {
@@ -855,7 +864,10 @@ export const ENTITY_STRIDE = 28;
  * Store ids (src/catalog) by code: the codes the snapshot's STORES field carries. 0 = nothing.
  * Append only (codes are positions).
  */
-export const STORE_IDS: readonly string[] = ['', 'asraam', 'r-73', 'derby', 'astra-mk1', 'tank-1200l', 'tank-725l'];
+export const STORE_IDS: readonly string[] = [
+  '', 'asraam', 'r-73', 'derby', 'astra-mk1', 'tank-1200l', 'tank-725l',
+  'python-5', 'derby-er', 'pl-5e', 'aim-9m', 'sd-10a', 'aim-120c', 'pl-15e',
+];
 
 /** How a station carries its stores: one on the pylon, a twin missile rail, or a multiple ejector rack (bombs). */
 export const StoreRack = { Single: 0, TwinRail: 1, MultiRack: 2 } as const;
@@ -964,6 +976,9 @@ export const SnapshotHud = {
   SELECTED_STORE: 41,
   SELECTED_COUNT: 42,
   GUN_ROUNDS: 43,
+  /** Chaff bundles and flares left. */
+  CHAFF: 44,
+  FLARES: 45,
   /** Start of the player's track list: MAX_SNAPSHOT_TRACKS entries of SNAPSHOT_TRACK_STRIDE floats (SnapshotTrack). */
   TRACKS_BASE: 48,
 } as const;
@@ -1144,7 +1159,17 @@ export type SimEvent =
   | LockAcquiredEvent
   | LockLostEvent
   | WarningEvent
+  | CountermeasureEvent
   | MissionEndedEvent;
+
+/** A flare or chaff bundle released by an aircraft (for the renderer; the sim flies the decoy itself). */
+export interface CountermeasureEvent {
+  type: 'countermeasure';
+  entityId: EntityId;
+  kind: 'flare' | 'chaff';
+  pos: Vec3Like;
+  vel: Vec3Like;
+}
 
 // -----------------------------------------------------------------------------
 // 13. Worker message protocol. Four one-directional message flows:

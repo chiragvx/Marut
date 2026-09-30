@@ -486,6 +486,7 @@ src/render/*                  imports src/contracts/* only
 src/hud/*                      imports src/contracts/* only
 src/input/*                     imports src/contracts/* only
 src/ui/*                         imports src/contracts/* only
+src/catalog/*                     imports src/contracts/* only (pure data: weapon, store and sensor profiles; any module may import it, the way it imports src/contracts)
 src/core/*                        imports EVERYTHING (src/contracts/*, src/math/*, src/physics/*, src/aircraft/*, src/terrain/*, src/airport/*, src/ai/*, src/combat/*, src/render/*, src/hud/*, src/input/*, src/ui/*) — it is the integrator that wires concrete implementations (e.g. a `Pilot` from src/input or src/ai) behind the interfaces core.ts defines.
 ```
 

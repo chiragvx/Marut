@@ -208,7 +208,7 @@ describe('loadout editor', () => {
     createLoadoutEditor(container, tejasDefinition, { presetId: 'cap' }, { onDone, onCancel: noop });
     const left = container.querySelector('[data-station="wing-outer-l"]') as HTMLSelectElement;
     // Only what the outboard pylon carries.
-    expect(Array.from(left.options).map((o) => o.value)).toEqual(['', 'asraam:1', 'asraam:2', 'r-73:1', 'r-73:2', 'derby:1', 'derby:2']);
+    expect(Array.from(left.options).map((o) => o.value)).toEqual(['', 'asraam:1', 'asraam:2', 'python-5:1', 'python-5:2', 'r-73:1', 'r-73:2', 'derby:1', 'derby:2']);
     change(left, 'r-73:2');
     expect((container.querySelector('[data-station="wing-outer-r"]') as HTMLSelectElement).value).toBe('r-73:2');
     click(container, '[data-action="done"]');

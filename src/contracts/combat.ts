@@ -261,6 +261,8 @@ export interface IrSeekerProfile {
   detectRangeTailOnM: number;
   detectRangeHeadOnM: number;
   afterburnerRangeMult: number;
+  /** Chance (0..1) the seeker rejects a flare that appears in its field of view; absent = 0.5. */
+  flareResistance?: number;
 }
 
 /** Active-radar seeker / datalink performance (radar-guided missiles). */
@@ -271,6 +273,8 @@ export interface RadarSeekerProfile {
   activeSeekerHalfAngleRad: number;
   /** Seconds of saturated guidance before the shot is judged lost. */
   gSaturationLostSec: number;
+  /** Chance (0..1) the active seeker rejects a chaff cloud next to its target; absent = 0.5. */
+  chaffResistance?: number;
 }
 
 /**
@@ -430,6 +434,8 @@ export interface WeaponsLoadout {
   stations: readonly WeaponStationSpec[];
   /** The aircraft's radar. Absent = the generic radar (the RADAR_* constants). */
   radar?: RadarProfile;
+  /** Chaff bundles and flares carried (AircraftSensors.countermeasures). Absent = none. */
+  countermeasures?: { chaff: number; flares: number };
 }
 
 export interface WeaponStationRuntime {
@@ -480,6 +486,15 @@ export interface WeaponsState {
   /** Mirrors `CombatStatus.rwrWarning` / `missileInboundWarning`; `writeCombatStatus` copies these through. */
   rwrWarning: boolean;
   missileInboundWarning: boolean;
+  /** Countermeasures left and carried (refilled by re-arming), the keys' last state, and seconds until a held key releases its next program. */
+  chaff: number;
+  flares: number;
+  chaffMax: number;
+  flaresMax: number;
+  prevFlare: boolean;
+  prevChaff: boolean;
+  flareRepeatSec: number;
+  chaffRepeatSec: number;
   /**
    * World-space gun lead-computing-sight aim point against `lockedTargetId`
    * (or the currently-selected contact, if the pilot has cycled a target

@@ -17,6 +17,7 @@ import {
 } from '../contracts/combat';
 import { Vec3, Quat, nextRange, type PrngState } from '../math';
 import { GENERIC_RADAR_PROFILE, defaultWeaponProfile } from './weaponProfiles';
+import { DECOYS_PER_PROGRAM, DECOY_PROGRAM_INTERVAL_SEC } from './countermeasures';
 
 /**
  * Current mass (kg) and drag area (m^2) of everything still loaded on `state`'s stations. src/core
@@ -66,6 +67,14 @@ export const createWeaponsState: CreateWeaponsState = (loadout: WeaponsLoadout, 
     lockBreakGraceRemainingSec: 0,
     rwrWarning: false,
     missileInboundWarning: false,
+    chaff: loadout.countermeasures?.chaff ?? 0,
+    flares: loadout.countermeasures?.flares ?? 0,
+    chaffMax: loadout.countermeasures?.chaff ?? 0,
+    flaresMax: loadout.countermeasures?.flares ?? 0,
+    prevFlare: false,
+    prevChaff: false,
+    flareRepeatSec: 0,
+    chaffRepeatSec: 0,
     aimPointWorld: { x: 0, y: 0, z: 0 },
     aimPointValid: false,
     rng: createCombatRngState(rngSubSeed),
@@ -97,6 +106,8 @@ export const writeCombatStatus: WriteCombatStatus = (state, out: CombatStatus) =
   out.lockedTargetId = state.lockedTargetId;
   out.rwrWarning = state.rwrWarning;
   out.missileInboundWarning = state.missileInboundWarning;
+  out.chaff = state.chaff;
+  out.flares = state.flares;
   out.aimPointWorld.x = state.aimPointWorld.x;
   out.aimPointWorld.y = state.aimPointWorld.y;
   out.aimPointWorld.z = state.aimPointWorld.z;
@@ -269,6 +280,35 @@ export const fireWeapons: FireWeapons = (
 
   state.prevLaunch = inputs.launch;
 };
+
+/**
+ * How many flares and chaff bundles the pilot's keys release this tick: a program
+ * (DECOYS_PER_PROGRAM) on each press, repeating every DECOY_PROGRAM_INTERVAL_SEC while held, limited
+ * by what is left. Decrements the counts. Allocation-free.
+ */
+export function countermeasureRelease(state: WeaponsState, flareKey: boolean, chaffKey: boolean, dtSec: number, out: { flares: number; chaff: number }): void {
+  out.flares = 0;
+  out.chaff = 0;
+  state.flareRepeatSec -= dtSec;
+  state.chaffRepeatSec -= dtSec;
+  if (flareKey && (!state.prevFlare || state.flareRepeatSec <= 0) && state.flares > 0) {
+    out.flares = Math.min(DECOYS_PER_PROGRAM, state.flares);
+    state.flares -= out.flares;
+    state.flareRepeatSec = DECOY_PROGRAM_INTERVAL_SEC;
+  }
+  if (chaffKey && (!state.prevChaff || state.chaffRepeatSec <= 0) && state.chaff > 0) {
+    out.chaff = Math.min(DECOYS_PER_PROGRAM, state.chaff);
+    state.chaff -= out.chaff;
+    state.chaffRepeatSec = DECOY_PROGRAM_INTERVAL_SEC;
+  }
+  state.prevFlare = flareKey;
+  state.prevChaff = chaffKey;
+}
+
+/** One uniform draw in [0, 1) from a combat RNG stream (mulberry32). */
+export function combatRand01(rng: { seedState: number }): number {
+  return rngRange(rng, 0, 1);
+}
 
 // Bridges CombatRngState to src/math's nextRange (PrngState.s) without allocating.
 const _prngBridge: PrngState = { s: 0 };

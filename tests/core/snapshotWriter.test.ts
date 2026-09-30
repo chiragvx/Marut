@@ -21,7 +21,7 @@ function makeZeroHud(): SnapshotHudView {
   return {
     iasMps: 0, tasMps: 0, mach: 0, altMslM: 0, altAglM: 0, aoaRad: 0, betaRad: 0, gLoad: 0,
     headingRad: 0, pitchRad: 0, rollRad: 0, vspeedMps: 0, fuelKg: 0, thrustFrac: 0, gearPos: 0,
-    weaponIdx: 0, selectedStore: 0, selectedCount: 0, gunRounds: 0, targetId: NO_ENTITY_ID, targetRangeM: 0, closureMps: 0, lockState: 0, warningBits: 0,
+    weaponIdx: 0, selectedStore: 0, selectedCount: 0, gunRounds: 0, chaff: 0, flares: 0, targetId: NO_ENTITY_ID, targetRangeM: 0, closureMps: 0, lockState: 0, warningBits: 0,
     ilsLoc: 0, ilsGs: 0, pipperX: 0, pipperY: 0, pipperZ: 0, pipperValid: 0, tankFuelKg: -1, serviceState: 0, serviceFuelFrac: 0, serviceArmFrac: 0, radarMode: 0, radarMaxRangeM: 0, radarScanAzRad: 0, trackCount: 0, tracks: new Float64Array(256),
   };
 }
