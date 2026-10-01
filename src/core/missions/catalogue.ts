@@ -106,7 +106,7 @@ export const MISSIONS: readonly MissionEntry[] = [
     bandits: 0,
     targets: 5,
     objective: 'Laser-guided bombs on the PAF Shahbaz fuel depot.',
-    situation: 'You are over the border at 4,500 m with two Griffin LGBs and the Litening pod. Shahbaz lies 28 km west. Press Y for the pod picture, slew it onto the fuel tanks with the arrow keys, I to track and designate, then release inside the launch zone (IN RNG): the pod lases for the bombs by itself. The depot has five targets (four tanks and a building); destroying four completes the strike.',
+    situation: 'Two Griffin LGBs and the Litening pod against the PAF Shahbaz fuel depot, 45 km west. It is defended: an LY-80 battery west of the base (cued by an early-warning radar), an FM-90 section, 35 mm guns and MANPADS round the depot. Watch the RWR (bottom left); fly low to stay under the radars, pop up to designate (Y pod view, arrows, I) and release inside the launch zone (IN RNG): the pod lases for the bombs. Destroy four of the five depot targets.',
   },
   {
     id: 'konkan-dogfight',

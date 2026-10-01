@@ -5,6 +5,9 @@
 
 import {
   ENTITY_STRIDE,
+  MAX_RWR_CONTACTS,
+  RWR_BASE,
+  SNAPSHOT_RWR_STRIDE,
   EntityKindCode,
   HEADER_FLOATS,
   HUD_BLOCK_START,
@@ -148,6 +151,10 @@ export const writeSnapshot: WriteSnapshot = (
     out[hudBase + SnapshotHud.TRACK_COUNT] = n;
     const tb = hudBase + SnapshotHud.TRACKS_BASE;
     for (let k = 0; k < n * SNAPSHOT_TRACK_STRIDE; k++) out[tb + k] = hud.tracks[k]!;
+    const nr = hud.rwr ? Math.min(hud.rwrCount ?? 0, MAX_RWR_CONTACTS) : 0;
+    out[hudBase + SnapshotHud.RWR_COUNT] = nr;
+    const rb = hudBase + RWR_BASE;
+    for (let k = 0; k < nr * SNAPSHOT_RWR_STRIDE; k++) out[rb + k] = hud.rwr![k]!;
   }
 };
 

@@ -40,6 +40,7 @@ import { createScreenProjection, drawLeadSight, drawTargetBox, hasTarget } from 
 import { drawWeaponStatus } from './weaponStatus';
 import { drawAgSight } from './agSight';
 import { drawPodDisplay } from './podDisplay';
+import { drawRwrScope } from './rwrDisplay';
 
 const agPos = { x: 0, y: 0, z: 0 };
 const agVel = { x: 0, y: 0, z: 0 };
@@ -204,6 +205,7 @@ export const createHudRenderer: CreateHudRenderer = (canvas, initialTier) => {
         // Helmet-mounted display: world-referenced cues only (the cockpit's HUD and displays carry the rest).
         drawAirbaseMarkers(ctx, airbases, camera, curr.posX[playerSlot]!, curr.posY[playerSlot]!, curr.posZ[playerSlot]!, playerOnGround, widthPx, heightPx);
         drawSteerpointMarkers(ctx, steerpoints, camera, curr.posX[playerSlot]!, curr.posY[playerSlot]!, curr.posZ[playerSlot]!, widthPx, heightPx);
+        drawRwrScope(ctx, hud, 70, heightPx - 140, 50, nowMs);
         lastNowMs = nowMs;
         if (taxiGuide.route || taxiGuide.message) {
           const p = { x: curr.posX[playerSlot]!, z: curr.posZ[playerSlot]! };
@@ -274,6 +276,7 @@ export const createHudRenderer: CreateHudRenderer = (canvas, initialTier) => {
       agVel.x = curr.velX[playerSlot]!; agVel.y = curr.velY[playerSlot]!; agVel.z = curr.velZ[playerSlot]!;
       drawAgSight(ctx, camera, hud, agPos, agVel, widthPx, heightPx, nowMs);
       drawWeaponStatus(ctx, hud, widthPx - 16, heightPx - 44);
+      drawRwrScope(ctx, hud, 70, heightPx - 140, 50, nowMs);
       drawWarnings(ctx, hud, nowMs, widthPx * 0.5, heightPx * 0.28);
 
       if (debugSurfacesEnabled) {

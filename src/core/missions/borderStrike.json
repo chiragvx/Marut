@@ -11,18 +11,104 @@
     "pafb-shahbaz"
   ],
   "playerStart": {
-    "pos": { "x": -2000, "y": 4500, "z": 6000 },
+    "pos": {
+      "x": 15000,
+      "y": 5500,
+      "z": 2000
+    },
     "headingRad": 4.54,
     "speedMps": 220,
     "loadoutId": "precision"
   },
   "aiFlights": [],
   "weather": {
-    "windWorldMps": { "x": -1.5, "y": 0, "z": 0.5 },
+    "windWorldMps": {
+      "x": -1.5,
+      "y": 0,
+      "z": 0.5
+    },
     "gustMps": 1,
     "turbulence": 0.05
   },
   "objectives": [
-    { "id": "obj-depot", "kind": "destroy_structures", "description": "Destroy the four fuel tanks of the PAF Shahbaz fuel depot.", "params": { "airportId": "pafb-shahbaz", "group": "fuel-depot", "fraction": 0.8 } }
+    {
+      "id": "obj-depot",
+      "kind": "destroy_structures",
+      "description": "Destroy the four fuel tanks of the PAF Shahbaz fuel depot.",
+      "params": {
+        "airportId": "pafb-shahbaz",
+        "group": "fuel-depot",
+        "fraction": 0.8
+      }
+    }
+  ],
+  "groundGroups": [
+    {
+      "id": "ew",
+      "name": "EW radar",
+      "team": 1,
+      "template": "ew-site",
+      "pos": {
+        "x": -45000,
+        "z": 16000
+      },
+      "headingRad": 0
+    },
+    {
+      "id": "ly80",
+      "name": "LY-80 battery",
+      "team": 1,
+      "template": "sam-mr-battery",
+      "pos": {
+        "x": -36000,
+        "z": 12500
+      },
+      "headingRad": 1.57,
+      "emcon": "ambush"
+    },
+    {
+      "id": "fm90",
+      "name": "FM-90 section",
+      "team": 1,
+      "template": "sam-sr-section",
+      "pos": {
+        "x": -30500,
+        "z": 11800
+      },
+      "headingRad": 1.2
+    },
+    {
+      "id": "aaa-1",
+      "name": "AAA (depot)",
+      "team": 1,
+      "template": "aaa-site",
+      "pos": {
+        "x": -29200,
+        "z": 10300
+      },
+      "headingRad": 0.3
+    },
+    {
+      "id": "aaa-2",
+      "name": "AAA (runway)",
+      "team": 1,
+      "template": "aaa-site",
+      "pos": {
+        "x": -31200,
+        "z": 9300
+      },
+      "headingRad": 2.4
+    },
+    {
+      "id": "manpads",
+      "name": "MANPADS",
+      "team": 1,
+      "template": "manpads-pair",
+      "pos": {
+        "x": -29900,
+        "z": 11300
+      },
+      "headingRad": 0
+    }
   ]
 }

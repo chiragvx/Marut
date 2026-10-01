@@ -27,6 +27,9 @@ import {
   MAX_STORE_SLOTS,
   STORE_IDS,
   StoreRack,
+  MAX_RWR_CONTACTS,
+  SNAPSHOT_RWR_STRIDE,
+  SnapshotRwr,
   packStoreSlot,
   packStoreSlots,
 } from '../contracts/core';
@@ -86,6 +89,8 @@ import type { CombatPortWithContacts, CombatPortWithRearm, CombatPortWithStores 
 import { applyAutopilotAction, autopilotFlags, createAutopilotState, stepAutopilot, type AutopilotState } from './autopilot';
 import { getAircraftDefinition, getLoadout, loadoutTanks, resolveLoadout, type TankLoad } from '../aircraft';
 import { GroundTargetSet, addAirbaseStructures, placeGroundGroups } from '../ground';
+import { SITE_TEMPLATES } from '../catalog';
+import type { AdSiteSpec, AdUnitSpec } from '../combat';
 import { GROUND_TYPE_IDS, GroundFlag, GroundObjectiveKind, TargetStateCode } from '../contracts/ground';
 import type { LoadoutPreset } from '../contracts/aircraft';
 import { FUEL_TANKS, WEAPONS } from '../catalog';
@@ -264,6 +269,7 @@ class WorldImpl implements World {
   /** Ground targets (units + airbase structures) and the ground-unit entities that mirror them. */
   private ground = new GroundTargetSet();
   private readonly groundUnits: { id: EntityId; key: number }[] = [];
+  private airDefence: { sites: AdSiteSpec[]; units: AdUnitSpec[] } = { sites: [], units: [] };
   private windState: WindState = createWindState(0);
   private windWorldMpsScratch: Vec3Like = { x: 0, y: 0, z: 0 };
   private readonly combatCtx: WorldCombatTickContext;
@@ -274,6 +280,7 @@ class WorldImpl implements World {
     warningBits: 0, ilsLoc: 0, ilsGs: 0, pipperX: 0, pipperY: 0, pipperZ: 0, pipperValid: 0, tankFuelKg: -1,
     serviceState: 0, serviceFuelFrac: 0, serviceArmFrac: 0,
     radarMode: 0, radarMaxRangeM: 0, radarScanAzRad: 0, trackCount: 0, tracks: new Float64Array(MAX_SNAPSHOT_TRACKS * SNAPSHOT_TRACK_STRIDE),
+    rwrCount: 0, rwr: new Float64Array(MAX_RWR_CONTACTS * SNAPSHOT_RWR_STRIDE),
   };
   private readonly ilsScratch = { loc: 0, gs: 0 };
   /** The player's autopilot, and the inputs it hands the flight model (the pilot's, with its overrides). */
@@ -335,6 +342,9 @@ class WorldImpl implements World {
       },
       get ground(): GroundTargetSet {
         return self.ground;
+      },
+      get airDefence(): { sites: readonly AdSiteSpec[]; units: readonly AdUnitSpec[] } {
+        return self.airDefence;
       },
       getLoadout(id: EntityId): LoadoutPreset | undefined {
         const rec = self.aircraft.get(id);
@@ -481,6 +491,12 @@ class WorldImpl implements World {
   private spawnGround(mission: Mission): void {
     this.ground = new GroundTargetSet();
     this.groundUnits.length = 0;
+    // Air-defence sites: the groups whose template carries a system (a fresh object per load).
+    this.airDefence = { sites: [], units: [] };
+    for (const g of mission.groundGroups ?? []) {
+      const system = g.template ? SITE_TEMPLATES[g.template]?.airDefence : undefined;
+      if (system) this.airDefence.sites.push({ id: g.id, team: g.team, system, emcon: g.emcon ?? 'active' });
+    }
     for (const a of (mission.world.airports ?? []) as readonly Partial<AirportLayout>[]) addAirbaseStructures(this.ground, a);
     for (const u of placeGroundGroups(mission.groundGroups ?? [], this.deps.sampler)) {
       const id = this.pool.allocate(EntityKind.Ground, u.team);
@@ -510,6 +526,7 @@ class WorldImpl implements World {
         half: { ...u.type.halfExtentsM },
       });
       this.groundUnits.push({ id, key: tg.key });
+      if (this.airDefence.sites.some((s) => s.id === u.groupId)) this.airDefence.units.push({ entityId: id, siteId: u.groupId, typeId: u.type.id });
     }
   }
 
@@ -1279,6 +1296,18 @@ class WorldImpl implements World {
         hud.tracks[o + SnapshotTrack.FLAGS] = flags;
       }
       hud.trackCount = n;
+      // Radar-warning receiver contacts.
+      const rwr = rec.combat.rwr ?? [];
+      const nr = Math.min(rwr.length, MAX_RWR_CONTACTS);
+      for (let k = 0; k < nr; k++) {
+        const c = rwr[k]!;
+        const o = k * SNAPSHOT_RWR_STRIDE;
+        hud.rwr![o + SnapshotRwr.SYMBOL] = c.symbol;
+        hud.rwr![o + SnapshotRwr.BEARING_RAD] = c.bearingRad;
+        hud.rwr![o + SnapshotRwr.STATE] = c.state;
+        hud.rwr![o + SnapshotRwr.RANGE_M] = c.rangeM;
+      }
+      hud.rwrCount = nr;
     }
     for (const [id, r] of this.aircraft) {
       const st = this.pool.get(id);

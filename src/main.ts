@@ -809,16 +809,20 @@ async function initWorkersAndRenderer(qualityTier: QualityTier): Promise<void> {
       const eventsMsg = msg as SimEventsMessage;
       renderer.ingestEvents(eventsMsg.events);
       for (const ev of eventsMsg.events) {
-        if (ev.type === 'gunFire') statShotsFiredGun += 1;
+        // The debrief's shots and hits are the player's own.
+        if (ev.type === 'gunFire') {
+          if (ev.shooterId === playerEntityId) statShotsFiredGun += 1;
+        }
         else if (ev.type === 'missileLaunch') {
           const missile = ev.weapon !== 'bomb' && ev.weapon !== 'rocket' && ev.weapon !== 'guided_bomb';
-          if (missile) statMissilesFired += 1;
+          if (missile && ev.shooterId === playerEntityId) statMissilesFired += 1;
           if (ev.shooterId === playerEntityId) {
             if (missile) playerMissilesFired += 1;
             if (ev.weapon !== 'rocket') flightOverlay?.message(missile ? 'Missile away' : 'Bomb away');
           }
         }
         else if (ev.type === 'hit') {
+          if (ev.sourceId !== playerEntityId) continue;
           if (ev.weapon === 'gun') statShotsHitGun += 1;
           else statMissilesHit += 1;
         } else if (ev.type === 'kill') {

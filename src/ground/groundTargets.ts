@@ -63,9 +63,12 @@ export class GroundTargetSet {
   private querySerial = 0;
   private readonly seen: number[] = [];
 
+  private readonly byEntity = new Map<EntityId, number>();
+
   add(t: Omit<GroundTarget, 'key' | 'hp' | 'state' | 'burnLeftSec' | 'lastSourceId'>): GroundTarget {
     const target: GroundTarget = { ...t, key: this.targets.length, hp: 1, state: TargetStateCode.Intact, burnLeftSec: 0, lastSourceId: undefined };
     this.targets.push(target);
+    if (t.entityId >= 0) this.byEntity.set(t.entityId, target.key);
     this.seen.push(-1);
     const r = Math.hypot(t.half.x, t.half.z);
     for (let cx = cellOf(t.pos.x - r); cx <= cellOf(t.pos.x + r); cx++) {
@@ -144,6 +147,12 @@ export class GroundTargetSet {
       const dmg = Math.min(1, Math.max(0, 2 - z / killZ));
       if (dmg > 0) this.damage(tg, dmg / tg.toughness, sourceId, out);
     }
+  }
+
+  /** Whether ground unit `entityId` has been destroyed (false for anything that isn't a ground unit). */
+  isDestroyed(entityId: EntityId): boolean {
+    const k = this.byEntity.get(entityId);
+    return k !== undefined && this.targets[k]!.state === TargetStateCode.Destroyed;
   }
 
   /** Burn timers (fires go out). */

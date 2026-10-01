@@ -508,7 +508,7 @@ export const updateSensors: UpdateSensors = (
   let rwrWarning = false;
   for (let i = 0; i < allEntities.length; i++) {
     const e = allEntities[i]!;
-    if (e.id === observerId || !e.alive || e.team === observer.team || e.kind !== 'aircraft') continue;
+    if (e.id === observerId || !e.alive || e.team === observer.team || (e.kind !== 'aircraft' && e.kind !== 'ground')) continue;
     if (e.radarEmission && (e.radarEmission.trackedTargetId === observerId || e.radarEmission.lockedTargetId === observerId)) {
       rwrWarning = true;
       break;

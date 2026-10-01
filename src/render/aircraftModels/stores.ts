@@ -148,6 +148,48 @@ const MISSILES: Record<string, MissileSpec> = {
     ],
     bands: [0.9, 1.9],
   },
+  // Surface-to-air missiles (in flight only).
+  'ly-80-msl': {
+    len: 5.2,
+    dia: 0.34,
+    seeker: 'radar',
+    noseLen: 0.8,
+    fins: [
+      { at: 1.4, rootChord: 0.9, tipChord: 0.4, span: 0.25, sweep: 0.4 },
+      { at: 4.5, rootChord: 0.6, tipChord: 0.3, span: 0.3, sweep: 0.25 },
+    ],
+    bands: [1.3, 2.4],
+  },
+  'hq-9-msl': {
+    len: 6.8,
+    dia: 0.7,
+    seeker: 'radar',
+    noseLen: 1.3,
+    fins: [{ at: 5.8, rootChord: 0.9, tipChord: 0.45, span: 0.45, sweep: 0.35 }],
+    bands: [1.8, 3.0],
+  },
+  'fm-90-msl': {
+    len: 2.9,
+    dia: 0.156,
+    seeker: 'radar',
+    noseLen: 0.35,
+    fins: [
+      { at: 0.4, rootChord: 0.18, tipChord: 0.05, span: 0.1, sweep: 0.12 },
+      { at: 2.4, rootChord: 0.4, tipChord: 0.2, span: 0.2, sweep: 0.15 },
+    ],
+    bands: [0.7, 1.4],
+  },
+  'anza-mk3': {
+    len: 1.44,
+    dia: 0.072,
+    seeker: 'ir',
+    noseLen: 0,
+    fins: [
+      { at: 0.15, rootChord: 0.06, tipChord: 0.02, span: 0.04, sweep: 0.04 },
+      { at: 1.3, rootChord: 0.1, tipChord: 0.06, span: 0.06, sweep: 0.04 },
+    ],
+    bands: [0.3, 0.6],
+  },
   'pl-15e': {
     len: 3.99,
     dia: 0.203,

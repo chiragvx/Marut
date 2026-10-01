@@ -13,8 +13,8 @@
  * extension `world.ts`'s concrete `combatCtx` object satisfies structurally.
  */
 
-import { EntityKind, NO_ENTITY_ID, STORE_IDS } from '../contracts/core';
-import type { Contact, EntityId, EntityState, SimEvent, Vec3Like } from '../contracts/core';
+import { EntityKind, MAX_RWR_CONTACTS, NO_ENTITY_ID, RWR_SYMBOLS, STORE_IDS } from '../contracts/core';
+import type { CombatStatus, Contact, EntityId, EntityState, SimEvent, Vec3Like } from '../contracts/core';
 import type { CombatPort, CombatTickContext, EventQueue } from '../contracts/sim';
 import type { LoadoutPreset } from '../contracts/aircraft';
 import type { CombatPortWithContacts, CombatPortWithRearm, CombatPortWithStores, WorldCombatTickContext } from './combatContext';
@@ -37,6 +37,8 @@ import {
   combatRand01,
   updateAgSight,
   updatePod,
+  AirDefenceNetwork,
+  type AdEmission,
   createDecoyPool,
   launchDecoy,
   stepDecoy,
@@ -106,6 +108,9 @@ function defaultCombatEnvironment(): CombatEnvironment {
 }
 
 const EMPTY_CONTACTS: readonly Contact[] = [];
+/** Radar-warning receiver: how far it hears radars, how many it lists, and fighters' symbols by type. */
+const RWR_RANGE_M = 250000;
+const AIRCRAFT_RWR_SYMBOL: Readonly<Record<string, string>> = { 'jf-17': 'J', 'f-16': 'F', 'tejas-mk1a': 'T' };
 /** A laser-guided bomb's owner lases for it in its last seconds of flight; its seeker sees a spot out to this range. */
 const LASE_TERMINAL_SEC = 12;
 const LASER_SEEKER_RANGE_M = 15000;
@@ -195,6 +200,96 @@ export function createCombatAdapter(): CombatPort & CombatPortWithContacts & Com
     }
   }
 
+  // Air defences (src/combat/airDefence.ts): built per mission (a new spec object per load).
+  let adNetwork: AirDefenceNetwork | undefined;
+  let adSpecRef: unknown;
+  const adRequests: ProjectileSpawnRequest[] = [];
+  const adEvents: SimEvent[] = [];
+  /** Each emitting ground radar's state as of the last tick (radar-warning receivers read it). */
+  const adEmitByEntity = new Map<EntityId, AdEmission>();
+  const groundEmission = new Map<EntityId, { trackedTargetId: EntityId | undefined; lockedTargetId: EntityId | undefined }>();
+
+  /**
+   * Spawns projectile requests (an aircraft's weapons, or an air-defence site's) as entities with
+   * their pool slots, and patches each launch event's missile id. `network`: the air-defence
+   * network that fired them (it tracks its missiles in the air).
+   */
+  function spawnRequests(ctx: WorldCombatTickContext, reqs: ProjectileSpawnRequest[], events: SimEvent[], network: AirDefenceNetwork | undefined): void {
+    for (const req of reqs) {
+      if (freeProjectileIndices.length === 0) continue;
+      // headingRad is only a placeholder for SpawnSpec's initial rotation: the exact rotWorld /
+      // velWorld below overwrite it once the entity exists.
+      const headingRadApprox = Math.atan2(req.velWorld.x, -req.velWorld.z);
+      const spawnedId = ctx.spawn({
+        kind: req.kind === 'bullet' ? EntityKind.Bullet : EntityKind.Missile,
+        team: req.team,
+        pos: req.posWorld,
+        headingRad: headingRadApprox,
+        weapon: req.kind === 'bullet' ? 'gun' : (req.kind as WeaponKind),
+        shooterId: req.ownerId,
+      });
+      if (spawnedId === NO_ENTITY_ID) continue;
+      const spawnedState = findLiveState(ctx, spawnedId);
+      if (spawnedState) {
+        spawnedState.vel.x = req.velWorld.x;
+        spawnedState.vel.y = req.velWorld.y;
+        spawnedState.vel.z = req.velWorld.z;
+        spawnedState.rot.x = req.rotWorld.x;
+        spawnedState.rot.y = req.rotWorld.y;
+        spawnedState.rot.z = req.rotWorld.z;
+        spawnedState.rot.w = req.rotWorld.w;
+        // Which missile it is, for the renderer's model.
+        spawnedState.stores = req.profile ? Math.max(0, STORE_IDS.indexOf(req.profile.id)) : 0;
+      }
+      const poolIndex = freeProjectileIndices.pop() as number;
+      const slot = projectilePool[poolIndex] as ProjectileState;
+      // Each projectile's own random stream (seeker noise, datalink error, fuze), reproducible per mission.
+      req.rngSeed = subSeed(ctx.missionSeed, 'proj:' + spawnedId);
+      initProjectile(slot, req, ctx.simTimeSec);
+      projectileIndexByEntityId.set(spawnedId, poolIndex);
+      if (req.kind !== 'bullet') {
+        patchNextMissileLaunchId(events, spawnedId);
+        if (network && req.targetId !== undefined) network.missileLaunched(spawnedId, req.ownerId, req.targetId);
+      }
+    }
+  }
+
+  /**
+   * The aircraft's radar-warning receiver picture: every hostile radar transmitting within range —
+   * ground radars (searching, tracking it, or guiding a missile at it) and hostile fighters' radars
+   * (searching, or tracking / locked on it) — with its symbol, bearing and range.
+   */
+  function buildRwr(observer: EntityState, cs: CombatStatus, liveCount: number, ctx: WorldCombatTickContext): void {
+    const list = cs.rwr ?? (cs.rwr = []);
+    let n = 0;
+    const put = (symbol: string, x: number, z: number, y: number, state: number): void => {
+      if (n >= MAX_RWR_CONTACTS) return;
+      const e = list[n] ?? (list[n] = { symbol: 0, bearingRad: 0, state: 0, rangeM: 0 });
+      e.symbol = Math.max(0, RWR_SYMBOLS.indexOf(symbol));
+      e.bearingRad = Math.atan2(x - observer.pos.x, -(z - observer.pos.z));
+      e.rangeM = Math.hypot(x - observer.pos.x, y - observer.pos.y, z - observer.pos.z);
+      e.state = state;
+      n++;
+    };
+    for (const em of adEmitByEntity.values()) {
+      if (em.team === observer.team) continue;
+      const r = Math.hypot(em.pos.x - observer.pos.x, em.pos.z - observer.pos.z);
+      if (r > RWR_RANGE_M) continue;
+      put(em.symbol, em.pos.x, em.pos.z, em.pos.y, em.state === 0 || em.targetId !== observer.id ? 0 : em.state);
+    }
+    for (let i = 0; i < liveCount; i++) {
+      const e = ctx.liveAt(i);
+      if (e.kind !== EntityKind.Aircraft || !e.alive || e.team === observer.team) continue;
+      const ws = weaponsStates.get(e.id);
+      if (!ws) continue;
+      if (Math.hypot(e.pos.x - observer.pos.x, e.pos.z - observer.pos.z) > ws.radar.maxRangeM) continue;
+      const onMe = ws.lockedTargetId === observer.id;
+      const locked = onMe && ws.lockState === 'locked' && ws.selectedWeapon === 'radar_missile';
+      put(AIRCRAFT_RWR_SYMBOL[ctx.getAircraftDefId(e.id) ?? ''] ?? 'AI', e.pos.x, e.pos.z, e.pos.y, locked ? 2 : onMe ? 1 : 0);
+    }
+    list.length = n;
+  }
+
   function ensureDetectableCapacity(n: number): void {
     while (detectableScratch.length < n) {
       detectableScratch.push({ id: NO_ENTITY_ID, team: 0, kind: EntityKind.Aircraft, pos: { x: 0, y: 0, z: 0 }, vel: { x: 0, y: 0, z: 0 }, rot: { x: 0, y: 0, z: 0, w: 1 }, alive: false });
@@ -268,6 +363,14 @@ export function createCombatAdapter(): CombatPort & CombatPortWithContacts & Com
           if (!em) em = emissionScratch[i] = { trackedTargetId: undefined, lockedTargetId: undefined };
           em.trackedTargetId = ws.lockedTargetId;
           em.lockedTargetId = ws.lockState === 'locked' && ws.selectedWeapon === 'radar_missile' ? ws.lockedTargetId : undefined;
+          d.radarEmission = em;
+        } else if (e.kind === EntityKind.Ground && adEmitByEntity.has(e.id)) {
+          // A ground radar: tracking (state 1) or guiding a missile (state 2) at its target.
+          const ae = adEmitByEntity.get(e.id)!;
+          let em = groundEmission.get(e.id);
+          if (!em) groundEmission.set(e.id, (em = { trackedTargetId: undefined, lockedTargetId: undefined }));
+          em.trackedTargetId = ae.state >= 1 ? ae.targetId : undefined;
+          em.lockedTargetId = ae.state === 2 ? ae.targetId : undefined;
           d.radarEmission = em;
         } else {
           d.radarEmission = undefined;
@@ -378,48 +481,39 @@ export function createCombatAdapter(): CombatPort & CombatPortWithContacts & Com
         observer.storesMassKg = storesLoadScratch.massKg;
         observer.storesDragAreaM2 = storesLoadScratch.dragAreaM2;
 
-        for (const req of outRequestsScratch) {
-          if (freeProjectileIndices.length === 0) continue;
-          // headingRad here is only a placeholder for SpawnSpec's initial-rot
-          // construction; the exact rotWorld/velWorld below immediately
-          // overwrite it once the entity exists (SpawnSpec's headingRad+
-          // speedMps pair cannot itself express an arbitrary 3D launch
-          // vector — see this file's header note).
-          const headingRadApprox = Math.atan2(req.velWorld.x, -req.velWorld.z);
-          const spawnedId = ctx.spawn({
-            kind: req.kind === 'bullet' ? EntityKind.Bullet : EntityKind.Missile,
-            team: req.team,
-            pos: req.posWorld,
-            headingRad: headingRadApprox,
-            weapon: req.kind === 'bullet' ? 'gun' : (req.kind as WeaponKind),
-            shooterId: req.ownerId,
-          });
-          if (spawnedId === NO_ENTITY_ID) continue;
-          const spawnedState = findLiveState(ctx, spawnedId);
-          if (spawnedState) {
-            spawnedState.vel.x = req.velWorld.x;
-            spawnedState.vel.y = req.velWorld.y;
-            spawnedState.vel.z = req.velWorld.z;
-            spawnedState.rot.x = req.rotWorld.x;
-            spawnedState.rot.y = req.rotWorld.y;
-            spawnedState.rot.z = req.rotWorld.z;
-            spawnedState.rot.w = req.rotWorld.w;
-            // Which missile it is, for the renderer's model.
-            spawnedState.stores = req.profile ? Math.max(0, STORE_IDS.indexOf(req.profile.id)) : 0;
-          }
-          const poolIndex = freeProjectileIndices.pop() as number;
-          const slot = projectilePool[poolIndex] as ProjectileState;
-          // Each projectile's own random stream (seeker noise, datalink error, fuze), reproducible per mission.
-          req.rngSeed = subSeed(ctx.missionSeed, 'proj:' + spawnedId);
-          initProjectile(slot, req, ctx.simTimeSec);
-          projectileIndexByEntityId.set(spawnedId, poolIndex);
-          if (req.kind !== 'bullet') patchNextMissileLaunchId(fireEventsScratch, spawnedId);
-        }
+        spawnRequests(ctx, outRequestsScratch, fireEventsScratch, undefined);
         // Forwarded only now, after the spawns above: weaponStation.ts emits each missileLaunch
         // with missileId=NO_ENTITY_ID and leaves it to core to patch in the spawned id (07-combat.md
         // section 3.1). Forwarding before the spawn left it at -1, so the renderer's smoke trail
         // (effects.ts, keyed on missileId) never found the missile.
         for (const ev of fireEventsScratch) eventsOut.push(ev);
+      }
+
+      // Air defences: sense, track, engage; their launches spawn like the aircraft's.
+      const adSpec = ctx.airDefence;
+      if (adSpec && adSpec.sites.length > 0) {
+        if (!adNetwork || adSpecRef !== adSpec) {
+          adNetwork = new AirDefenceNetwork(adSpec.sites, adSpec.units, subSeed(ctx.missionSeed, 'airDefence'));
+          adSpecRef = adSpec;
+        }
+        adRequests.length = 0;
+        adEvents.length = 0;
+        const ground = ctx.ground;
+        adNetwork.step(ctx.simTimeSec, dtSec, allEntities, (id) => ground?.isDestroyed(id) ?? false, ctx.sampler, adRequests, adEvents);
+        spawnRequests(ctx, adRequests, adEvents, adNetwork);
+        for (const ev of adEvents) eventsOut.push(ev);
+        adEmitByEntity.clear();
+        for (const em of adNetwork.emissions()) adEmitByEntity.set(em.entityId, em);
+      } else if (adNetwork) {
+        adNetwork = undefined;
+        adEmitByEntity.clear();
+      }
+      // Radar-warning receivers: what each aircraft hears (ground radars, hostile fighters' radars).
+      for (let i = 0; i < liveCount; i++) {
+        const observer = ctx.liveAt(i);
+        if (observer.kind !== EntityKind.Aircraft || !observer.alive) continue;
+        const cs = ctx.getCombatStatus(observer.id);
+        if (cs) buildRwr(observer, cs, liveCount, ctx);
       }
 
       // Laser-guided bombs: steer to a friendly laser spot inside the seeker's cone (none = fall
@@ -469,7 +563,10 @@ export function createCombatAdapter(): CombatPort & CombatPortWithContacts & Com
         const poolIndex = projectileIndexByEntityId.get(state.id);
         if (poolIndex === undefined) continue;
         const projectile = projectilePool[poolIndex] as ProjectileState;
-        if (projectile.kind === 'radar_missile') {
+        if (projectile.kind === 'radar_missile' && adNetwork?.owns(projectile.ownerId)) {
+          // A SAM: guided while its site's engagement radar tracks the target.
+          projectile.datalinkOk = adNetwork.guiding(projectile.ownerId, projectile.targetId);
+        } else if (projectile.kind === 'radar_missile') {
           // Mid-course datalink: only while the launcher is alive and its radar still holds the
           // target in active track (not coasting on memory). Otherwise the missile flies on its last update.
           const owner = weaponsStates.get(projectile.ownerId);
@@ -540,7 +637,10 @@ export function createCombatAdapter(): CombatPort & CombatPortWithContacts & Com
         projectileIndexByEntityId.delete(state.id);
         despawnScratch.push(state.id);
       }
-      for (let k = 0; k < despawnScratch.length; k++) ctx.despawn(despawnScratch[k]!);
+      for (let k = 0; k < despawnScratch.length; k++) {
+        adNetwork?.missileGone(despawnScratch[k]!);
+        ctx.despawn(despawnScratch[k]!);
+      }
     },
   };
 }

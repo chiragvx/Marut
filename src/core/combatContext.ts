@@ -16,6 +16,7 @@ import type { Contact, EntityId, PilotInputs } from '../contracts/core';
 import type { CombatTickContext } from '../contracts/sim';
 import type { LoadoutPreset } from '../contracts/aircraft';
 import type { GroundTargetSet } from '../ground';
+import type { AdSiteSpec, AdUnitSpec } from '../combat';
 
 export interface WorldCombatTickContext extends CombatTickContext {
   readonly missionSeed: number;
@@ -29,6 +30,8 @@ export interface WorldCombatTickContext extends CombatTickContext {
   getLoadout?(id: EntityId): LoadoutPreset | undefined;
   /** The mission's ground targets (units and airbase structures): weapons hit and damage them. */
   readonly ground?: GroundTargetSet;
+  /** The mission's air-defence sites and their units (a new object per mission load). */
+  readonly airDefence?: { sites: readonly AdSiteSpec[]; units: readonly AdUnitSpec[] };
 }
 
 /**

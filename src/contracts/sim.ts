@@ -403,6 +403,9 @@ export interface SnapshotHudView {
   trackCount: number;
   /** MAX_SNAPSHOT_TRACKS x SNAPSHOT_TRACK_STRIDE floats (SnapshotTrack layout), trackCount valid. */
   tracks: Float64Array;
+  /** Radar-warning receiver contacts (SnapshotRwr layout, MAX_RWR_CONTACTS entries), rwrCount valid. Optional: absent = none. */
+  rwrCount?: number;
+  rwr?: Float64Array;
   /** SnapshotHud.AP_* (autopilot). Optional so older callers still type-check; missing = 0. */
   apFlags?: number;
   apHdgRad?: number;

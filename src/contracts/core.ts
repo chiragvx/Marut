@@ -556,6 +556,8 @@ export interface CombatStatus {
   spiWorld?: Vec3Like;
   agTimeSec?: number;
   agCrossTrackM?: number;
+  /** Radar-warning receiver contacts (most recent first is not guaranteed): RWR_SYMBOLS code, world bearing (rad), 0 search / 1 tracking me / 2 missile guided at me, range (m). */
+  rwr?: { symbol: number; bearingRad: number; state: number; rangeM: number }[];
   /** Targeting pod (PodFlag bits, point, field of view, slant range) and the guided weapon's launch zone (DlzCode). */
   podFlags?: number;
   podPoint?: Vec3Like;
@@ -912,6 +914,7 @@ export const STORE_IDS: readonly string[] = [
   'python-5', 'derby-er', 'pl-5e', 'aim-9m', 'sd-10a', 'aim-120c', 'pl-15e',
   'hsld-450', 'hsld-250', 'hsld-250r', 'b8m1',
   'litening', 'griffin-lgb', 'hammer-250',
+  'ly-80-msl', 'hq-9-msl', 'fm-90-msl', 'anza-mk3',
 ];
 
 /** How a station carries its stores: one on the pylon, a twin missile rail, or a multiple ejector rack (bombs). */
@@ -1045,6 +1048,8 @@ export const SnapshotHud = {
   POD_FOV_DEG: 60,
   POD_RANGE_M: 61,
   DLZ: 62,
+  /** Number of radar-warning receiver contacts at RWR_BASE (SnapshotRwr entries). */
+  RWR_COUNT: 63,
   /** Start of the player's track list: MAX_SNAPSHOT_TRACKS entries of SNAPSHOT_TRACK_STRIDE floats (SnapshotTrack). */
   TRACKS_BASE: 64,
 } as const;
@@ -1097,7 +1102,15 @@ export const SnapshotTrackFlag = {
 export const RadarModeCode: Readonly<Record<RadarMode, number>> = { rws: 0, acm: 1 };
 
 /** Floats in the HUD block (fields above plus the track list). */
-export const HUD_BLOCK_FLOATS = SnapshotHud.TRACKS_BASE + MAX_SNAPSHOT_TRACKS * SNAPSHOT_TRACK_STRIDE;
+/** Radar-warning receiver contacts after the track list: MAX_RWR_CONTACTS entries of SNAPSHOT_RWR_STRIDE floats. */
+export const MAX_RWR_CONTACTS = 12;
+export const SNAPSHOT_RWR_STRIDE = 4;
+export const RWR_BASE = SnapshotHud.TRACKS_BASE + MAX_SNAPSHOT_TRACKS * SNAPSHOT_TRACK_STRIDE;
+/** One RWR entry: symbol code (RWR_SYMBOLS), world bearing to the emitter (rad), state (0 search, 1 track, 2 launch), range (m). */
+export const SnapshotRwr = { SYMBOL: 0, BEARING_RAD: 1, STATE: 2, RANGE_M: 3 } as const;
+/** RWR symbols by code: search radar, early warning, LY-80, HQ-9, FM-90, AAA fire control, JF-17, F-16, Tejas, other fighter. Append only. */
+export const RWR_SYMBOLS: readonly string[] = ['', 'S', 'EW', 'L8', '9', 'FM', 'A', 'J', 'F', 'T', 'AI'];
+export const HUD_BLOCK_FLOATS = RWR_BASE + MAX_RWR_CONTACTS * SNAPSHOT_RWR_STRIDE;
 
 /** SnapshotHud.POD_FLAGS bits. */
 export const PodFlag = { Carried: 1, PointValid: 2, PointTrack: 4, Designating: 8, Laser: 16, Masked: 32 } as const;

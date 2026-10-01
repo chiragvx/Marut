@@ -14,6 +14,9 @@ import { HEADING_TAPE_PX_PER_DEG } from './tapes';
 import { createScreenProjection, projectWorldToScreen } from './targetBox';
 
 const AMBER = '#ffc040';
+const THREAT = '#ff5a4a';
+/** Threat markers are named only within this distance. */
+const THREAT_LABEL_M = 25000;
 /** Closer than this (horizontally) the steerpoint leaves the tape: the targets are under the nose. */
 const AT_TARGET_M = 800;
 
@@ -43,7 +46,8 @@ export function buildSteerpoints(groups: readonly MissionGroundGroup[], heightAt
     const rx = Math.cos(g.headingRad), rz = Math.sin(g.headingRad);
     const x = g.pos.x + dx * fx + dz * rx;
     const z = g.pos.z + dx * fz + dz * rz;
-    out.push({ name: g.name ?? (g.template ? SITE_TEMPLATES[g.template]?.name : undefined) ?? g.id, x, y: heightAt(x, z), z });
+    const threat = !!(g.template && SITE_TEMPLATES[g.template]?.airDefence);
+    out.push({ name: g.name ?? (g.template ? SITE_TEMPLATES[g.template]?.name : undefined) ?? g.id, x, y: heightAt(x, z), z, ...(threat ? { threat } : {}) });
   }
   return out;
 }
@@ -90,7 +94,9 @@ export function drawSteerpointTape(ctx: CanvasRenderingContext2D, points: readon
   ctx.lineWidth = 1.5;
   ctx.strokeStyle = AMBER;
   ctx.fillStyle = AMBER;
+  let lastX = -1e9;
   for (const p of points) {
+    if (p.threat) continue;
     const d = Math.hypot(p.x - px, p.z - pz);
     if (d < AT_TARGET_M) continue;
     const rel = wrapDeg((Math.atan2(p.x - px, -(p.z - pz)) * 180) / Math.PI - headingDeg);
@@ -111,6 +117,9 @@ export function drawSteerpointTape(ctx: CanvasRenderingContext2D, points: readon
       ctx.fill();
     }
     triangle(ctx, x, y, 5, true);
+    // Only one distance where several steerpoints sit together on the tape.
+    if (Math.abs(x - lastX) < 34 && !off) continue;
+    lastX = x;
     const text = km(d);
     const tx = off && rel > 0 ? x - 10 - ctx.measureText(text).width : x + 8;
     ctx.fillText(text, tx, y + 4);
@@ -123,15 +132,42 @@ export function drawSteerpointMarkers(ctx: CanvasRenderingContext2D, points: rea
   if (points.length === 0) return;
   ctx.save();
   ctx.lineWidth = 1.5;
-  ctx.strokeStyle = AMBER;
-  ctx.fillStyle = AMBER;
+  // Labels drawn so far (screen boxes): one that would overlap is left out.
+  const drawn: number[] = [];
+  const free = (x: number, y: number): boolean => {
+    for (let i = 0; i < drawn.length; i += 2) if (Math.abs(drawn[i]! - x) < 110 && Math.abs(drawn[i + 1]! - y) < 34) return false;
+    drawn.push(x, y);
+    return true;
+  };
   for (const p of points) {
     projectWorldToScreen(camera, p, widthPx, heightPx, scratch);
     if (!scratch.visible) continue;
     const d = Math.hypot(p.x - px, p.y - py, p.z - pz);
     const x = scratch.xPx;
     const y = scratch.yPx;
+    if (p.threat) {
+      // A known air-defence site: a small red diamond, named when close.
+      ctx.strokeStyle = THREAT;
+      ctx.fillStyle = THREAT;
+      ctx.beginPath();
+      ctx.moveTo(x, y - 6);
+      ctx.lineTo(x + 6, y);
+      ctx.lineTo(x, y + 6);
+      ctx.lineTo(x - 6, y);
+      ctx.closePath();
+      ctx.stroke();
+      if (d < THREAT_LABEL_M && free(x, y)) {
+        ctx.font = '10px monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText(p.name.toUpperCase(), x, y - 10);
+        ctx.textAlign = 'start';
+      }
+      continue;
+    }
+    ctx.strokeStyle = AMBER;
+    ctx.fillStyle = AMBER;
     triangle(ctx, x, y, 9, false);
+    if (!free(x, y)) continue;
     ctx.beginPath();
     ctx.arc(x, y, 1.5, 0, Math.PI * 2);
     ctx.fill();

@@ -575,6 +575,8 @@ export interface HudSteerpoint {
   x: number;
   y: number;
   z: number;
+  /** A known air-defence site (drawn as a red threat marker, not a steerpoint). */
+  threat?: boolean;
 }
 
 export interface HudAirbase {

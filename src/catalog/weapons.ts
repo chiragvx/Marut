@@ -814,6 +814,158 @@ export const SENSOR_PODS: Readonly<Record<string, SensorPodProfile>> = {
   litening: { id: 'litening', name: 'Litening III targeting pod', label: 'LITENING', short: 'TGP', massKg: 208, dragAreaM2: 0.05, fovsDeg: [18.4, 3.5, 1.0], laserRangeM: 20000, maxUpDeg: 5 },
 };
 
+// --- Surface-to-air weapons (hostile air defences; public-data approximations). Radar-guided SAMs
+// guide on their site's engagement radar (semi-active / command / track-via-missile): they are
+// "datalinked" only while that radar tracks the target (activeSeekerRangeM 0 = no autonomous
+// terminal seeker), so a radar that shuts down or is destroyed leaves them flying blind.
+
+/** LY-80 (HQ-16) medium-range SAM: 615 kg, 340 mm, 5.2 m; Mach 3; semi-active radar; ~40 km, 15 km altitude. */
+export const LY80_MSL: WeaponProfile = radarMissile({
+  id: 'ly-80-msl',
+  name: 'LY-80 missile',
+  label: 'LY-80',
+  short: 'L80',
+  carriageMassKg: 615,
+  carriageDragAreaM2: 0,
+  projectileMassKg: 615,
+  dragCoeff: 0.3,
+  crossSectionM2: 0.0908,
+  maxLifetimeSec: 75,
+  armDistanceM: 400,
+  launchSpeedMps: 40,
+  motorBurnSec: 7,
+  motorThrustN: 95000,
+  pnGain: 4,
+  maxG: 30,
+  proximityFuseRadiusM: 15,
+  minLaunchRangeM: 0,
+  radar: { maxRangeM: 40000, activeSeekerRangeM: 0, activeSeekerHalfAngleRad: 20 * D2R, gSaturationLostSec: 3, chaffResistance: 0.5 },
+  flight: {
+    sustainBurnSec: 0, sustainThrustN: 0, propellantMassKg: 260, liftAreaM2: 0.5, clMax: 2.5, inducedDragK: 0.3,
+    waveDragRise: 0.4, autopilotTauSec: 0.25, seekerNoiseMrad: 1.5, seekerUpdateSec: 0.05, datalinkIntervalSec: 0.2,
+    datalinkErrMrad: 1.5, minSpeedMps: 280,
+  },
+  lethality: { fuzeReliability: 0.95, pkDirect: 0.92, pkAtLethalRadius: 0.35, lethalRadiusM: 15 },
+  warhead: { explosiveKg: 70 },
+});
+
+/** HQ-9/P long-range SAM: ~1,300 kg, 700 mm, 6.8 m; Mach 4+; track-via-missile, lofted; ~120 km, 25 km altitude. */
+export const HQ9_MSL: WeaponProfile = radarMissile({
+  id: 'hq-9-msl',
+  name: 'HQ-9/P missile',
+  label: 'HQ-9',
+  short: 'HQ9',
+  carriageMassKg: 1300,
+  carriageDragAreaM2: 0,
+  projectileMassKg: 1300,
+  dragCoeff: 0.25,
+  crossSectionM2: 0.385,
+  maxLifetimeSec: 160,
+  armDistanceM: 600,
+  launchSpeedMps: 40,
+  motorBurnSec: 12,
+  motorThrustN: 250000,
+  pnGain: 4,
+  maxG: 25,
+  proximityFuseRadiusM: 20,
+  minLaunchRangeM: 0,
+  radar: { maxRangeM: 125000, activeSeekerRangeM: 0, activeSeekerHalfAngleRad: 25 * D2R, gSaturationLostSec: 3, chaffResistance: 0.65 },
+  flight: {
+    sustainBurnSec: 0, sustainThrustN: 0, propellantMassKg: 650, liftAreaM2: 1.2, clMax: 2.2, inducedDragK: 0.25,
+    waveDragRise: 0.35, autopilotTauSec: 0.3, seekerNoiseMrad: 1.0, seekerUpdateSec: 0.05, datalinkIntervalSec: 0.25,
+    datalinkErrMrad: 1.0, loftRad: 0.35, minSpeedMps: 300,
+  },
+  lethality: { fuzeReliability: 0.95, pkDirect: 0.93, pkAtLethalRadius: 0.4, lethalRadiusM: 20 },
+  warhead: { explosiveKg: 180 },
+});
+
+/** FM-90 (Crotale family) short-range SAM: 85 kg, 156 mm; Mach 2.3; radar/TV command guidance; 15 km, 6 km altitude. */
+export const FM90_MSL: WeaponProfile = radarMissile({
+  id: 'fm-90-msl',
+  name: 'FM-90 missile',
+  label: 'FM-90',
+  short: 'FM9',
+  carriageMassKg: 85,
+  carriageDragAreaM2: 0,
+  projectileMassKg: 85,
+  dragCoeff: 0.35,
+  crossSectionM2: 0.0191,
+  maxLifetimeSec: 28,
+  armDistanceM: 200,
+  launchSpeedMps: 30,
+  motorBurnSec: 2.3,
+  motorThrustN: 26000,
+  pnGain: 4,
+  maxG: 35,
+  proximityFuseRadiusM: 8,
+  minLaunchRangeM: 0,
+  radar: { maxRangeM: 15000, activeSeekerRangeM: 0, activeSeekerHalfAngleRad: 20 * D2R, gSaturationLostSec: 2, chaffResistance: 0.45 },
+  flight: {
+    sustainBurnSec: 0, sustainThrustN: 0, propellantMassKg: 30, liftAreaM2: 0.2, clMax: 2.8, inducedDragK: 0.3,
+    waveDragRise: 0.5, autopilotTauSec: 0.15, seekerNoiseMrad: 1.5, seekerUpdateSec: 0.05, datalinkIntervalSec: 0.1,
+    datalinkErrMrad: 1.5, minSpeedMps: 250,
+  },
+  lethality: { fuzeReliability: 0.93, pkDirect: 0.9, pkAtLethalRadius: 0.3, lethalRadiusM: 8 },
+  warhead: { explosiveKg: 15 },
+});
+
+/** Anza Mk-III MANPADS: 11 kg, 72 mm; IR; ~5 km, 3.5 km altitude. Invisible to the radar-warning receiver. */
+export const ANZA_MK3: WeaponProfile = irMissile({
+  id: 'anza-mk3',
+  name: 'Anza Mk-III',
+  label: 'ANZA',
+  short: 'ANZ',
+  carriageMassKg: 11,
+  carriageDragAreaM2: 0,
+  projectileMassKg: 11,
+  dragCoeff: 0.4,
+  crossSectionM2: 0.00407,
+  maxLifetimeSec: 16,
+  armDistanceM: 100,
+  launchSpeedMps: 25,
+  motorBurnSec: 2,
+  motorThrustN: 1800,
+  pnGain: 4,
+  maxG: 22,
+  proximityFuseRadiusM: 3,
+  minLaunchRangeM: 400,
+  ir: {
+    acquireHalfAngleRad: 8 * D2R,
+    trackHalfAngleRad: 35 * D2R,
+    gimbalRateRadS: 8,
+    lockTimeSec: 1.0,
+    detectRangeTailOnM: 6000,
+    detectRangeHeadOnM: 2500,
+    afterburnerRangeMult: 1.5,
+    flareResistance: 0.35,
+  },
+  flight: {
+    sustainBurnSec: 0, sustainThrustN: 0, propellantMassKg: 4, liftAreaM2: 0.03, clMax: 2.5, inducedDragK: 0.3,
+    waveDragRise: 0.6, autopilotTauSec: 0.12, seekerNoiseMrad: 1.0, seekerUpdateSec: 0.02, minSpeedMps: 200,
+  },
+  lethality: { fuzeReliability: 0.9, pkDirect: 0.75, pkAtLethalRadius: 0.25, lethalRadiusM: 3 },
+  warhead: { explosiveKg: 1.4 },
+});
+
+/** 35 mm round of the twin Oerlikon GDF guns (1,175 m/s; one simulated round stands for a short burst). */
+export const GDF_35MM: WeaponProfile = {
+  ...GENERIC_GUN_PROFILE,
+  id: '35mm-gdf',
+  name: '35 mm GDF',
+  label: '35 MM',
+  short: '35',
+  carriageMassKg: 0,
+  projectileMassKg: 0.75,
+  dragCoeff: 0.3,
+  crossSectionM2: 0.00096,
+  maxLifetimeSec: 6,
+  armDistanceM: 30,
+  launchSpeedMps: 1175,
+  roundIntervalSec: 0.2,
+  dispersionMrad: 3,
+  damageFrac: 0.16,
+};
+
 /** Every weapon store by catalogue id. */
 export const WEAPONS: Readonly<Record<string, WeaponProfile>> = {
   [GENERIC_GUN_PROFILE.id]: GENERIC_GUN_PROFILE,
@@ -834,6 +986,11 @@ export const WEAPONS: Readonly<Record<string, WeaponProfile>> = {
   [B8_S8.id]: B8_S8,
   [GRIFFIN_LGB.id]: GRIFFIN_LGB,
   [HAMMER_250.id]: HAMMER_250,
+  [LY80_MSL.id]: LY80_MSL,
+  [HQ9_MSL.id]: HQ9_MSL,
+  [FM90_MSL.id]: FM90_MSL,
+  [ANZA_MK3.id]: ANZA_MK3,
+  [GDF_35MM.id]: GDF_35MM,
 };
 
 /** External fuel tanks: capacity, empty mass, drag area. */

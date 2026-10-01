@@ -90,6 +90,38 @@ export interface GroundUnitType {
   maxSpeedMps: number;
   /** Burns (fire and smoke) when destroyed, s; 0 = just a wreck. */
   burnSec: number;
+  /** Launchers: missiles ready to fire; guns: bursts of ammunition; MANPADS teams: missiles. */
+  rounds?: number;
+}
+
+/**
+ * A site's air-defence system (SiteTemplate.airDefence): how its radars see and its launchers or
+ * guns engage (src/ground/airDefence.ts). Unit roles come from their types: radar-search /
+ * radar-ew = search, radar-track = engagement radar, sam_launcher = launcher, aaa = gun,
+ * manpads = MANPADS team.
+ */
+export interface AirDefenceSystem {
+  name: string;
+  /** Radar-warning receiver symbol ('' = no emissions, e.g. MANPADS). */
+  rwrSymbol: string;
+  /** How it sees: its radars, or by eye / IR (guns without radar, MANPADS). */
+  sensor: 'radar' | 'optical';
+  /** The missile its launchers fire, or the gun's round (catalogue weapon id); none = a sensor-only site (EW). */
+  weapon?: string;
+  /** Search and engagement radar detection ranges against a 5 m^2 target, m (scale with RCS^1/4). */
+  searchRangeM: number;
+  trackRangeM: number;
+  /** Engagement envelope: slant range, and the target's height above the site. */
+  minRangeM: number;
+  maxRangeM: number;
+  maxAltM: number;
+  /** It can't see a target lower than this above the ground (radar clutter / horizon), m. */
+  minAltAglM: number;
+  /** Seconds of continuous track before a firing solution. */
+  lockTimeSec: number;
+  /** Missiles in the air at one target at once, and seconds between launches. */
+  salvo: number;
+  salvoIntervalSec: number;
 }
 
 /** One unit of a site template: its type and place relative to the site's origin and heading. */
@@ -106,6 +138,8 @@ export interface SiteTemplate {
   id: string;
   name: string;
   units: readonly SiteUnit[];
+  /** Air-defence sites: the system that fights with these units. */
+  airDefence?: AirDefenceSystem;
 }
 
 // -----------------------------------------------------------------------------
@@ -125,6 +159,9 @@ export interface MissionGroundGroup {
   headingRad: number;
   /** Display name for briefings and the debrief ("SA site Alpha"). */
   name?: string;
+  /** Air-defence sites: 'active' radars search all the time; 'ambush' keeps them silent until the
+   *  early-warning network reports a target near the engagement envelope. Default 'active'. */
+  emcon?: 'active' | 'ambush';
 }
 
 /** Objective kinds that involve ground targets (MissionObjective.kind; params below). */
