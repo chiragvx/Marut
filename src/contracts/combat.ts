@@ -331,6 +331,9 @@ export interface WeaponProfile {
   bomb?: { retardAfterSec: number; retardCdA: number };
   /** Guided bombs: how they find the target, and their launch envelope for the DLZ cue. */
   guided?: GuidedWeaponProfile;
+  /** Anti-radiation missiles: the passive seeker's field of regard, its range, and how far off its
+   *  remembered aim drifts when the radar stops transmitting while the missile is still far out. */
+  arm?: { seekerHalfAngleDeg: number; maxRangeM: number; memoryErrorM: number };
   /** Published/validated launch envelope at ~10 km, launcher at Mach 0.9, non-manoeuvring target (m). For the AI and HUD cues. */
   envelope?: { rMaxHeadOnM: number; rMaxTailM: number; rNoEscapeM: number };
 }
@@ -875,6 +878,8 @@ export interface ProjectileState {
   /** Guided bombs / AGMs: the point it steers to (GPS coordinates, or the laser spot it sees) and whether it has one this tick. */
   targetPoint?: Vec3Like;
   targetPointValid?: boolean;
+  /** Anti-radiation missiles: its emitter stopped transmitting and it now flies to where it remembers it. */
+  armMemory?: boolean;
 }
 
 export type CreateProjectilePool = (size: number) => ProjectileState[];

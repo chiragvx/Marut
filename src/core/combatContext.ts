@@ -54,6 +54,11 @@ export interface CombatPortWithRearm {
   armedFrac(id: EntityId): number;
 }
 
+/** Air defences: seconds a site (mission ground group) has been suppressed (silenced by an ARM, or its radars destroyed). */
+export interface CombatPortWithAirDefence {
+  siteSuppressedSec(siteId: string): number;
+}
+
 /** Stores still on aircraft `id`'s station `hardpointId` (undefined until combat has seen the aircraft, or no such weapon station). */
 export interface CombatPortWithStores {
   stationCount(id: EntityId, hardpointId: string): number | undefined;

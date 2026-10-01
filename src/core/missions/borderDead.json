@@ -1,0 +1,79 @@
+{
+  "seed": 2004,
+  "terrain": {
+    "seed": 1947,
+    "theatre": "border"
+  },
+  "airportIds": [
+    "bhisiana-afs",
+    "pafb-shahbaz"
+  ],
+  "aiFlights": [],
+  "weather": {
+    "windWorldMps": {
+      "x": -1.5,
+      "y": 0,
+      "z": 0.5
+    },
+    "gustMps": 1,
+    "turbulence": 0.05
+  },
+  "id": "border-dead",
+  "name": "DEAD \u2014 Destroy the LY-80 radars",
+  "playerStart": {
+    "pos": {
+      "x": 40000,
+      "y": 9000,
+      "z": 0
+    },
+    "headingRad": 4.62,
+    "speedMps": 250,
+    "loadoutId": "sead"
+  },
+  "groundGroups": [
+    {
+      "id": "ew",
+      "name": "EW radar",
+      "team": 1,
+      "template": "ew-site",
+      "pos": {
+        "x": -50000,
+        "z": 20000
+      },
+      "headingRad": 0
+    },
+    {
+      "id": "ly80",
+      "name": "LY-80 battery",
+      "team": 1,
+      "template": "sam-mr-battery",
+      "pos": {
+        "x": -25000,
+        "z": 8000
+      },
+      "headingRad": 1.57
+    },
+    {
+      "id": "fm90",
+      "name": "FM-90 section",
+      "team": 1,
+      "template": "sam-sr-section",
+      "pos": {
+        "x": -22000,
+        "z": 7000
+      },
+      "headingRad": 1.0
+    }
+  ],
+  "objectives": [
+    {
+      "id": "obj-dead",
+      "kind": "destroy_group",
+      "description": "Destroy the LY-80 battery's search and engagement radars.",
+      "params": {
+        "group": "ly80",
+        "types": "radar-search,radar-track"
+      }
+    }
+  ]
+}

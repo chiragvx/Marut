@@ -401,6 +401,24 @@ function releaseAirToGround(shooterId: EntityId, shooter: EntityState, inputs: P
     reselectIfEmpty(state);
     return;
   }
+  if (kind === WeaponKind.Arm) {
+    // Anti-radiation missile: at the locked emitter, or pre-briefed at the designated point.
+    if (state.releasedThisPress) return;
+    const st = findStationWithStore(state.stations, state.selectedStoreId);
+    const locked = state.lockState === LockState.Locked && state.lockedTargetId !== undefined;
+    if (!st || (!locked && !state.spiValid)) return;
+    st.count -= 1;
+    state.releasedThisPress = true;
+    Quat.rotate(shooter.rot, st.posBodyM, _muzzleOffsetW);
+    Quat.rotate(shooter.rot, { x: 1, y: 0, z: 0 }, _dirWorld);
+    const v = st.profile.launchSpeedMps;
+    pushStore(shooterId, shooter, st, _dirWorld.x * v, _dirWorld.y * v - 3, _dirWorld.z * v, ProjectileKind.Arm, outRequests, outEvents, kind);
+    const req = outRequests[outRequests.length - 1]!;
+    if (locked) req.targetId = state.lockedTargetId as EntityId;
+    else req.targetPoint = { x: state.spi.x, y: state.spi.y, z: state.spi.z };
+    reselectIfEmpty(state);
+    return;
+  }
   if (kind !== WeaponKind.Bomb && kind !== WeaponKind.GuidedBomb) return;
   if (state.releasedThisPress) return;
   const guided = kind === WeaponKind.GuidedBomb;

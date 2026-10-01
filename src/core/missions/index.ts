@@ -36,6 +36,8 @@ import borderInterceptRaw from './borderIntercept.json';
 import borderDuelRaw from './borderDuel.json';
 import borderRangeRaw from './borderRange.json';
 import borderStrikeRaw from './borderStrike.json';
+import borderSeadRaw from './borderSead.json';
+import borderDeadRaw from './borderDead.json';
 import rangpurAfbRaw from '../../airport/layouts/rangpur-afb.json';
 import konarakCoastalRaw from '../../airport/layouts/konarak-coastal.json';
 import insHansaRaw from '../../airport/layouts/ins-hansa.json';
@@ -119,6 +121,8 @@ const BUILTIN_DESCRIPTORS = {
   'border-duel': borderDuelRaw as unknown as MissionDescriptor,
   'border-range': borderRangeRaw as unknown as MissionDescriptor,
   'border-strike': borderStrikeRaw as unknown as MissionDescriptor,
+  'border-sead': borderSeadRaw as unknown as MissionDescriptor,
+  'border-dead': borderDeadRaw as unknown as MissionDescriptor,
 } as const satisfies Readonly<Record<string, MissionDescriptor>>;
 
 export type BuiltinMissionId = keyof typeof BUILTIN_DESCRIPTORS;

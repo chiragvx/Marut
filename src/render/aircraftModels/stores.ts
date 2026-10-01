@@ -148,6 +148,17 @@ const MISSILES: Record<string, MissileSpec> = {
     ],
     bands: [0.9, 1.9],
   },
+  'rudram-1': {
+    len: 5.5,
+    dia: 0.33,
+    seeker: 'radar',
+    noseLen: 0.7,
+    fins: [
+      { at: 1.6, rootChord: 1.1, tipChord: 0.6, span: 0.16, sweep: 0.35 },
+      { at: 4.9, rootChord: 0.55, tipChord: 0.3, span: 0.26, sweep: 0.2 },
+    ],
+    bands: [1.2, 2.6],
+  },
   // Surface-to-air missiles (in flight only).
   'ly-80-msl': {
     len: 5.2,

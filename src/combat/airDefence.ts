@@ -25,6 +25,9 @@ import { ProjectileKind, type DetectableEntity, type ProjectileSpawnRequest, typ
 import { GROUND_UNIT_TYPES, WEAPONS } from '../catalog';
 import { terrainLineOfSight } from './lineOfSight';
 
+/** A radar site sees an anti-radiation missile diving at it inside this range, and shuts down with this probability. */
+const ARM_WARNING_M = 30000;
+const ARM_SHUTDOWN_P = 0.65;
 /** Sensing and target choice run at this rate. */
 const SENSE_HZ = 10;
 /** An ambush site's radars come on when the network sees a target inside this many times its maximum range. */
@@ -81,8 +84,10 @@ interface AdSite {
   /** Search radar transmitting / engagement radar tracking (as of the last sensing). */
   searching: boolean;
   tracking: boolean;
-  /** Radars off until this time (a site hiding from an anti-radiation missile, W6). */
+  /** Radars off until this time (a site hiding from an anti-radiation missile). */
   silentUntilSec: number;
+  /** Seconds this site has been suppressed: silenced by an anti-radiation missile, or its radars destroyed. */
+  suppressedSec: number;
   nextLauncher: number;
 }
 
@@ -105,6 +110,8 @@ export class AirDefenceNetwork {
   /** The team's network picture: targets its early-warning (and search) radars see, by team. */
   private readonly netTargets: [Set<EntityId>, Set<EntityId>] = [new Set(), new Set()];
   private senseDueSec = 0;
+  /** Anti-radiation missiles already seen by the sites they dive at. */
+  private readonly armsSeen = new Set<EntityId>();
   private rng: number;
 
   constructor(sites: readonly AdSiteSpec[], units: readonly AdUnitSpec[], seed: number) {
@@ -120,6 +127,7 @@ export class AirDefenceNetwork {
         searching: false,
         tracking: false,
         silentUntilSec: -1,
+        suppressedSec: 0,
         nextLauncher: 0,
       });
     }
@@ -166,6 +174,30 @@ export class AirDefenceNetwork {
     if (site) site.silentUntilSec = Math.max(site.silentUntilSec, untilSec);
   }
 
+  /**
+   * An anti-radiation missile `missileId` is in the air: each radar site it is diving at (within
+   * ARM_WARNING_M, heading for it) sees it once and, with probability ARM_SHUTDOWN_P, shuts its
+   * radars down for 60-90 s (its SAMs lose guidance: the site is suppressed).
+   */
+  armInbound(missileId: EntityId, pos: Vec3Like, vel: Vec3Like, simTimeSec: number): void {
+    if (this.armsSeen.has(missileId)) return;
+    const sp = Math.hypot(vel.x, vel.y, vel.z) || 1;
+    for (const site of this.sites) {
+      if (site.spec.system.sensor !== 'radar' || !(site.searching || site.tracking)) continue;
+      const c = siteCentre(site);
+      const dx = c.x - pos.x, dy = c.y - pos.y, dz = c.z - pos.z;
+      const d = Math.hypot(dx, dy, dz);
+      if (d > ARM_WARNING_M || (dx * vel.x + dy * vel.y + dz * vel.z) / (d * sp) < 0.8) continue;
+      this.armsSeen.add(missileId);
+      if (this.rand() < ARM_SHUTDOWN_P) site.silentUntilSec = Math.max(site.silentUntilSec, simTimeSec + 60 + 30 * this.rand());
+    }
+  }
+
+  /** Seconds site `siteId` has spent suppressed (silenced by an ARM or radars destroyed). */
+  suppressedSec(siteId: string): number {
+    return this.sites.find((s) => s.spec.id === siteId)?.suppressedSec ?? 0;
+  }
+
   /** The site of a unit (for tests and the debrief). */
   siteOf(unitId: EntityId): string | undefined {
     return this.siteByUnit.get(unitId)?.spec.id;
@@ -198,7 +230,14 @@ export class AirDefenceNetwork {
       this.senseDueSec = 1 / SENSE_HZ;
       this.sense(simTimeSec, senseDt, entities, sampler);
     }
-    for (const site of this.sites) this.engage(site, dtSec, entities, outRequests, outEvents);
+    for (const site of this.sites) {
+      this.engage(site, dtSec, entities, outRequests, outEvents);
+      // Suppressed: hiding from an ARM, or every radar destroyed (radar sites only).
+      if (site.spec.system.sensor === 'radar') {
+        const radarsLeft = site.units.some((u) => (u.role === 'search' || u.role === 'track') && u.alive);
+        if (!radarsLeft || simTimeSec < site.silentUntilSec) site.suppressedSec += dtSec;
+      }
+    }
     this.buildEmissions();
   }
 

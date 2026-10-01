@@ -182,6 +182,15 @@ export function computeMissileThreat(observerPos: Vec3Like, missilePos: Vec3Like
   return { tCaSec, missDistanceM, isThreat: missDistanceM <= RWR_MISSILE_THREAT_RADIUS_M };
 }
 
+/** An anti-radiation seeker needs this long on a transmitting radar to lock. */
+const ARM_LOCK_SEC = 1;
+
+/** The profile of the selected store (its first station). */
+function findSelectedProfile(state: { stations: readonly { profile: { id: string; arm?: { seekerHalfAngleDeg: number; maxRangeM: number; memoryErrorM: number } } }[]; selectedStoreId: string }) {
+  for (const st of state.stations) if (st.profile.id === state.selectedStoreId) return st.profile;
+  return undefined;
+}
+
 interface ScoredContact {
   track: TrackRecord;
   rangeM: number;
@@ -385,7 +394,33 @@ export const updateSensors: UpdateSensors = (
 
   // Air-to-ground stores: T designates the ground point under the pipper (agSight.ts) instead.
   const airToGround = isAirToGroundKind(state.selectedWeapon);
-  if (cycleTargetEdge && airToGround) {
+  const arm = state.selectedWeapon === 'arm';
+  if (cycleTargetEdge && arm) {
+    // Anti-radiation missile: T steps through the hostile radars transmitting, clockwise from the nose.
+    let curAz = -Infinity;
+    const azOf = (e: DetectableEntity): number => {
+      const dx = e.pos.x - observer.pos.x, dy = e.pos.y - observer.pos.y, dz = e.pos.z - observer.pos.z;
+      const f = dx * _forwardW.x + dy * _forwardW.y + dz * _forwardW.z;
+      const r = dx * _rightW.x + dy * _rightW.y + dz * _rightW.z;
+      return Math.atan2(r, f);
+    };
+    for (const e of allEntities) if (e.id === state.lockedTargetId) curAz = azOf(e);
+    let next: DetectableEntity | undefined;
+    let first: DetectableEntity | undefined;
+    for (const e of allEntities) {
+      if (e.kind !== 'ground' || !e.alive || e.team === observer.team || !e.radarEmission || e.id === state.lockedTargetId) continue;
+      const az = azOf(e);
+      if (!first || az < azOf(first)) first = e;
+      if (az > curAz && (!next || az < azOf(next))) next = e;
+    }
+    const pick = next ?? first;
+    if (pick) {
+      state.lockedTargetId = pick.id;
+      state.lockState = LockState.Searching;
+      state.lockProgressSec = 0;
+      state.lockBreakGraceRemainingSec = 0;
+    }
+  } else if (cycleTargetEdge && airToGround) {
     if (state.agValid) state.designateRequest = true;
     else {
       // Pipper off the ground: T clears the designation (and the pod stops designating).
@@ -447,7 +482,8 @@ export const updateSensors: UpdateSensors = (
     }
   }
 
-  if ((state.selectedWeapon !== 'ir_missile' && state.selectedWeapon !== 'radar_missile') || lockedEntity === undefined) {
+  const armProfile = arm ? (findSelectedProfile(state)?.arm ?? undefined) : undefined;
+  if ((state.selectedWeapon !== 'ir_missile' && state.selectedWeapon !== 'radar_missile' && !armProfile) || lockedEntity === undefined) {
     state.lockState = LockState.None;
     state.lockProgressSec = 0;
     state.lockBreakGraceRemainingSec = 0;
@@ -455,7 +491,14 @@ export const updateSensors: UpdateSensors = (
     const geom = computeGeometry(observer, lockedEntity, sampler, radar);
     let satisfied: boolean;
     let grace: number;
-    if (state.selectedWeapon === 'radar_missile') {
+    if (armProfile) {
+      // Passive seeker: the radar must be transmitting, inside the seeker's field of regard and range.
+      const dx = lockedEntity.pos.x - observer.pos.x, dy = lockedEntity.pos.y - observer.pos.y, dz = lockedEntity.pos.z - observer.pos.z;
+      const rng = Math.sqrt(dx * dx + dy * dy + dz * dz) || 1;
+      const off = Math.acos(clamp((dx * _forwardW.x + dy * _forwardW.y + dz * _forwardW.z) / rng, -1, 1));
+      satisfied = !!lockedEntity.radarEmission && off <= (armProfile.seekerHalfAngleDeg * Math.PI) / 180 && rng <= armProfile.maxRangeM;
+      grace = 2;
+    } else if (state.selectedWeapon === 'radar_missile') {
       satisfied = geom.inTrackCone && !geom.isNotched && !geom.terrainMasked && geom.rangeM <= radarDetectionRangeM(geom.rcsM2, radar);
       grace = radar.lockBreakGraceSec;
     } else {
@@ -484,7 +527,7 @@ export const updateSensors: UpdateSensors = (
       }
     }
 
-    const lockTime = state.selectedWeapon === 'radar_missile' ? radar.lockTimeSec : irSeeker.lockTimeSec;
+    const lockTime = armProfile ? ARM_LOCK_SEC : state.selectedWeapon === 'radar_missile' ? radar.lockTimeSec : irSeeker.lockTimeSec;
     if (state.lockProgressSec >= lockTime) state.lockState = LockState.Locked;
     else if (state.lockProgressSec >= lockTime * 0.3) state.lockState = LockState.Tracking;
     else state.lockState = LockState.Searching;

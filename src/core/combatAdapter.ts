@@ -17,7 +17,7 @@ import { EntityKind, MAX_RWR_CONTACTS, NO_ENTITY_ID, RWR_SYMBOLS, STORE_IDS } fr
 import type { CombatStatus, Contact, EntityId, EntityState, SimEvent, Vec3Like } from '../contracts/core';
 import type { CombatPort, CombatTickContext, EventQueue } from '../contracts/sim';
 import type { LoadoutPreset } from '../contracts/aircraft';
-import type { CombatPortWithContacts, CombatPortWithRearm, CombatPortWithStores, WorldCombatTickContext } from './combatContext';
+import type { CombatPortWithAirDefence, CombatPortWithContacts, CombatPortWithRearm, CombatPortWithStores, WorldCombatTickContext } from './combatContext';
 import { subSeed } from './seed';
 import { getAircraftDefinition, getLoadout } from '../aircraft';
 import { RADARS, SENSOR_PODS, WEAPONS } from '../catalog';
@@ -113,6 +113,10 @@ const RWR_RANGE_M = 250000;
 const AIRCRAFT_RWR_SYMBOL: Readonly<Record<string, string>> = { 'jf-17': 'J', 'f-16': 'F', 'tejas-mk1a': 'T' };
 /** A laser-guided bomb's owner lases for it in its last seconds of flight; its seeker sees a spot out to this range. */
 const LASE_TERMINAL_SEC = 12;
+/** Anti-radiation missiles: a pre-briefed one looks for a radar within this of its point once this close; inside this, its memory of a radar that falls silent is exact. */
+const ARM_BRIEFED_SEARCH_M = 25000;
+const ARM_BRIEFED_RADIUS_M = 1500;
+const ARM_MEMORY_EXACT_M = 8000;
 const LASER_SEEKER_RANGE_M = 15000;
 /** Flares and chaff in the air at once, all aircraft together. */
 const MAX_DECOYS = 96;
@@ -131,7 +135,7 @@ function signatureFor(defId: string | undefined): { radar: RadarSignature; hitEl
   return sig ?? undefined;
 }
 
-export function createCombatAdapter(): CombatPort & CombatPortWithContacts & CombatPortWithRearm & CombatPortWithStores {
+export function createCombatAdapter(): CombatPort & CombatPortWithContacts & CombatPortWithRearm & CombatPortWithStores & CombatPortWithAirDefence {
   const weaponsStates = new Map<EntityId, WeaponsState>();
   const detectableScratch: DetectableEntity[] = [];
   // Reused view over detectableScratch[0..liveCount), rebuilt (references
@@ -326,6 +330,10 @@ export function createCombatAdapter(): CombatPort & CombatPortWithContacts & Com
       if (!w) return undefined;
       for (let i = 0; i < w.stations.length; i++) if (w.stations[i]!.hardpointId === hardpointId) return w.stations[i]!.count;
       return undefined;
+    },
+
+    siteSuppressedSec(siteId: string): number {
+      return adNetwork?.suppressedSec(siteId) ?? 0;
     },
 
     getContacts(id: EntityId): readonly Contact[] {
@@ -550,6 +558,49 @@ export function createCombatAdapter(): CombatPort & CombatPortWithContacts & Com
         }
       }
       [autoLaseOwners, autoLaseNext] = [autoLaseNext, autoLaseOwners];
+
+      // Anti-radiation missiles: home on the radar while it transmits; when it falls silent far
+      // out, fly to where they remember it (drifting with the distance still to go); pre-briefed
+      // ones look for a radar near their point on the way in. The sites they dive at may hide.
+      for (let i = 0; i < liveCount; i++) {
+        const e = ctx.liveAt(i);
+        if (e.kind !== EntityKind.Missile) continue;
+        const pi = projectileIndexByEntityId.get(e.id);
+        if (pi === undefined) continue;
+        const p = projectilePool[pi]!;
+        const a = p.profile?.arm;
+        if (p.kind !== 'arm' || !a || !p.targetPoint) continue;
+        if (p.targetId === NO_ENTITY_ID && p.targetPointValid) {
+          const togo = Math.hypot(p.targetPoint.x - e.pos.x, p.targetPoint.z - e.pos.z);
+          if (togo < ARM_BRIEFED_SEARCH_M) {
+            for (const em of adEmitByEntity.values()) {
+              if (em.team === e.team) continue;
+              if (Math.hypot(em.pos.x - p.targetPoint.x, em.pos.z - p.targetPoint.z) < ARM_BRIEFED_RADIUS_M) p.targetId = em.entityId;
+            }
+          }
+        }
+        if (p.targetId !== NO_ENTITY_ID) {
+          const radar = findLiveState(ctx, p.targetId);
+          if (radar && adEmitByEntity.has(p.targetId)) {
+            p.targetPoint.x = radar.pos.x;
+            p.targetPoint.y = radar.pos.y + 1;
+            p.targetPoint.z = radar.pos.z;
+            p.targetPointValid = true;
+            p.armMemory = false;
+          } else if (p.targetPointValid && !p.armMemory) {
+            // It went quiet: from far out the remembered aim is off by more (seeded by the missile's id).
+            p.armMemory = true;
+            const togo = Math.hypot(p.targetPoint.x - e.pos.x, p.targetPoint.z - e.pos.z);
+            if (togo > ARM_MEMORY_EXACT_M) {
+              const err = a.memoryErrorM * (togo / 30000);
+              const ang = ((e.id * 2654435761) >>> 0) / 4294967296 * Math.PI * 2;
+              p.targetPoint.x += Math.cos(ang) * err;
+              p.targetPoint.z += Math.sin(ang) * err;
+            }
+          }
+        }
+        adNetwork?.armInbound(e.id, e.pos, e.vel, ctx.simTimeSec);
+      }
       laserSpotCount = 0;
 
       // Step every live projectile. Finished projectiles are despawned only AFTER this loop:

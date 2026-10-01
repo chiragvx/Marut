@@ -85,7 +85,7 @@ import { createEventQueue } from './eventQueue';
 import { subSeed } from './seed';
 import { writeSnapshot as writeSnapshotBuffer } from './snapshotWriter';
 import { computeIlsDeviation, forwardWorldInto, rightWorldInto } from './hudTelemetry';
-import type { CombatPortWithContacts, CombatPortWithRearm, CombatPortWithStores } from './combatContext';
+import type { CombatPortWithAirDefence, CombatPortWithContacts, CombatPortWithRearm, CombatPortWithStores } from './combatContext';
 import { applyAutopilotAction, autopilotFlags, createAutopilotState, stepAutopilot, type AutopilotState } from './autopilot';
 import { getAircraftDefinition, getLoadout, loadoutTanks, resolveLoadout, type TankLoad } from '../aircraft';
 import { GroundTargetSet, addAirbaseStructures, placeGroundGroups } from '../ground';
@@ -1140,7 +1140,8 @@ class WorldImpl implements World {
         return Math.sqrt(dx * dx + dy * dy + dz * dz) <= radiusM;
       }
       case GroundObjectiveKind.DestroyGroup: {
-        const c = this.ground.count((t) => t.groupId === obj.params.group && t.entityId >= 0);
+        const types = typeof obj.params.types === 'string' ? obj.params.types.split(',') : undefined;
+        const c = this.ground.count((t) => t.groupId === obj.params.group && t.entityId >= 0 && (!types || types.includes(t.typeId)));
         const need = typeof obj.params.fraction === 'number' ? obj.params.fraction : 1;
         return c.total > 0 && c.destroyed >= Math.ceil(c.total * need - 1e-9);
       }
@@ -1154,6 +1155,11 @@ class WorldImpl implements World {
       case GroundObjectiveKind.ProtectGroup:
         // Complete while held (failure is checked separately): it lets a strike end with success.
         return true;
+      case GroundObjectiveKind.SuppressGroup: {
+        const ad = this.deps.combat as Partial<CombatPortWithAirDefence>;
+        const sec = typeof obj.params.seconds === 'number' ? obj.params.seconds : 60;
+        return (ad.siteSuppressedSec?.(String(obj.params.group)) ?? 0) >= sec;
+      }
       case MissionObjectiveKind.SurviveTime: {
         const seconds = obj.params.seconds;
         if (typeof seconds !== 'number') return false;

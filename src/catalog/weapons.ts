@@ -809,6 +809,39 @@ export const HAMMER_250: WeaponProfile = guidedStore({
   },
 });
 
+/**
+ * DRDO Rudram-1 (NGARM) anti-radiation missile: ~600 kg, dual-pulse motor, passive radar seeker
+ * with INS/GPS mid-course; ~100-150 km from medium/high altitude; 55 kg pre-fragmented warhead.
+ * Fired at a radar the RWR hears (T cycles emitters, it locks while the radar transmits), or
+ * pre-briefed at a designated point (it looks for a radar there on the way in). If the radar stops
+ * transmitting while the missile is still far out, it flies to a remembered position that drifts.
+ */
+export const RUDRAM_1: WeaponProfile = guidedStore({
+  id: 'rudram-1',
+  name: 'Rudram-1 (anti-radiation)',
+  label: 'RUDRAM',
+  short: 'RDM',
+  kind: 'arm',
+  carriageMassKg: 600,
+  carriageDragAreaM2: 0.08,
+  projectileMassKg: 600,
+  dragCoeff: 0.26,
+  crossSectionM2: 0.0855,
+  maxLifetimeSec: 300,
+  armDistanceM: 600,
+  launchSpeedMps: 20,
+  motorBurnSec: 8,
+  motorThrustN: 42000,
+  pnGain: 3,
+  maxG: 20,
+  warhead: { explosiveKg: 55 },
+  arm: { seekerHalfAngleDeg: 60, maxRangeM: 150000, memoryErrorM: 250 },
+  flight: {
+    sustainBurnSec: 25, sustainThrustN: 5000, propellantMassKg: 220, liftAreaM2: 0.6, clMax: 2, inducedDragK: 0.25,
+    waveDragRise: 0.4, autopilotTauSec: 0.3, seekerNoiseMrad: 0.5, seekerUpdateSec: 0.05, loftRad: 0.2, minSpeedMps: 180,
+  },
+});
+
 /** Sensor pods by catalogue id. Rafael Litening III (Tejas Mk1A): FLIR/CCD, laser designator/rangefinder. */
 export const SENSOR_PODS: Readonly<Record<string, SensorPodProfile>> = {
   litening: { id: 'litening', name: 'Litening III targeting pod', label: 'LITENING', short: 'TGP', massKg: 208, dragAreaM2: 0.05, fovsDeg: [18.4, 3.5, 1.0], laserRangeM: 20000, maxUpDeg: 5 },
@@ -991,6 +1024,7 @@ export const WEAPONS: Readonly<Record<string, WeaponProfile>> = {
   [FM90_MSL.id]: FM90_MSL,
   [ANZA_MK3.id]: ANZA_MK3,
   [GDF_35MM.id]: GDF_35MM,
+  [RUDRAM_1.id]: RUDRAM_1,
 };
 
 /** External fuel tanks: capacity, empty mass, drag area. */

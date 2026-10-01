@@ -761,6 +761,7 @@ export const MissionObjectiveKind = {
   DestroyGroup: 'destroy_group',
   DestroyStructures: 'destroy_structures',
   ProtectGroup: 'protect_group',
+  SuppressGroup: 'suppress_group',
 } as const;
 export type MissionObjectiveKind = (typeof MissionObjectiveKind)[keyof typeof MissionObjectiveKind];
 
@@ -915,6 +916,7 @@ export const STORE_IDS: readonly string[] = [
   'hsld-450', 'hsld-250', 'hsld-250r', 'b8m1',
   'litening', 'griffin-lgb', 'hammer-250',
   'ly-80-msl', 'hq-9-msl', 'fm-90-msl', 'anza-mk3',
+  'rudram-1',
 ];
 
 /** How a station carries its stores: one on the pylon, a twin missile rail, or a multiple ejector rack (bombs). */

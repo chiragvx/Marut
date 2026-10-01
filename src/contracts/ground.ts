@@ -166,12 +166,14 @@ export interface MissionGroundGroup {
 
 /** Objective kinds that involve ground targets (MissionObjective.kind; params below). */
 export const GroundObjectiveKind = {
-  /** params: { group: string, fraction?: number (default 1) } — destroy that share of a ground group. */
+  /** params: { group: string, fraction?: number (default 1), types?: string (comma-separated unit type ids, e.g. 'radar-search,radar-track') } — destroy that share of a ground group (of those types). */
   DestroyGroup: 'destroy_group',
   /** params: { airportId: string, group?: string (layout group, e.g. 'fuel-depot'), fraction?: number } — destroy airbase structures. */
   DestroyStructures: 'destroy_structures',
   /** params: { group: string, fraction?: number (default 0.5) } — the mission fails if more than 1 - fraction of the group is lost. */
   ProtectGroup: 'protect_group',
+  /** params: { group: string, seconds: number } — an air-defence site kept suppressed (radars silenced by ARMs or destroyed) for that long in total (SEAD). */
+  SuppressGroup: 'suppress_group',
 } as const;
 export type GroundObjectiveKind = (typeof GroundObjectiveKind)[keyof typeof GroundObjectiveKind];
 

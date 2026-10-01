@@ -271,7 +271,7 @@ export const stepProjectile: StepProjectile = (state, projectile, candidates, sa
   }
 
   // 2. Guidance-mode transition (sense).
-  if (kind === ProjectileKind.GuidedBomb) {
+  if (kind === ProjectileKind.GuidedBomb || kind === ProjectileKind.Arm) {
     projectile.guidance = projectile.targetPointValid ? ProjectileGuidanceMode.PointGuided : ProjectileGuidanceMode.Ballistic;
   } else if (kind === ProjectileKind.IrMissile) {
     updateIrGuidance(projectile, state.rot, state.pos, targetEntity, dtSec, prof);
@@ -381,8 +381,10 @@ export const stepProjectile: StepProjectile = (state, projectile, candidates, sa
         _noisyTarget.z = targetEntity.pos.z + n.z;
         tPos = _noisyTarget;
       }
+    }
+    if (fl) {
       // Loft: climb towards a point above the target while far out (thin air carries further).
-      if (fl.loftRad && projectile.guidance === ProjectileGuidanceMode.RadarDatalink) {
+      if (fl.loftRad && (projectile.guidance === ProjectileGuidanceMode.RadarDatalink || pointGuided)) {
         const togo = Math.hypot(tPos.x - posX, tPos.z - posZ);
         const fade = Math.max(0, Math.min(1, (togo - 18000) / 20000));
         if (fade > 0) {
