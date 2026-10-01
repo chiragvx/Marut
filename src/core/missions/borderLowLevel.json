@@ -1,0 +1,165 @@
+{
+  "id": "border-lowlevel",
+  "name": "Low Level \u2014 PAF Shahbaz control tower and radar",
+  "seed": 2011,
+  "terrain": {
+    "seed": 1947,
+    "theatre": "border"
+  },
+  "airportIds": [
+    "bhisiana-afs",
+    "pafb-shahbaz"
+  ],
+  "playerStart": {
+    "pos": {
+      "x": 24000,
+      "y": 300,
+      "z": -8000
+    },
+    "headingRad": 4.36,
+    "speedMps": 230,
+    "loadoutId": "lowlevel"
+  },
+  "aiFlights": [],
+  "weather": {
+    "windWorldMps": {
+      "x": -1.5,
+      "y": 0,
+      "z": 0.5
+    },
+    "gustMps": 1,
+    "turbulence": 0.05
+  },
+  "route": [
+    {
+      "name": "Canal",
+      "pos": {
+        "x": 8000,
+        "z": -2000
+      },
+      "altM": 290
+    },
+    {
+      "name": "IP",
+      "pos": {
+        "x": -14000,
+        "z": 14500
+      },
+      "altM": 290
+    },
+    {
+      "name": "TGT",
+      "pos": {
+        "x": -29995,
+        "z": 11040
+      },
+      "altM": 290,
+      "tot": 280,
+      "target": true
+    },
+    {
+      "name": "Egress",
+      "pos": {
+        "x": -12000,
+        "z": -6000
+      },
+      "altM": 290
+    },
+    {
+      "name": "Bhisiana",
+      "pos": {
+        "x": 30500,
+        "z": -11000
+      }
+    }
+  ],
+  "objectives": [
+    {
+      "id": "obj-atc",
+      "kind": "destroy_structures",
+      "description": "Destroy the PAF Shahbaz control tower.",
+      "params": {
+        "airportId": "pafb-shahbaz",
+        "group": "atc",
+        "fraction": 0.5
+      }
+    },
+    {
+      "id": "obj-radar",
+      "kind": "destroy_structures",
+      "description": "Destroy the PAF Shahbaz approach radar.",
+      "params": {
+        "airportId": "pafb-shahbaz",
+        "group": "radar"
+      }
+    }
+  ],
+  "groundGroups": [
+    {
+      "id": "ew",
+      "name": "EW radar",
+      "team": 1,
+      "template": "ew-site",
+      "pos": {
+        "x": -45000,
+        "z": 16000
+      },
+      "headingRad": 0.0
+    },
+    {
+      "id": "hq9",
+      "name": "HQ-9/P battery",
+      "team": 1,
+      "template": "sam-lr-battery",
+      "pos": {
+        "x": -62000,
+        "z": 4000
+      },
+      "headingRad": 1.57
+    },
+    {
+      "id": "ly80",
+      "name": "LY-80 battery",
+      "team": 1,
+      "template": "sam-mr-battery",
+      "pos": {
+        "x": -36000,
+        "z": 12500
+      },
+      "headingRad": 1.57
+    },
+    {
+      "id": "aaa-1",
+      "name": "AAA (depot)",
+      "team": 1,
+      "template": "aaa-site",
+      "pos": {
+        "x": -29200,
+        "z": 10300
+      },
+      "headingRad": 0.3
+    },
+    {
+      "id": "aaa-2",
+      "name": "AAA (runway)",
+      "team": 1,
+      "template": "aaa-site",
+      "pos": {
+        "x": -31200,
+        "z": 9300
+      },
+      "headingRad": 2.4
+    },
+    {
+      "id": "manpads",
+      "name": "MANPADS",
+      "team": 1,
+      "template": "manpads-pair",
+      "pos": {
+        "x": -29900,
+        "z": 11300
+      },
+      "headingRad": 0.0
+    }
+  ]
+}

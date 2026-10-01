@@ -810,6 +810,36 @@ export const HAMMER_250: WeaponProfile = guidedStore({
 });
 
 /**
+ * DRDO Smart Anti-Airfield Weapon (SAAW): a ~125 kg glide bomb with pop-out wings, GPS/INS
+ * guidance and a penetrating warhead for runways, shelters and bunkers; up to ~100 km from high
+ * altitude. Released at coordinates (the designated point, or the route's pre-planned aim points
+ * one per weapon); it glides there on its own.
+ */
+export const SAAW: WeaponProfile = guidedStore({
+  id: 'saaw',
+  name: 'SAAW (125 kg glide bomb, GPS/INS)',
+  label: 'SAAW',
+  short: 'SAW',
+  kind: 'guided_bomb',
+  carriageMassKg: 125,
+  carriageDragAreaM2: 0.03,
+  projectileMassKg: 125,
+  dragCoeff: 0.12,
+  crossSectionM2: 0.053,
+  maxLifetimeSec: 700,
+  armDistanceM: 300,
+  launchSpeedMps: 2,
+  pnGain: 3,
+  maxG: 5,
+  warhead: { explosiveKg: 30, penetrator: true },
+  guided: { seeker: 'gps', gpsErrorM: 3, rangeSeaLevelM: 12000, rangePerKmAltM: 10000 },
+  flight: {
+    sustainBurnSec: 0, sustainThrustN: 0, propellantMassKg: 0, liftAreaM2: 0.9, clMax: 1.2, inducedDragK: 0.08,
+    waveDragRise: 0.4, autopilotTauSec: 0.3, seekerNoiseMrad: 0, seekerUpdateSec: 0.1, glideSpeedMps: 210, glideAngleRad: 0.07,
+  },
+});
+
+/**
  * DRDO Rudram-1 (NGARM) anti-radiation missile: ~600 kg, dual-pulse motor, passive radar seeker
  * with INS/GPS mid-course; ~100-150 km from medium/high altitude; 55 kg pre-fragmented warhead.
  * Fired at a radar the RWR hears (T cycles emitters, it locks while the radar transmits), or
@@ -1025,6 +1055,7 @@ export const WEAPONS: Readonly<Record<string, WeaponProfile>> = {
   [ANZA_MK3.id]: ANZA_MK3,
   [GDF_35MM.id]: GDF_35MM,
   [RUDRAM_1.id]: RUDRAM_1,
+  [SAAW.id]: SAAW,
 };
 
 /** External fuel tanks: capacity, empty mass, drag area. */

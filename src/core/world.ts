@@ -32,6 +32,12 @@ import {
   SnapshotRwr,
   packStoreSlot,
   packStoreSlots,
+  HUD_BLOCK_START,
+  HUD_EXT_BASE,
+  SnapshotHudExt,
+  GCAS_NO_THREAT_M,
+  ROUTE_CAPTURE_M,
+  ROUTE_ABEAM_M,
 } from '../contracts/core';
 import type {
   AiDifficulty,
@@ -85,10 +91,11 @@ import { createEventQueue } from './eventQueue';
 import { subSeed } from './seed';
 import { writeSnapshot as writeSnapshotBuffer } from './snapshotWriter';
 import { computeIlsDeviation, forwardWorldInto, rightWorldInto } from './hudTelemetry';
-import type { CombatPortWithAirDefence, CombatPortWithContacts, CombatPortWithRearm, CombatPortWithStores } from './combatContext';
+import type { CombatPortWithAirDefence, CombatPortWithBriefing, CombatPortWithContacts, CombatPortWithRearm, CombatPortWithStores } from './combatContext';
+import { GCAS_WARN_CLEARANCE_M, gcasClearanceM } from './gcas';
 import { applyAutopilotAction, autopilotFlags, createAutopilotState, stepAutopilot, type AutopilotState } from './autopilot';
 import { getAircraftDefinition, getLoadout, loadoutTanks, resolveLoadout, type TankLoad } from '../aircraft';
-import { GroundTargetSet, addAirbaseStructures, placeGroundGroups } from '../ground';
+import { GroundTargetSet, RunwayDamage, addAirbaseStructures, placeGroundGroups } from '../ground';
 import { SITE_TEMPLATES } from '../catalog';
 import type { AdSiteSpec, AdUnitSpec } from '../combat';
 import { GROUND_TYPE_IDS, GroundFlag, GroundObjectiveKind, TargetStateCode } from '../contracts/ground';
@@ -268,6 +275,15 @@ class WorldImpl implements World {
   private hostileAircraftIds = new Set<EntityId>();
   /** Ground targets (units + airbase structures) and the ground-unit entities that mirror them. */
   private ground = new GroundTargetSet();
+  /** The mission's runways and their craters. */
+  private runways = new RunwayDamage();
+  /** The player's active route steerpoint (mission.route index; route.length once flown, -1 without a route), and the target steerpoint last loaded as the SPI. */
+  private routeIndex = -1;
+  private briefedRouteIndex = -1;
+  /** Ground-collision check (player): the last recovery clearance, when it runs next, how long PULL UP is held. */
+  private gcasClearance = GCAS_NO_THREAT_M;
+  private gcasDueSec = 0;
+  private gcasHoldSec = 0;
   private readonly groundUnits: { id: EntityId; key: number }[] = [];
   private airDefence: { sites: AdSiteSpec[]; units: AdUnitSpec[] } = { sites: [], units: [] };
   private windState: WindState = createWindState(0);
@@ -342,6 +358,9 @@ class WorldImpl implements World {
       },
       get ground(): GroundTargetSet {
         return self.ground;
+      },
+      get runways(): RunwayDamage {
+        return self.runways;
       },
       get airDefence(): { sites: readonly AdSiteSpec[]; units: readonly AdUnitSpec[] } {
         return self.airDefence;
@@ -484,6 +503,11 @@ class WorldImpl implements World {
     }
 
     this.spawnGround(mission);
+    this.routeIndex = (mission.route?.length ?? 0) > 0 ? 0 : -1;
+    this.briefedRouteIndex = -1;
+    this.gcasClearance = GCAS_NO_THREAT_M;
+    this.gcasDueSec = 0;
+    this.gcasHoldSec = 0;
     this.missionEndedThisLoad = false;
   }
 
@@ -497,7 +521,11 @@ class WorldImpl implements World {
       const system = g.template ? SITE_TEMPLATES[g.template]?.airDefence : undefined;
       if (system) this.airDefence.sites.push({ id: g.id, team: g.team, system, emcon: g.emcon ?? 'active' });
     }
-    for (const a of (mission.world.airports ?? []) as readonly Partial<AirportLayout>[]) addAirbaseStructures(this.ground, a);
+    this.runways = new RunwayDamage();
+    for (const a of (mission.world.airports ?? []) as readonly Partial<AirportLayout>[]) {
+      addAirbaseStructures(this.ground, a);
+      this.runways.addAirport(a);
+    }
     for (const u of placeGroundGroups(mission.groundGroups ?? [], this.deps.sampler)) {
       const id = this.pool.allocate(EntityKind.Ground, u.team);
       if (id === NO_ENTITY_ID) break;
@@ -527,6 +555,60 @@ class WorldImpl implements World {
       });
       this.groundUnits.push({ id, key: tg.key });
       if (this.airDefence.sites.some((s) => s.id === u.groupId)) this.airDefence.units.push({ entityId: id, siteId: u.groupId, typeId: u.type.id });
+    }
+  }
+
+  /**
+   * The player's route: the active steerpoint moves on when passed (within ROUTE_CAPTURE_M, or abeam
+   * within ROUTE_ABEAM_M for a navigation point); a target steerpoint becoming active loads its aim
+   * points as the designated point.
+   */
+  private stepRoute(): void {
+    const route = this.mission?.route;
+    if (!route || this.routeIndex < 0) return;
+    const p = this.pool.get(this.playerEntityIdInternal);
+    if (!p || !p.alive) return;
+    while (this.routeIndex < route.length) {
+      const wp = route[this.routeIndex]!;
+      const dx = wp.pos.x - p.pos.x, dz = wp.pos.z - p.pos.z;
+      const d = Math.hypot(dx, dz);
+      const behind = dx * p.vel.x + dz * p.vel.z < 0;
+      if (d < ROUTE_CAPTURE_M || (!wp.target && behind && d < ROUTE_ABEAM_M)) this.routeIndex++;
+      else break;
+    }
+    const wp = route[this.routeIndex];
+    if (wp?.target && this.briefedRouteIndex !== this.routeIndex) {
+      this.briefedRouteIndex = this.routeIndex;
+      const pts = (wp.aimPoints && wp.aimPoints.length > 0 ? wp.aimPoints : [wp.pos]).map((a) => ({ x: a.x, y: this.deps.sampler.heightAt(a.x, a.z), z: a.z }));
+      (this.deps.combat as Partial<CombatPortWithBriefing>).loadBriefedTarget?.(this.playerEntityIdInternal, pts);
+    }
+  }
+
+  /** The route and ground-collision fields of the HUD block (SnapshotHudExt). */
+  private writeHudExt(out: Float64Array, state: EntityState | undefined): void {
+    const o = HUD_BLOCK_START + HUD_EXT_BASE;
+    const route = this.mission?.route;
+    const wp = route && this.routeIndex >= 0 ? route[this.routeIndex] : undefined;
+    out[o + SnapshotHudExt.ROUTE_INDEX] = wp ? this.routeIndex : -1;
+    out[o + SnapshotHudExt.ROUTE_X] = wp?.pos.x ?? 0;
+    out[o + SnapshotHudExt.ROUTE_Y] = wp ? this.deps.sampler.heightAt(wp.pos.x, wp.pos.z) : 0;
+    out[o + SnapshotHudExt.ROUTE_Z] = wp?.pos.z ?? 0;
+    out[o + SnapshotHudExt.TOT_INDEX] = -1;
+    out[o + SnapshotHudExt.TOT_DELTA_SEC] = 0;
+    out[o + SnapshotHudExt.TOT_GS_MPS] = 0;
+    out[o + SnapshotHudExt.GCAS_CLEARANCE_M] = this.gcasClearance;
+    if (!route || !wp || !state) return;
+    // Distance along the route to the next steerpoint with a planned time.
+    let dist = Math.hypot(wp.pos.x - state.pos.x, wp.pos.z - state.pos.z);
+    for (let k = this.routeIndex; k < route.length; k++) {
+      if (k > this.routeIndex) dist += Math.hypot(route[k]!.pos.x - route[k - 1]!.pos.x, route[k]!.pos.z - route[k - 1]!.pos.z);
+      const tot = route[k]!.tot;
+      if (tot === undefined) continue;
+      const gs = Math.hypot(state.vel.x, state.vel.z);
+      out[o + SnapshotHudExt.TOT_INDEX] = k;
+      out[o + SnapshotHudExt.TOT_DELTA_SEC] = gs > 30 ? this.simTimeSecInternal + dist / gs - tot : 0;
+      out[o + SnapshotHudExt.TOT_GS_MPS] = tot > this.simTimeSecInternal ? dist / (tot - this.simTimeSecInternal) : 0;
+      return;
     }
   }
 
@@ -860,7 +942,21 @@ class WorldImpl implements World {
       if (t.stalled && !(state.flags & EntityFlag.OnGround) && t.iasMps > 25) bits |= WarningBit.Stall;
       if (t.fuelFrac < WARNING_LOW_FUEL_FRAC) bits |= WarningBit.LowFuel;
       if (t.gLoad > WARNING_OVER_G_POS || t.gLoad < WARNING_OVER_G_NEG) bits |= WarningBit.OverG;
-      if (t.altAglM < WARNING_TERRAIN_PULLUP_AGL_M && t.vspeedMps < -WARNING_TERRAIN_PULLUP_SINK_MPS) bits |= WarningBit.TerrainPullUp;
+      // Ground proximity. The player: a predicted recovery over the terrain ahead (src/core/gcas.ts),
+      // except configured to land (gear down, slow), where only a steep sink close to the ground warns.
+      const landing = (state.flags & EntityFlag.GearDownCommanded) !== 0 && t.iasMps < 110;
+      if (state.id === this.playerEntityIdInternal && !landing) {
+        this.gcasDueSec -= SIM_DT_SEC_LOCAL;
+        if (this.gcasDueSec <= 0) {
+          this.gcasDueSec = 0.1;
+          this.gcasClearance = t.onGround ? GCAS_NO_THREAT_M : gcasClearanceM(state.pos, state.vel, t.rollRad, this.deps.sampler);
+        }
+        this.gcasHoldSec = this.gcasClearance < GCAS_WARN_CLEARANCE_M ? 1 : this.gcasHoldSec - SIM_DT_SEC_LOCAL;
+        if (this.gcasHoldSec > 0) bits |= WarningBit.TerrainPullUp;
+      } else {
+        if (state.id === this.playerEntityIdInternal) this.gcasClearance = GCAS_NO_THREAT_M;
+        if (t.altAglM < WARNING_TERRAIN_PULLUP_AGL_M && t.vspeedMps < -WARNING_TERRAIN_PULLUP_SINK_MPS) bits |= WarningBit.TerrainPullUp;
+      }
       if (
         t.altAglM < WARNING_GEAR_UNSAFE_AGL_M &&
         t.vspeedMps < -WARNING_GEAR_UNSAFE_SINK_MPS &&
@@ -921,6 +1017,10 @@ class WorldImpl implements World {
         if (damage.structurePct > 0 && onGroundNow && this.deps.sampler.isWaterAt?.(state.pos.x, state.pos.z)) {
           damage.structurePct = 0;
         }
+        // Rolling into a runway crater at speed wrecks the jet.
+        if (damage.structurePct > 0 && onGroundNow && Math.hypot(state.vel.x, state.vel.z) > 10 && this.runways.inCrater(state.pos.x, state.pos.z)) {
+          damage.structurePct = 0;
+        }
         const isStructureAliveNow = damage.structurePct > 0;
         if (rec.wasStructureAlive && !isStructureAliveNow) {
           this.eventQueue.push({ type: 'crash', entityId: state.id, pos: { x: state.pos.x, y: state.pos.y, z: state.pos.z } });
@@ -935,6 +1035,7 @@ class WorldImpl implements World {
     this.deps.combat.step(SIM_DT_SEC_LOCAL, this.combatCtx, this.eventQueue);
     this.ground.step(SIM_DT_SEC_LOCAL);
     this.syncGroundUnits();
+    this.stepRoute();
 
     // Step 7: ground service (refuel + re-arm) of the player.
     this.stepService(SIM_DT_SEC_LOCAL);
@@ -1155,6 +1256,8 @@ class WorldImpl implements World {
       case GroundObjectiveKind.ProtectGroup:
         // Complete while held (failure is checked separately): it lets a strike end with success.
         return true;
+      case GroundObjectiveKind.CloseRunway:
+        return this.runways.isClosed(String(obj.params.airportId), typeof obj.params.runwayId === 'string' ? obj.params.runwayId : undefined);
       case GroundObjectiveKind.SuppressGroup: {
         const ad = this.deps.combat as Partial<CombatPortWithAirDefence>;
         const sec = typeof obj.params.seconds === 'number' ? obj.params.seconds : 60;
@@ -1324,6 +1427,7 @@ class WorldImpl implements World {
       }
     }
     writeSnapshotBuffer(this.pool, playerId, this.tickInternal, this.simTimeSecInternal, hud, out);
+    this.writeHudExt(out, state);
   }
 
   private playerLoadoutMemo: { mission: unknown; defId: string; loadout: LoadoutPreset | undefined; tanks: TankLoad } | undefined;

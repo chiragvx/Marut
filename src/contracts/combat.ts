@@ -363,6 +363,13 @@ export interface MissileFlightProfile {
   datalinkErrMrad?: number;
   /** Radar missiles: lofted mid-course climb, rad above the line to the target (0 = none). */
   loftRad?: number;
+  /**
+   * Unpowered glide weapons (GPS): far from the target they fly the shallower of the line of sight
+   * and a glide that holds this airspeed (best glide angle glideAngleRad at that speed, steeper when
+   * slow), so they reach as far as their wings allow; normal steering in the last few km.
+   */
+  glideSpeedMps?: number;
+  glideAngleRad?: number;
   /** After burnout, below this speed the missile can no longer manoeuvre to intercept and self-destructs, m/s. */
   minSpeedMps?: number;
 }
@@ -551,6 +558,11 @@ export interface WeaponsState {
   spi: Vec3Like;
   ccrpTimeToReleaseSec: number;
   ccrpCrossTrackM: number;
+  /**
+   * The SPI is the route's target steerpoint (pre-planned): its aim points, one per GPS weapon in
+   * turn (`next` is the SPI now). Dropped when the pilot designates anything else.
+   */
+  briefed?: { points: Vec3Like[]; next: number };
   /** The target key was pressed with an air-to-ground store selected: designate at the next sight update. */
   designateRequest: boolean;
   /** Seconds until the next sight update (it runs at AG_SIGHT_HZ). */

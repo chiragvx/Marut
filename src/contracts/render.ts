@@ -570,6 +570,13 @@ export interface HudFacility {
 
 /** An airbase for the HUD's navigation markers. x, z = its reference point; y = field elevation. */
 /** A steerpoint (a mission target area) for the HUD: name and world position (on the ground). */
+/** One steerpoint of the mission's route, as the HUD names it (contracts/core RouteWaypoint). */
+export interface HudRoutePoint {
+  name: string;
+  /** Planned time over it, s of mission time. */
+  tot?: number;
+}
+
 export interface HudSteerpoint {
   name: string;
   x: number;
@@ -622,6 +629,8 @@ export interface HudRenderer {
   setAirbases(bases: readonly HudAirbase[]): void;
   /** The mission's target areas (src/hud/steerpoints.ts): on the heading tape and in 3D. Empty = none. */
   setSteerpoints(points: readonly HudSteerpoint[]): void;
+  /** The mission's planned route (names and planned times; the active steerpoint comes in the snapshot). */
+  setRoute(route: readonly HudRoutePoint[]): void;
   /** Steps the radar display's range scale up (+1) or down (-1). */
   cycleRadarRange(dir: 1 | -1): void;
   /** Debug-only overlay (src/hud/controlSurfaceDebug.ts): live elevonL/elevonR/rudder as text + bar gauges. Off by default; not a player-facing Settings option — src/main.ts toggles it on a raw F9 keydown for FCS debug testing. */

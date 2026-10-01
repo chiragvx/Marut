@@ -19,7 +19,8 @@
 import { drawAirbaseMarkers, drawAirbaseTape } from './airbaseMarkers';
 import { drawAutopilotBugs, drawAutopilotStatus } from './autopilotHud';
 import { EntityFlag, SnapshotEntity, SnapshotHud, SpeedUnit, WarningBit, entityFieldOffset, type QualityTier } from '../contracts/core';
-import { RENDER_QUALITY_TABLE, type CameraState, type CreateHudRenderer, type HudAirbase, type HudRenderer, type HudSteerpoint } from '../contracts/render';
+import { RENDER_QUALITY_TABLE, type CameraState, type CreateHudRenderer, type HudAirbase, type HudRenderer, type HudRoutePoint, type HudSteerpoint } from '../contracts/render';
+import { drawRouteCaret, drawRouteData, drawRouteMarker } from './routeDisplay';
 import { drawSteerpointMarkers, drawSteerpointTape } from './steerpoints';
 
 import { drawLadder } from './ladder';
@@ -35,7 +36,7 @@ import {
   interpolateHudEntity,
 } from './snapshotView';
 import { createTaxiGuideState, drawTaxiGuide, setTaxiGuide as applyTaxiGuide } from './taxiGuide';
-import { drawAirbrakeIndicator, drawAltitudeTape, drawAoaGReadout, drawFuelIndicator, drawGearIndicator, drawHeadingTape, drawPowerIndicator, drawServiceStatus, drawSpeedTape } from './tapes';
+import { drawAirbrakeIndicator, drawAltitudeTape, drawAoaGReadout, drawBreakX, drawFuelIndicator, drawGearIndicator, drawHeadingTape, drawPowerIndicator, drawRadarAltitude, drawServiceStatus, drawSpeedTape } from './tapes';
 import { createScreenProjection, drawLeadSight, drawTargetBox, hasTarget } from './targetBox';
 import { drawWeaponStatus } from './weaponStatus';
 import { drawAgSight } from './agSight';
@@ -107,6 +108,7 @@ export const createHudRenderer: CreateHudRenderer = (canvas, initialTier) => {
   // Navigation markers (airbaseMarkers.ts): the mission's airbases, and whether the player is on the ground.
   let airbases: readonly HudAirbase[] = [];
   let steerpoints: readonly HudSteerpoint[] = [];
+  let route: readonly HudRoutePoint[] = [];
   let playerOnGround = false;
   // 'helmet': only the helmet-mounted display's symbols over the world (3D cockpit view).
   let overlayMode: 'full' | 'helmet' | 'pod' = 'full';
@@ -176,6 +178,10 @@ export const createHudRenderer: CreateHudRenderer = (canvas, initialTier) => {
       steerpoints = points;
     },
 
+    setRoute(points) {
+      route = points;
+    },
+
     setPodDisplay(polarity, keys) {
       podPolarity = polarity;
       podKeys = keys;
@@ -205,6 +211,8 @@ export const createHudRenderer: CreateHudRenderer = (canvas, initialTier) => {
         // Helmet-mounted display: world-referenced cues only (the cockpit's HUD and displays carry the rest).
         drawAirbaseMarkers(ctx, airbases, camera, curr.posX[playerSlot]!, curr.posY[playerSlot]!, curr.posZ[playerSlot]!, playerOnGround, widthPx, heightPx);
         drawSteerpointMarkers(ctx, steerpoints, camera, curr.posX[playerSlot]!, curr.posY[playerSlot]!, curr.posZ[playerSlot]!, widthPx, heightPx);
+        drawRouteMarker(ctx, hud, route, camera, curr.posX[playerSlot]!, curr.posY[playerSlot]!, curr.posZ[playerSlot]!, widthPx, heightPx);
+        drawRouteData(ctx, hud, route, curr.simTimeSec, curr.posX[playerSlot]!, curr.posZ[playerSlot]!, Math.hypot(curr.velX[playerSlot]!, curr.velZ[playerSlot]!), speedUnit, 16, 30);
         drawRwrScope(ctx, hud, 70, heightPx - 140, 50, nowMs);
         lastNowMs = nowMs;
         if (taxiGuide.route || taxiGuide.message) {
@@ -228,11 +236,16 @@ export const createHudRenderer: CreateHudRenderer = (canvas, initialTier) => {
       drawLadder(ctx, hud, widthPx, heightPx);
       drawSpeedTape(ctx, hud, 50, heightPx * 0.5, heightPx * 0.32, speedUnit);
       drawAltitudeTape(ctx, hud, widthPx - 50, heightPx * 0.5, heightPx * 0.32);
+      drawRadarAltitude(ctx, hud, widthPx - 50, heightPx * 0.5);
       drawHeadingTape(ctx, hud, widthPx * 0.5, 16, widthPx * 0.28);
+      drawRouteCaret(ctx, hud, route, curr.posX[playerSlot]!, curr.posZ[playerSlot]!, hud[SnapshotHud.HEADING_RAD]!, widthPx * 0.5, 16, widthPx * 0.28);
+      drawBreakX(ctx, hud, widthPx * 0.5, heightPx * 0.5, Math.min(widthPx, heightPx) * 0.12);
       drawAirbaseTape(ctx, airbases, curr.posX[playerSlot]!, curr.posZ[playerSlot]!, hud[SnapshotHud.HEADING_RAD]!, widthPx * 0.5, 16, widthPx * 0.28);
       drawAirbaseMarkers(ctx, airbases, camera, curr.posX[playerSlot]!, curr.posY[playerSlot]!, curr.posZ[playerSlot]!, playerOnGround, widthPx, heightPx);
       drawSteerpointTape(ctx, steerpoints, curr.posX[playerSlot]!, curr.posZ[playerSlot]!, hud[SnapshotHud.HEADING_RAD]!, widthPx * 0.5, 16, widthPx * 0.28);
       drawSteerpointMarkers(ctx, steerpoints, camera, curr.posX[playerSlot]!, curr.posY[playerSlot]!, curr.posZ[playerSlot]!, widthPx, heightPx);
+      drawRouteMarker(ctx, hud, route, camera, curr.posX[playerSlot]!, curr.posY[playerSlot]!, curr.posZ[playerSlot]!, widthPx, heightPx);
+      drawRouteData(ctx, hud, route, curr.simTimeSec, curr.posX[playerSlot]!, curr.posZ[playerSlot]!, Math.hypot(curr.velX[playerSlot]!, curr.velZ[playerSlot]!), speedUnit, 16, 30);
       drawAutopilotBugs(ctx, hud, widthPx * 0.5, 16, widthPx * 0.28, 50, widthPx - 50, heightPx * 0.5, heightPx * 0.32);
       drawAutopilotStatus(ctx, hud, widthPx * 0.5, 62, speedUnit, nowMs);
       drawAoaGReadout(ctx, hud, 16, heightPx - 44);

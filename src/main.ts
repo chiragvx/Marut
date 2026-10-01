@@ -831,6 +831,8 @@ async function initWorkersAndRenderer(qualityTier: QualityTier): Promise<void> {
             flightOverlay?.message('Target destroyed');
           }
           if (ev.targetId === playerEntityId) statDeaths += 1;
+        } else if (ev.type === 'runwayClosed') {
+          flightOverlay?.message(`Runway ${ev.runwayName} closed`);
         } else if (ev.type === 'groundKill') {
           if (ev.sourceId === playerEntityId && ev.team !== 0) {
             statGroundKills += 1;
@@ -984,6 +986,7 @@ function setupWorldView(mission: Mission, tier: QualityTier): void {
   // The same ground the simulation flies over (airfields flattened), for keeping the camera above it.
   const heightAt = createHeightSampler(terrainParams, flattenZones).heightAt;
   renderer.setGroundHeight(heightAt);
+  hud.setRoute((mission.route ?? []).map((w) => ({ name: w.name, ...(w.tot !== undefined ? { tot: w.tot } : {}) })));
   hud.setSteerpoints([...buildSteerpoints(mission.groundGroups ?? [], heightAt), ...buildStructureSteerpoints(mission.objectives, airportLayouts)]);
   renderer.setEnvironment(buildSceneEnvironment(terrainParams, airportLayouts, { x: mission.weather.windWorldMps.x, z: mission.weather.windWorldMps.z }));
   renderer.setWeather(weatherMode, newWeatherSeed());

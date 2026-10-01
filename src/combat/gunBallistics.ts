@@ -19,6 +19,7 @@ import {
   type ProjectileState,
   type ProjectileStepResult,
   type DetectableEntity,
+  type MissileFlightProfile,
 } from '../contracts/combat';
 import { Vec3 } from '../math';
 import { computePnAccel } from './proportionalNavigation';
@@ -230,6 +231,34 @@ function velocityAlignQuat(velX: number, velY: number, velZ: number, out: QuatLi
 const _noisyTarget: Vec3Like = { x: 0, y: 0, z: 0 };
 const ZERO_VEL: Vec3Like = { x: 0, y: 0, z: 0 };
 const _loftTarget: Vec3Like = { x: 0, y: 0, z: 0 };
+/** Glide weapons steer by the glide law until this close to the target (horizontal), m; and turn their velocity onto the commanded path with this time constant, s. */
+const GLIDE_TERMINAL_M = 8000;
+const GLIDE_TAU_SEC = 2.5;
+
+/**
+ * Glide law (FlightProfile.glideSpeedMps): the commanded acceleration, perpendicular to the
+ * velocity, that turns it onto the shallower of the line of sight to `t` and the speed-holding glide
+ * path, plus the 1 g of lift that holds that path. False (nothing written) inside GLIDE_TERMINAL_M.
+ */
+function glideSteer(fl: MissileFlightProfile, px: number, py: number, pz: number, vx: number, vy: number, vz: number, speed: number, t: Vec3Like, g: number, out: Vec3Like): boolean {
+  const dx = t.x - px, dz = t.z - pz;
+  const togo = Math.hypot(dx, dz);
+  if (togo < GLIDE_TERMINAL_M || speed < 1) return false;
+  const los = Math.atan2(t.y - py, togo);
+  const glide = -(fl.glideAngleRad ?? 0.08) - (0.6 * (fl.glideSpeedMps! - speed)) / fl.glideSpeedMps!;
+  const gam = Math.min(los, Math.max(-0.8, Math.min(0.05, glide)));
+  const ux = (dx / togo) * Math.cos(gam), uy = Math.sin(gam), uz = (dz / togo) * Math.cos(gam);
+  const ex = vx / speed, ey = vy / speed, ez = vz / speed;
+  let ax = ((ux - ex) * speed) / GLIDE_TAU_SEC, ay = ((uy - ey) * speed) / GLIDE_TAU_SEC + g, az = ((uz - ez) * speed) / GLIDE_TAU_SEC;
+  const along = ax * ex + ay * ey + az * ez;
+  ax -= along * ex;
+  ay -= along * ey;
+  az -= along * ez;
+  out.x = ax;
+  out.y = ay;
+  out.z = az;
+  return true;
+}
 
 /** The projectile's own random stream (mulberry32), [0, 1). */
 function rand01(p: ProjectileState): number {
@@ -403,8 +432,18 @@ export const stepProjectile: StepProjectile = (state, projectile, candidates, sa
     _missilePosScratch.x = posX; _missilePosScratch.y = posY; _missilePosScratch.z = posZ;
     _missileVelScratch.x = velX; _missileVelScratch.y = velY; _missileVelScratch.z = velZ;
 
+    const glide = pointGuided && fl?.glideSpeedMps !== undefined && glideSteer(fl, posX, posY, posZ, velX, velY, velZ, speed, tPos, env.gravityMps2, _pnAccel);
+    if (glide) {
+      const m = Math.hypot(_pnAccel.x, _pnAccel.y, _pnAccel.z);
+      if (m > maxAccel) {
+        const k = maxAccel / m;
+        _pnAccel.x *= k;
+        _pnAccel.y *= k;
+        _pnAccel.z *= k;
+      }
+    }
     // Unclamped magnitude, for the radar-missile g-saturation "lost" check.
-    computePnAccel(_missilePosScratch, _missileVelScratch, tPos, tVel, gain, Number.POSITIVE_INFINITY, _pnAccelUnclamped);
+    if (!glide) computePnAccel(_missilePosScratch, _missileVelScratch, tPos, tVel, gain, Number.POSITIVE_INFINITY, _pnAccelUnclamped);
     const unclampedMag = Math.sqrt(_pnAccelUnclamped.x * _pnAccelUnclamped.x + _pnAccelUnclamped.y * _pnAccelUnclamped.y + _pnAccelUnclamped.z * _pnAccelUnclamped.z);
     if (unclampedMag >= maxAccel) {
       projectile.gSaturatedSec += dtSec;
@@ -414,8 +453,8 @@ export const stepProjectile: StepProjectile = (state, projectile, candidates, sa
     if (kind === ProjectileKind.RadarMissile && projectile.gSaturatedSec >= (prof.radar?.gSaturationLostSec ?? Infinity)) {
       projectile.guidance = ProjectileGuidanceMode.Lost;
     } else {
-      computePnAccel(_missilePosScratch, _missileVelScratch, tPos, tVel, gain, maxAccel, _pnAccel);
-      if (pointGuided) {
+      if (!glide) computePnAccel(_missilePosScratch, _missileVelScratch, tPos, tVel, gain, maxAccel, _pnAccel);
+      if (pointGuided && !glide) {
         // Guided bombs fly against gravity: the wings hold 1 g of lift on top of the steering
         // command (within what they can make), so the bomb glides instead of sinking under it.
         _pnAccel.y += env.gravityMps2;

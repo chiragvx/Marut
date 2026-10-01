@@ -67,7 +67,8 @@ export function buildStructureSteerpoints(objectives: readonly MissionObjective[
     if (ss.length === 0) continue;
     const x = ss.reduce((n, s) => n + s.worldX, 0) / ss.length;
     const z = ss.reduce((n, s) => n + s.worldZ, 0) / ss.length;
-    const name = typeof group === 'string' ? `${a.name} ${group.replace(/-/g, ' ')}` : a.name;
+    const base = a.name.replace(/_/g, ' ');
+    const name = typeof group === 'string' ? `${base} ${group.replace(/-/g, ' ')}` : base;
     out.push({ name, x, y: a.elevationM, z });
   }
   return out;

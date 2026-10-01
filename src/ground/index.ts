@@ -4,3 +4,4 @@
  */
 export * from './groundTargets';
 export * from './placement';
+export * from './runwayDamage';

@@ -38,6 +38,8 @@ import borderRangeRaw from './borderRange.json';
 import borderStrikeRaw from './borderStrike.json';
 import borderSeadRaw from './borderSead.json';
 import borderDeadRaw from './borderDead.json';
+import borderLowLevelRaw from './borderLowLevel.json';
+import borderHighAltRaw from './borderHighAlt.json';
 import rangpurAfbRaw from '../../airport/layouts/rangpur-afb.json';
 import konarakCoastalRaw from '../../airport/layouts/konarak-coastal.json';
 import insHansaRaw from '../../airport/layouts/ins-hansa.json';
@@ -74,6 +76,7 @@ export const loadMissionDescriptor: LoadMissionDescriptor = (
     ...(descriptor.groundGroups ? { groundGroups: descriptor.groundGroups } : {}),
     weather: descriptor.weather,
     objectives: descriptor.objectives,
+    ...(descriptor.route ? { route: descriptor.route } : {}),
   };
 };
 
@@ -123,6 +126,8 @@ const BUILTIN_DESCRIPTORS = {
   'border-strike': borderStrikeRaw as unknown as MissionDescriptor,
   'border-sead': borderSeadRaw as unknown as MissionDescriptor,
   'border-dead': borderDeadRaw as unknown as MissionDescriptor,
+  'border-lowlevel': borderLowLevelRaw as unknown as MissionDescriptor,
+  'border-highalt': borderHighAltRaw as unknown as MissionDescriptor,
 } as const satisfies Readonly<Record<string, MissionDescriptor>>;
 
 export type BuiltinMissionId = keyof typeof BUILTIN_DESCRIPTORS;

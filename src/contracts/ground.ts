@@ -174,6 +174,8 @@ export const GroundObjectiveKind = {
   ProtectGroup: 'protect_group',
   /** params: { group: string, seconds: number } — an air-defence site kept suppressed (radars silenced by ARMs or destroyed) for that long in total (SEAD). */
   SuppressGroup: 'suppress_group',
+  /** params: { airportId: string, runwayId?: string } — every runway of the airport (or that one) cratered so no minimum operating strip is left. */
+  CloseRunway: 'close_runway',
 } as const;
 export type GroundObjectiveKind = (typeof GroundObjectiveKind)[keyof typeof GroundObjectiveKind];
 
@@ -244,6 +246,24 @@ export interface GroundKillEvent {
   pos: Vec3Like;
   /** How long it burns (fire and smoke), s; 0 = no fire. */
   burnSec: number;
+}
+
+/** A weapon cratered a runway (the renderer draws the crater). */
+export interface RunwayCraterEvent {
+  type: 'runwayCrater';
+  airportId: string;
+  /** The runway (one end's id; both ends of a strip share its craters). */
+  runwayId: string;
+  pos: Vec3Like;
+  radiusM: number;
+}
+
+/** A runway has no minimum operating strip left (aircraft cannot take off or land on it). */
+export interface RunwayClosedEvent {
+  type: 'runwayClosed';
+  airportId: string;
+  /** "15R/33L": both ends of the strip. */
+  runwayName: string;
 }
 
 /** An explosion on or near the ground (bomb, missile or shell impact): the renderer's fireball, dust and crater. */

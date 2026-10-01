@@ -54,6 +54,7 @@ import { createAirfieldPavement } from './airfieldPavement';
 import { createAirbaseStructures } from './airbaseStructures';
 import { createGroundUnitRenderer } from './groundUnits';
 import { createGroundEffects } from './groundEffects';
+import { createRunwayCraters } from './runwayCraters';
 import { createAirfieldSigns } from './airfieldSigns';
 import { createFarGround } from './farGround';
 import { getAtmosphereUniforms, setAtmosphereCamera, setAtmosphereHaze } from './atmosphere';
@@ -179,6 +180,8 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
   scene.add(effectsRoot);
   const effects = createEffectsSystem(effectsRoot);
   const groundEffects = createGroundEffects(effectsRoot);
+  const craters = createRunwayCraters();
+  effectsRoot.add(craters.object);
   const viewSize = new THREE.Vector2();
 
 
@@ -526,6 +529,7 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
       terrainConsumer.setEnvironment(env);
       pavement.setGeometry(env.pavement ?? null, env.runways);
       structures.setStructures(env.structures);
+      craters.clear();
       runwayLights.setAids(env.airfieldAids ?? []);
       signs.setSigns(env.airfieldAids ?? []);
       hillyTheatre = env.surfaceStyle !== 'farmland';
@@ -541,6 +545,7 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
     ingestEvents(events) {
       effects.ingestEvents(events);
       groundEffects.ingestEvents(events);
+      craters.ingestEvents(events);
       for (const ev of events) if (ev.type === 'targetState') structures.setTargetState(ev.targetId, ev.state);
     },
 
@@ -779,6 +784,7 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
         effects.tick(frameDtSec, origin);
         renderer.getDrawingBufferSize(viewSize);
         groundEffects.tick(frameDtSec, origin, viewSize.y, camera.fov);
+        craters.tick(origin);
         followOrigin(origin);
       }
 
@@ -858,6 +864,7 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
       sunShadows.dispose();
       effects.dispose();
       groundEffects.dispose();
+      craters.dispose();
       skyFog.dispose();
       renderer.dispose();
     },

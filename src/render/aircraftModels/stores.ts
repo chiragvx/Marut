@@ -229,6 +229,7 @@ const BOMBS: Record<string, BombSpec> = {
   // the ogive), the HAMMER's 250 kg body with its rocket tail.
   'griffin-lgb': { len: 4.3, dia: 0.36, noseLen: 1.1, retarded: false },
   'hammer-250': { len: 3.1, dia: 0.32, noseLen: 0.8, retarded: false },
+  saaw: { len: 1.9, dia: 0.26, noseLen: 0.45, retarded: false },
 };
 /** Rocket pods: B-8M1 (20 x 80 mm), 2.75 m, 520 mm. */
 const PODS: Record<string, { len: number; dia: number }> = {

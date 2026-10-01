@@ -553,6 +553,7 @@ export interface MissionDescriptor {
   groundGroups?: Mission['groundGroups'];
   weather: Mission['weather'];
   objectives: Mission['objectives'];
+  route?: Mission['route'];
 }
 
 /**

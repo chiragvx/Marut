@@ -5,7 +5,7 @@
  * 08-render.md section 4.9, table 5.6.
  */
 
-import { ServiceStateCode, SnapshotHud, SpeedUnit } from '../contracts/core';
+import { ServiceStateCode, SnapshotHud, SpeedUnit, WarningBit } from '../contracts/core';
 
 export const SPEED_TAPE_PX_PER_MPS = 4;
 export const SPEED_TAPE_MINOR_TICK_MPS = 10;
@@ -111,6 +111,32 @@ export function drawSpeedTape(
 
 export function drawAltitudeTape(ctx: CanvasRenderingContext2D, hud: Float64Array, centerX: number, centerY: number, halfHeightPx: number): void {
   drawVerticalTape(ctx, hud[SnapshotHud.ALT_MSL_M]!, centerX, centerY, halfHeightPx, ALT_TAPE_PX_PER_M, ALT_TAPE_MINOR_TICK_M, ALT_TAPE_MAJOR_TICK_M, 'right');
+}
+
+/** Radar altimeter: height above the ground under the box of the altitude tape (below 1500 m, airborne). */
+export function drawRadarAltitude(ctx: CanvasRenderingContext2D, hud: Float64Array, centerX: number, centerY: number): void {
+  const agl = hud[SnapshotHud.ALT_AGL_M]!;
+  if (!(agl < 1500 && agl > 3)) return;
+  ctx.save();
+  ctx.fillStyle = '#40ff60';
+  ctx.font = '12px monospace';
+  ctx.fillText(`R ${agl < 300 ? Math.round(agl / 5) * 5 : Math.round(agl / 10) * 10}`, centerX - 44, centerY + 26);
+  ctx.restore();
+}
+
+/** Ground-collision warning: a large X across the centre of the HUD while PULL UP is on. */
+export function drawBreakX(ctx: CanvasRenderingContext2D, hud: Float64Array, centerX: number, centerY: number, sizePx: number): void {
+  if ((hud[SnapshotHud.WARNING_BITS]! & WarningBit.TerrainPullUp) === 0) return;
+  ctx.save();
+  ctx.strokeStyle = '#ff4040';
+  ctx.lineWidth = 4;
+  ctx.beginPath();
+  ctx.moveTo(centerX - sizePx, centerY - sizePx);
+  ctx.lineTo(centerX + sizePx, centerY + sizePx);
+  ctx.moveTo(centerX + sizePx, centerY - sizePx);
+  ctx.lineTo(centerX - sizePx, centerY + sizePx);
+  ctx.stroke();
+  ctx.restore();
 }
 
 export function drawHeadingTape(ctx: CanvasRenderingContext2D, hud: Float64Array, centerX: number, topY: number, halfWidthPx: number): void {

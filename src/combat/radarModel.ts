@@ -425,6 +425,7 @@ export const updateSensors: UpdateSensors = (
     else {
       // Pipper off the ground: T clears the designation (and the pod stops designating).
       state.spiValid = false;
+      state.briefed = undefined;
       if (state.pod) state.pod.designating = false;
     }
   }

@@ -17,7 +17,7 @@ import { EntityKind, MAX_RWR_CONTACTS, NO_ENTITY_ID, RWR_SYMBOLS, STORE_IDS } fr
 import type { CombatStatus, Contact, EntityId, EntityState, SimEvent, Vec3Like } from '../contracts/core';
 import type { CombatPort, CombatTickContext, EventQueue } from '../contracts/sim';
 import type { LoadoutPreset } from '../contracts/aircraft';
-import type { CombatPortWithAirDefence, CombatPortWithContacts, CombatPortWithRearm, CombatPortWithStores, WorldCombatTickContext } from './combatContext';
+import type { CombatPortWithAirDefence, CombatPortWithBriefing, CombatPortWithContacts, CombatPortWithRearm, CombatPortWithStores, WorldCombatTickContext } from './combatContext';
 import { subSeed } from './seed';
 import { getAircraftDefinition, getLoadout } from '../aircraft';
 import { RADARS, SENSOR_PODS, WEAPONS } from '../catalog';
@@ -36,6 +36,7 @@ import {
   countermeasureRelease,
   combatRand01,
   updateAgSight,
+  loadBriefedTarget,
   updatePod,
   AirDefenceNetwork,
   type AdEmission,
@@ -135,7 +136,7 @@ function signatureFor(defId: string | undefined): { radar: RadarSignature; hitEl
   return sig ?? undefined;
 }
 
-export function createCombatAdapter(): CombatPort & CombatPortWithContacts & CombatPortWithRearm & CombatPortWithStores & CombatPortWithAirDefence {
+export function createCombatAdapter(): CombatPort & CombatPortWithContacts & CombatPortWithRearm & CombatPortWithStores & CombatPortWithAirDefence & CombatPortWithBriefing {
   const weaponsStates = new Map<EntityId, WeaponsState>();
   const detectableScratch: DetectableEntity[] = [];
   // Reused view over detectableScratch[0..liveCount), rebuilt (references
@@ -336,6 +337,11 @@ export function createCombatAdapter(): CombatPort & CombatPortWithContacts & Com
       return adNetwork?.suppressedSec(siteId) ?? 0;
     },
 
+    loadBriefedTarget(id: EntityId, points: readonly Vec3Like[]): void {
+      const st = weaponsStates.get(id);
+      if (st) loadBriefedTarget(st, points);
+    },
+
     getContacts(id: EntityId): readonly Contact[] {
       return contactsScratchByObserver.get(id) ?? EMPTY_CONTACTS;
     },
@@ -458,6 +464,8 @@ export function createCombatAdapter(): CombatPort & CombatPortWithContacts & Com
         if (state.pod) {
           const pod = state.pod;
           if (updatePod(pod, observer, inputs, allEntities, ctx.sampler, autoLaseOwners.has(observer.id), dtSec) && pod.pointValid) {
+            // Slewed off the pre-planned aim point: the pilot's own designation from now on.
+            if (state.briefed && Math.hypot(pod.point.x - state.spi.x, pod.point.z - state.spi.z) > 2) state.briefed = undefined;
             state.spiValid = true;
             state.spi.x = pod.point.x;
             state.spi.y = pod.point.y;
@@ -657,7 +665,10 @@ export function createCombatAdapter(): CombatPort & CombatPortWithContacts & Com
           }
           if (result.outcome === ProjectileOutcome.TerrainImpact && result.impactPos) {
             const w = projectile.kind === 'bullet' ? undefined : prof?.warhead;
-            if (w && armed) ground.blast(result.impactPos, w, projectile.ownerId, groundEventsScratch);
+            if (w && armed) {
+              ground.blast(result.impactPos, w, projectile.ownerId, groundEventsScratch);
+              ctx.runways?.impact(result.impactPos, w, groundEventsScratch);
+            }
             groundEventsScratch.push({ type: 'groundImpact', pos: { x: result.impactPos.x, y: result.impactPos.y, z: result.impactPos.z }, explosiveKg: w && armed ? w.explosiveKg : 0 });
             for (const ev of groundEventsScratch) eventsOut.push(ev);
           }

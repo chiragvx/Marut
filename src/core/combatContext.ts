@@ -12,10 +12,10 @@
  * only place that owns).
  */
 
-import type { Contact, EntityId, PilotInputs } from '../contracts/core';
+import type { Contact, EntityId, PilotInputs, Vec3Like } from '../contracts/core';
 import type { CombatTickContext } from '../contracts/sim';
 import type { LoadoutPreset } from '../contracts/aircraft';
-import type { GroundTargetSet } from '../ground';
+import type { GroundTargetSet, RunwayDamage } from '../ground';
 import type { AdSiteSpec, AdUnitSpec } from '../combat';
 
 export interface WorldCombatTickContext extends CombatTickContext {
@@ -30,6 +30,8 @@ export interface WorldCombatTickContext extends CombatTickContext {
   getLoadout?(id: EntityId): LoadoutPreset | undefined;
   /** The mission's ground targets (units and airbase structures): weapons hit and damage them. */
   readonly ground?: GroundTargetSet;
+  /** The mission's airport runways and their craters. */
+  readonly runways?: RunwayDamage;
   /** The mission's air-defence sites and their units (a new object per mission load). */
   readonly airDefence?: { sites: readonly AdSiteSpec[]; units: readonly AdUnitSpec[] };
 }
@@ -57,6 +59,11 @@ export interface CombatPortWithRearm {
 /** Air defences: seconds a site (mission ground group) has been suppressed (silenced by an ARM, or its radars destroyed). */
 export interface CombatPortWithAirDefence {
   siteSuppressedSec(siteId: string): number;
+}
+
+/** The route's target steerpoint became active: load its aim points as aircraft `id`'s designated point (pre-planned target). */
+export interface CombatPortWithBriefing {
+  loadBriefedTarget(id: EntityId, points: readonly Vec3Like[]): void;
 }
 
 /** Stores still on aircraft `id`'s station `hardpointId` (undefined until combat has seen the aircraft, or no such weapon station). */

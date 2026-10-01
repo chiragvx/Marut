@@ -18,6 +18,7 @@ import {
   type HeightSampler,
   type PilotInputs,
   type SimEvent,
+  type Vec3Like,
 } from '../contracts/core';
 import {
   MAX_SPAWN_REQUESTS_PER_TICK,
@@ -442,8 +443,39 @@ function releaseAirToGround(shooterId: EntityId, shooter: EntityState, inputs: P
   Quat.rotate(shooter.rot, { x: 0, y: -1, z: 0 }, _dirWorld);
   const v = st.profile.launchSpeedMps;
   pushStore(shooterId, shooter, st, _dirWorld.x * v, _dirWorld.y * v, _dirWorld.z * v, kind === WeaponKind.GuidedBomb ? ProjectileKind.GuidedBomb : ProjectileKind.Bomb, outRequests, outEvents, kind);
-  if (gps) outRequests[outRequests.length - 1]!.targetPoint = { x: state.spi.x, y: state.spi.y, z: state.spi.z };
+  if (gps) {
+    outRequests[outRequests.length - 1]!.targetPoint = { x: state.spi.x, y: state.spi.y, z: state.spi.z };
+    // Pre-planned aim points: the next weapon goes to the next one.
+    const b = state.briefed;
+    if (b && b.points.length > 1) {
+      b.next = (b.next + 1) % b.points.length;
+      designatePoint(state, b.points[b.next]!);
+    }
+  }
   reselectIfEmpty(state);
+}
+
+/** Makes `p` the designated point (SPI); a carried pod slaves to it (ground-stabilised, designating). */
+export function designatePoint(state: WeaponsState, p: Vec3Like): void {
+  state.spiValid = true;
+  state.spi.x = p.x;
+  state.spi.y = p.y;
+  state.spi.z = p.z;
+  if (state.pod) {
+    state.pod.point.x = p.x;
+    state.pod.point.y = p.y;
+    state.pod.point.z = p.z;
+    state.pod.pointValid = true;
+    state.pod.trackId = NO_ENTITY_ID;
+    state.pod.designating = true;
+  }
+}
+
+/** The route's target steerpoint became active: its (first) aim point is the SPI; GPS weapons take the aim points in turn. */
+export function loadBriefedTarget(state: WeaponsState, points: readonly Vec3Like[]): void {
+  if (points.length === 0) return;
+  state.briefed = { points: points.map((p) => ({ x: p.x, y: p.y, z: p.z })), next: 0 };
+  designatePoint(state, state.briefed.points[0]!);
 }
 
 /** CCRP releases only with the predicted impact within this of the designated point's track, m. */
@@ -504,19 +536,9 @@ export function updateAgSight(state: WeaponsState, shooter: EntityState, sampler
   if (state.designateRequest) {
     state.designateRequest = false;
     if (state.agValid) {
-      state.spiValid = true;
-      state.spi.x = state.agImpact.x;
-      state.spi.y = state.agImpact.y;
-      state.spi.z = state.agImpact.z;
       // The pod slaves to a HUD designation.
-      if (state.pod) {
-        state.pod.point.x = state.spi.x;
-        state.pod.point.y = state.spi.y;
-        state.pod.point.z = state.spi.z;
-        state.pod.pointValid = true;
-        state.pod.trackId = NO_ENTITY_ID;
-        state.pod.designating = true;
-      }
+      state.briefed = undefined;
+      designatePoint(state, state.agImpact);
     }
   }
   // Launch zone of a guided weapon to the designated point: its range grows with release height.

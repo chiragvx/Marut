@@ -74,7 +74,7 @@
 // -----------------------------------------------------------------------------
 
 /** A successful result carrying `value`, or a failure carrying `error`. */
-import type { GroundImpactEvent, GroundKillEvent, MissionGroundGroup, TargetStateEvent } from './ground';
+import type { GroundImpactEvent, GroundKillEvent, MissionGroundGroup, RunwayClosedEvent, RunwayCraterEvent, TargetStateEvent } from './ground';
 
 export type Result<T, E = string> = { readonly ok: true; readonly value: T } | { readonly ok: false; readonly error: E };
 
@@ -762,6 +762,7 @@ export const MissionObjectiveKind = {
   DestroyStructures: 'destroy_structures',
   ProtectGroup: 'protect_group',
   SuppressGroup: 'suppress_group',
+  CloseRunway: 'close_runway',
 } as const;
 export type MissionObjectiveKind = (typeof MissionObjectiveKind)[keyof typeof MissionObjectiveKind];
 
@@ -826,7 +827,34 @@ export interface Mission<TTerrain = unknown, TAirport = unknown> {
   groundGroups?: readonly MissionGroundGroup[];
   weather: WeatherConfig;
   objectives: readonly MissionObjective[];
+  /** The planned route (navigation steerpoints, flown in order). Absent = none. */
+  route?: readonly RouteWaypoint[];
 }
+
+/**
+ * One steerpoint of a mission's planned route. The HUD steers to the active one; it moves on to the
+ * next when the aircraft passes within ROUTE_CAPTURE_M (or passes it abeam).
+ */
+export interface RouteWaypoint {
+  /** e.g. "IP", "TGT", "Canal bridge". */
+  name: string;
+  pos: { x: number; z: number };
+  /** Planned altitude, m MSL (shown with the steerpoint). */
+  altM?: number;
+  /** Planned time over this steerpoint, s of mission time (the HUD shows early/late). */
+  tot?: number;
+  /**
+   * A target steerpoint: when it becomes active its coordinates are loaded as the designated
+   * point (SPI). `aimPoints` are pre-planned aim points for GPS weapons, one per weapon released in
+   * turn (default: the steerpoint itself).
+   */
+  target?: boolean;
+  aimPoints?: readonly { x: number; z: number }[];
+}
+
+/** A route steerpoint is passed within this horizontal distance (or abeam within ROUTE_ABEAM_M). */
+export const ROUTE_CAPTURE_M = 2000;
+export const ROUTE_ABEAM_M = 6000;
 
 // -----------------------------------------------------------------------------
 // 11. Snapshot binary layout. The sim worker writes ONE Float64Array of
@@ -916,7 +944,7 @@ export const STORE_IDS: readonly string[] = [
   'hsld-450', 'hsld-250', 'hsld-250r', 'b8m1',
   'litening', 'griffin-lgb', 'hammer-250',
   'ly-80-msl', 'hq-9-msl', 'fm-90-msl', 'anza-mk3',
-  'rudram-1',
+  'rudram-1', 'saaw',
 ];
 
 /** How a station carries its stores: one on the pylon, a twin missile rail, or a multiple ejector rack (bombs). */
@@ -1112,7 +1140,26 @@ export const RWR_BASE = SnapshotHud.TRACKS_BASE + MAX_SNAPSHOT_TRACKS * SNAPSHOT
 export const SnapshotRwr = { SYMBOL: 0, BEARING_RAD: 1, STATE: 2, RANGE_M: 3 } as const;
 /** RWR symbols by code: search radar, early warning, LY-80, HQ-9, FM-90, AAA fire control, JF-17, F-16, Tejas, other fighter. Append only. */
 export const RWR_SYMBOLS: readonly string[] = ['', 'S', 'EW', 'L8', '9', 'FM', 'A', 'J', 'F', 'T', 'AI'];
-export const HUD_BLOCK_FLOATS = RWR_BASE + MAX_RWR_CONTACTS * SNAPSHOT_RWR_STRIDE;
+/** Further HUD fields after the RWR list (SnapshotHudExt offsets from HUD_EXT_BASE). */
+export const HUD_EXT_BASE = RWR_BASE + MAX_RWR_CONTACTS * SNAPSHOT_RWR_STRIDE;
+export const SnapshotHudExt = {
+  /** Active route steerpoint index (-1: no route / route flown), and its position (y = ground). */
+  ROUTE_INDEX: 0,
+  ROUTE_X: 1,
+  ROUTE_Y: 2,
+  ROUTE_Z: 3,
+  /** Time-over-target: the next steerpoint with a planned time (index, -1 none) and how late the
+   *  aircraft will be there at its current groundspeed along the route, s (negative = early). */
+  TOT_INDEX: 4,
+  TOT_DELTA_SEC: 5,
+  /** Groundspeed that would make the planned time, m/s (0 = none). */
+  TOT_GS_MPS: 6,
+  /** Ground-collision avoidance: the least terrain clearance of a recovery started now (roll wings level, 5 g pull), m; GCAS_NO_THREAT_M when nothing is near. */
+  GCAS_CLEARANCE_M: 7,
+} as const;
+export const HUD_EXT_FLOATS = 8;
+export const GCAS_NO_THREAT_M = 99999;
+export const HUD_BLOCK_FLOATS = HUD_EXT_BASE + HUD_EXT_FLOATS;
 
 /** SnapshotHud.POD_FLAGS bits. */
 export const PodFlag = { Carried: 1, PointValid: 2, PointTrack: 4, Designating: 8, Laser: 16, Masked: 32 } as const;
@@ -1252,6 +1299,8 @@ export type SimEvent =
   | TargetStateEvent
   | GroundKillEvent
   | GroundImpactEvent
+  | RunwayCraterEvent
+  | RunwayClosedEvent
   | MissionEndedEvent;
 
 /** A flare or chaff bundle released by an aircraft (for the renderer; the sim flies the decoy itself). */

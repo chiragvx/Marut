@@ -1,0 +1,155 @@
+{
+  "id": "border-highalt",
+  "name": "High Altitude \u2014 PAF Shahbaz runway denial",
+  "seed": 2012,
+  "terrain": {
+    "seed": 1947,
+    "theatre": "border"
+  },
+  "airportIds": [
+    "bhisiana-afs",
+    "pafb-shahbaz"
+  ],
+  "playerStart": {
+    "pos": {
+      "x": 40000,
+      "y": 9000,
+      "z": -6000
+    },
+    "headingRad": 5.09,
+    "speedMps": 240,
+    "loadoutId": "runway-denial"
+  },
+  "aiFlights": [],
+  "weather": {
+    "windWorldMps": {
+      "x": -1.5,
+      "y": 0,
+      "z": 0.5
+    },
+    "gustMps": 1,
+    "turbulence": 0.05
+  },
+  "route": [
+    {
+      "name": "LAR",
+      "pos": {
+        "x": 10000,
+        "z": 6000
+      },
+      "altM": 9000,
+      "tot": 150
+    },
+    {
+      "name": "Runways",
+      "pos": {
+        "x": -30524,
+        "z": 11002
+      },
+      "target": true,
+      "aimPoints": [
+        {
+          "x": -30867,
+          "z": 10605
+        },
+        {
+          "x": -30318,
+          "z": 11458
+        },
+        {
+          "x": -30725,
+          "z": 10554
+        },
+        {
+          "x": -30185,
+          "z": 11392
+        }
+      ]
+    },
+    {
+      "name": "Bhisiana",
+      "pos": {
+        "x": 30500,
+        "z": -11000
+      }
+    }
+  ],
+  "objectives": [
+    {
+      "id": "obj-runways",
+      "kind": "close_runway",
+      "description": "Crater both PAF Shahbaz runways so no minimum operating strip is left.",
+      "params": {
+        "airportId": "pafb-shahbaz"
+      }
+    }
+  ],
+  "groundGroups": [
+    {
+      "id": "ew",
+      "name": "EW radar",
+      "team": 1,
+      "template": "ew-site",
+      "pos": {
+        "x": -45000,
+        "z": 16000
+      },
+      "headingRad": 0.0
+    },
+    {
+      "id": "ly80",
+      "name": "LY-80 battery",
+      "team": 1,
+      "template": "sam-mr-battery",
+      "pos": {
+        "x": -36000,
+        "z": 12500
+      },
+      "headingRad": 1.57
+    },
+    {
+      "id": "fm90",
+      "name": "FM-90 section",
+      "team": 1,
+      "template": "sam-sr-section",
+      "pos": {
+        "x": -30500,
+        "z": 11800
+      },
+      "headingRad": 1.2
+    },
+    {
+      "id": "aaa-1",
+      "name": "AAA (depot)",
+      "team": 1,
+      "template": "aaa-site",
+      "pos": {
+        "x": -29200,
+        "z": 10300
+      },
+      "headingRad": 0.3
+    },
+    {
+      "id": "aaa-2",
+      "name": "AAA (runway)",
+      "team": 1,
+      "template": "aaa-site",
+      "pos": {
+        "x": -31200,
+        "z": 9300
+      },
+      "headingRad": 2.4
+    },
+    {
+      "id": "manpads",
+      "name": "MANPADS",
+      "team": 1,
+      "template": "manpads-pair",
+      "pos": {
+        "x": -29900,
+        "z": 11300
+      },
+      "headingRad": 0.0
+    }
+  ]
+}

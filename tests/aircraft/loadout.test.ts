@@ -20,7 +20,7 @@ describe('custom loadouts', () => {
   test('each station offers only built stores it accepts, gun excluded', () => {
     const c = stationChoices(def);
     expect(c.map((s) => s.stationId)).toEqual(['wing-outer-l', 'wing-outer-r', 'wing-mid-l', 'wing-mid-r', 'wing-inner-l', 'wing-inner-r', 'centreline', 'intake-pod']);
-    expect(c.find((s) => s.stationId === 'wing-inner-l')!.stores).toEqual(['tank-1200l', 'astra-mk1', 'derby-er', 'derby', 'hsld-450', 'hsld-250', 'hsld-250r', 'griffin-lgb', 'hammer-250', 'rudram-1']);
+    expect(c.find((s) => s.stationId === 'wing-inner-l')!.stores).toEqual(['tank-1200l', 'astra-mk1', 'derby-er', 'derby', 'hsld-450', 'hsld-250', 'hsld-250r', 'griffin-lgb', 'hammer-250', 'rudram-1', 'saaw']);
     expect(c.find((s) => s.stationId === 'centreline')!.stores).toEqual(['tank-725l', 'hsld-450', 'hsld-250', 'griffin-lgb']);
     expect(c.find((s) => s.stationId === 'intake-pod')!.stores).toEqual(['litening']);
     expect(c.find((s) => s.stationId === 'wing-outer-r')!.maxCount).toBe(2);
