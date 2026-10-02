@@ -763,6 +763,7 @@ export const MissionObjectiveKind = {
   ProtectGroup: 'protect_group',
   SuppressGroup: 'suppress_group',
   CloseRunway: 'close_runway',
+  ProtectStructures: 'protect_structures',
 } as const;
 export type MissionObjectiveKind = (typeof MissionObjectiveKind)[keyof typeof MissionObjectiveKind];
 
@@ -796,6 +797,19 @@ export interface MissionAiFlight {
   /** The flight's store fit: a LoadoutPreset.id of `aircraftId`, or a custom station -> store fit (takes precedence). Absent = the type's default loadout. */
   loadoutId?: string;
   loadout?: Readonly<Record<string, { store: string; count: number }>>;
+  /** A strike / SEAD sortie: each aircraft of the flight attacks targets[i] (wrapping). */
+  strike?: MissionStrikeTask;
+}
+
+/** An AI flight's air-to-ground sortie (it carries the stores for it: see `loadoutId`). */
+export interface MissionStrikeTask {
+  /** Aim points on the ground, one per aircraft of the flight (wrapping). */
+  targets: readonly { x: number; z: number }[];
+  /** Ingress altitude, m MSL (default 6000), or a low-level ingress this high over the terrain, m. */
+  ingressAltM?: number;
+  lowLevelAglM?: number;
+  /** Stand-off weapons: release inside this range, m (default 30 km). */
+  standoffM?: number;
 }
 
 export interface MissionPlayerStart {
@@ -945,6 +959,7 @@ export const STORE_IDS: readonly string[] = [
   'litening', 'griffin-lgb', 'hammer-250',
   'ly-80-msl', 'hq-9-msl', 'fm-90-msl', 'anza-mk3',
   'rudram-1', 'saaw',
+  'mk-82', 'mk-82-se', 'mar-1', 'akash-msl', 'spyder-derby', 'mrsam-msl',
 ];
 
 /** How a station carries its stores: one on the pylon, a twin missile rail, or a multiple ejector rack (bombs). */
@@ -1138,8 +1153,8 @@ export const SNAPSHOT_RWR_STRIDE = 4;
 export const RWR_BASE = SnapshotHud.TRACKS_BASE + MAX_SNAPSHOT_TRACKS * SNAPSHOT_TRACK_STRIDE;
 /** One RWR entry: symbol code (RWR_SYMBOLS), world bearing to the emitter (rad), state (0 search, 1 track, 2 launch), range (m). */
 export const SnapshotRwr = { SYMBOL: 0, BEARING_RAD: 1, STATE: 2, RANGE_M: 3 } as const;
-/** RWR symbols by code: search radar, early warning, LY-80, HQ-9, FM-90, AAA fire control, JF-17, F-16, Tejas, other fighter. Append only. */
-export const RWR_SYMBOLS: readonly string[] = ['', 'S', 'EW', 'L8', '9', 'FM', 'A', 'J', 'F', 'T', 'AI'];
+/** RWR symbols by code: search radar, early warning, LY-80, HQ-9, FM-90, AAA fire control, JF-17, F-16, Tejas, other fighter, Akash, SPYDER, MR-SAM. Append only. */
+export const RWR_SYMBOLS: readonly string[] = ['', 'S', 'EW', 'L8', '9', 'FM', 'A', 'J', 'F', 'T', 'AI', 'AK', 'SP', 'MR'];
 /** Further HUD fields after the RWR list (SnapshotHudExt offsets from HUD_EXT_BASE). */
 export const HUD_EXT_BASE = RWR_BASE + MAX_RWR_CONTACTS * SNAPSHOT_RWR_STRIDE;
 export const SnapshotHudExt = {

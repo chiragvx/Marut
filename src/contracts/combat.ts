@@ -276,6 +276,12 @@ export interface RadarSeekerProfile {
   gSaturationLostSec: number;
   /** Chance (0..1) the active seeker rejects a chaff cloud next to its target; absent = 0.5. */
   chaffResistance?: number;
+  /**
+   * Surface-to-air missiles guided by their site's radar (semi-active, command, track-via-missile):
+   * the terminal homing inside activeSeekerRangeM works only while that radar still tracks the
+   * target (projectile.datalinkOk); otherwise the missile flies on its last track.
+   */
+  siteGuided?: boolean;
 }
 
 /**

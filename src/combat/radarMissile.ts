@@ -46,7 +46,10 @@ export function updateRadarMissileGuidance(
 
   const seekerRange = profile?.radar?.activeSeekerRangeM ?? RADAR_MISSILE_ACTIVE_SEEKER_RANGE_M;
   const seekerHalfAngle = profile?.radar?.activeSeekerHalfAngleRad ?? RADAR_MISSILE_ACTIVE_SEEKER_HALF_ANGLE_RAD;
-  if (rangeToTarget > seekerRange) {
+  if (profile?.radar?.siteGuided && !projectile.datalinkOk) {
+    // Its site's radar no longer tracks the target: no illumination / commands, it flies on its last track.
+    projectile.guidance = ProjectileGuidanceMode.RadarDatalink;
+  } else if (rangeToTarget > seekerRange) {
     projectile.guidance = ProjectileGuidanceMode.RadarDatalink;
   } else if (rangeToTarget < 1e-6) {
     projectile.guidance = ProjectileGuidanceMode.RadarActive;

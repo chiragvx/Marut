@@ -42,7 +42,8 @@ function computeTerrainAvoidanceGoalImpl(
   ctx: PilotContext,
   _currentGoal: Readonly<FlightGoal>,
   _dtSec: number,
-  difficulty?: Readonly<AiDifficultyProfile>
+  difficulty?: Readonly<AiDifficultyProfile>,
+  minClearanceM: number = TerrainAvoidanceParams.MIN_CLEARANCE_M
 ): FlightGoal | undefined {
   const diff = difficulty ?? FALLBACK_DIFFICULTY;
   const vel = ctx.self.vel;
@@ -64,9 +65,10 @@ function computeTerrainAvoidanceGoalImpl(
     if (clearanceM < worstClearanceM) worstClearanceM = clearanceM;
   }
 
-  if (worstClearanceM >= TerrainAvoidanceParams.MIN_CLEARANCE_M) return undefined;
+  // A low-level sortie flies with a lower floor (minClearanceM); the hard pull keeps its ratio to it.
+  if (worstClearanceM >= minClearanceM) return undefined;
 
-  const hard = worstClearanceM < TerrainAvoidanceParams.HARD_MIN_CLEARANCE_M;
+  const hard = worstClearanceM < TerrainAvoidanceParams.HARD_MIN_CLEARANCE_M * (minClearanceM / TerrainAvoidanceParams.MIN_CLEARANCE_M);
   scratchGoal.pitchMode = PitchMode.GLoad;
   scratchGoal.desiredBankRad = 0;
   scratchGoal.desiredGLoad = hard ? diff.maxCommandedGLoad : diff.maxCommandedGLoad * 0.7;

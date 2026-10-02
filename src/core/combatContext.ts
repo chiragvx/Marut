@@ -64,6 +64,10 @@ export interface CombatPortWithAirDefence {
 /** The route's target steerpoint became active: load its aim points as aircraft `id`'s designated point (pre-planned target). */
 export interface CombatPortWithBriefing {
   loadBriefedTarget(id: EntityId, points: readonly Vec3Like[]): void;
+  /** Aircraft `id` crashed: the shooter that hit it recently (its kill), if any. Forgets the hit. */
+  creditCrash(id: EntityId, simTimeSec: number): EntityId | undefined;
+  /** An AI strike sortie: select aircraft `id`'s air-to-ground store and designate `point`. False until its weapon system exists (call again next tick). */
+  armStrike(id: EntityId, point: Vec3Like): boolean;
 }
 
 /** Stores still on aircraft `id`'s station `hardpointId` (undefined until combat has seen the aircraft, or no such weapon station). */

@@ -13,7 +13,7 @@
  * extension `world.ts`'s concrete `combatCtx` object satisfies structurally.
  */
 
-import { EntityKind, MAX_RWR_CONTACTS, NO_ENTITY_ID, RWR_SYMBOLS, STORE_IDS } from '../contracts/core';
+import { EntityKind, MAX_RWR_CONTACTS, NO_ENTITY_ID, RWR_SYMBOLS, STORE_IDS, isAirToGroundKind } from '../contracts/core';
 import type { CombatStatus, Contact, EntityId, EntityState, SimEvent, Vec3Like } from '../contracts/core';
 import type { CombatPort, CombatTickContext, EventQueue } from '../contracts/sim';
 import type { LoadoutPreset } from '../contracts/aircraft';
@@ -37,6 +37,8 @@ import {
   combatRand01,
   updateAgSight,
   loadBriefedTarget,
+  designatePoint,
+  cycleSelectedStore,
   updatePod,
   AirDefenceNetwork,
   type AdEmission,
@@ -114,6 +116,8 @@ const RWR_RANGE_M = 250000;
 const AIRCRAFT_RWR_SYMBOL: Readonly<Record<string, string>> = { 'jf-17': 'J', 'f-16': 'F', 'tejas-mk1a': 'T' };
 /** A laser-guided bomb's owner lases for it in its last seconds of flight; its seeker sees a spot out to this range. */
 const LASE_TERMINAL_SEC = 12;
+/** An aircraft that crashes within this long of being hit is the shooter's kill, s. */
+const CRASH_CREDIT_SEC = 90;
 /** Anti-radiation missiles: a pre-briefed one looks for a radar within this of its point once this close; inside this, its memory of a radar that falls silent is exact. */
 const ARM_BRIEFED_SEARCH_M = 25000;
 const ARM_BRIEFED_RADIUS_M = 1500;
@@ -138,6 +142,8 @@ function signatureFor(defId: string | undefined): { radar: RadarSignature; hitEl
 
 export function createCombatAdapter(): CombatPort & CombatPortWithContacts & CombatPortWithRearm & CombatPortWithStores & CombatPortWithAirDefence & CombatPortWithBriefing {
   const weaponsStates = new Map<EntityId, WeaponsState>();
+  /** Aircraft hit but not (yet) killed: who hit them last and when (a crippled jet that crashes later is that shooter's kill). */
+  const lastHitBy = new Map<EntityId, { sourceId: EntityId; timeSec: number }>();
   const detectableScratch: DetectableEntity[] = [];
   // Reused view over detectableScratch[0..liveCount), rebuilt (references
   // only, no new DetectableEntity objects) every tick instead of
@@ -340,6 +346,20 @@ export function createCombatAdapter(): CombatPort & CombatPortWithContacts & Com
     loadBriefedTarget(id: EntityId, points: readonly Vec3Like[]): void {
       const st = weaponsStates.get(id);
       if (st) loadBriefedTarget(st, points);
+    },
+
+    creditCrash(id: EntityId, simTimeSec: number): EntityId | undefined {
+      const h = lastHitBy.get(id);
+      lastHitBy.delete(id);
+      return h && h.timeSec <= simTimeSec && simTimeSec - h.timeSec < CRASH_CREDIT_SEC ? h.sourceId : undefined;
+    },
+
+    armStrike(id: EntityId, point: Vec3Like): boolean {
+      const st = weaponsStates.get(id);
+      if (!st) return false;
+      for (let k = 0; k < st.stations.length + 1 && !isAirToGroundKind(st.selectedWeapon); k++) cycleSelectedStore(st);
+      designatePoint(st, point);
+      return true;
     },
 
     getContacts(id: EntityId): readonly Contact[] {
@@ -607,7 +627,7 @@ export function createCombatAdapter(): CombatPort & CombatPortWithContacts & Com
             }
           }
         }
-        adNetwork?.armInbound(e.id, e.pos, e.vel, ctx.simTimeSec);
+        adNetwork?.armInbound(e.id, e.team, e.pos, e.vel, ctx.simTimeSec);
       }
       laserSpotCount = 0;
 
@@ -689,7 +709,12 @@ export function createCombatAdapter(): CombatPort & CombatPortWithContacts & Com
               for (const ev of hitEventsScratch) eventsOut.push(ev);
               // The kill, credited to the shooter (once: later hits on the wreck don't count). World
               // turns the destroyed airframe into a crash on its next step.
-              if (hit.targetLethal && wasIntact) eventsOut.push({ type: 'kill', targetId, sourceId: projectile.ownerId });
+              if (hit.targetLethal && wasIntact) {
+                eventsOut.push({ type: 'kill', targetId, sourceId: projectile.ownerId });
+                lastHitBy.delete(targetId);
+              } else if (wasIntact && targetState.kind === EntityKind.Aircraft && hitEventsScratch.some((ev) => ev.type === 'hit')) {
+                lastHitBy.set(targetId, { sourceId: projectile.ownerId, timeSec: ctx.simTimeSec });
+              }
             }
           }
         }

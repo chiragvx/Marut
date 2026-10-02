@@ -145,6 +145,22 @@ export const MISSIONS: readonly MissionEntry[] = [
     situation: 'Four SAAW glide bombs, released from 9 km, glide 40 km and more onto pre-planned aim points: two cuts across each Shahbaz runway leave no strip long enough to fly from. The LY-80 battery at Shahbaz reaches 40 km: stay outside it. Fly to the LAR (launch area) steerpoint; when you pass it the runway aim points load as the designated point (the pod looks at them, the DLZ cue shows IN RANGE). Tab to SAAW and press the release button four times: each bomb takes the next aim point. Then turn for home.',
   },
   {
+    id: 'border-defence',
+    title: 'Base Defence',
+    baseId: 'bathinda',
+    bandits: 6,
+    objective: 'Break up a PAF raid on Bhisiana: strike, SEAD and escort.',
+    situation: 'Six JF-17s are coming for Bhisiana. A strike pair is running in at low level, under the radar, with Mk 82 Snakeye bombs for the fuel depot and the technical area. A SEAD pair at 6,500 m carries MAR-1 anti-radiation missiles for our Akash battery west of the base. Two more JF-17s escort them with SD-10s. Our MR-SAM east of the base covers high and far, Akash and SPYDER the base itself; the low-level strikers are your job. Keep the fuel depot, the technical area and the Akash battery standing, and destroy the raid.',
+  },
+  {
+    id: 'border-scramble',
+    title: 'Scramble',
+    baseId: 'bathinda',
+    bandits: 6,
+    objective: 'Scramble from the shelter and stop the raid before it reaches the base.',
+    situation: 'The same raid, and you are on alert in your shelter. Start up, taxi (H for guidance), take off and find the low-level strikers before they reach the fuel depot: about five minutes out. The air defences will hold the high threats while you get airborne.',
+  },
+  {
     id: 'konkan-dogfight',
     title: 'Sea Duel',
     baseId: 'hansa',

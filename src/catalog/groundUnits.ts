@@ -73,7 +73,7 @@ export const SITE_TEMPLATES: Readonly<Record<string, SiteTemplate>> = {
   'sam-lr-battery': {
     id: 'sam-lr-battery',
     name: 'HQ-9/P battery',
-    airDefence: { name: 'HQ-9/P', rwrSymbol: '9', sensor: 'radar', weapon: 'hq-9-msl', searchRangeM: 150000, trackRangeM: 120000, minRangeM: 6000, maxRangeM: 120000, maxAltM: 25000, minAltAglM: 30, lockTimeSec: 4, salvo: 2, salvoIntervalSec: 4 },
+    airDefence: { name: 'HQ-9/P', rwrSymbol: '9', sensor: 'radar', weapon: 'hq-9-msl', searchRangeM: 150000, trackRangeM: 120000, minRangeM: 6000, maxRangeM: 80000, maxAltM: 25000, minAltAglM: 30, lockTimeSec: 4, salvo: 2, salvoIntervalSec: 4 },
     units: [
       { type: 'radar-search', dx: -60, dz: 0 },
       { type: 'radar-track', dx: 100, dz: 0 },
@@ -96,6 +96,51 @@ export const SITE_TEMPLATES: Readonly<Record<string, SiteTemplate>> = {
       { type: 'radar-track', dx: 0, dz: 0 },
       { type: 'sam-tel-sr', dx: 80, dz: 60 },
       { type: 'sam-tel-sr', dx: 80, dz: -60 },
+    ],
+  },
+  // --- Friendly (Indian) air defence ---
+  // Akash battery: the 3D central acquisition radar, the Rajendra phased-array fire-control radar,
+  // four launchers (three missiles each).
+  'akash-battery': {
+    id: 'akash-battery',
+    name: 'Akash battery',
+    airDefence: { name: 'Akash', rwrSymbol: 'AK', sensor: 'radar', weapon: 'akash-msl', searchRangeM: 90000, trackRangeM: 60000, minRangeM: 4000, maxRangeM: 27000, maxAltM: 18000, minAltAglM: 30, lockTimeSec: 3, salvo: 2, salvoIntervalSec: 3 },
+    units: [
+      { type: 'radar-search', dx: -80, dz: 0 },
+      { type: 'radar-track', dx: 60, dz: 0 },
+      { type: 'sam-tel', dx: 260, dz: 150 },
+      { type: 'sam-tel', dx: 260, dz: -150, headingRad: 0.2 },
+      { type: 'sam-tel', dx: -60, dz: 280, headingRad: -0.3 },
+      { type: 'sam-tel', dx: -60, dz: -280, headingRad: 0.3 },
+      { type: 'command-post', dx: -120, dz: 70, headingRad: 1.3 },
+      { type: 'generator', dx: -130, dz: 95, headingRad: 1.3 },
+    ],
+  },
+  // SPYDER-SR: the EL/M-2106 search radar and command vehicle, two launch trucks (Derby).
+  'spyder-sr': {
+    id: 'spyder-sr',
+    name: 'SPYDER-SR',
+    airDefence: { name: 'SPYDER', rwrSymbol: 'SP', sensor: 'radar', weapon: 'spyder-derby', searchRangeM: 35000, trackRangeM: 25000, minRangeM: 1000, maxRangeM: 15000, maxAltM: 9000, minAltAglM: 20, lockTimeSec: 2, salvo: 2, salvoIntervalSec: 2 },
+    units: [
+      { type: 'radar-track', dx: 0, dz: 0 },
+      { type: 'sam-tel-sr', dx: 90, dz: 70 },
+      { type: 'sam-tel-sr', dx: 90, dz: -70, headingRad: 0.2 },
+      { type: 'command-post', dx: -60, dz: 40, headingRad: 1.2 },
+    ],
+  },
+  // MR-SAM (Barak-8): the EL/M-2084 multi-mission radar and three launchers.
+  'mrsam-battery': {
+    id: 'mrsam-battery',
+    name: 'MR-SAM battery',
+    airDefence: { name: 'MR-SAM', rwrSymbol: 'MR', sensor: 'radar', weapon: 'mrsam-msl', searchRangeM: 200000, trackRangeM: 100000, minRangeM: 1500, maxRangeM: 70000, maxAltM: 16000, minAltAglM: 25, lockTimeSec: 3, salvo: 2, salvoIntervalSec: 3 },
+    units: [
+      { type: 'radar-search', dx: 0, dz: 0 },
+      { type: 'radar-track', dx: 90, dz: 30 },
+      { type: 'sam-tel-lr', dx: 350, dz: 0 },
+      { type: 'sam-tel-lr', dx: 200, dz: 300, headingRad: 0.25 },
+      { type: 'sam-tel-lr', dx: 200, dz: -300, headingRad: -0.25 },
+      { type: 'command-post', dx: -110, dz: 70, headingRad: 1.4 },
+      { type: 'generator', dx: -120, dz: 95, headingRad: 1.4 },
     ],
   },
   // Two twin 35 mm guns with their Skyguard fire-control radar.

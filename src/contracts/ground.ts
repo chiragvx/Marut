@@ -176,6 +176,8 @@ export const GroundObjectiveKind = {
   SuppressGroup: 'suppress_group',
   /** params: { airportId: string, runwayId?: string } — every runway of the airport (or that one) cratered so no minimum operating strip is left. */
   CloseRunway: 'close_runway',
+  /** params: { airportId: string, group?: string, fraction?: number (default 0.5) } — the mission fails if more than 1 - fraction of the airbase's structures (of that layout group) are destroyed. */
+  ProtectStructures: 'protect_structures',
 } as const;
 export type GroundObjectiveKind = (typeof GroundObjectiveKind)[keyof typeof GroundObjectiveKind];
 

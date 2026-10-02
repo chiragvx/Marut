@@ -810,6 +810,160 @@ export const HAMMER_250: WeaponProfile = guidedStore({
 });
 
 /**
+ * Mk 82: the US 500 lb low-drag general-purpose bomb (241 kg, 89 kg Tritonal), carried by the PAF's
+ * JF-17s; the Snakeye version opens a retarding tail for low-level release.
+ */
+export const MK82: WeaponProfile = agStore({
+  id: 'mk-82',
+  name: 'Mk 82 (500 lb)',
+  label: 'MK82',
+  short: 'M82',
+  kind: 'bomb',
+  carriageMassKg: 241,
+  carriageDragAreaM2: 0.05,
+  projectileMassKg: 241,
+  dragCoeff: 0.2,
+  crossSectionM2: 0.0585,
+  maxLifetimeSec: 120,
+  armDistanceM: 150,
+  launchSpeedMps: 2,
+  warhead: { explosiveKg: 89 },
+});
+export const MK82_SE: WeaponProfile = agStore({
+  id: 'mk-82-se',
+  name: 'Mk 82 Snakeye (retarded)',
+  label: 'MK82 SE',
+  short: 'M82R',
+  kind: 'bomb',
+  carriageMassKg: 252,
+  carriageDragAreaM2: 0.06,
+  projectileMassKg: 252,
+  dragCoeff: 0.22,
+  crossSectionM2: 0.0585,
+  maxLifetimeSec: 120,
+  armDistanceM: 60,
+  launchSpeedMps: 2,
+  warhead: { explosiveKg: 89 },
+  bomb: { retardAfterSec: 0.3, retardCdA: 0.9 },
+});
+
+/**
+ * MAR-1: Brazilian anti-radiation missile (274 kg, ~60 km, 90 kg warhead), integrated on the
+ * PAF's JF-17. Fired pre-briefed at a radar site's position (it looks for a radar there) or at an
+ * emitter its launcher hears.
+ */
+export const MAR1: WeaponProfile = guidedStore({
+  id: 'mar-1',
+  name: 'MAR-1 (anti-radiation)',
+  label: 'MAR-1',
+  short: 'MAR',
+  kind: 'arm',
+  carriageMassKg: 274,
+  carriageDragAreaM2: 0.06,
+  projectileMassKg: 274,
+  dragCoeff: 0.2,
+  crossSectionM2: 0.0638,
+  maxLifetimeSec: 180,
+  armDistanceM: 600,
+  launchSpeedMps: 20,
+  motorBurnSec: 6,
+  motorThrustN: 26000,
+  pnGain: 3,
+  maxG: 20,
+  warhead: { explosiveKg: 40 },
+  arm: { seekerHalfAngleDeg: 40, maxRangeM: 60000, memoryErrorM: 300 },
+  flight: {
+    sustainBurnSec: 20, sustainThrustN: 3500, propellantMassKg: 100, liftAreaM2: 0.35, clMax: 2, inducedDragK: 0.25,
+    waveDragRise: 0.4, autopilotTauSec: 0.3, seekerNoiseMrad: 0.8, seekerUpdateSec: 0.05, glideSpeedMps: 300, glideAngleRad: 0.06, minSpeedMps: 150,
+  },
+});
+
+/**
+ * Akash Mk1 (DRDO / BDL): Indian Army and IAF medium-range SAM: 720 kg, 350 mm, 5.8 m,
+ * integrated rocket-ramjet (Mach 2.5+ all the way), command guidance from the Rajendra
+ * phased-array radar; 4.5-25 km (30 km for Akash-1S), up to 18 km altitude; 60 kg warhead.
+ */
+export const AKASH_MSL: WeaponProfile = radarMissile({
+  id: 'akash-msl',
+  name: 'Akash missile',
+  label: 'AKASH',
+  short: 'AKS',
+  carriageMassKg: 720,
+  carriageDragAreaM2: 0,
+  projectileMassKg: 720,
+  dragCoeff: 0.3,
+  crossSectionM2: 0.0962,
+  maxLifetimeSec: 60,
+  armDistanceM: 400,
+  launchSpeedMps: 40,
+  motorBurnSec: 4,
+  motorThrustN: 120000,
+  pnGain: 4,
+  maxG: 25,
+  proximityFuseRadiusM: 15,
+  minLaunchRangeM: 0,
+  radar: { maxRangeM: 30000, activeSeekerRangeM: 10000, activeSeekerHalfAngleRad: 20 * D2R, gSaturationLostSec: 3, chaffResistance: 0.6, siteGuided: true },
+  flight: {
+    sustainBurnSec: 22, sustainThrustN: 16000, propellantMassKg: 330, liftAreaM2: 0.5, clMax: 2.5, inducedDragK: 0.3,
+    waveDragRise: 0.4, autopilotTauSec: 0.25, seekerNoiseMrad: 1.5, seekerUpdateSec: 0.05, datalinkIntervalSec: 0.2,
+    datalinkErrMrad: 1.5, minSpeedMps: 300,
+  },
+  lethality: { fuzeReliability: 0.95, pkDirect: 0.92, pkAtLethalRadius: 0.35, lethalRadiusM: 15 },
+  warhead: { explosiveKg: 60 },
+});
+
+/**
+ * SPYDER-SR (Rafael): the Derby fired from a truck, with a booster for the ground launch;
+ * active radar seeker, 1-15 km, up to 9 km altitude.
+ */
+export const SPYDER_DERBY: WeaponProfile = {
+  ...DERBY,
+  id: 'spyder-derby',
+  name: 'SPYDER Derby',
+  label: 'SPYDER',
+  short: 'SPY',
+  maxLifetimeSec: 40,
+  launchSpeedMps: 30,
+  motorBurnSec: 5,
+  motorThrustN: 26000,
+  radar: { maxRangeM: 15000, activeSeekerRangeM: 12000, activeSeekerHalfAngleRad: 25 * D2R, gSaturationLostSec: 2, chaffResistance: 0.6 },
+  flight: { ...DERBY.flight!, propellantMassKg: 60, loftRad: 0, minSpeedMps: 300, datalinkIntervalSec: 0.2 },
+};
+
+/**
+ * MR-SAM (Barak-8, DRDO/IAI): 275 kg, 225 mm, 4.5 m, dual-pulse motor, active radar seeker with a
+ * datalink from the EL/M-2084 MF-STAR radar; ~70 km, up to 16 km altitude.
+ */
+export const MRSAM_MSL: WeaponProfile = radarMissile({
+  id: 'mrsam-msl',
+  name: 'MR-SAM (Barak-8)',
+  label: 'MRSAM',
+  short: 'MRS',
+  carriageMassKg: 275,
+  carriageDragAreaM2: 0,
+  projectileMassKg: 275,
+  dragCoeff: 0.25,
+  crossSectionM2: 0.0398,
+  maxLifetimeSec: 110,
+  armDistanceM: 400,
+  launchSpeedMps: 40,
+  motorBurnSec: 6,
+  motorThrustN: 42000,
+  pnGain: 4,
+  maxG: 40,
+  proximityFuseRadiusM: 12,
+  minLaunchRangeM: 0,
+  radar: { maxRangeM: 70000, activeSeekerRangeM: 15000, activeSeekerHalfAngleRad: 25 * D2R, gSaturationLostSec: 3, chaffResistance: 0.7 },
+  flight: {
+    sustainBurnSec: 14, sustainThrustN: 6000, propellantMassKg: 130, liftAreaM2: 0.3, clMax: 2.5, inducedDragK: 0.3,
+    waveDragRise: 0.4, autopilotTauSec: 0.2, seekerNoiseMrad: 1.0, seekerUpdateSec: 0.05, datalinkIntervalSec: 0.5,
+    datalinkErrMrad: 2, loftRad: 0.25, minSpeedMps: 300,
+  },
+  lethality: { fuzeReliability: 0.95, pkDirect: 0.93, pkAtLethalRadius: 0.35, lethalRadiusM: 12 },
+  warhead: { explosiveKg: 60 },
+});
+
+/**
  * DRDO Smart Anti-Airfield Weapon (SAAW): a ~125 kg glide bomb with pop-out wings, GPS/INS
  * guidance and a penetrating warhead for runways, shelters and bunkers; up to ~100 km from high
  * altitude. Released at coordinates (the designated point, or the route's pre-planned aim points
@@ -879,8 +1033,9 @@ export const SENSOR_PODS: Readonly<Record<string, SensorPodProfile>> = {
 
 // --- Surface-to-air weapons (hostile air defences; public-data approximations). Radar-guided SAMs
 // guide on their site's engagement radar (semi-active / command / track-via-missile): they are
-// "datalinked" only while that radar tracks the target (activeSeekerRangeM 0 = no autonomous
-// terminal seeker), so a radar that shuts down or is destroyed leaves them flying blind.
+// "datalinked" only while that radar tracks the target, and their terminal homing (inside
+// activeSeekerRangeM) needs it too (radar.siteGuided), so a radar that shuts down or is destroyed
+// leaves them flying blind on their last track.
 
 /** LY-80 (HQ-16) medium-range SAM: 615 kg, 340 mm, 5.2 m; Mach 3; semi-active radar; ~40 km, 15 km altitude. */
 export const LY80_MSL: WeaponProfile = radarMissile({
@@ -902,7 +1057,7 @@ export const LY80_MSL: WeaponProfile = radarMissile({
   maxG: 30,
   proximityFuseRadiusM: 15,
   minLaunchRangeM: 0,
-  radar: { maxRangeM: 40000, activeSeekerRangeM: 0, activeSeekerHalfAngleRad: 20 * D2R, gSaturationLostSec: 3, chaffResistance: 0.5 },
+  radar: { maxRangeM: 40000, activeSeekerRangeM: 15000, activeSeekerHalfAngleRad: 20 * D2R, gSaturationLostSec: 3, chaffResistance: 0.5, siteGuided: true },
   flight: {
     sustainBurnSec: 0, sustainThrustN: 0, propellantMassKg: 260, liftAreaM2: 0.5, clMax: 2.5, inducedDragK: 0.3,
     waveDragRise: 0.4, autopilotTauSec: 0.25, seekerNoiseMrad: 1.5, seekerUpdateSec: 0.05, datalinkIntervalSec: 0.2,
@@ -932,7 +1087,7 @@ export const HQ9_MSL: WeaponProfile = radarMissile({
   maxG: 25,
   proximityFuseRadiusM: 20,
   minLaunchRangeM: 0,
-  radar: { maxRangeM: 125000, activeSeekerRangeM: 0, activeSeekerHalfAngleRad: 25 * D2R, gSaturationLostSec: 3, chaffResistance: 0.65 },
+  radar: { maxRangeM: 125000, activeSeekerRangeM: 20000, activeSeekerHalfAngleRad: 25 * D2R, gSaturationLostSec: 3, chaffResistance: 0.65, siteGuided: true },
   flight: {
     sustainBurnSec: 0, sustainThrustN: 0, propellantMassKg: 650, liftAreaM2: 1.2, clMax: 2.2, inducedDragK: 0.25,
     waveDragRise: 0.35, autopilotTauSec: 0.3, seekerNoiseMrad: 1.0, seekerUpdateSec: 0.05, datalinkIntervalSec: 0.25,
@@ -962,7 +1117,7 @@ export const FM90_MSL: WeaponProfile = radarMissile({
   maxG: 35,
   proximityFuseRadiusM: 8,
   minLaunchRangeM: 0,
-  radar: { maxRangeM: 15000, activeSeekerRangeM: 0, activeSeekerHalfAngleRad: 20 * D2R, gSaturationLostSec: 2, chaffResistance: 0.45 },
+  radar: { maxRangeM: 15000, activeSeekerRangeM: 6000, activeSeekerHalfAngleRad: 20 * D2R, gSaturationLostSec: 2, chaffResistance: 0.45, siteGuided: true },
   flight: {
     sustainBurnSec: 0, sustainThrustN: 0, propellantMassKg: 30, liftAreaM2: 0.2, clMax: 2.8, inducedDragK: 0.3,
     waveDragRise: 0.5, autopilotTauSec: 0.15, seekerNoiseMrad: 1.5, seekerUpdateSec: 0.05, datalinkIntervalSec: 0.1,
@@ -1056,6 +1211,12 @@ export const WEAPONS: Readonly<Record<string, WeaponProfile>> = {
   [GDF_35MM.id]: GDF_35MM,
   [RUDRAM_1.id]: RUDRAM_1,
   [SAAW.id]: SAAW,
+  [MK82.id]: MK82,
+  [MK82_SE.id]: MK82_SE,
+  [MAR1.id]: MAR1,
+  [AKASH_MSL.id]: AKASH_MSL,
+  [SPYDER_DERBY.id]: SPYDER_DERBY,
+  [MRSAM_MSL.id]: MRSAM_MSL,
 };
 
 /** External fuel tanks: capacity, empty mass, drag area. */

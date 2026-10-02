@@ -586,6 +586,20 @@ export interface AiPilotSpawnParams {
   patrolCenterWorld?: Vec3Like;
   patrolRadiusM?: number;
   formation?: AiFormationSlot;
+  /** A strike / SEAD sortie (src/ai/strike.ts): fly to `target` and attack it, then go home. */
+  strike?: AiStrikeTask;
+}
+
+/** An AI air-to-ground sortie. src/core arms the aircraft's weapon system for it (designated point, air-to-ground store selected). */
+export interface AiStrikeTask {
+  /** The aim point (on the ground). */
+  target: Vec3Like;
+  /** Ingress altitude, m MSL (ignored when lowLevelAglM is set). */
+  ingressAltM: number;
+  /** Low-level ingress at this height above the terrain ahead, m. */
+  lowLevelAglM?: number;
+  /** Stand-off weapons (anti-radiation, GPS): released inside this horizontal range, m. */
+  standoffM?: number;
 }
 
 /** Read-only introspection of one AiPilot's current decision state — for src/core (debrief/replay log), src/hud (optional AI debug overlay) and tests. Not consulted by the AI itself as an input (it is the AI's OWN output record, not sensor data). Fields alias the AiPilot's live internal state; a caller that needs a stable snapshot must copy them out before the next `update()` call. */

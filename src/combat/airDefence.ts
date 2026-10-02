@@ -24,10 +24,24 @@ import type { AirDefenceSystem } from '../contracts/ground';
 import { ProjectileKind, type DetectableEntity, type ProjectileSpawnRequest, type WeaponProfile } from '../contracts/combat';
 import { GROUND_UNIT_TYPES, WEAPONS } from '../catalog';
 import { terrainLineOfSight } from './lineOfSight';
+import { velocityAlignQuat } from './gunBallistics';
 
 /** A radar site sees an anti-radiation missile diving at it inside this range, and shuts down with this probability. */
 const ARM_WARNING_M = 30000;
 const ARM_SHUTDOWN_P = 0.65;
+/**
+ * The launch zone against a target flying away is shorter than against one coming in (the missile
+ * has to chase it): the site's maximum range scaled from 1 (closing at 200 m/s or more) down to
+ * 0.45 (opening at 250 m/s).
+ */
+function launchZoneFactor(target: DetectableEntity, centre: Vec3Like, range: number): number {
+  const closing = -((target.pos.x - centre.x) * target.vel.x + (target.pos.y - centre.y) * target.vel.y + (target.pos.z - centre.z) * target.vel.z) / Math.max(range, 1);
+  return Math.max(0.45, Math.min(1, 0.75 + (0.25 * closing) / 200));
+}
+
+/** A SAM leaves its launcher along the line of sight raised by this, and at least this far above the horizon, rad. */
+const SAM_LAUNCH_LIFT_RAD = 0.17;
+const SAM_LAUNCH_MIN_ELEV_RAD = 0.35;
 /** Sensing and target choice run at this rate. */
 const SENSE_HZ = 10;
 /** An ambush site's radars come on when the network sees a target inside this many times its maximum range. */
@@ -179,11 +193,11 @@ export class AirDefenceNetwork {
    * ARM_WARNING_M, heading for it) sees it once and, with probability ARM_SHUTDOWN_P, shuts its
    * radars down for 60-90 s (its SAMs lose guidance: the site is suppressed).
    */
-  armInbound(missileId: EntityId, pos: Vec3Like, vel: Vec3Like, simTimeSec: number): void {
+  armInbound(missileId: EntityId, team: Team, pos: Vec3Like, vel: Vec3Like, simTimeSec: number): void {
     if (this.armsSeen.has(missileId)) return;
     const sp = Math.hypot(vel.x, vel.y, vel.z) || 1;
     for (const site of this.sites) {
-      if (site.spec.system.sensor !== 'radar' || !(site.searching || site.tracking)) continue;
+      if (site.spec.team === team || site.spec.system.sensor !== 'radar' || !(site.searching || site.tracking)) continue;
       const c = siteCentre(site);
       const dx = c.x - pos.x, dy = c.y - pos.y, dz = c.z - pos.z;
       const d = Math.hypot(dx, dy, dz);
@@ -330,7 +344,7 @@ export class AirDefenceNetwork {
     if (!target) return;
     const centre = siteCentre(site);
     const range = distance(target.pos, centre);
-    if (range < sys.minRangeM || range > sys.maxRangeM || target.pos.y - centre.y > sys.maxAltM) return;
+    if (range < sys.minRangeM || range > sys.maxRangeM * launchZoneFactor(target, centre, range) || target.pos.y - centre.y > sys.maxAltM) return;
 
     if (w.kind === 'gun') {
       // Each gun lays a lead-computed burst at the target.
@@ -373,11 +387,22 @@ export class AirDefenceNetwork {
     const dx = target.pos.x - launcher.pos.x, dy = target.pos.y - launcher.pos.y, dz = target.pos.z - launcher.pos.z;
     const len = Math.hypot(dx, dy, dz) || 1;
     const shoulder = role === 'manpads';
-    // Vertical launch from a TEL (a nudge towards the target); a MANPADS is aimed at it.
+    // A MANPADS is aimed at the target. A TEL's missile pitches over towards it straight after the
+    // launch (a vertical launch's turnover, or an inclined launcher): it leaves along the line of
+    // sight raised by SAM_LAUNCH_LIFT_RAD (at least SAM_LAUNCH_MIN_ELEV_RAD), close to a collision
+    // course for proportional navigation to take over.
     const v = w.launchSpeedMps;
-    const vel = shoulder ? { x: (dx / len) * v, y: (dy / len) * v, z: (dz / len) * v } : { x: (dx / len) * 8, y: v, z: (dz / len) * 8 };
+    let vel: Vec3Like;
+    if (shoulder) vel = { x: (dx / len) * v, y: (dy / len) * v, z: (dz / len) * v };
+    else {
+      const h = Math.hypot(dx, dz) || 1;
+      const el = Math.max(Math.atan2(dy, h) + SAM_LAUNCH_LIFT_RAD, SAM_LAUNCH_MIN_ELEV_RAD);
+      vel = { x: (dx / h) * Math.cos(el) * v, y: Math.sin(el) * v, z: (dz / h) * Math.cos(el) * v };
+    }
     const pos = { x: launcher.pos.x, y: launcher.pos.y + (shoulder ? 1.5 : 5), z: launcher.pos.z };
-    outRequests.push({ kind: w.kind === 'ir_missile' ? ProjectileKind.IrMissile : ProjectileKind.RadarMissile, ownerId: launcher.id, team: site.spec.team, posWorld: pos, rotWorld: { x: 0, y: 0, z: 0, w: 1 }, velWorld: vel, targetId: target.id, profile: w });
+    const rot = { x: 0, y: 0, z: 0, w: 1 };
+    velocityAlignQuat(vel.x, vel.y, vel.z, rot);
+    outRequests.push({ kind: w.kind === 'ir_missile' ? ProjectileKind.IrMissile : ProjectileKind.RadarMissile, ownerId: launcher.id, team: site.spec.team, posWorld: pos, rotWorld: rot, velWorld: vel, targetId: target.id, profile: w });
     outEvents.push({ type: 'missileLaunch', shooterId: launcher.id, missileId: NO_ENTITY_ID, weapon: w.kind });
   }
 

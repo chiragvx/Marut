@@ -159,7 +159,51 @@ const MISSILES: Record<string, MissileSpec> = {
     ],
     bands: [1.2, 2.6],
   },
+  'mar-1': {
+    len: 4.0,
+    dia: 0.23,
+    seeker: 'radar',
+    noseLen: 0.5,
+    fins: [
+      { at: 1.3, rootChord: 0.7, tipChord: 0.35, span: 0.14, sweep: 0.3 },
+      { at: 3.6, rootChord: 0.4, tipChord: 0.2, span: 0.2, sweep: 0.15 },
+    ],
+    bands: [1.0, 2.0],
+  },
   // Surface-to-air missiles (in flight only).
+  'akash-msl': {
+    len: 5.78,
+    dia: 0.35,
+    seeker: 'radar',
+    noseLen: 0.9,
+    fins: [
+      { at: 2.0, rootChord: 1.0, tipChord: 0.45, span: 0.22, sweep: 0.45 },
+      { at: 5.2, rootChord: 0.5, tipChord: 0.25, span: 0.28, sweep: 0.2 },
+    ],
+    bands: [1.4, 2.8],
+  },
+  'spyder-derby': {
+    len: 3.62,
+    dia: 0.16,
+    seeker: 'radar',
+    noseLen: 0.45,
+    fins: [
+      { at: 0.6, rootChord: 0.25, tipChord: 0.08, span: 0.1, sweep: 0.15 },
+      { at: 3.2, rootChord: 0.35, tipChord: 0.2, span: 0.16, sweep: 0.12 },
+    ],
+    bands: [0.8, 1.5],
+  },
+  'mrsam-msl': {
+    len: 4.5,
+    dia: 0.225,
+    seeker: 'radar',
+    noseLen: 0.6,
+    fins: [
+      { at: 1.6, rootChord: 0.6, tipChord: 0.25, span: 0.14, sweep: 0.3 },
+      { at: 4.0, rootChord: 0.4, tipChord: 0.2, span: 0.2, sweep: 0.15 },
+    ],
+    bands: [1.1, 2.2],
+  },
   'ly-80-msl': {
     len: 5.2,
     dia: 0.34,
@@ -230,6 +274,8 @@ const BOMBS: Record<string, BombSpec> = {
   'griffin-lgb': { len: 4.3, dia: 0.36, noseLen: 1.1, retarded: false },
   'hammer-250': { len: 3.1, dia: 0.32, noseLen: 0.8, retarded: false },
   saaw: { len: 1.9, dia: 0.26, noseLen: 0.45, retarded: false },
+  'mk-82': { len: 2.21, dia: 0.273, noseLen: 0.7, retarded: false },
+  'mk-82-se': { len: 2.21, dia: 0.273, noseLen: 0.7, retarded: true },
 };
 /** Rocket pods: B-8M1 (20 x 80 mm), 2.75 m, 520 mm. */
 const PODS: Record<string, { len: number; dia: number }> = {

@@ -206,7 +206,7 @@ const _segEnd: Vec3Like = { x: 0, y: 0, z: 0 };
 const _ellipsoidResult = { hit: false, tEntry: NaN };
 const _impactPos: Vec3Like = { x: 0, y: 0, z: 0 };
 
-function velocityAlignQuat(velX: number, velY: number, velZ: number, out: QuatLike): void {
+export function velocityAlignQuat(velX: number, velY: number, velZ: number, out: QuatLike): void {
   const speed = Math.sqrt(velX * velX + velY * velY + velZ * velZ);
   if (speed < 1e-6) {
     out.x = 0; out.y = 0; out.z = 0; out.w = 1;

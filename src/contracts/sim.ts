@@ -234,6 +234,7 @@ export interface AiPilotSpawnParamsLike {
   patrolCenterWorld?: Vec3Like;
   patrolRadiusM?: number;
   formation?: AiFormationSlotLike;
+  strike?: { target: Vec3Like; ingressAltM: number; lowLevelAglM?: number; standoffM?: number };
 }
 
 /** Creates a `Pilot` (core.ts) for an AI-controlled aircraft. Implemented (as an adapter) by `src/core/aiPilotAdapter.ts`, wrapping module 06's real `createAiPilot` factory. */

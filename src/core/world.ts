@@ -280,6 +280,8 @@ class WorldImpl implements World {
   /** The player's active route steerpoint (mission.route index; route.length once flown, -1 without a route), and the target steerpoint last loaded as the SPI. */
   private routeIndex = -1;
   private briefedRouteIndex = -1;
+  /** AI strike aircraft whose weapon system still has to be armed for the sortie (target point). */
+  private readonly pendingStrikeArm = new Map<EntityId, Vec3Like>();
   /** Ground-collision check (player): the last recovery clearance, when it runs next, how long PULL UP is held. */
   private gcasClearance = GCAS_NO_THREAT_M;
   private gcasDueSec = 0;
@@ -491,6 +493,13 @@ class WorldImpl implements World {
           patrolRadiusM: flight.patrolRadiusM,
           formation,
         };
+        const sk = flight.strike;
+        const aim = sk && sk.targets.length > 0 ? sk.targets[j % sk.targets.length]! : undefined;
+        if (sk && aim) {
+          const target = { x: aim.x, y: this.deps.sampler.heightAt(aim.x, aim.z), z: aim.z };
+          params.strike = { target, ingressAltM: sk.ingressAltM ?? 6000, ...(sk.lowLevelAglM !== undefined ? { lowLevelAglM: sk.lowLevelAglM } : {}), standoffM: sk.standoffM ?? 30000 };
+          this.pendingStrikeArm.set(entityId, target);
+        }
         const pilot = this.deps.createAiPilot(params);
         this.pilots.set(entityId, pilot);
         const rec = this.aircraft.get(entityId);
@@ -584,6 +593,13 @@ class WorldImpl implements World {
     }
   }
 
+  /** Arms AI strike aircraft once their weapon systems exist (the first combat step after spawn). */
+  private armStrikes(): void {
+    if (this.pendingStrikeArm.size === 0) return;
+    const port = this.deps.combat as Partial<CombatPortWithBriefing>;
+    for (const [id, p] of this.pendingStrikeArm) if (!port.armStrike || port.armStrike(id, p)) this.pendingStrikeArm.delete(id);
+  }
+
   /** The route and ground-collision fields of the HUD block (SnapshotHudExt). */
   private writeHudExt(out: Float64Array, state: EntityState | undefined): void {
     const o = HUD_BLOCK_START + HUD_EXT_BASE;
@@ -642,6 +658,7 @@ class WorldImpl implements World {
     this.simTimeSecInternal = 0;
     this.playerEntityIdInternal = NO_ENTITY_ID;
     this.hostileAircraftIds.clear();
+    this.pendingStrikeArm.clear();
     this.missionEndedThisLoad = false;
     this.service.state = ServiceStateCode.None;
     this.service.active = false;
@@ -1024,6 +1041,9 @@ class WorldImpl implements World {
         const isStructureAliveNow = damage.structurePct > 0;
         if (rec.wasStructureAlive && !isStructureAliveNow) {
           this.eventQueue.push({ type: 'crash', entityId: state.id, pos: { x: state.pos.x, y: state.pos.y, z: state.pos.z } });
+          // Crippled by a hit and down since: the shooter's kill.
+          const shooter = (this.deps.combat as Partial<CombatPortWithBriefing>).creditCrash?.(state.id, this.simTimeSecInternal);
+          if (shooter !== undefined) this.eventQueue.push({ type: 'kill', targetId: state.id, sourceId: shooter });
           state.alive = false;
           state.hp = 0;
         }
@@ -1036,6 +1056,7 @@ class WorldImpl implements World {
     this.ground.step(SIM_DT_SEC_LOCAL);
     this.syncGroundUnits();
     this.stepRoute();
+    this.armStrikes();
 
     // Step 7: ground service (refuel + re-arm) of the player.
     this.stepService(SIM_DT_SEC_LOCAL);
@@ -1194,10 +1215,14 @@ class WorldImpl implements World {
       return { outcome: MissionOutcome.Failure, objectivesCompleted: [] };
     }
 
-    // Protect objectives fail the mission as soon as too much of the group is lost.
+    // Protect objectives fail the mission as soon as too much of the group (or the base's structures) is lost.
     for (const obj of mission.objectives) {
-      if (obj.kind !== GroundObjectiveKind.ProtectGroup) continue;
-      const c = this.ground.count((t) => t.groupId === obj.params.group && t.entityId >= 0);
+      if (obj.kind !== GroundObjectiveKind.ProtectGroup && obj.kind !== GroundObjectiveKind.ProtectStructures) continue;
+      const prefix = `${String(obj.params.airportId)}:`;
+      const c =
+        obj.kind === GroundObjectiveKind.ProtectGroup
+          ? this.ground.count((t) => t.groupId === obj.params.group && t.entityId >= 0)
+          : this.ground.count((t) => t.entityId < 0 && t.targetId.startsWith(prefix) && (obj.params.group === undefined || t.groupId === obj.params.group));
       const keep = typeof obj.params.fraction === 'number' ? obj.params.fraction : 0.5;
       if (c.total > 0 && (c.total - c.destroyed) / c.total < keep) return { outcome: MissionOutcome.Failure, objectivesCompleted: [] };
     }
@@ -1254,6 +1279,7 @@ class WorldImpl implements World {
         return c.total > 0 && c.destroyed >= Math.ceil(c.total * need - 1e-9);
       }
       case GroundObjectiveKind.ProtectGroup:
+      case GroundObjectiveKind.ProtectStructures:
         // Complete while held (failure is checked separately): it lets a strike end with success.
         return true;
       case GroundObjectiveKind.CloseRunway:

@@ -26,6 +26,10 @@ import { decideWeaponEmployment, createWeaponEmploymentState, type WeaponEmploym
 import { resolveHomeRunway, buildLandingGoal } from './landing';
 import { buildPatrolGoal, buildRtbGoal, buildInterceptGoal } from './patrol';
 import { evaluateTacticalTransition, buildGoalForEngageBvr, buildGoalForMerge, buildGoalForDisengage } from './tacticalFsm';
+import { StrikePhase, buildStrikeGoal, createStrikeState, strikeTerrainClearanceM } from './strike';
+
+/** Tactical states in which a strike sortie flies its own goals (it does not chase fighters; it still defends itself and fights a close threat). */
+const STRIKE_STATES: ReadonlySet<string> = new Set<string>([TacticalState.Patrol, TacticalState.Intercept, TacticalState.EngageBvr, TacticalState.Merge]);
 
 /**
  * `EntityId`s pack index (low) + generation (high) with plain arithmetic
@@ -100,6 +104,8 @@ class AiPilotImpl implements AiPilot {
   private readonly formationScratchVec3 = { x: 0, y: 0, z: 0 };
   /** Seconds until the next countermeasure program while a missile warning is noticed. */
   private countermeasureTimerSec = 0;
+  private readonly strikeState = createStrikeState();
+  private readonly strikeOut = { launch: false };
 
   // Shallow, per-instance, reused "perceived" view of PilotContext: every
   // field aliases the real ctx's field except `contacts`, which is this
@@ -156,7 +162,7 @@ class AiPilotImpl implements AiPilot {
 
     const leaderAlive = this.formationLeaderAlive(ctx);
 
-    const next = evaluateTacticalTransition(
+    let next = evaluateTacticalTransition(
       this.perceivedCtx,
       this.state,
       this.timeInStateSec,
@@ -166,6 +172,10 @@ class AiPilotImpl implements AiPilot {
       this.params.homeAirportId,
       this.params.homeRunwayId
     );
+    // On a strike sortie the air-to-air "out of ammo / go home" rules wait until the stores are gone.
+    if (this.params.strike && this.strikeState.phase !== StrikePhase.Done && (next === TacticalState.Disengage || next === TacticalState.Rtb || next === TacticalState.Land)) {
+      next = TacticalState.Patrol;
+    }
     if (next !== this.state) {
       this.state = next;
       this.timeInStateSec = 0;
@@ -179,14 +189,31 @@ class AiPilotImpl implements AiPilot {
     this.targetId = target?.id;
     this.targetScore = target !== undefined ? scoreThreatContact(ctx, target, this.diffProfile) : 0;
 
-    this.buildGoalForState(ctx, target, dtSec);
+    // A strike sortie flies its own goals until its stores are gone, then goes home.
+    const task = this.params.strike;
+    let striking = false;
+    if (task && this.strikeState.phase !== StrikePhase.Done && STRIKE_STATES.has(this.state)) {
+      striking = buildStrikeGoal(ctx, task, this.strikeState, dtSec, this.goal, this.strikeOut);
+      if (!striking) {
+        this.state = TacticalState.Rtb;
+        this.timeInStateSec = 0;
+      }
+    }
+    if (!striking) this.buildGoalForState(ctx, target, dtSec);
 
-    const override = computeTerrainAvoidanceGoal(ctx, this.goal, dtSec, this.diffProfile);
+    const floor = task ? strikeTerrainClearanceM(task, this.strikeState) : undefined;
+    const override = computeTerrainAvoidanceGoal(ctx, this.goal, dtSec, this.diffProfile, floor);
     const activeGoal = override ?? this.goal;
 
     this.steerToGoalFn(ctx, activeGoal, dtSec, out);
 
     decideWeaponEmployment(ctx, target, this.diffProfile, this.timeInStateSec, dtSec, this.weaponEmploymentState, this.rng, out);
+    if (striking) {
+      // The release button is the sortie's; no air-to-air shots or weapon changes on the run.
+      out.launch = this.strikeOut.launch;
+      out.trigger = false;
+      out.cycleWeapon = false;
+    }
     out.cycleTarget = target?.id !== prevTargetId;
     // Countermeasures: once the missile warning is noticed, flares and chaff together every
     // COUNTERMEASURE_INTERVAL_SEC (a one-tick press each, since the keys are edge-detected).

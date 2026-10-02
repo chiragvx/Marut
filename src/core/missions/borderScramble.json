@@ -1,0 +1,183 @@
+{
+  "id": "border-scramble",
+  "name": "Scramble \u2014 raid inbound to Bhisiana",
+  "seed": 2022,
+  "terrain": {
+    "seed": 1947,
+    "theatre": "border"
+  },
+  "airportIds": [
+    "bhisiana-afs",
+    "pafb-shahbaz"
+  ],
+  "playerStart": {
+    "airportId": "bhisiana-afs",
+    "parkingSpotId": "HAS-7",
+    "loadoutId": "cap",
+    "speedMps": 0
+  },
+  "aiFlights": [
+    {
+      "id": "strike",
+      "aircraftId": "jf-17",
+      "team": 1,
+      "difficulty": "veteran",
+      "count": 2,
+      "startPos": {
+        "x": -38000,
+        "y": 350,
+        "z": 9000
+      },
+      "startHeadingRad": 1.9,
+      "startSpeedMps": 240,
+      "homeAirportId": "pafb-shahbaz",
+      "loadoutId": "strike",
+      "strike": {
+        "targets": [
+          {
+            "x": 30850,
+            "z": -12400
+          },
+          {
+            "x": 30605,
+            "z": -11412
+          }
+        ],
+        "lowLevelAglM": 120
+      }
+    },
+    {
+      "id": "sead",
+      "aircraftId": "jf-17",
+      "team": 1,
+      "difficulty": "veteran",
+      "count": 2,
+      "startPos": {
+        "x": -40000,
+        "y": 6500,
+        "z": 3000
+      },
+      "startHeadingRad": 1.75,
+      "startSpeedMps": 240,
+      "homeAirportId": "pafb-shahbaz",
+      "loadoutId": "sead",
+      "strike": {
+        "targets": [
+          {
+            "x": 26060,
+            "z": -9000
+          },
+          {
+            "x": 25920,
+            "z": -9000
+          }
+        ],
+        "ingressAltM": 6500,
+        "standoffM": 42000
+      }
+    },
+    {
+      "id": "escort",
+      "aircraftId": "jf-17",
+      "team": 1,
+      "difficulty": "veteran",
+      "count": 2,
+      "startPos": {
+        "x": -36000,
+        "y": 7500,
+        "z": 1000
+      },
+      "startHeadingRad": 1.75,
+      "startSpeedMps": 240,
+      "homeAirportId": "pafb-shahbaz",
+      "loadoutId": "bvr",
+      "patrolCenterWorld": {
+        "x": 5000,
+        "y": 7500,
+        "z": -3000
+      },
+      "patrolRadiusM": 12000
+    }
+  ],
+  "weather": {
+    "windWorldMps": {
+      "x": -1.5,
+      "y": 0,
+      "z": 0.5
+    },
+    "gustMps": 1,
+    "turbulence": 0.05
+  },
+  "objectives": [
+    {
+      "id": "obj-fuel",
+      "kind": "protect_structures",
+      "description": "Keep at least half of the Bhisiana fuel depot standing.",
+      "params": {
+        "airportId": "bhisiana-afs",
+        "group": "fuel-depot",
+        "fraction": 0.5
+      }
+    },
+    {
+      "id": "obj-tech",
+      "kind": "protect_structures",
+      "description": "Keep at least half of the Bhisiana technical area standing.",
+      "params": {
+        "airportId": "bhisiana-afs",
+        "group": "technical",
+        "fraction": 0.5
+      }
+    },
+    {
+      "id": "obj-akash",
+      "kind": "protect_group",
+      "description": "Keep the Akash battery fighting.",
+      "params": {
+        "group": "akash",
+        "fraction": 0.5
+      }
+    },
+    {
+      "id": "obj-raid",
+      "kind": "destroy_all_hostiles",
+      "description": "Destroy the raid: strike, SEAD and escort.",
+      "params": {}
+    }
+  ],
+  "groundGroups": [
+    {
+      "id": "akash",
+      "name": "Akash battery",
+      "team": 0,
+      "template": "akash-battery",
+      "pos": {
+        "x": 26000,
+        "z": -9000
+      },
+      "headingRad": 4.7
+    },
+    {
+      "id": "spyder",
+      "name": "SPYDER-SR",
+      "team": 0,
+      "template": "spyder-sr",
+      "pos": {
+        "x": 31800,
+        "z": -11000
+      },
+      "headingRad": 4.7
+    },
+    {
+      "id": "mrsam",
+      "name": "MR-SAM battery",
+      "team": 0,
+      "template": "mrsam-battery",
+      "pos": {
+        "x": 44000,
+        "z": -6000
+      },
+      "headingRad": 4.7
+    }
+  ]
+}
