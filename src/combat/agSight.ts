@@ -17,6 +17,8 @@ import type { WeaponProfile } from '../contracts/combat';
 
 /** Integration step of the prediction, s, and the longest fall it follows. */
 const PREDICT_DT_SEC = 0.05;
+/** Re-sample the terrain every step within this height of it (every 4th step above). */
+const TERRAIN_NEAR_M = 1500;
 const PREDICT_MAX_SEC = 90;
 
 export interface AgSightResult {
@@ -31,14 +33,24 @@ const GRAVITY = 9.80665;
 
 /**
  * Predicts where store `p` released now from an aircraft at `pos` with velocity `vel` and nose
- * direction `fwd` would meet the ground. Bombs drop off the pylon (launchSpeed down); rockets and
- * gun rounds leave along the nose (launchSpeed forward). Writes `out`; returns it.
+ * direction `fwd` would meet the ground. `pos` should be the store's own station (the release
+ * point). Bombs are ejected along `down` (the aircraft's body down; world down when omitted);
+ * rockets and gun rounds leave along the nose (launchSpeed forward). Writes `out`; returns it.
+ *
+ * Positions advance with the step's mean velocity, which matches stepProjectile's fine-step flight
+ * to well under a metre (plain Euler at this coarse step lands several metres short).
  */
-export function predictImpact(p: WeaponProfile, pos: Vec3Like, vel: Vec3Like, fwd: Vec3Like, sampler: HeightSampler, densityAt: (altM: number) => number, out: AgSightResult): AgSightResult {
+export function predictImpact(p: WeaponProfile, pos: Vec3Like, vel: Vec3Like, fwd: Vec3Like, sampler: HeightSampler, densityAt: (altM: number) => number, out: AgSightResult, down?: Vec3Like): AgSightResult {
   let x = pos.x, y = pos.y, z = pos.z;
   let vx = vel.x, vy = vel.y, vz = vel.z;
   if (p.kind === 'bomb') {
-    vy -= p.launchSpeedMps;
+    if (down) {
+      vx += down.x * p.launchSpeedMps;
+      vy += down.y * p.launchSpeedMps;
+      vz += down.z * p.launchSpeedMps;
+    } else {
+      vy -= p.launchSpeedMps;
+    }
   } else {
     vx += fwd.x * p.launchSpeedMps;
     vy += fwd.y * p.launchSpeedMps;
@@ -63,13 +75,14 @@ export function predictImpact(p: WeaponProfile, pos: Vec3Like, vel: Vec3Like, fw
       ay += vy * k;
       az += vz * k;
     }
-    vx += ax * dt;
-    vy += ay * dt;
-    vz += az * dt;
-    const nx = x + vx * dt, ny = y + vy * dt, nz = z + vz * dt;
-    // The terrain is re-sampled every step once near it (every 8th step while well above it).
+    const nvx = vx + ax * dt, nvy = vy + ay * dt, nvz = vz + az * dt;
+    const nx = x + (vx + nvx) * 0.5 * dt, ny = y + (vy + nvy) * 0.5 * dt, nz = z + (vz + nvz) * 0.5 * dt;
+    vx = nvx;
+    vy = nvy;
+    vz = nvz;
+    // The terrain is re-sampled every step once near it (every 4th step while well above it).
     const stepIndex = Math.round(t / dt);
-    if (ny - ground < 300 || stepIndex % 8 === 0) ground = sampler.heightAt(nx, nz);
+    if (ny - ground < TERRAIN_NEAR_M || stepIndex % 4 === 0) ground = sampler.heightAt(nx, nz);
     if (ny <= ground) {
       // Interpolate to the crossing.
       const f = (y - ground) / Math.max(1e-6, y - ny);

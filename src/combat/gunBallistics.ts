@@ -25,7 +25,7 @@ import { Vec3 } from '../math';
 import { computePnAccel } from './proportionalNavigation';
 import { updateIrGuidance } from './irMissileSeeker';
 import { updateRadarMissileGuidance } from './radarMissile';
-import { segmentHitsEllipsoid, closestApproachOnSegment } from './hitDetection';
+import { segmentHitsEllipsoid } from './hitDetection';
 import { projectileProfile } from './weaponProfiles';
 
 // -----------------------------------------------------------------------------
@@ -338,10 +338,15 @@ export const stepProjectile: StepProjectile = (state, projectile, candidates, sa
     accelZ -= (velZ / speed) * dragAccelMag;
   }
 
-  // Out of energy: after burnout, too slow to manoeuvre -> self-destruct.
+  // Out of energy: after burnout, too slow to manoeuvre. An air-to-air missile stops guiding and
+  // falls away on its own (visible, rather than vanishing mid-air); other stores self-destruct.
   if (fl?.minSpeedMps && projectile.ageSec > boostT + sustT && speed < fl.minSpeedMps) {
-    out.alive = false;
-    return { outcome: ProjectileOutcome.Expired, missDistanceM: NaN };
+    if (kind === ProjectileKind.IrMissile || kind === ProjectileKind.RadarMissile) {
+      projectile.guidance = ProjectileGuidanceMode.Lost;
+    } else {
+      out.alive = false;
+      return { outcome: ProjectileOutcome.Expired, missDistanceM: NaN };
+    }
   }
 
   // 4. Motor thrust (missiles only): boost, then sustain.
@@ -547,18 +552,30 @@ export const stepProjectile: StepProjectile = (state, projectile, candidates, sa
       };
     }
 
-    // Proximity fuzes: air-to-air missiles only (bombs and rockets fuze on impact).
+    // Proximity fuzes: air-to-air missiles only (bombs and rockets fuze on impact). The fuze goes
+    // off at the closest approach to the target, using both bodies' motion over the tick: while the
+    // missile is still closing at the end of the tick it waits, so the miss distance it reports does
+    // not depend on where the tick boundaries happen to fall.
     if (kind === ProjectileKind.IrMissile || kind === ProjectileKind.RadarMissile) {
       const fuseRadius = prof.proximityFuseRadiusM;
       let bestProx: DetectableEntity | undefined;
       let bestProxDist = Infinity;
+      let bestProxT = 0;
       for (let i = 0; i < candidates.length; i++) {
         const c = candidates[i]!;
         if (c.id === projectile.ownerId || c.id === state.id || !c.alive || c.kind !== EntityKind.Aircraft) continue;
-        const dist = closestApproachOnSegment(_segStart, _segEnd, c.pos);
+        // Relative position at the start of the tick (the target's pos is end-of-tick) and its change.
+        const drx = stepDx - c.vel.x * dtSec, dry = stepDy - c.vel.y * dtSec, drz = stepDz - c.vel.z * dtSec;
+        const r0x = posX - (c.pos.x - c.vel.x * dtSec), r0y = posY - (c.pos.y - c.vel.y * dtSec), r0z = posZ - (c.pos.z - c.vel.z * dtSec);
+        const dd = drx * drx + dry * dry + drz * drz;
+        let t = dd > 1e-12 ? -(r0x * drx + r0y * dry + r0z * drz) / dd : 0;
+        t = t < 0 ? 0 : t > 1 ? 1 : t;
+        if (t >= 1) continue; // still closing: the closest approach comes next tick
+        const dist = Math.hypot(r0x + drx * t, r0y + dry * t, r0z + drz * t);
         if (dist <= fuseRadius && dist < bestProxDist) {
           bestProxDist = dist;
           bestProx = c;
+          bestProxT = t;
         }
       }
       if (bestProx && lethality && rand01(projectile) > lethality.fuzeReliability) {
@@ -567,16 +584,9 @@ export const stepProjectile: StepProjectile = (state, projectile, candidates, sa
         return { outcome: ProjectileOutcome.Expired, missDistanceM: NaN };
       }
       if (bestProx) {
-        // Closest point on the segment to bestProx.pos, matching closestApproachOnSegment's own computation.
-        const segLenSq = stepDx * stepDx + stepDy * stepDy + stepDz * stepDz;
-        let t = 0;
-        if (segLenSq > 1e-12) {
-          t = ((bestProx.pos.x - _segStart.x) * stepDx + (bestProx.pos.y - _segStart.y) * stepDy + (bestProx.pos.z - _segStart.z) * stepDz) / segLenSq;
-          t = t < 0 ? 0 : t > 1 ? 1 : t;
-        }
-        _impactPos.x = _segStart.x + stepDx * t;
-        _impactPos.y = _segStart.y + stepDy * t;
-        _impactPos.z = _segStart.z + stepDz * t;
+        _impactPos.x = _segStart.x + stepDx * bestProxT;
+        _impactPos.y = _segStart.y + stepDy * bestProxT;
+        _impactPos.z = _segStart.z + stepDz * bestProxT;
         out.pos.x = _impactPos.x; out.pos.y = _impactPos.y; out.pos.z = _impactPos.z;
         out.alive = false;
         return {

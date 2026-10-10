@@ -431,8 +431,10 @@ function releaseAirToGround(shooterId: EntityId, shooter: EntityState, inputs: P
     // Laser-guided: goes on the press (it steers the rest of the way onto the spot; the DLZ cue says
     // whether it can reach the designated point). Without a designation it is aimed like a bomb (CCIP).
   } else if (state.spiValid) {
-    // CCRP: wait for the release point.
-    if (!(state.ccrpTimeToReleaseSec <= 0 && Math.abs(state.ccrpCrossTrackM) <= CCRP_RELEASE_CROSS_M)) return;
+    // CCRP: wait for the release point. Past it (held through, or pressed late) there is no
+    // release at all: a late drop lands long by however far the jet has flown.
+    const ttr = state.ccrpTimeToReleaseSec;
+    if (!(ttr <= 0 && ttr > -CCRP_LATE_SEC && Math.abs(state.ccrpCrossTrackM) <= CCRP_RELEASE_CROSS_M)) return;
   }
   const st = findStationWithStore(state.stations, state.selectedStoreId);
   if (!st) return;
@@ -479,7 +481,9 @@ export function loadBriefedTarget(state: WeaponsState, points: readonly Vec3Like
 }
 
 /** CCRP releases only with the predicted impact within this of the designated point's track, m. */
-export const CCRP_RELEASE_CROSS_M = 60;
+export const CCRP_RELEASE_CROSS_M = 25;
+/** CCRP releases only this soon after the release point, s (later = release missed). */
+export const CCRP_LATE_SEC = 0.25;
 
 function pushStore(shooterId: EntityId, shooter: EntityState, st: WeaponStationRuntime, dvx: number, dvy: number, dvz: number, kind: ProjectileKind, outRequests: ProjectileSpawnRequest[], outEvents: SimEvent[], weapon: WeaponKind): void {
   outRequests.push({
@@ -502,6 +506,10 @@ function gunGroundSight(state: WeaponsState): boolean {
 /** Air-to-ground sight updates per second (the impact prediction integrates a whole fall). */
 export const AG_SIGHT_HZ = 40;
 const _fwdSight = { x: 0, y: 0, z: 0 };
+const _downSight = { x: 0, y: 0, z: 0 };
+const _stationW = { x: 0, y: 0, z: 0 };
+const _releasePos = { x: 0, y: 0, z: 0 };
+const BODY_DOWN = { x: 0, y: -1, z: 0 };
 const _ccrp = { timeToReleaseSec: 0, crossTrackM: 0 };
 const _pred = { valid: false, impact: { x: 0, y: 0, z: 0 }, tofSec: 0 };
 
@@ -519,7 +527,11 @@ export function updateAgSight(state: WeaponsState, shooter: EntityState, sampler
     return;
   }
   state.agSightDueSec -= dtSec;
-  if (state.agSightDueSec > 0 && !state.designateRequest) return;
+  if (state.agSightDueSec > 0 && !state.designateRequest) {
+    // Between sight updates the release point keeps coming closer at the same rate.
+    if (Number.isFinite(state.ccrpTimeToReleaseSec)) state.ccrpTimeToReleaseSec -= dtSec;
+    return;
+  }
   state.agSightDueSec = 1 / AG_SIGHT_HZ;
   const st = findStationWithStore(state.stations, state.selectedStoreId) ?? state.stations.find((s) => s.profile.id === state.selectedStoreId);
   if (!st) {
@@ -527,7 +539,13 @@ export function updateAgSight(state: WeaponsState, shooter: EntityState, sampler
     return;
   }
   Quat.rotate(shooter.rot, { x: 1, y: 0, z: 0 }, _fwdSight);
-  predictImpact(st.profile, shooter.pos, shooter.vel, _fwdSight, sampler, densityAt, _pred);
+  Quat.rotate(shooter.rot, BODY_DOWN, _downSight);
+  // From the store's own station, ejected the way the rack pushes it (as fireWeapons releases it).
+  Quat.rotate(shooter.rot, st.posBodyM, _stationW);
+  _releasePos.x = shooter.pos.x + _stationW.x;
+  _releasePos.y = shooter.pos.y + _stationW.y;
+  _releasePos.z = shooter.pos.z + _stationW.z;
+  predictImpact(st.profile, _releasePos, shooter.vel, _fwdSight, sampler, densityAt, _pred, _downSight);
   state.agValid = _pred.valid;
   state.agTofSec = _pred.tofSec;
   state.agImpact.x = _pred.impact.x;

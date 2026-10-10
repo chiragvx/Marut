@@ -183,6 +183,7 @@ export function createCombatAdapter(): CombatPort & CombatPortWithContacts & Com
   let autoLaseOwners = new Set<EntityId>();
   let autoLaseNext = new Set<EntityId>();
   const rightScratch = { x: 0, y: 0, z: 0 };
+  const hitRngScratch = { seedState: 0 };
 
   /** Releases `n` decoys of `kind` from `owner` and gives each enemy missile guiding on it a chance to take the bait. */
   function releaseDecoys(kind: 'flare' | 'chaff', n: number, owner: EntityState, rng: { seedState: number }, liveCount: number, ctx: WorldCombatTickContext, eventsOut: EventQueue): void {
@@ -675,6 +676,9 @@ export function createCombatAdapter(): CombatPort & CombatPortWithContacts & Com
             } else if (prof?.warhead && armed) {
               ground.blast(impact, prof.warhead, projectile.ownerId, groundEventsScratch, hit.key);
               groundEventsScratch.push({ type: 'groundImpact', pos: { x: impact.x, y: impact.y, z: impact.z }, explosiveKg: prof.warhead.explosiveKg });
+            } else {
+              // Not armed yet (released too low): it strikes without going off.
+              groundEventsScratch.push({ type: 'groundImpact', pos: { x: impact.x, y: impact.y, z: impact.z }, explosiveKg: 0 });
             }
             for (const ev of groundEventsScratch) eventsOut.push(ev);
             resetProjectile(projectile);
@@ -701,8 +705,11 @@ export function createCombatAdapter(): CombatPort & CombatPortWithContacts & Com
             const targetState = findLiveState(ctx, targetId);
             const targetDamage = targetState ? ctx.getDamage(targetId) : undefined;
             if (targetState && targetDamage) {
+              // A missile's warhead rolls on the missile's own stream, so its outcome doesn't depend on
+              // how much the shooter fired or dispensed before; gun rounds share the shooter's.
               const wstate = weaponsStates.get(projectile.ownerId);
-              const rng = wstate ? wstate.rng : { seedState: subSeed(ctx.missionSeed, 'combat:hit:' + state.id) };
+              hitRngScratch.seedState = projectile.kind !== 'bullet' ? (projectile.rngState ?? 0) >>> 0 : 0;
+              const rng = projectile.kind !== 'bullet' ? hitRngScratch : wstate ? wstate.rng : { seedState: subSeed(ctx.missionSeed, 'combat:hit:' + state.id) };
               const wasIntact = targetDamage.structurePct > 0;
               hitEventsScratch.length = 0;
               const hit = resolveProjectileHit(result, projectile.ownerId, projectile.kind, targetState, targetDamage, rng, hitEventsScratch, projectile.profile);

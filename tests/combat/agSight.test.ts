@@ -43,10 +43,10 @@ function predicted(p: WeaponProfile, alt: number, speed: number, pitchDeg: numbe
 
 describe('impact prediction', () => {
   for (const [id, alt, speed, pitch, tol] of [
-    ['hsld-250', 1200, 220, 0, 25],
-    ['hsld-450', 6000, 250, 0, 60],
-    ['hsld-450', 1500, 230, -30, 20],
-    ['hsld-250r', 250, 230, 0, 15],
+    ['hsld-250', 1200, 220, 0, 5],
+    ['hsld-450', 6000, 250, 0, 8],
+    ['hsld-450', 1500, 230, -30, 5],
+    ['hsld-250r', 250, 230, 0, 5],
     ['b8m1', 1000, 200, -20, 20],
     ['gsh-23', 600, 200, -20, 10],
   ] as const) {

@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { createWeaponsState, fireWeapons } from '../../src/combat';
+import { WEAPONS } from '../../src/catalog';
 import type { ProjectileSpawnRequest, WeaponsLoadout } from '../../src/contracts/combat';
 import type { DamageState, EntityState, PilotInputs, SimEvent } from '../../src/contracts/core';
 
@@ -65,5 +66,36 @@ describe('fireWeapons (gun)', () => {
     expect(totalGunFire).toBeGreaterThanOrEqual(55);
     expect(totalGunFire).toBeLessThanOrEqual(57);
     expect(state.stations[0]!.count).toBe(220 - totalGunFire);
+  });
+});
+
+describe('fireWeapons (CCRP release window)', () => {
+  const bombLoadout = (): WeaponsLoadout => ({ stations: [{ hardpointId: 'wing', posBodyM: { x: 0, y: -0.3, z: 2 }, weapon: 'bomb', maxCount: 1, profile: WEAPONS['hsld-250']! }] });
+  const held: PilotInputs = {
+    pitch: 0, roll: 0, yaw: 0, throttle: 1, afterburner: false, brakes: 0, gearDown: false, airbrake: false,
+    trigger: false, launch: true, cycleWeapon: false, cycleTarget: false,
+  };
+  const releaseAt = (ttr: number): number => {
+    const state = createWeaponsState(bombLoadout(), 1);
+    state.selectedStoreId = 'hsld-250';
+    state.selectedWeapon = 'bomb';
+    state.spiValid = true;
+    state.ccrpTimeToReleaseSec = ttr;
+    state.ccrpCrossTrackM = 0;
+    const out: ProjectileSpawnRequest[] = [];
+    fireWeapons(1, makeShooterState(), FULL_DAMAGE, undefined, held, state, 0, 1 / 120, out, []);
+    return out.length;
+  };
+
+  it('releases at the release point', () => {
+    expect(releaseAt(0)).toBe(1);
+    expect(releaseAt(-0.1)).toBe(1);
+  });
+  it('holds before it', () => {
+    expect(releaseAt(0.5)).toBe(0);
+  });
+  it('never drops late (pressed or held well past the release point)', () => {
+    expect(releaseAt(-0.5)).toBe(0);
+    expect(releaseAt(-3)).toBe(0);
   });
 });
