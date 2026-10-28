@@ -96,7 +96,7 @@ export interface MeshAircraftRenderer {
   /** Once per frame before updateEntity: frame time, floating origin, camera (absolute world), clock. */
   beginFrame(dtSec: number, originWorld: Readonly<Vec3Like>, cameraWorld: Readonly<Vec3Like>, timeSec: number): void;
   updateEntity(entityId: number, pos: Readonly<Vec3Like>, rot: Readonly<QuatLike>, state: Readonly<MeshAircraftState>, originWorld: Readonly<Vec3Like>): void;
-  /** A missile in flight: store code (STORE_IDS), pointing along its velocity (else `rot`). */
+  /** A missile or bomb in flight: store code (STORE_IDS), pointing along its velocity (else `rot`). */
   updateMissile(code: number, pos: Readonly<Vec3Like>, vel: Readonly<Vec3Like>, rot: Readonly<QuatLike>, originWorld: Readonly<Vec3Like>): void;
   /** The drawing-buffer height (px) and the projection's [1][1] term, for sizing light glows. */
   setViewport(heightPx: number, projection11: number): void;
@@ -357,7 +357,8 @@ export function createMeshAircraftRenderer(root: THREE.Object3D, template: Aircr
 
     updateMissile(code, pos, vel, rot, origin) {
       const model = storeModels.byCode[code];
-      if (!model || model.kind !== 'missile') return;
+      // Missiles and bombs (incl. guided and glide bombs) fly as missile entities; rocket pods stay on the pylon.
+      if (!model || (model.kind !== 'missile' && model.kind !== 'bomb')) return;
       vDir.set(vel.x, vel.y, vel.z);
       if (vDir.lengthSq() > 1) qM.setFromUnitVectors(X_AXIS, vDir.normalize());
       else qM.set(rot.x, rot.y, rot.z, rot.w);
