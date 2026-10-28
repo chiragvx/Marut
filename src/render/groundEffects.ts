@@ -195,6 +195,22 @@ export function createGroundEffects(root: THREE.Object3D): GroundEffects {
             emit(dust, x, y + 1, z, Math.cos(a) * sp, (2 + rnd() * 7) * c * 0.6, Math.sin(a) * sp, 3 + rnd() * 3, 2 * c, 10 * c, 0.6, 0.58, 0.52, 0.43);
           }
           for (let k = 0; k < 5; k++) emit(smoke, x + (rnd() - 0.5) * 2 * c, y + c, z + (rnd() - 0.5) * 2 * c, (rnd() - 0.5) * 2, 4 + rnd() * 3, (rnd() - 0.5) * 2, 6 + rnd() * 4, 4 * c, 14 * c, 0.45, 0.24, 0.22, 0.2);
+        } else if (ev.type === 'storeImpact') {
+          // A dropped tank: dust (or spray on water) thrown up by the hit, and burning fuel if it had any left.
+          const { x, y, z } = ev.pos;
+          const c = Math.cbrt(ev.massKg / 100) * Math.min(1.5, 0.5 + ev.speedMps / 150);
+          const [r, g, b] = ev.water ? [0.85, 0.88, 0.9] : [0.58, 0.52, 0.43];
+          for (let k = 0; k < 10; k++) {
+            const a = rnd() * Math.PI * 2;
+            const sp = (2 + rnd() * 6) * c;
+            emit(dust, x, y + 0.5, z, Math.cos(a) * sp, (3 + rnd() * 8) * c, Math.sin(a) * sp, 2 + rnd() * 2, 1.5 * c, 7 * c, 0.6, r, g, b);
+          }
+          if (!ev.water && ev.fuelKg > 20) {
+            const f = Math.cbrt(ev.fuelKg / 100);
+            for (let k = 0; k < 6; k++) emit(fire, x + (rnd() - 0.5) * 2 * f, y + f, z + (rnd() - 0.5) * 2 * f, (rnd() - 0.5) * 10 * f, (3 + rnd() * 5) * f, (rnd() - 0.5) * 10 * f, 0.6 + rnd() * 0.6, 2 * f, 7 * f, 0.9, 1.0, 0.55 + rnd() * 0.2, 0.2);
+            if (fires.length >= MAX_FIRES) fires.shift();
+            fires.push({ x, y, z, endSec: clock + Math.min(40, 8 + ev.fuelKg / 15), scale: 0.5 + 0.3 * f, smokeAcc: 0, flameAcc: 0 });
+          }
         } else if (ev.type === 'groundKill') {
           if (ev.burnSec <= 0) continue;
           if (fires.length >= MAX_FIRES) fires.shift();

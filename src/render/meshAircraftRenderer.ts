@@ -98,6 +98,8 @@ export interface MeshAircraftRenderer {
   updateEntity(entityId: number, pos: Readonly<Vec3Like>, rot: Readonly<QuatLike>, state: Readonly<MeshAircraftState>, originWorld: Readonly<Vec3Like>): void;
   /** A missile or bomb in flight: store code (STORE_IDS), pointing along its velocity (else `rot`). */
   updateMissile(code: number, pos: Readonly<Vec3Like>, vel: Readonly<Vec3Like>, rot: Readonly<QuatLike>, originWorld: Readonly<Vec3Like>): void;
+  /** A store falling free (a jettisoned tank): store code (STORE_IDS) at its own attitude `rot`, centred on `pos`. */
+  updateStore(code: number, pos: Readonly<Vec3Like>, rot: Readonly<QuatLike>, originWorld: Readonly<Vec3Like>): void;
   /** The drawing-buffer height (px) and the projection's [1][1] term, for sizing light glows. */
   setViewport(heightPx: number, projection11: number): void;
   /** Hides instances not updated this frame and uploads the stores. */
@@ -362,6 +364,13 @@ export function createMeshAircraftRenderer(root: THREE.Object3D, template: Aircr
       vDir.set(vel.x, vel.y, vel.z);
       if (vDir.lengthSq() > 1) qM.setFromUnitVectors(X_AXIS, vDir.normalize());
       else qM.set(rot.x, rot.y, rot.z, rot.w);
+      mA.makeRotationFromQuaternion(qM).setPosition(pos.x - origin.x, pos.y - origin.y, pos.z - origin.z);
+      put(storeBatches[code], mA);
+    },
+
+    updateStore(code, pos, rot, origin) {
+      if (!storeModels.byCode[code]) return;
+      qM.set(rot.x, rot.y, rot.z, rot.w);
       mA.makeRotationFromQuaternion(qM).setPosition(pos.x - origin.x, pos.y - origin.y, pos.z - origin.z);
       put(storeBatches[code], mA);
     },

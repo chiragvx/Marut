@@ -7,6 +7,8 @@ export { computeTelemetry } from './telemetry';
 export { sampleAtmosphere } from './atmosphere';
 export { sampleWind, createGustState } from './wind';
 export { resetFcsTrimState } from './fcs';
+export { stepStoreBody, slenderBodyInertia, STORE_BODY_SUBSTEPS } from './storeBody';
+export type { StoreBodyState, StoreBodyParams, StoreBodyEnv } from './storeBody';
 
 export type {
   Environment,

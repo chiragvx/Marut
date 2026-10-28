@@ -1311,6 +1311,7 @@ export type SimEvent =
   | LockLostEvent
   | WarningEvent
   | CountermeasureEvent
+  | StoreImpactEvent
   | TargetStateEvent
   | GroundKillEvent
   | GroundImpactEvent
@@ -1325,6 +1326,20 @@ export interface CountermeasureEvent {
   kind: 'flare' | 'chaff';
   pos: Vec3Like;
   vel: Vec3Like;
+}
+
+/**
+ * A jettisoned store (a drop tank) reached the ground or water: the renderer's dust or splash, and
+ * a fuel flash for a tank that still had fuel in it. It carries no warhead and damages nothing.
+ */
+export interface StoreImpactEvent {
+  type: 'storeImpact';
+  pos: Vec3Like;
+  /** Mass at impact (shell + fuel left), kg; and the fuel part of it. */
+  massKg: number;
+  fuelKg: number;
+  speedMps: number;
+  water: boolean;
 }
 
 // -----------------------------------------------------------------------------

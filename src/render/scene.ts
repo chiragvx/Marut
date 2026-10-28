@@ -732,6 +732,11 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
             aircraftRenderer.updateMissile(curr.stores[i]!, interpEntity.pos, interpEntity.vel, interpEntity.rot, origin);
             continue;
           }
+          if (curr.alive[i] === 1 && curr.kind[i] === EntityKindCode.effect) {
+            interpolateEntity(snapshotBuf, i, f, interpEntity);
+            aircraftRenderer.updateStore(curr.stores[i]!, interpEntity.pos, interpEntity.rot, origin);
+            continue;
+          }
           if (curr.alive[i] !== 1 || curr.kind[i] !== EntityKindCode.aircraft) continue;
           // No cockpit interior yet: from the cockpit, the player's own jet is not drawn.
           if (i === playerSlot && (mode === CameraMode.Cockpit || mode === CameraMode.Tgp) && !debugCam) continue;

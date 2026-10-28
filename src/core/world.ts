@@ -88,6 +88,7 @@ import type { IsaAtmosphereResult } from './atmosphere';
 import { createWindState, stepWind } from './wind';
 import type { WindState } from './wind';
 import { createEventQueue } from './eventQueue';
+import { JettisonedStores } from './jettisonedStores';
 import { subSeed } from './seed';
 import { writeSnapshot as writeSnapshotBuffer } from './snapshotWriter';
 import { computeIlsDeviation, forwardWorldInto, rightWorldInto } from './hudTelemetry';
@@ -99,7 +100,7 @@ import { GroundTargetSet, RunwayDamage, addAirbaseStructures, placeGroundGroups 
 import { SITE_TEMPLATES } from '../catalog';
 import type { AdSiteSpec, AdUnitSpec } from '../combat';
 import { GROUND_TYPE_IDS, GroundFlag, GroundObjectiveKind, TargetStateCode } from '../contracts/ground';
-import type { LoadoutPreset } from '../contracts/aircraft';
+import type { LoadoutPreset, StationDef } from '../contracts/aircraft';
 import { FUEL_TANKS, WEAPONS } from '../catalog';
 import type { AutopilotAction } from '../contracts/core';
 
@@ -315,6 +316,10 @@ class WorldImpl implements World {
   /** Ground service (refuel + re-arm) of the player on a friendly stand or apron. */
   private readonly service = { state: 0, fuelFrac: 0, armFrac: 0, active: false, prevHeld: false };
   private serviceZones: { spots: { x: number; z: number }[]; aprons: { x: number; z: number }[][] } = { spots: [], aprons: [] };
+  /** Drop tanks falling after a jettison (effect entities, flown as rigid bodies). */
+  private readonly jettisoned = new JettisonedStores();
+  private jettisonSerial = 0;
+  private readonly jettisonEnv = { windWorldMps: { x: 0, y: 0, z: 0 } as Vec3Like, gravityMps2: GRAVITY_MPS2 };
 
   constructor(deps: WorldDependencies) {
     this.deps = deps;
@@ -654,6 +659,8 @@ class WorldImpl implements World {
     this.aircraft.clear();
     this.pilots.clear();
     this.eventQueue.clear();
+    this.jettisoned.clear();
+    this.jettisonSerial = 0;
     this.tickInternal = 0;
     this.simTimeSecInternal = 0;
     this.playerEntityIdInternal = NO_ENTITY_ID;
@@ -944,9 +951,16 @@ class WorldImpl implements World {
           inputs = this.apInputs;
         }
       }
+      const tanksBefore = state.dropTankCount ?? 0;
+      const tankFuelBefore = state.dropTankFuelKg ?? 0;
       this.deps.flightModel.step(rec.aircraftDefId, state, damage, inputs, rec.env, SIM_DT_SEC_LOCAL, state);
       this.deps.flightModel.computeTelemetry(rec.aircraftDefId, state, damage, rec.env, rec.telemetry);
+      if (tanksBefore > 0 && (state.dropTankCount ?? 0) === 0) this.releaseTanks(state, rec.aircraftDefId, tankFuelBefore);
     }
+
+    // Step 3b: jettisoned stores fall (after the aircraft, so a store released this tick starts where its pylon is now).
+    this.jettisonEnv.windWorldMps = this.windWorldMpsScratch;
+    this.jettisoned.step(SIM_DT_SEC_LOCAL, this.pool, this.deps.sampler, this.jettisonEnv, this.eventQueue);
 
     // Step 4: warning-bit evaluation.
     for (let i = 0; i < aircraftCount; i++) {
@@ -1487,12 +1501,32 @@ class WorldImpl implements World {
   private readonly storesScratch = { a: 0, b: 0 };
   private readonly storeSlotsScratch: number[] = [];
 
+  /** The stations' fit the aircraft flies with (the player's chosen one, the AI's own, else the default). */
+  private loadoutOf(id: EntityId, defId: string): LoadoutPreset | undefined {
+    const def = getAircraftDefinition(defId);
+    if (!def) return undefined;
+    return id === this.playerEntityIdInternal ? this.playerLoadout(defId) : (this.aircraft.get(id)?.loadout ?? getLoadout(def));
+  }
+
+  /** The aircraft just jettisoned its drop tanks: they leave their stations as falling stores. */
+  private releaseTanks(state: EntityState, defId: string, fuelKgTotal: number): void {
+    const def = getAircraftDefinition(defId);
+    const loadout = this.loadoutOf(state.id, defId);
+    if (!def?.stations || !loadout) return;
+    const stations: { station: StationDef; storeId: string }[] = [];
+    for (const st of def.stations) {
+      const fit = loadout.fit[st.id];
+      if (fit && FUEL_TANKS[fit.store]) stations.push({ station: st, storeId: fit.store });
+    }
+    this.jettisoned.releaseTanks(this.pool, state, stations, fuelKgTotal, subSeed(this.missionSeedInternal, 'jettison:' + this.jettisonSerial++));
+  }
+
   private packStores(id: EntityId, defId: string, state: EntityState, out: { a: number; b: number }): void {
     const slots = this.storeSlotsScratch;
     slots.length = 0;
     const def = getAircraftDefinition(defId);
     if (def?.stations) {
-      const loadout = id === this.playerEntityIdInternal ? this.playerLoadout(defId) : (this.aircraft.get(id)?.loadout ?? getLoadout(def));
+      const loadout = this.loadoutOf(id, defId);
       const combat = this.deps.combat as Partial<CombatPortWithStores>;
       for (const st of def.stations) {
         if (st.id === 'gun') continue;
