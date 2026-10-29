@@ -18,7 +18,7 @@
 
 import { drawAirbaseMarkers, drawAirbaseTape } from './airbaseMarkers';
 import { drawAutopilotBugs, drawAutopilotStatus } from './autopilotHud';
-import { EntityFlag, SnapshotEntity, SnapshotHud, SpeedUnit, WarningBit, entityFieldOffset, type QualityTier } from '../contracts/core';
+import { EntityFlag, SnapshotEntity, SnapshotHud, SpeedUnit, WarningBit, WeaponKindByCode, entityFieldOffset, isAirToGroundKind, type QualityTier } from '../contracts/core';
 import { RENDER_QUALITY_TABLE, type CameraState, type CreateHudRenderer, type HudAirbase, type HudRenderer, type HudRoutePoint, type HudSteerpoint } from '../contracts/render';
 import { drawRouteCaret, drawRouteData, drawRouteMarker } from './routeDisplay';
 import { drawSteerpointMarkers, drawSteerpointTape } from './steerpoints';
@@ -27,6 +27,7 @@ import { drawLadder } from './ladder';
 import { drawControlSurfaceDebug } from './controlSurfaceDebug';
 import { drawIlsNeedles } from './ilsNeedles';
 import { RADAR_RANGE_SCALES_KM, drawRadarDisplay } from './radarDisplay';
+import { drawGroundMap } from './groundMapDisplay';
 import {
   computeInterpFraction,
   createHudSnapshotDoubleBuffer,
@@ -114,6 +115,7 @@ export const createHudRenderer: CreateHudRenderer = (canvas, initialTier) => {
   let overlayMode: 'full' | 'helmet' | 'pod' = 'full';
   let podPolarity: 1 | 2 = 1;
   let podKeys = { track: 'I', zoom: 'U', laser: 'K', view: 'Y' };
+  let weaponKeys = { target: 'T', launch: 'ENTER' };
 
   const api: HudRenderer = {
     setOverlayMode(m) {
@@ -185,6 +187,10 @@ export const createHudRenderer: CreateHudRenderer = (canvas, initialTier) => {
     setPodDisplay(polarity, keys) {
       podPolarity = polarity;
       podKeys = keys;
+    },
+
+    setWeaponKeys(keys) {
+      weaponKeys = keys;
     },
 
     setDebugSurfacesEnabled(enabled) {
@@ -266,7 +272,13 @@ export const createHudRenderer: CreateHudRenderer = (canvas, initialTier) => {
       const playerTeam = curr.team[playerSlot]!;
       const scopeRadiusPx = 90;
       const radarSize = Math.round(Math.min(230, heightPx * 0.3));
-      drawRadarDisplay(ctx, hud, curr.posX[playerSlot]!, curr.posY[playerSlot]!, curr.posZ[playerSlot]!, headingRad, RADAR_RANGE_SCALES_KM[radarRangeIndex]! * 1000, widthPx - radarSize - 100, heightPx - radarSize - 30, radarSize);
+      // Air-to-ground stores: the radar maps the ground ahead instead.
+      const weaponKind = WeaponKindByCode[hud[SnapshotHud.WEAPON_IDX]!];
+      if (weaponKind && isAirToGroundKind(weaponKind)) {
+        drawGroundMap(ctx, hud, curr.posX[playerSlot]!, curr.posZ[playerSlot]!, headingRad, RADAR_RANGE_SCALES_KM[radarRangeIndex]! * 1000, widthPx - radarSize - 100, heightPx - radarSize - 30, radarSize, weaponKeys.target);
+      } else {
+        drawRadarDisplay(ctx, hud, curr.posX[playerSlot]!, curr.posY[playerSlot]!, curr.posZ[playerSlot]!, headingRad, RADAR_RANGE_SCALES_KM[radarRangeIndex]! * 1000, widthPx - radarSize - 100, heightPx - radarSize - 30, radarSize);
+      }
       void playerTeam;
       void tierSettings;
       void scopeRadiusPx;

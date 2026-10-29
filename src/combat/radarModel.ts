@@ -53,7 +53,7 @@ import { Vec3, Quat, clamp, lerp } from '../math';
 import { computeLeadSolution } from './leadComputingSight';
 import { irDetectionRangeM } from './irMissileSeeker';
 import { GENERIC_GUN_PROFILE, GENERIC_IR_MISSILE_PROFILE } from './weaponProfiles';
-import { cycleSelectedStore } from './weaponStation';
+import { cycleSelectedStore, stepGroundDesignation } from './weaponStation';
 
 export const radarDetectionRangeM: RadarDetectionRangeM = (rcsM2, radar) => {
   const raw = (radar?.referenceRangeM ?? RADAR_REFERENCE_RANGE_M) * Math.pow(rcsM2 / (radar?.referenceRcsM2 ?? RADAR_REFERENCE_RCS_M2), 0.25);
@@ -392,7 +392,7 @@ export const updateSensors: UpdateSensors = (
     state.lockBreakGraceRemainingSec = 0;
   }
 
-  // Air-to-ground stores: T designates the ground point under the pipper (agSight.ts) instead.
+  // Air-to-ground stores: T designates a ground point (the pipper's, or the next ground-map target) instead.
   const airToGround = isAirToGroundKind(state.selectedWeapon);
   const arm = state.selectedWeapon === 'arm';
   if (cycleTargetEdge && arm) {
@@ -421,7 +421,11 @@ export const updateSensors: UpdateSensors = (
       state.lockBreakGraceRemainingSec = 0;
     }
   } else if (cycleTargetEdge && airToGround) {
-    if (state.agValid) state.designateRequest = true;
+    // Pipper in view: designate under it. Beyond the sight field (or no solution), the player's
+    // ground map steps through its targets; with nothing on it, under the pinned pipper.
+    if (state.groundMap && (state.agPipperLimited || !state.agValid) && stepGroundDesignation(state)) {
+      // Designated the next ground-map target.
+    } else if (state.agValid) state.designateRequest = true;
     else {
       // Pipper off the ground: T clears the designation (and the pod stops designating).
       state.spiValid = false;

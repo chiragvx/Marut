@@ -582,6 +582,19 @@ export interface WeaponsState {
   releasedThisPress: boolean;
   /** The selected guided weapon's launch zone to the SPI (DlzCode). */
   dlz: number;
+  /** The CCIP pipper is beyond the sight field (AG_SIGHT_FIELD_RAD below the flight path), and the
+   *  ground under the pinned pipper there (valid when that line of sight meets the ground). */
+  agPipperLimited: boolean;
+  agClampValid: boolean;
+  agClampPoint: Vec3Like;
+  /** The release cue (AgCueCode) and AgCueFlag bits; seconds left showing "away" after a release. */
+  agCue: number;
+  agCueFlags: number;
+  agAwaySec: number;
+  /** A CCRP release has gone for the present SPI (past the release point is not "passed" then). */
+  ccrpReleased: boolean;
+  /** The player's ground-map radar (src/combat/groundMap.ts): what T steps through in A/G. Absent for the AI. */
+  groundMap?: GroundMapState;
   /** Rockets: seconds until the next round of the ripple, and which station fires next. */
   rocketCooldownSec: number;
   nextRocketStation: number;
@@ -712,6 +725,31 @@ export interface DetectableEntity {
    * degrades gracefully, does not error.
    */
   radarEmission?: { trackedTargetId: EntityId | undefined; lockedTargetId: EntityId | undefined };
+}
+
+/** A ground target the ground-map radar may show (src/core builds these from the mission's targets). */
+export interface GroundMapCandidate {
+  /** Stable key (the ground target's index). */
+  key: number;
+  /** Its target group (a mission ground group or airbase structure group), as a number. */
+  group: number;
+  x: number;
+  y: number;
+  z: number;
+  /** Radar cross-section, m^2: bigger returns show from further out. */
+  rcsM2: number;
+  /** GroundMapKind. */
+  kind: number;
+}
+
+/** The ground-map radar's picture: the contacts it shows, nearest first, and which one is designated. */
+export interface GroundMapState {
+  contacts: GroundMapCandidate[];
+  count: number;
+  /** Seconds until the next sweep. */
+  dueSec: number;
+  /** The route's target steerpoint aim points (kept when the pilot steps on to a radar contact). */
+  briefed: Vec3Like[];
 }
 
 /**

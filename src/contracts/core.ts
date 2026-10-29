@@ -558,6 +558,9 @@ export interface CombatStatus {
   spiWorld?: Vec3Like;
   agTimeSec?: number;
   agCrossTrackM?: number;
+  /** The release cue (AgCueCode) and its AgCueFlag bits. */
+  agCue?: number;
+  agCueFlags?: number;
   /** Radar-warning receiver contacts (most recent first is not guaranteed): RWR_SYMBOLS code, world bearing (rad), 0 search / 1 tracking me / 2 missile guided at me, range (m). */
   rwr?: { symbol: number; bearingRad: number; state: number; rangeM: number }[];
   /** Targeting pod (PodFlag bits, point, field of view, slant range) and the guided weapon's launch zone (DlzCode). */
@@ -1173,8 +1176,23 @@ export const SnapshotHudExt = {
   TOT_GS_MPS: 6,
   /** Ground-collision avoidance: the least terrain clearance of a recovery started now (roll wings level, 5 g pull), m; GCAS_NO_THREAT_M when nothing is near. */
   GCAS_CLEARANCE_M: 7,
+  /** Air-to-ground release cue (AgCueCode) and its AgCueFlag bits: what the pilot does next. */
+  AG_CUE: 8,
+  AG_CUE_FLAGS: 9,
+  /** The ground-map radar's list (air-to-ground stores selected): count, then MAX_GROUND_CONTACTS
+   *  entries of SNAPSHOT_GROUND_STRIDE floats (SnapshotGround) from GROUND_BASE. */
+  GROUND_COUNT: 10,
+  GROUND_BASE: 11,
 } as const;
-export const HUD_EXT_FLOATS = 8;
+/** The ground-map list carried in the HUD block: briefed aim points first, then contacts nearest first. */
+export const MAX_GROUND_CONTACTS = 16;
+export const SNAPSHOT_GROUND_STRIDE = 4;
+/** Field offsets within one ground-map entry: world x/z, GroundMapKind, SnapshotGroundFlag bits. */
+export const SnapshotGround = { X: 0, Z: 1, KIND: 2, FLAGS: 3 } as const;
+export const SnapshotGroundFlag = { Designated: 1, Briefed: 2 } as const;
+/** What a ground-map contact is (the symbol on the radar page). */
+export const GroundMapKind = { Vehicle: 0, Armor: 1, AirDefence: 2, Radar: 3, Structure: 4, Briefed: 5 } as const;
+export const HUD_EXT_FLOATS = SnapshotHudExt.GROUND_BASE + MAX_GROUND_CONTACTS * SNAPSHOT_GROUND_STRIDE;
 export const GCAS_NO_THREAT_M = 99999;
 export const HUD_BLOCK_FLOATS = HUD_EXT_BASE + HUD_EXT_FLOATS;
 
@@ -1185,6 +1203,26 @@ export const DlzCode = { None: 0, OutOfRange: 1, InRange: 2 } as const;
 
 /** SnapshotHud.AG_MODE: no air-to-ground sight; CCIP pipper (no valid solution = off the ground); CCRP (a designated point). */
 export const AgModeCode = { None: 0, Ccip: 1, Ccrp: 2 } as const;
+
+/**
+ * SnapshotHudExt.AG_CUE: the release cue, the next thing the pilot does with the selected
+ * air-to-ground store (src/combat/weaponStation.ts updateAgCue):
+ *   Designate: no target and the pipper is beyond the sight field (T: target, or dive for CCIP);
+ *   Ccip: the pipper is in view (put it on the target and release); Dive: rockets, pipper beyond view;
+ *   Steer: CCRP, off the release track (cross-track error, + = steer right); Hold: on track, hold
+ *   release; Releasing: holding, the computer drops at the release point; Release: at the release
+ *   point; Away: just released; Passed: the release point is behind (turn round for another pass).
+ */
+export const AgCueCode = { None: 0, Designate: 1, Ccip: 2, Dive: 3, Steer: 4, Hold: 5, Releasing: 6, Release: 7, Away: 8, Passed: 9 } as const;
+/** SnapshotHudExt.AG_CUE_FLAGS bits: the CCIP pipper is pinned at the edge of the sight field; the release button is held. */
+export const AgCueFlag = { PipperLimited: 1, LaunchHeld: 2 } as const;
+/**
+ * The air-to-ground sight's field below the flight path, rad. A predicted impact further below than
+ * this is off the HUD: the pipper is pinned on this edge (on the way to the impact point), the
+ * target key steps through the ground-map targets instead of designating at the pipper, and the
+ * release button designates the ground under the pinned pipper (delayed release, then CCRP).
+ */
+export const AG_SIGHT_FIELD_RAD = (18 * Math.PI) / 180;
 
 /**
  * Ground service state (SnapshotHud.SERVICE_STATE): None = not on a friendly stand/apron or not

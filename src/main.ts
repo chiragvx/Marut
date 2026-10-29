@@ -591,6 +591,7 @@ function showSettingsOverlay(): void {
       currentSpeedUnit = next.speedUnit;
       hud?.setSpeedUnit(currentSpeedUnit);
       pushCockpitAux();
+      pushWeaponKeys();
       inputSystem?.setAlphaLimiterDisabled(!next.alphaLimiterEnabled);
       if (inputSystem) applyMouseSettings(next.mouseEnabled ?? false, next.mouseSensitivityMultiplier, next.invertPitch);
       hintsEnabled = next.hintsEnabled ?? true;
@@ -737,6 +738,7 @@ async function initWorkersAndRenderer(qualityTier: QualityTier): Promise<void> {
   renderer = createSceneRenderer(renderCanvas, qualityTier);
   hud = createHudRenderer(hudCanvas, qualityTier);
   inputSystem = createPlayerInputSystem({ window, touchOverlayContainer: uiRoot });
+  pushWeaponKeys();
 
   // Debug-only control-surface overlay toggle (F9 — not part of the rebindable BindableAction
   // set, deliberately: this is an FCS dev/debug aid, not a gameplay control, so it bypasses
@@ -1807,6 +1809,11 @@ let podView = false;
 let podPolarity: 1 | 2 = 1;
 /** POD_FLAGS from the latest snapshot (is a pod carried?). */
 let lastPodFlags = 0;
+function pushWeaponKeys(): void {
+  if (!hud || !inputSystem) return;
+  const b = inputSystem.inputMap.data.keyboard.buttons;
+  hud.setWeaponKeys({ target: keyLabel(b.cycleTarget), launch: keyLabel(b.launch) });
+}
 function pushPodDisplay(): void {
   const b = inputSystem.inputMap.data.keyboard.buttons;
   const m = inputSystem.inputMap.data.keyboard.meta;

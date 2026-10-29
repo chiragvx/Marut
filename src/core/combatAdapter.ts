@@ -13,14 +13,15 @@
  * extension `world.ts`'s concrete `combatCtx` object satisfies structurally.
  */
 
-import { EntityKind, MAX_RWR_CONTACTS, NO_ENTITY_ID, RWR_SYMBOLS, STORE_IDS, isAirToGroundKind } from '../contracts/core';
+import { EntityKind, GroundMapKind, MAX_RWR_CONTACTS, NO_ENTITY_ID, RWR_SYMBOLS, STORE_IDS, isAirToGroundKind } from '../contracts/core';
+import { TargetStateCode } from '../contracts/ground';
 import type { CombatStatus, Contact, EntityId, EntityState, SimEvent, Vec3Like } from '../contracts/core';
 import type { CombatPort, CombatTickContext, EventQueue } from '../contracts/sim';
 import type { LoadoutPreset } from '../contracts/aircraft';
-import type { CombatPortWithAirDefence, CombatPortWithBriefing, CombatPortWithContacts, CombatPortWithRearm, CombatPortWithStores, WorldCombatTickContext } from './combatContext';
+import type { CombatPortWithAirDefence, CombatPortWithBriefing, CombatPortWithContacts, CombatPortWithGroundMap, CombatPortWithRearm, CombatPortWithStores, WorldCombatTickContext } from './combatContext';
 import { subSeed } from './seed';
 import { getAircraftDefinition, getLoadout } from '../aircraft';
-import { RADARS, SENSOR_PODS, WEAPONS } from '../catalog';
+import { GROUND_UNIT_TYPES, RADARS, SENSOR_PODS, WEAPONS } from '../catalog';
 import { isaDensityKgM3 } from '../combat/isaDensity';
 import {
   createWeaponsState,
@@ -40,6 +41,8 @@ import {
   designatePoint,
   cycleSelectedStore,
   updatePod,
+  createGroundMapState,
+  updateGroundMap,
   AirDefenceNetwork,
   type AdEmission,
   createDecoyPool,
@@ -62,6 +65,7 @@ import {
 import type {
   CombatEnvironment,
   DetectableEntity,
+  GroundMapCandidate,
   ProjectileSpawnRequest,
   RadarSignature,
   ProjectileState,
@@ -142,8 +146,24 @@ function signatureFor(defId: string | undefined): { radar: RadarSignature; hitEl
   return sig ?? undefined;
 }
 
-export function createCombatAdapter(): CombatPort & CombatPortWithContacts & CombatPortWithRearm & CombatPortWithStores & CombatPortWithAirDefence & CombatPortWithBriefing {
+const FORWARD_BODY: Vec3Like = { x: 1, y: 0, z: 0 };
+
+/** The ground-map symbol and radar return of a mission ground target (unit type, or an airbase structure). */
+function groundMapKindOf(typeId: string): { kind: number; rcsM2: number } {
+  const t = GROUND_UNIT_TYPES[typeId];
+  if (!t) return { kind: GroundMapKind.Structure, rcsM2: 100 };
+  const c = t.category;
+  const kind = c === 'armor' ? GroundMapKind.Armor : c === 'sam_launcher' || c === 'aaa' || c === 'manpads' ? GroundMapKind.AirDefence : c === 'radar' ? GroundMapKind.Radar : c === 'structure' ? GroundMapKind.Structure : GroundMapKind.Vehicle;
+  return { kind, rcsM2: t.rcsM2 };
+}
+
+export function createCombatAdapter(): CombatPort & CombatPortWithContacts & CombatPortWithRearm & CombatPortWithStores & CombatPortWithAirDefence & CombatPortWithBriefing & CombatPortWithGroundMap {
   const weaponsStates = new Map<EntityId, WeaponsState>();
+  /** The player's ground-map candidates (refilled on each sweep) and each target type's symbol and return. */
+  const groundCandidates: GroundMapCandidate[] = [];
+  const groundKindByType = new Map<string, { kind: number; rcsM2: number }>();
+  const forwardScratch: Vec3Like = { x: 0, y: 0, z: 0 };
+  const groundGroupIndex = new Map<string, number>();
   /** Aircraft hit but not (yet) killed: who hit them last and when (a crippled jet that crashes later is that shooter's kill). */
   const lastHitBy = new Map<EntityId, { sourceId: EntityId; timeSec: number }>();
   const detectableScratch: DetectableEntity[] = [];
@@ -368,6 +388,11 @@ export function createCombatAdapter(): CombatPort & CombatPortWithContacts & Com
       return true;
     },
 
+    groundMap(id: EntityId) {
+      const st = weaponsStates.get(id);
+      return st?.groundMap ? { map: st.groundMap, spiValid: st.spiValid, spi: st.spi } : undefined;
+    },
+
     getContacts(id: EntityId): readonly Contact[] {
       return contactsScratchByObserver.get(id) ?? EMPTY_CONTACTS;
     },
@@ -474,6 +499,44 @@ export function createCombatAdapter(): CombatPort & CombatPortWithContacts & Com
         contacts.length = 0;
         contactsScratchByObserver.set(observer.id, contacts);
         sensorEventsScratch.length = 0;
+
+        // The player's radar maps the ground ahead while an air-to-ground store is selected.
+        if (observer.id === ctx.playerId) {
+          if (!state.groundMap) {
+            state.groundMap = createGroundMapState();
+            if (state.briefed) state.groundMap.briefed = state.briefed.points;
+          }
+          const map = state.groundMap;
+          if (isAirToGroundKind(state.selectedWeapon) && map.dueSec - dtSec <= 0) {
+            let n = 0;
+            const targets = ctx.ground?.targets ?? [];
+            for (let k = 0; k < targets.length; k++) {
+              const t = targets[k]!;
+              if (t.team === observer.team || t.state === TargetStateCode.Destroyed) continue;
+              let info = groundKindByType.get(t.typeId);
+              if (!info) groundKindByType.set(t.typeId, (info = groundMapKindOf(t.typeId)));
+              let c = groundCandidates[n];
+              if (!c) groundCandidates.push((c = { key: 0, group: 0, x: 0, y: 0, z: 0, rcsM2: 0, kind: 0 }));
+              let group = groundGroupIndex.get(t.groupId);
+              if (group === undefined) groundGroupIndex.set(t.groupId, (group = groundGroupIndex.size));
+              c.key = t.key;
+              c.group = group;
+              c.x = t.pos.x;
+              c.y = t.pos.y;
+              c.z = t.pos.z;
+              c.rcsM2 = info.rcsM2;
+              c.kind = info.kind;
+              n++;
+            }
+            Quat.rotate(observer.rot, FORWARD_BODY, forwardScratch);
+            updateGroundMap(map, observer.pos, Math.atan2(forwardScratch.x, -forwardScratch.z), groundCandidates, n, ctx.sampler, dtSec);
+          } else if (!isAirToGroundKind(state.selectedWeapon)) {
+            map.count = 0;
+            map.dueSec = 0;
+          } else {
+            map.dueSec -= dtSec;
+          }
+        }
 
         updateSensors(
           observer.id,

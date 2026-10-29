@@ -17,6 +17,7 @@ import type { CombatTickContext } from '../contracts/sim';
 import type { LoadoutPreset } from '../contracts/aircraft';
 import type { GroundTargetSet, RunwayDamage } from '../ground';
 import type { AdSiteSpec, AdUnitSpec } from '../combat';
+import type { GroundMapState } from '../contracts/combat';
 
 export interface WorldCombatTickContext extends CombatTickContext {
   readonly missionSeed: number;
@@ -34,6 +35,8 @@ export interface WorldCombatTickContext extends CombatTickContext {
   readonly runways?: RunwayDamage;
   /** This tick's wind, world m/s (free-falling stores drift with it). Absent = still air. */
   readonly windWorldMps?: Readonly<Vec3Like>;
+  /** The player's aircraft (its weapon system gets the ground-map radar), or absent. */
+  readonly playerId?: EntityId;
   /** The mission's air-defence sites and their units (a new object per mission load). */
   readonly airDefence?: { sites: readonly AdSiteSpec[]; units: readonly AdUnitSpec[] };
 }
@@ -75,6 +78,11 @@ export interface CombatPortWithBriefing {
 /** Stores still on aircraft `id`'s station `hardpointId` (undefined until combat has seen the aircraft, or no such weapon station). */
 export interface CombatPortWithStores {
   stationCount(id: EntityId, hardpointId: string): number | undefined;
+}
+
+/** The player's ground-map radar picture (air-to-ground), for the HUD's radar page. */
+export interface CombatPortWithGroundMap {
+  groundMap(id: EntityId): { readonly map: Readonly<GroundMapState>; readonly spiValid: boolean; readonly spi: Readonly<Vec3Like> } | undefined;
 }
 
 export interface CombatPortWithContacts {

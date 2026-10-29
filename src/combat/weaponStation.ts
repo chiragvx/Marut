@@ -4,6 +4,8 @@
  * missile launch dispatch). See docs/spec/07-combat.md sections 4.1, 4.6.
  */
 import {
+  AG_SIGHT_FIELD_RAD,
+  AgCueCode,
   AgModeCode,
   DlzCode,
   PodFlag,
@@ -36,6 +38,8 @@ import {
 import { ccrpSolution, predictImpact, type RigidRelease } from './agSight';
 import { releasePointBodyInto, releaseRatesInto } from './storeFlight';
 import { createPodState } from './targetingPod';
+import { designatedMapIndex, nearestGroundContact } from './groundMap';
+import { rayToGround } from './lineOfSight';
 import { Vec3, Quat, nextRange, type PrngState } from '../math';
 import { GENERIC_RADAR_PROFILE, defaultWeaponProfile } from './weaponProfiles';
 import { DECOYS_PER_PROGRAM, DECOY_PROGRAM_INTERVAL_SEC } from './countermeasures';
@@ -122,6 +126,13 @@ export const createWeaponsState: CreateWeaponsState = (loadout: WeaponsLoadout, 
     rocketCooldownSec: 0,
     nextRocketStation: 0,
     dlz: DlzCode.None,
+    agPipperLimited: false,
+    agClampValid: false,
+    agClampPoint: { x: 0, y: 0, z: 0 },
+    agCue: AgCueCode.None,
+    agCueFlags: 0,
+    agAwaySec: 0,
+    ccrpReleased: false,
     ...(loadout.pod ? { pod: createPodState(loadout.pod) } : {}),
     aimPointWorld: { x: 0, y: 0, z: 0 },
     aimPointValid: false,
@@ -476,6 +487,7 @@ function releaseAirToGround(shooterId: EntityId, shooter: EntityState, inputs: P
 /** Makes `p` the designated point (SPI); a carried pod slaves to it (ground-stabilised, designating). */
 export function designatePoint(state: WeaponsState, p: Vec3Like): void {
   state.spiValid = true;
+  state.ccrpReleased = false;
   state.spi.x = p.x;
   state.spi.y = p.y;
   state.spi.z = p.z;
@@ -493,8 +505,34 @@ export function designatePoint(state: WeaponsState, p: Vec3Like): void {
 export function loadBriefedTarget(state: WeaponsState, points: readonly Vec3Like[]): void {
   if (points.length === 0) return;
   state.briefed = { points: points.map((p) => ({ x: p.x, y: p.y, z: p.z })), next: 0 };
+  if (state.groundMap) state.groundMap.briefed = state.briefed.points;
   designatePoint(state, state.briefed.points[0]!);
 }
+
+/**
+ * The target key on the ground map (src/combat/groundMap.ts): designates the entry after the
+ * designated one, the briefed aim points first and then the radar contacts nearest first, wrapping
+ * round. False when the map shows nothing.
+ */
+export function stepGroundDesignation(state: WeaponsState): boolean {
+  const map = state.groundMap;
+  if (!map) return false;
+  const nb = map.briefed.length;
+  const total = nb + map.count;
+  if (total === 0) return false;
+  const next = (designatedMapIndex(state) + 1) % total;
+  if (next < nb) {
+    designatePoint(state, map.briefed[next]!);
+    state.briefed = { points: map.briefed, next };
+  } else {
+    state.briefed = undefined;
+    designatePoint(state, map.contacts[next - nb]!);
+  }
+  return true;
+}
+
+/** A designation at the pipper snaps onto a ground-map target within this, m. */
+export const DESIGNATE_SNAP_M = 60;
 
 /** CCRP releases only with the predicted impact within this of the designated point's track, m. */
 export const CCRP_RELEASE_CROSS_M = 25;
@@ -528,6 +566,9 @@ const _releasePos = { x: 0, y: 0, z: 0 };
 const BODY_DOWN = { x: 0, y: -1, z: 0 };
 const _ccrp = { timeToReleaseSec: 0, crossTrackM: 0 };
 const _pred = { valid: false, impact: { x: 0, y: 0, z: 0 }, tofSec: 0 };
+const _clampDir = { x: 0, y: 0, z: 0 };
+/** How far along the pinned pipper's line of sight the ground is looked for, m. */
+const CLAMP_RAY_MAX_M = 30000;
 const _rigid: RigidRelease = { rot: { x: 0, y: 0, z: 0, w: 1 }, omegaBody: { x: 0, y: 0, z: 0 }, step: () => {}, windWorldMps: { x: 0, y: 0, z: 0 } };
 
 /**
@@ -577,12 +618,39 @@ export function updateAgSight(state: WeaponsState, shooter: EntityState, sampler
   state.agImpact.x = _pred.impact.x;
   state.agImpact.y = _pred.impact.y;
   state.agImpact.z = _pred.impact.z;
+  // Beyond the sight field the pipper is pinned on its edge (AG_SIGHT_FIELD_RAD below the flight
+  // path, towards the impact point); the ground under it there is what a designation takes.
+  state.agPipperLimited = false;
+  state.agClampValid = false;
+  if (state.agValid) {
+    const ix = state.agImpact.x - shooter.pos.x, iy = state.agImpact.y - shooter.pos.y, iz = state.agImpact.z - shooter.pos.z;
+    const ir = Math.hypot(ix, iy, iz);
+    const vs = Math.hypot(shooter.vel.x, shooter.vel.y, shooter.vel.z);
+    if (ir > 1 && vs > 1) {
+      const cosA = (ix * shooter.vel.x + iy * shooter.vel.y + iz * shooter.vel.z) / (ir * vs);
+      const a = Math.acos(Math.max(-1, Math.min(1, cosA)));
+      if (a > AG_SIGHT_FIELD_RAD) {
+        state.agPipperLimited = true;
+        // Slerp from the flight path towards the impact by the field angle.
+        const sinA = Math.sin(a);
+        const wv = Math.sin(a - AG_SIGHT_FIELD_RAD) / sinA / vs;
+        const wi = Math.sin(AG_SIGHT_FIELD_RAD) / sinA / ir;
+        _clampDir.x = shooter.vel.x * wv + ix * wi;
+        _clampDir.y = shooter.vel.y * wv + iy * wi;
+        _clampDir.z = shooter.vel.z * wv + iz * wi;
+        // (The player's sight only: the AI aims at the impact point itself.)
+        if (state.groundMap) state.agClampValid = rayToGround(sampler, shooter.pos, _clampDir, CLAMP_RAY_MAX_M, state.agClampPoint) > 0;
+      }
+    }
+  }
   if (state.designateRequest) {
     state.designateRequest = false;
-    if (state.agValid) {
-      // The pod slaves to a HUD designation.
+    const pinned = state.agPipperLimited && !!state.groundMap;
+    const p = pinned ? (state.agClampValid ? state.agClampPoint : undefined) : state.agValid ? state.agImpact : undefined;
+    if (p) {
+      // The pod slaves to a HUD designation; one next to a target on the ground map takes the target.
       state.briefed = undefined;
-      designatePoint(state, state.agImpact);
+      designatePoint(state, (state.groundMap && nearestGroundContact(state.groundMap, p, DESIGNATE_SNAP_M)) || p);
     }
   }
   // Launch zone of a guided weapon to the designated point: its range grows with release height.

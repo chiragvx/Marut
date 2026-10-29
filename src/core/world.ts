@@ -34,6 +34,11 @@ import {
   packStoreSlots,
   HUD_BLOCK_START,
   HUD_EXT_BASE,
+  GroundMapKind,
+  MAX_GROUND_CONTACTS,
+  SNAPSHOT_GROUND_STRIDE,
+  SnapshotGround,
+  SnapshotGroundFlag,
   SnapshotHudExt,
   GCAS_NO_THREAT_M,
   ROUTE_CAPTURE_M,
@@ -92,13 +97,14 @@ import { JettisonedStores } from './jettisonedStores';
 import { subSeed } from './seed';
 import { writeSnapshot as writeSnapshotBuffer } from './snapshotWriter';
 import { computeIlsDeviation, forwardWorldInto, rightWorldInto } from './hudTelemetry';
-import type { CombatPortWithAirDefence, CombatPortWithBriefing, CombatPortWithContacts, CombatPortWithRearm, CombatPortWithStores } from './combatContext';
+import type { CombatPortWithAirDefence, CombatPortWithBriefing, CombatPortWithContacts, CombatPortWithGroundMap, CombatPortWithRearm, CombatPortWithStores } from './combatContext';
 import { GCAS_WARN_CLEARANCE_M, gcasClearanceM } from './gcas';
 import { applyAutopilotAction, autopilotFlags, createAutopilotState, stepAutopilot, type AutopilotState } from './autopilot';
 import { getAircraftDefinition, getLoadout, loadoutTanks, resolveLoadout, type TankLoad } from '../aircraft';
 import { GroundTargetSet, RunwayDamage, addAirbaseStructures, placeGroundGroups } from '../ground';
 import { SITE_TEMPLATES } from '../catalog';
 import type { AdSiteSpec, AdUnitSpec } from '../combat';
+import { GROUND_MAP_MATCH_M } from '../combat/groundMap';
 import { GROUND_TYPE_IDS, GroundFlag, GroundObjectiveKind, TargetStateCode } from '../contracts/ground';
 import type { LoadoutPreset, StationDef } from '../contracts/aircraft';
 import { FUEL_TANKS, WEAPONS } from '../catalog';
@@ -356,6 +362,9 @@ class WorldImpl implements World {
       },
       get windWorldMps() {
         return self.windWorldMpsScratch;
+      },
+      get playerId() {
+        return self.playerEntityIdInternal;
       },
       getInputs(id: EntityId): PilotInputs | undefined {
         return self.aircraft.get(id)?.inputs;
@@ -621,6 +630,7 @@ class WorldImpl implements World {
     out[o + SnapshotHudExt.TOT_DELTA_SEC] = 0;
     out[o + SnapshotHudExt.TOT_GS_MPS] = 0;
     out[o + SnapshotHudExt.GCAS_CLEARANCE_M] = this.gcasClearance;
+    this.writeGroundMap(out, o);
     if (!route || !wp || !state) return;
     // Distance along the route to the next steerpoint with a planned time.
     let dist = Math.hypot(wp.pos.x - state.pos.x, wp.pos.z - state.pos.z);
@@ -634,6 +644,28 @@ class WorldImpl implements World {
       out[o + SnapshotHudExt.TOT_GS_MPS] = tot > this.simTimeSecInternal ? dist / (tot - this.simTimeSecInternal) : 0;
       return;
     }
+  }
+
+  /** The player's ground-map radar (SnapshotHudExt.GROUND_*): the briefed aim points, then the contacts; the one at the SPI flagged. */
+  private writeGroundMap(out: Float64Array, o: number): void {
+    const gm = (this.deps.combat as Partial<CombatPortWithGroundMap>).groundMap?.(this.playerEntityIdInternal);
+    let n = 0;
+    if (gm) {
+      const { map, spiValid, spi } = gm;
+      const nb = map.briefed.length;
+      for (let i = 0; i < nb + map.count && n < MAX_GROUND_CONTACTS; i++) {
+        const briefed = i < nb;
+        const p = briefed ? map.briefed[i]! : map.contacts[i - nb]!;
+        const e = o + SnapshotHudExt.GROUND_BASE + n * SNAPSHOT_GROUND_STRIDE;
+        out[e + SnapshotGround.X] = p.x;
+        out[e + SnapshotGround.Z] = p.z;
+        out[e + SnapshotGround.KIND] = briefed ? GroundMapKind.Briefed : map.contacts[i - nb]!.kind;
+        const at = spiValid && Math.hypot(p.x - spi.x, p.z - spi.z) <= GROUND_MAP_MATCH_M;
+        out[e + SnapshotGround.FLAGS] = (at ? SnapshotGroundFlag.Designated : 0) | (briefed ? SnapshotGroundFlag.Briefed : 0);
+        n++;
+      }
+    }
+    out[o + SnapshotHudExt.GROUND_COUNT] = n;
   }
 
   /** Ground-unit entities follow their targets' damage (hit points, destroyed/burning/damaged flags). */

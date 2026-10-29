@@ -8,7 +8,7 @@
  * each number is the aircraft's.
  */
 
-import { LockStateCode, SnapshotTrackFlag, TrackIdentityCode, WarningBit, WeaponKindCode } from '../../../contracts/core';
+import { GroundMapKind, HUD_EXT_BASE, LockStateCode, MAX_GROUND_CONTACTS, SNAPSHOT_GROUND_STRIDE, SnapshotGround, SnapshotGroundFlag, SnapshotHudExt, SnapshotTrackFlag, TrackIdentityCode, WarningBit, WeaponKindByCode, WeaponKindCode, isAirToGroundKind } from '../../../contracts/core';
 import type { CockpitAction } from '../../../contracts/render';
 import { M_TO_FT, MPS_TO_KT, apEngaged, atEngaged, fmtHdg, readTrack, storeInfoByCode, type TrackView } from '../avionics';
 import { font } from '../screen';
@@ -475,6 +475,12 @@ const SNSR: MfdPage = {
       text(g, String(Math.round((ctx.local.radarRangeKm * (4 - k)) / 4)), x0 - 6, y0 + ((y1 - y0) * k) / 4, 13, C.grey, 'right');
     }
     text(g, String(ctx.local.radarRangeKm), x0 - 6, y0 + 8, 14, C.white, 'right');
+    // Air-to-ground stores: the ground map (src/combat/groundMap.ts) instead of the air picture.
+    const wk = WeaponKindByCode[av.weaponIdx];
+    if (wk && isAirToGroundKind(wk)) {
+      drawGroundMapTracks(g, ctx, X, Y, azMax, rangeM, x0, x1, y0, y1);
+      return;
+    }
     // Scan limits and the B-sweep.
     const scan = Math.min(azMax, av.radarScanAzRad || azMax);
     g.strokeStyle = C.cyan;
@@ -548,6 +554,56 @@ const SNSR: MfdPage = {
     }
   },
 };
+
+const GM_NAMES: Readonly<Record<number, string>> = { [GroundMapKind.Vehicle]: 'VEH', [GroundMapKind.Armor]: 'ARMR', [GroundMapKind.AirDefence]: 'SAM', [GroundMapKind.Radar]: 'RDR', [GroundMapKind.Structure]: 'BLDG', [GroundMapKind.Briefed]: 'TGT' };
+
+/** The SNSR page's ground-map picture: the briefed target and the radar's ground contacts, the designated one boxed (TGT steps through them). */
+function drawGroundMapTracks(g: CanvasRenderingContext2D, ctx: CockpitContext, X: (az: number) => number, Y: (r: number) => number, azMax: number, rangeM: number, x0: number, x1: number, y0: number, y1: number): void {
+  const h = ctx.f.hud;
+  const n = Math.min(h[HUD_EXT_BASE + SnapshotHudExt.GROUND_COUNT] ?? 0, MAX_GROUND_CONTACTS);
+  let info = '';
+  for (let k = 0; k < n; k++) {
+    const o = HUD_EXT_BASE + SnapshotHudExt.GROUND_BASE + k * SNAPSHOT_GROUND_STRIDE;
+    const kind = h[o + SnapshotGround.KIND]!;
+    const flags = h[o + SnapshotGround.FLAGS]!;
+    const [az0, d] = relBearing(ctx, h[o + SnapshotGround.X]!, h[o + SnapshotGround.Z]!);
+    const az = Math.atan2(Math.sin(az0), Math.cos(az0));
+    if (flags & SnapshotGroundFlag.Designated) info = `${GM_NAMES[kind] ?? 'TGT'} ${k + 1}/${n}  R ${(d / 1852).toFixed(1)} NM`;
+    if (Math.abs(az) > azMax || d > rangeM) continue;
+    const x = X(az);
+    const y = Y(d);
+    g.lineWidth = 2;
+    if (kind === GroundMapKind.Briefed) {
+      g.strokeStyle = C.cyan;
+      g.beginPath();
+      g.arc(x, y, 8, 0, Math.PI * 2);
+      g.moveTo(x - 12, y);
+      g.lineTo(x + 12, y);
+      g.moveTo(x, y - 12);
+      g.lineTo(x, y + 12);
+      g.stroke();
+    } else if (kind === GroundMapKind.AirDefence || kind === GroundMapKind.Radar) {
+      g.fillStyle = C.red;
+      g.beginPath();
+      g.moveTo(x, y - 8);
+      g.lineTo(x + 8, y + 6);
+      g.lineTo(x - 8, y + 6);
+      g.closePath();
+      g.fill();
+    } else {
+      g.strokeStyle = C.amber;
+      g.strokeRect(x - 6, y - 6, 12, 12);
+    }
+    if (flags & SnapshotGroundFlag.Designated) {
+      g.strokeStyle = C.white;
+      g.lineWidth = 1.5;
+      g.strokeRect(x - 15, y - 15, 30, 30);
+    }
+  }
+  text(g, 'GM', x0 + 24, y0 + 14, 15, C.green);
+  text(g, `${n} TGT`, x1 - 30, y0 + 14, 15, C.green);
+  text(g, info || (n > 0 ? 'TGT: SELECT' : 'NO TGT'), (x0 + x1) / 2, y1 - 14, 14, C.white);
+}
 
 const WPN: MfdPage = {
   name: 'WPN',
