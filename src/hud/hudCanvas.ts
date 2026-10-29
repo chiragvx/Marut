@@ -40,7 +40,7 @@ import { createTaxiGuideState, drawTaxiGuide, setTaxiGuide as applyTaxiGuide } f
 import { drawAirbrakeIndicator, drawAltitudeTape, drawAoaGReadout, drawBreakX, drawFuelIndicator, drawGearIndicator, drawHeadingTape, drawPowerIndicator, drawRadarAltitude, drawServiceStatus, drawSpeedTape } from './tapes';
 import { createScreenProjection, drawLeadSight, drawTargetBox, hasTarget } from './targetBox';
 import { drawWeaponStatus } from './weaponStatus';
-import { drawAgSight } from './agSight';
+import { drawAgCue, drawAgSight } from './agSight';
 import { drawPodDisplay } from './podDisplay';
 import { drawRwrScope } from './rwrDisplay';
 
@@ -208,6 +208,7 @@ export const createHudRenderer: CreateHudRenderer = (canvas, initialTier) => {
 
       if (overlayMode === 'pod') {
         drawPodDisplay(ctx, hud, widthPx, heightPx, nowMs, podPolarity, podKeys);
+        drawAgCue(ctx, hud, widthPx, heightPx, nowMs, weaponKeys);
         drawWarnings(ctx, hud, nowMs, widthPx * 0.5, heightPx * 0.2);
         lastNowMs = nowMs;
         return;
@@ -220,6 +221,8 @@ export const createHudRenderer: CreateHudRenderer = (canvas, initialTier) => {
         drawRouteMarker(ctx, hud, route, camera, curr.posX[playerSlot]!, curr.posY[playerSlot]!, curr.posZ[playerSlot]!, widthPx, heightPx);
         drawRouteData(ctx, hud, route, curr.simTimeSec, curr.posX[playerSlot]!, curr.posZ[playerSlot]!, Math.hypot(curr.velX[playerSlot]!, curr.velZ[playerSlot]!), speedUnit, 16, 30);
         drawRwrScope(ctx, hud, 70, heightPx - 140, 50, nowMs);
+        // The release cue in words (the cockpit HUD carries the symbols).
+        drawAgCue(ctx, hud, widthPx, heightPx, nowMs, weaponKeys);
         lastNowMs = nowMs;
         if (taxiGuide.route || taxiGuide.message) {
           const p = { x: curr.posX[playerSlot]!, z: curr.posZ[playerSlot]! };
@@ -299,7 +302,7 @@ export const createHudRenderer: CreateHudRenderer = (canvas, initialTier) => {
       drawLeadSight(ctx, camera, hud, widthPx, heightPx);
       agPos.x = curr.posX[playerSlot]!; agPos.y = curr.posY[playerSlot]!; agPos.z = curr.posZ[playerSlot]!;
       agVel.x = curr.velX[playerSlot]!; agVel.y = curr.velY[playerSlot]!; agVel.z = curr.velZ[playerSlot]!;
-      drawAgSight(ctx, camera, hud, agPos, agVel, widthPx, heightPx, nowMs);
+      drawAgSight(ctx, camera, hud, agPos, agVel, widthPx, heightPx, nowMs, weaponKeys);
       drawWeaponStatus(ctx, hud, widthPx - 16, heightPx - 44);
       drawRwrScope(ctx, hud, 70, heightPx - 140, 50, nowMs);
       drawWarnings(ctx, hud, nowMs, widthPx * 0.5, heightPx * 0.28);

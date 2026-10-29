@@ -6,6 +6,7 @@
 import {
   AG_SIGHT_FIELD_RAD,
   AgCueCode,
+  AgCueFlag,
   AgModeCode,
   DlzCode,
   PodFlag,
@@ -193,6 +194,8 @@ export const writeCombatStatus: WriteCombatStatus = (state, out: CombatStatus) =
     out.podRangeM = pod.rangeM;
   }
   out.dlz = state.dlz;
+  out.agCue = state.agCue;
+  out.agCueFlags = state.agCueFlags;
   out.aimPointWorld.x = state.aimPointWorld.x;
   out.aimPointWorld.y = state.aimPointWorld.y;
   out.aimPointWorld.z = state.aimPointWorld.z;
@@ -313,6 +316,7 @@ export const fireWeapons: FireWeapons = (
   const onGround = (shooterState.flags & EntityFlag.OnGround) !== 0;
 
   // --- Air-to-ground stores: bombs and rockets, no lock needed ---
+  updateAgCue(state, inputs.launch, dtSec);
   state.rocketCooldownSec -= dtSec;
   if (!inputs.launch) state.releasedThisPress = false;
   if (!onGround && isAirToGroundKind(state.selectedWeapon)) {
@@ -472,6 +476,8 @@ function releaseAirToGround(shooterId: EntityId, shooter: EntityState, inputs: P
   pushStore(shooterId, shooter, st, _dirWorld.x * v, _dirWorld.y * v, _dirWorld.z * v, kind === WeaponKind.GuidedBomb ? ProjectileKind.GuidedBomb : ProjectileKind.Bomb, outRequests, outEvents, kind);
   const rel = outRequests[outRequests.length - 1]!;
   rel.omegaBody = releaseRatesInto(st.profile, shooter.omega, { x: 0, y: 0, z: 0 });
+  state.agAwaySec = AG_AWAY_SEC;
+  if (state.spiValid) state.ccrpReleased = true;
   if (gps) {
     outRequests[outRequests.length - 1]!.targetPoint = { x: state.spi.x, y: state.spi.y, z: state.spi.z };
     // Pre-planned aim points: the next weapon goes to the next one.
@@ -550,6 +556,40 @@ function pushStore(shooterId: EntityId, shooter: EntityState, st: WeaponStationR
     profile: st.profile,
   });
   outEvents.push({ type: 'missileLaunch', shooterId, missileId: NO_ENTITY_ID, weapon });
+}
+
+/** "Away" shows this long after a bomb leaves, s. */
+export const AG_AWAY_SEC = 1.5;
+
+/**
+ * The release cue (AgCueCode): the next thing the pilot does with the selected air-to-ground store,
+ * from the sight's solution and whether the release button is held. Rockets and CCIP bombs: aim
+ * the pipper (or dive until it is in view). Unguided bombs with a designated point (CCRP): steer
+ * onto the release track, hold release, and the bomb goes at the release point; past it the pass
+ * is missed. Guided weapons with a designated point have their launch-zone cue (DLZ) instead.
+ */
+export function updateAgCue(state: WeaponsState, launchHeld: boolean, dtSec: number): void {
+  state.agAwaySec = Math.max(0, state.agAwaySec - dtSec);
+  state.agCueFlags = (state.agPipperLimited ? AgCueFlag.PipperLimited : 0) | (launchHeld ? AgCueFlag.LaunchHeld : 0);
+  const k = state.selectedWeapon;
+  if (k !== WeaponKind.Bomb && k !== WeaponKind.GuidedBomb && k !== WeaponKind.Rocket) {
+    state.agCue = AgCueCode.None;
+  } else if (state.agAwaySec > 0) {
+    state.agCue = AgCueCode.Away;
+  } else if (k === WeaponKind.Rocket) {
+    state.agCue = !state.agValid ? AgCueCode.None : state.agPipperLimited ? AgCueCode.Dive : AgCueCode.Ccip;
+  } else if (!state.spiValid) {
+    state.agCue = state.agValid && !state.agPipperLimited ? AgCueCode.Ccip : AgCueCode.Designate;
+  } else if (k === WeaponKind.GuidedBomb) {
+    state.agCue = AgCueCode.None;
+  } else {
+    const ttr = state.ccrpTimeToReleaseSec;
+    if (!Number.isFinite(ttr)) state.agCue = AgCueCode.None;
+    else if (ttr <= -CCRP_LATE_SEC) state.agCue = state.ccrpReleased ? AgCueCode.None : AgCueCode.Passed;
+    else if (Math.abs(state.ccrpCrossTrackM) > CCRP_RELEASE_CROSS_M) state.agCue = AgCueCode.Steer;
+    else if (ttr <= 0) state.agCue = AgCueCode.Release;
+    else state.agCue = launchHeld ? AgCueCode.Releasing : AgCueCode.Hold;
+  }
 }
 
 /** The gun is selected with no air target designated: it gets an air-to-ground (strafing) pipper. */

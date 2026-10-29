@@ -4,7 +4,7 @@
  */
 
 // 3.2 Weapon stations & loadout
-export { createWeaponsState, writeCombatStatus, createCombatRngState, fireWeapons, computeStoresLoad, cycleSelectedStore, findStationWithStore, countermeasureRelease, combatRand01, updateAgSight, designatePoint, loadBriefedTarget, stepGroundDesignation, DESIGNATE_SNAP_M, CCRP_RELEASE_CROSS_M, CCRP_LATE_SEC, AG_SIGHT_HZ } from './weaponStation';
+export { createWeaponsState, writeCombatStatus, createCombatRngState, fireWeapons, computeStoresLoad, cycleSelectedStore, findStationWithStore, countermeasureRelease, combatRand01, updateAgSight, designatePoint, loadBriefedTarget, stepGroundDesignation, updateAgCue, DESIGNATE_SNAP_M, AG_AWAY_SEC, CCRP_RELEASE_CROSS_M, CCRP_LATE_SEC, AG_SIGHT_HZ } from './weaponStation';
 export { predictImpact, ccrpSolution } from './agSight';
 export type { RigidRelease } from './agSight';
 export { isRigidStore, freeBodyParamsInto, createFreeBodyParams, releasePointBodyInto, releaseRatesInto, soundSpeedAt, BALLUTE_INFLATE_SEC, BOMB_EJECT_PITCH_RAD_S } from './storeFlight';

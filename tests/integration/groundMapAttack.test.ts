@@ -6,6 +6,7 @@
  */
 import { describe, expect, test } from 'vitest';
 import {
+  AgCueCode,
   AgModeCode,
   GroundMapKind,
   HUD_BLOCK_START,
@@ -85,7 +86,8 @@ function setup() {
     fly();
     step(inp);
   };
-  return { world, id, events, hud, ground, tick };
+  const cue = (): number => read()[HUD_BLOCK_START + HUD_EXT_BASE + SnapshotHudExt.AG_CUE]!;
+  return { world, id, events, hud, ground, tick, cue, pos };
 }
 
 describe('ground-map attack', () => {
@@ -126,5 +128,46 @@ describe('ground-map attack', () => {
     expect(impact).toBeDefined();
     expect(Math.hypot(impact!.pos.x - NEAR.x, impact!.pos.z - NEAR.z)).toBeLessThan(30);
     expect(s.events.find((e) => e.type === 'groundKill')).toMatchObject({ typeId: 'truck-cargo', sourceId: s.id });
+  });
+
+  test('the release cue walks the pilot through it: select target, hold release, the count, bomb away', () => {
+    const s = setup();
+    for (let i = 0; i < 4; i++) s.tick(inputs({ cycleWeapon: i % 2 === 0 }));
+    for (let i = 0; i < 10; i++) s.tick();
+    // Level, nothing designated, the pipper far below the HUD.
+    expect(s.cue()).toBe(AgCueCode.Designate);
+    s.tick(inputs({ cycleTarget: true }));
+    s.tick();
+    expect(s.cue()).toBe(AgCueCode.Hold);
+    // Off the track: steer (the truck is to the right).
+    s.pos.x = -60;
+    for (let i = 0; i < 10; i++) s.tick();
+    expect(s.cue()).toBe(AgCueCode.Steer);
+    expect(s.hud(SnapshotHud.AG_CROSS_M)).toBeGreaterThan(25);
+    s.pos.x = 0;
+    for (let i = 0; i < 10; i++) s.tick();
+    expect(s.cue()).toBe(AgCueCode.Hold);
+    // Hold: the count, the bomb goes, "away", then nothing (not "passed": it went).
+    const seen: number[] = [];
+    for (let t = 0; t < 120 * 60 && !s.events.some((e) => e.type === 'groundImpact' && e.explosiveKg > 0); t++) {
+      s.tick(inputs({ launch: true }));
+      const c = s.cue();
+      if (seen[seen.length - 1] !== c) seen.push(c);
+    }
+    // (Hold until the held button reaches the sim; Release on the tick the bomb goes.)
+    expect(seen).toEqual([AgCueCode.Hold, AgCueCode.Releasing, AgCueCode.Release, AgCueCode.Away, AgCueCode.None]);
+  });
+
+  test('a pass flown through without holding release is "passed"', () => {
+    const s = setup();
+    for (let i = 0; i < 4; i++) s.tick(inputs({ cycleWeapon: i % 2 === 0 }));
+    s.tick(inputs({ cycleTarget: true }));
+    let last = -1;
+    for (let t = 0; t < 120 * 60 && last !== AgCueCode.Passed; t++) {
+      s.tick();
+      last = s.cue();
+    }
+    expect(last).toBe(AgCueCode.Passed);
+    expect(s.events.some((e) => e.type === 'missileLaunch')).toBe(false);
   });
 });

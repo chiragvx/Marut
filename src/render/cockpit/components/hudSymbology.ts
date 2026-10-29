@@ -582,10 +582,13 @@ export function drawHud(g: CanvasRenderingContext2D, P: HudProjector, ctx: Cockp
         g.fillRect(P.x - lw, P.y - lw, lw * 2, lw * 2);
       }
       const x = fxC + Math.max(-u(7), Math.min(u(7), (av.agCrossM / 60) * u(1)));
+      // Dashed until inside the release window across the track (25 m).
+      if (Math.abs(av.agCrossM) > 25) g.setLineDash([u(0.5), u(0.4)]);
       g.beginPath();
       g.moveTo(x, fyC - u(9));
       g.lineTo(x, fyC + u(2));
       g.stroke();
+      g.setLineDash([]);
       const cueY = fyC - Math.max(0, Math.min(u(8.5), av.agTimeSec * u(0.45)));
       g.lineWidth = lw * 2.2;
       g.beginPath();

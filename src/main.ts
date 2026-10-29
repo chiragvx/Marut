@@ -8,7 +8,7 @@
  * exports of modules 04/08/09/11 rather than a contracts/*.ts file).
  */
 
-import { AutopilotFlag, EntityFlag, HUD_BLOCK_START, LIGHT_MODES, LockStateCode, NO_ENTITY_ID, PodFlag, ServiceStateCode, SnapshotHud, SpeedUnit, WarningBit, WeaponKindCode, WeatherMode, type AutopilotAction } from './contracts/core';
+import { AutopilotFlag, EntityFlag, HUD_BLOCK_START, HUD_EXT_BASE, LIGHT_MODES, LockStateCode, NO_ENTITY_ID, PodFlag, ServiceStateCode, SnapshotHud, SnapshotHudExt, SpeedUnit, WarningBit, WeaponKindCode, WeatherMode, type AutopilotAction } from './contracts/core';
 import type {
   AiDifficulty,
   EntityId,
@@ -66,6 +66,7 @@ import {
 } from './ui';
 import './ui/ui.css';
 import { startAnalytics } from './ui/analytics';
+import { createReleaseTone } from './ui/releaseTone';
 import { approachScene, nightDepartureScene, taxiScene, type ShowcaseScene } from './ui/showcase';
 import { createFlightOverlay, hintText, pickHint, type FlightOverlay, type HintId, type HintKeys } from './ui/flightOverlay';
 import { DEFAULT_INPUT_MAP_DATA } from './input/inputMap';
@@ -190,6 +191,8 @@ let hintsEnabled = true;
 const DEFAULT_LIGHT_MODE = 2;
 /** Master arm (3D cockpit switch): SAFE blocks the trigger and missile launch. Armed by default. */
 let masterArm = true;
+/** The CCRP release tone (src/ui/releaseTone.ts). */
+const releaseTone = createReleaseTone();
 /** One-shot presses from cockpit controls, added to the next frame's pilot inputs (frames left). */
 const cockpitPulse = { cycleWeapon: 0, cycleTarget: 0, radarModeCycle: 0, jettisonTanks: 0, requestService: 0 };
 /** Bumped at every spawn and rearm, so the cockpit starts counting gun rounds again. */
@@ -803,6 +806,7 @@ async function initWorkersAndRenderer(qualityTier: QualityTier): Promise<void> {
       if (service === ServiceStateCode.Complete && serviceWas !== ServiceStateCode.Complete && appState === 'gameplay') flightOverlay?.message('Refuelled and rearmed');
       renderer.ingestSnapshot(view);
       hud.ingestSnapshot(view);
+      if (appState === 'gameplay') releaseTone.update(view[HUD_BLOCK_START + HUD_EXT_BASE + SnapshotHudExt.AG_CUE] ?? 0, view[HUD_BLOCK_START + SnapshotHud.AG_TIME_SEC] ?? 0);
       updateFlightOverlay(view);
       simWorker.postMessage({ type: 'releaseBuffer', buffer: (msg as SimSnapshotMessage).buffer } satisfies SimReleaseBufferMessage, [(msg as SimSnapshotMessage).buffer]);
       return;
@@ -1492,6 +1496,7 @@ function frame(nowMs: number): void {
     simWorker.postMessage({ type: 'input', entityId: playerEntityId, inputs: pilotInputsScratch } as const);
   }
   if (appState !== 'gameplay' && cockpitTip && cockpitTip.style.display !== 'none') hideCockpitTip();
+  if (appState !== 'gameplay') releaseTone.silence();
   tickPendingStart(nowMs);
   tickShowcase(dtSec);
   tickLookKeys(dtSec);
