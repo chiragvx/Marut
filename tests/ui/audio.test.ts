@@ -8,8 +8,9 @@ import { AutopilotFlag, WarningBit } from '../../src/contracts/core';
 import { createRwrToneState, FORGET_SEC, LOCK_TONE_SEC, stepRwrTones, type RwrEmitter, type RwrToneCommand } from '../../src/ui/audio/rwrTones';
 import { BINGO_FRAC, createVoiceWarningState, REARM_SEC, stepVoiceWarnings, VOICE_LINES, type VoiceInputs, type VoiceLineDef } from '../../src/ui/audio/voiceWarnings';
 import { STALE_SEC, VoiceQueue } from '../../src/ui/audio/voicePlayer';
+import { absorptionHz, multiplyQuat, toListener, travelSec } from '../../src/ui/audio/spatial';
 import { ambienceLevels, type AmbienceInputs, type AmbienceLevels } from '../../src/ui/audio/ambience';
-import { createEngineSoundState, engineVoiceParams, FAN_BLADES, FAN_SHAFT_HZ, IDLE_N2, n2ForThrottle, stepEngineSound, type EngineSoundInputs, type EngineSoundState, type EngineVoiceParams } from '../../src/ui/audio/engineModel';
+import { createEngineSoundState, engineVoiceParams, FAN_SHAFT_HZ, IDLE_N2, n2ForThrottle, WHINE_ORDER, stepEngineSound, type EngineSoundInputs, type EngineSoundState, type EngineVoiceParams } from '../../src/ui/audio/engineModel';
 
 const SAM = 3; // LY-80
 const FIGHTER = 7; // JF-17
@@ -164,12 +165,13 @@ describe('engine model', () => {
     expect(n2ForThrottle(0.5)).toBeLessThan(0.93);
   });
 
-  it('the fan whine rises in pitch with RPM (a few kHz, as a jet on the ramp screams)', () => {
+  it('the fan whine rises in pitch with RPM: about 1 kHz at idle, under 2 kHz at full power', () => {
     const idle = params(run({ throttle: 0 }, 2).st);
     const mil = params(run({ throttle: 1 }, 2).st);
-    expect(idle.whineHz).toBeGreaterThan(1800);
+    expect(idle.whineHz).toBeGreaterThan(900);
+    expect(mil.whineHz).toBeLessThan(2000);
     expect(mil.whineHz).toBeGreaterThan(idle.whineHz * 1.5);
-    expect(mil.whineHz).toBe(FAN_SHAFT_HZ * FAN_BLADES);
+    expect(mil.whineHz).toBe(FAN_SHAFT_HZ * WHINE_ORDER);
   });
 
   it('the jet roar rises steeply with power; the buzz-saw only near full power; the reheat roar only lit', () => {
@@ -207,5 +209,69 @@ describe('engine model', () => {
     const c = params(st, 'cockpit'), o = params(st, 'outside');
     expect(c.muffleHz).toBeLessThan(o.muffleHz);
     expect(c.jet).toBeLessThan(o.jet);
+  });
+
+  it('a rumble inside and out, far stronger outside, growing with power and the afterburner', () => {
+    const idle = run({ throttle: 0 }, 2).st, mil = run({ throttle: 1 }, 2).st, ab = run({ throttle: 1, afterburner: true }, 2).st;
+    expect(params(idle, 'cockpit').rumble).toBeGreaterThan(0);
+    expect(params(mil, 'outside').rumble).toBeGreaterThan(params(mil, 'cockpit').rumble * 2);
+    expect(params(mil, 'outside').rumble).toBeGreaterThan(params(idle, 'outside').rumble * 2);
+    expect(params(ab, 'outside').rumble).toBeGreaterThan(params(mil, 'outside').rumble);
+  });
+});
+
+describe('3D sound placement', () => {
+  // The camera looking along the nose (three.js -Z onto body +X).
+  const NOSE_LOOK = { x: 0, y: -Math.SQRT1_2, z: 0, w: Math.SQRT1_2 };
+  const level = { pos: { x: 0, y: 0, z: 0 }, rot: { x: 0, y: 0, z: 0, w: 1 } };
+  const near = (v: { x: number; y: number; z: number }, x: number, y: number, z: number) => {
+    expect(v.x).toBeCloseTo(x, 6);
+    expect(v.y).toBeCloseTo(y, 6);
+    expect(v.z).toBeCloseTo(z, 6);
+  };
+
+  it('from the pilot seat, looking ahead: the nozzle is behind, the right wing to the right, the canopy above', () => {
+    const eye = { pos: { x: 3.5, y: 0.8, z: 0 }, rot: NOSE_LOOK };
+    near(toListener(eye, level, { x: -6.5, y: 0.8, z: 0 }, { x: 0, y: 0, z: 0 }), 0, 0, 10); // behind: +Z
+    near(toListener(eye, level, { x: 3.5, y: 0.8, z: 4 }, { x: 0, y: 0, z: 0 }), 4, 0, 0); // right: +X
+    near(toListener(eye, level, { x: 3.5, y: 2.8, z: 0 }, { x: 0, y: 0, z: 0 }), 0, 2, 0); // above: +Y
+  });
+
+  it('turning the head right puts the right wing ahead', () => {
+    // Head turned 90 deg right (about +Y, negative angle), after looking along the nose.
+    const right = multiplyQuat(NOSE_LOOK, { x: 0, y: -Math.SQRT1_2, z: 0, w: Math.SQRT1_2 }, { x: 0, y: 0, z: 0, w: 1 });
+    const eye = { pos: { x: 3.5, y: 0.8, z: 0 }, rot: right };
+    near(toListener(eye, level, { x: 3.5, y: 0.8, z: 4 }, { x: 0, y: 0, z: 0 }), 0, 0, -4);
+  });
+
+  it('follows the jet\'s attitude: rolled inverted, the canopy is below a level listener', () => {
+    const inverted = { pos: { x: 0, y: 0, z: 0 }, rot: { x: 1, y: 0, z: 0, w: 0 } }; // 180 deg about the nose
+    const cam = { pos: { x: -20, y: 0, z: 0 }, rot: NOSE_LOOK };
+    near(toListener(cam, inverted, { x: 0, y: 2, z: 0 }, { x: 0, y: 0, z: 0 }), 0, -2, -20);
+  });
+
+  it('far sounds are duller', () => {
+    expect(absorptionHz(10)).toBeGreaterThan(absorptionHz(1000));
+    expect(absorptionHz(2000)).toBeLessThan(3000);
+  });
+});
+
+describe('sound travel time', () => {
+  it('standing still: distance over the speed of sound', () => {
+    expect(travelSec({ x: 343, y: 0, z: 0 }, { x: 0, y: 0, z: 0 })).toBeCloseTo(1, 6);
+  });
+
+  it('from where the source was when it made the sound (coming at you: a shorter wait than from where it was)', () => {
+    // 1000 m out, closing at 100 m/s: heard sound left it d s ago, when it was 1000 + 100 d away.
+    const d = travelSec({ x: -1000, y: 0, z: 0 }, { x: 100, y: 0, z: 0 });
+    expect(343 * d).toBeCloseTo(1000 + 100 * d, 6);
+  });
+
+  it('its rate of change gives a moving source\'s Doppler, f / (1 - v/c)', () => {
+    const v = 100, c = 343, dt = 1e-3;
+    const d0 = travelSec({ x: -1000, y: 0, z: 0 }, { x: v, y: 0, z: 0 });
+    const d1 = travelSec({ x: -1000 + v * dt, y: 0, z: 0 }, { x: v, y: 0, z: 0 });
+    // Heard frequency = f (1 - d'(t)).
+    expect(1 - (d1 - d0) / dt).toBeCloseTo(1 / (1 - v / c), 4);
   });
 });

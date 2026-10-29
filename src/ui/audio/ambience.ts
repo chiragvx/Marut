@@ -6,6 +6,9 @@
  *   thump; muffled in the cockpit, where the air conditioning's steady rush is louder (the
  *   loudest thing in a Tejas cockpit, its test pilots say);
  * - the wind rising with the airspeed (more with the airbrake out or the gear down);
+ * - all of it placed in 3D (src/ui/audio/spatial.ts): the whine at the intakes, the roar and
+ *   rumble at the nozzle, the air conditioning at the vents either side of the pilot, the wind
+ *   over the canopy, heard from the camera; in the cockpit, in the cockpit's own small room;
  * - one-shots from the sim's events: the gun, a store's release thump, a missile's motor, chaff and
  *   flares, the gear's motor and its lock, touchdown, hits on you, and explosions near you (heard
  *   after the sound's travel time).
@@ -16,6 +19,8 @@ import type { SimEvent, Vec3Like } from '../../contracts/core';
 import { AudioChannel, type AudioBus } from './audioBus';
 import { createEngineSoundState, engineVoiceParams, stepEngineSound, type EngineSoundEvents, type EngineVoiceParams } from './engineModel';
 import { createEngineVoice, type EngineVoice } from './engineVoice';
+import { createCockpitRoom, createEmitter, multiplyQuat, rotate, type Airframe, type Emitter, type Listener } from './spatial';
+import { COCKPIT_EYE_OFFSET_BODY_M, type CameraState } from '../../contracts/render';
 
 export interface AmbienceInputs {
   alive: boolean;
@@ -58,8 +63,18 @@ export interface Ambience {
   update(inp: AmbienceInputs, dtSec: number): void;
   /** The sim's events (only the ones about you, or near you, sound). */
   event(ev: SimEvent, playerId: number, playerPos: Vec3Like): void;
+  /** Each rendered frame: where the camera is (3D sound). `pilotsEars`: hear from the pilot's seat whatever the camera shows (the pod view). */
+  listen(camera: CameraState, pilotsEars: boolean): void;
   silence(): void;
 }
+
+/** Where the sounds are on the airframe (body frame, m: +X nose, +Y canopy, +Z right). */
+const INTAKE_BODY = { x: 2.0, y: -0.5, z: 0 };
+const NOZZLE_BODY = { x: -6.3, y: 0, z: 0 };
+const VENT_BODY = (side: number) => ({ x: 3.9, y: 0.55, z: 0.35 * side });
+const CANOPY_BODY = (side: number) => ({ x: 3.5, y: 1.2, z: 0.55 * side });
+/** The camera looking along the nose (three.js camera -Z onto body +X): a -90 deg turn about +Y. */
+const NOSE_LOOK = { x: 0, y: -Math.SQRT1_2, z: 0, w: Math.SQRT1_2 };
 
 interface Loop {
   gain: GainNode;
@@ -68,8 +83,14 @@ interface Loop {
 }
 
 export function createAmbience(bus: AudioBus): Ambience {
-  let loops: { aircon: Loop; wind: Loop; gun: Loop; gearMotor: Loop } | null = null;
+  let loops: { airconL: Loop; airconR: Loop; windL: Loop; windR: Loop; gun: Loop; gearMotor: Loop } | null = null;
   let engine: EngineVoice | null = null;
+  let emitters: Emitter[] = [];
+  let engineOuts: { front: AudioNode; rear: AudioNode } | null = null;
+  let inside = true;
+  const listener: Listener = { pos: { x: 0, y: 0, z: 0 }, rot: { x: 0, y: 0, z: 0, w: 1 } };
+  const jet: Airframe = { pos: { x: 0, y: 0, z: 0 }, rot: { x: 0, y: 0, z: 0, w: 1 } };
+  const eyeWorld = { x: 0, y: 0, z: 0 };
   const engineState = createEngineSoundState();
   const engineEv: EngineSoundEvents = { abLit: false, abOut: false };
   const engineParams: EngineVoiceParams = { whineHz: 0, whine: 0, shaftHz: 0, buzz: 0, jet: 0, jetHz: 0, rumble: 0, ab: 0, crackle: 0, muffleHz: 0 };
@@ -84,6 +105,16 @@ export function createAmbience(bus: AudioBus): Ambience {
     const fx = bus.channel(AudioChannel.Effects);
     const noise = bus.noise();
     if (!ac || !amb || !fx || !noise) return null;
+    const room = createCockpitRoom(ac, amb);
+    const place = (body: Vec3Like, cone?: Parameters<typeof createEmitter>[4]): AudioNode => {
+      const e = createEmitter(ac, amb, room, body, cone);
+      emitters.push(e);
+      return e.input;
+    };
+    engineOuts = {
+      front: place(INTAKE_BODY, { cone: { dir: { x: 1, y: 0, z: 0 }, innerDeg: 100, outerDeg: 260, outerGain: 0.4 } }),
+      rear: place(NOZZLE_BODY, { cone: { dir: { x: -1, y: 0, z: 0 }, innerDeg: 120, outerDeg: 300, outerGain: 0.55 } }),
+    };
     const noiseLoop = (type: BiquadFilterType, hz: number, q: number, dest: AudioNode): Loop => {
       const src = ac.createBufferSource();
       src.buffer = noise;
@@ -114,8 +145,10 @@ export function createAmbience(bus: AudioBus): Ambience {
       return { gain, filter, osc };
     };
     return {
-      aircon: noiseLoop('highpass', 2200, 0.5, amb),
-      wind: noiseLoop('bandpass', 800, 0.6, amb),
+      airconL: noiseLoop('highpass', 2200, 0.5, place(VENT_BODY(-1))),
+      airconR: noiseLoop('highpass', 2200, 0.5, place(VENT_BODY(1))),
+      windL: noiseLoop('bandpass', 800, 0.6, place(CANOPY_BODY(-1))),
+      windR: noiseLoop('bandpass', 800, 0.6, place(CANOPY_BODY(1))),
       // The GSh-23's buzz: ~57 shots a second.
       gun: oscLoop('square', 57, 'lowpass', 900, 1, fx),
       gearMotor: oscLoop('sawtooth', 110, 'lowpass', 500, 1, fx),
@@ -167,15 +200,18 @@ export function createAmbience(bus: AudioBus): Ambience {
       if (!loops) loops = build();
       if (!loops) return;
       const ac = bus.context()!;
-      if (!engine) engine = createEngineVoice(ac, bus.channel(AudioChannel.Ambience)!);
+      if (!engine) engine = createEngineVoice(ac, engineOuts!);
       live = true;
+      inside = inp.inCockpit;
       stepEngineSound(engineState, { throttle: inp.throttle, afterburner: inp.afterburner, running: inp.alive && inp.fuelKg > 0, iasMps: inp.iasMps }, dt, engineEv);
       engine.set(engineVoiceParams(engineState, inp.inCockpit ? 'cockpit' : 'outside', engineParams));
       if (engineEv.abLit) engine.thump(inp.inCockpit ? 0.12 : 0.3);
       ambienceLevels(inp, lv);
-      set(loops.aircon.gain.gain, lv.aircon, 0.3);
-      set(loops.wind.gain.gain, lv.wind);
-      set(loops.wind.filter.frequency, lv.windHz);
+      for (const l of [loops.airconL, loops.airconR]) set(l.gain.gain, lv.aircon * 0.7, 0.3);
+      for (const l of [loops.windL, loops.windR]) {
+        set(l.gain.gain, lv.wind * 0.7);
+        set(l.filter.frequency, lv.windHz);
+      }
       set(loops.gun.gain.gain, inp.alive && ac.currentTime < gunUntil ? 0.22 : 0, 0.01);
       // The gear: its motor while it moves, a clunk as it locks.
       const moving = gearWas >= 0 && Math.abs(inp.gearPos - gearWas) > 1e-4;
@@ -215,6 +251,23 @@ export function createAmbience(bus: AudioBus): Ambience {
         default:
           break;
       }
+    },
+    listen(cam, pilotsEars) {
+      if (!loops || !cam.subjectPos || !cam.subjectRot) return;
+      Object.assign(jet.pos, cam.subjectPos);
+      Object.assign(jet.rot, cam.subjectRot);
+      if (pilotsEars || !cam.worldRot) {
+        // The pilot's seat, looking along the nose.
+        rotate(jet.rot, COCKPIT_EYE_OFFSET_BODY_M, eyeWorld);
+        listener.pos.x = jet.pos.x + eyeWorld.x;
+        listener.pos.y = jet.pos.y + eyeWorld.y;
+        listener.pos.z = jet.pos.z + eyeWorld.z;
+        multiplyQuat(jet.rot, NOSE_LOOK, listener.rot);
+      } else {
+        Object.assign(listener.pos, cam.worldPos);
+        Object.assign(listener.rot, cam.worldRot);
+      }
+      for (const e of emitters) e.place(listener, jet, inside);
     },
     silence() {
       if (!loops) return;

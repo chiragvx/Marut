@@ -2,15 +2,18 @@
  * src/ui/audio/engineVoice.ts — one jet engine's sound, synthesised in Web Audio from
  * src/ui/audio/engineModel.ts's numbers:
  *
- * - the fan's blade-pass whine (two sines, the fundamental and its second harmonic, with a little
- *   jitter, as the blades never pass perfectly evenly);
+ * - the fan's whine (two sines, the tone and a faint octave, with a little jitter, as the blades
+ *   never pass perfectly evenly), softened above 2.5 kHz;
  * - the buzz-saw: the fan shaft's harmonics, with uneven weights (no two blades are alike);
  * - the jet's roar: pink noise, its upper corner rising with the jet speed;
- * - the core rumble: brown noise;
+ * - the rumble: brown noise and low pink noise, roughened ~30 times a second (the uneven pressure
+ *   of the core and the jet), with the lows lifted;
  * - the afterburner: a deeper roar and a crackle (sparse sharp pressure spikes);
  * - turbulence: the roar's level wanders a little, a few times a second, as a real jet's does.
  *
- * Everything goes through one low-pass (the canopy and helmet in the cockpit) into `dest`.
+ * Two outputs, so each can be placed where it comes from (src/ui/audio/spatial.ts): the intake
+ * (`front`: the whine and buzz-saw) and the nozzle (`rear`: the roar, rumble and afterburner).
+ * Each goes through a low-pass (the canopy and helmet in the cockpit) first.
  */
 import type { EngineVoiceParams } from './engineModel';
 
@@ -92,17 +95,22 @@ function buildBuffers(ac: BaseAudioContext): Buffers {
   return { pink, brown, crackle, wander };
 }
 
-export function createEngineVoice(ac: AudioContext, dest: AudioNode): EngineVoice {
+export function createEngineVoice(ac: BaseAudioContext, outs: { front: AudioNode; rear: AudioNode }): EngineVoice {
   let bufs = buffersFor.get(ac);
   if (!bufs) {
     bufs = buildBuffers(ac);
     buffersFor.set(ac, bufs);
   }
-  const muffle = ac.createBiquadFilter();
-  muffle.type = 'lowpass';
-  muffle.frequency.value = 16000;
-  muffle.Q.value = 0.5;
-  muffle.connect(dest);
+  const muffleFor = (dest: AudioNode): BiquadFilterNode => {
+    const m = ac.createBiquadFilter();
+    m.type = 'lowpass';
+    m.frequency.value = 16000;
+    m.Q.value = 0.5;
+    m.connect(dest);
+    return m;
+  };
+  const front = muffleFor(outs.front);
+  const muffle = muffleFor(outs.rear);
 
   const gain = (to: AudioNode | AudioParam, v = 0): GainNode => {
     const g = ac.createGain();
@@ -127,11 +135,13 @@ export function createEngineVoice(ac: AudioContext, dest: AudioNode): EngineVoic
     return f;
   };
 
-  // Fan whine: fundamental and second harmonic, each with a little frequency jitter.
-  const whineOut = gain(muffle);
+  // Fan whine: the tone and a faint octave, each with a little frequency jitter, softened on top.
+  const whineSoft = filter('lowpass', 2500, 0.5);
+  whineSoft.connect(front);
+  const whineOut = gain(whineSoft);
   const whine1 = ac.createOscillator();
   const whine2 = ac.createOscillator();
-  const whine2Gain = gain(whineOut, 0.35);
+  const whine2Gain = gain(whineOut, 0.12);
   whine1.connect(whineOut);
   whine2.connect(whine2Gain);
   const jitter = loop(bufs.wander, 8);
@@ -148,7 +158,7 @@ export function createEngineVoice(ac: AudioContext, dest: AudioNode): EngineVoic
   for (let k = 1; k <= 40; k++) imag[k] = (0.3 + 0.7 * Math.random()) / Math.sqrt(k);
   const buzzOsc = ac.createOscillator();
   buzzOsc.setPeriodicWave(ac.createPeriodicWave(real, imag));
-  const buzzOut = gain(muffle);
+  const buzzOut = gain(front);
   buzzOsc.connect(filter('bandpass', 1200, 0.4)).connect(buzzOut);
   buzzOsc.start();
 
@@ -160,9 +170,16 @@ export function createEngineVoice(ac: AudioContext, dest: AudioNode): EngineVoic
   const jetWander = gain(jetOut.gain);
   wander.connect(jetWander);
 
-  // Core rumble.
-  const rumbleOut = gain(muffle);
-  loop(bufs.brown).connect(filter('lowpass', 180)).connect(rumbleOut);
+  // Rumble: brown noise and low pink noise, lows lifted, roughened by a fast wander on its level.
+  const rumbleShelf = filter('lowshelf', 120);
+  rumbleShelf.gain.value = 6;
+  rumbleShelf.connect(muffle);
+  const rumbleOut = gain(rumbleShelf);
+  loop(bufs.brown).connect(filter('lowpass', 160)).connect(rumbleOut);
+  loop(bufs.pink, 0.6).connect(filter('lowpass', 260)).connect(gain(rumbleOut, 0.5));
+  const rough = loop(bufs.wander, 5);
+  const rumbleRough = gain(rumbleOut.gain);
+  rough.connect(rumbleRough);
 
   // Afterburner: a deep roar (brown + low pink) and the crackle.
   const abOut = gain(muffle);
@@ -191,10 +208,12 @@ export function createEngineVoice(ac: AudioContext, dest: AudioNode): EngineVoic
       to(jetOut.gain, p.jet);
       to(jetWander.gain, p.jet * 0.25, 0.2);
       to(rumbleOut.gain, p.rumble);
+      to(rumbleRough.gain, p.rumble * 0.5, 0.2);
       to(abOut.gain, p.ab, 0.08);
       to(abWander.gain, p.ab * 0.3, 0.2);
       to(crackleOut.gain, p.crackle, 0.08);
       to(muffle.frequency, p.muffleHz, 0.1);
+      to(front.frequency, p.muffleHz, 0.1);
     },
     thump(g) {
       const t0 = t() + 0.005;
@@ -210,7 +229,7 @@ export function createEngineVoice(ac: AudioContext, dest: AudioNode): EngineVoic
       osc.stop(t0 + 0.45);
     },
     silence() {
-      for (const g of [whineOut, buzzOut, jetOut, rumbleOut, abOut, crackleOut, jetWander, abWander]) to(g.gain, 0, 0.05);
+      for (const g of [whineOut, buzzOut, jetOut, rumbleOut, abOut, crackleOut, jetWander, abWander, rumbleRough]) to(g.gain, 0, 0.05);
     },
   };
 }

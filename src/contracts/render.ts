@@ -284,6 +284,11 @@ export interface CameraState {
   worldPos: Vec3Like;
   /** The sim time the 3D view shows this frame (it plays a few snapshots behind the newest), s; HUD symbols on world objects use it to line up. */
   renderSimSec?: number;
+  /** The camera's world orientation (three.js convention: looking down -Z, +Y up); 3D sound hears from here. */
+  worldRot?: QuatLike;
+  /** The player's jet as drawn this frame (interpolated), absolute world; absent with no player (menus). */
+  subjectPos?: Vec3Like;
+  subjectRot?: QuatLike;
 }
 
 // -----------------------------------------------------------------------------

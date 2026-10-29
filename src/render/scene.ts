@@ -277,6 +277,9 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
     worldPos: { x: 0, y: 0, z: 0 },
   };
   const scratchProjMatrix = new THREE.Matrix4();
+  const cameraWorldRot = { x: 0, y: 0, z: 0, w: 1 };
+  const subjectPos = { x: 0, y: 0, z: 0 };
+  const subjectRot = { x: 0, y: 0, z: 0, w: 1 };
 
   // --- Time of day and weather (skyState.ts) ---
   let timeOfDayH: number | undefined;
@@ -615,6 +618,7 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
 
       // The 3D view plays the snapshots back on the sim's clock (snapshotInterpolation.ts).
       const fInterp = snapshotBuf.hasData ? advanceRenderClock(snapshotBuf, nowMs) : 1;
+      let subjectDrawn = false;
       if (showcase) {
         // The menu's cinematic: a scripted camera and aircraft, no flight.
         const sc = showcase;
@@ -654,6 +658,7 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
         effects.tick(frameDtSec, origin);
         followOrigin(origin);
       } else if (snapshotBuf.hasData && snapshotBuf.curr.playerSlot >= 0) {
+        subjectDrawn = true;
         const curr = snapshotBuf.curr;
         const playerSlot = curr.playerSlot;
         const f = fInterp;
@@ -816,6 +821,14 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
       cameraState.worldPos.y = cameraPose.pos.y;
       cameraState.worldPos.z = cameraPose.pos.z;
       cameraState.renderSimSec = snapshotBuf.hasData && !showcase ? snapshotBuf.renderSimSec : undefined;
+      Object.assign(cameraWorldRot, { x: camera.quaternion.x, y: camera.quaternion.y, z: camera.quaternion.z, w: camera.quaternion.w });
+      cameraState.worldRot = cameraWorldRot;
+      if (subjectDrawn) {
+        Object.assign(subjectPos, interpEntity.pos);
+        Object.assign(subjectRot, interpEntity.rot);
+      }
+      cameraState.subjectPos = subjectDrawn ? subjectPos : undefined;
+      cameraState.subjectRot = subjectDrawn ? subjectRot : undefined;
 
       // The 3D cockpit: lit by this frame's sun and sky, drawn over the world.
       const inCockpit = mode === CameraMode.Cockpit3d && !showcase && cockpit !== null && cockpitFlight.valid && snapshotBuf.hasData;

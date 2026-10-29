@@ -1552,6 +1552,7 @@ function frame(nowMs: number): void {
   flightOverlay?.setVisible(appState === 'gameplay');
   if (renderer && hud) {
     const camera: CameraState = renderer.renderFrame(nowMs);
+    if (appState === 'gameplay') ambience.listen(camera, podView);
     hud.renderFrame(nowMs, camera);
     chunkManager?.update(camera.worldPos, currentQualityTier);
   }

@@ -7,21 +7,24 @@
  *   the lever), so the sound always matches the thrust. Thrust grows much faster than RPM, so the
  *   RPM climbs steeply off idle and flattens near military power (half thrust is ~90% N2). Fuel
  *   gone: it runs down to a windmill.
- * - The fan's blade-pass whine: the fan shaft's frequency times its blades — the high scream of a
- *   jet at idle on the ramp.
+ * - The fan's whine: a tone locked to the fan shaft (WHINE_ORDER times its frequency), about 1 kHz
+ *   at idle rising to 1.8 kHz at full power. (A true first-stage blade-pass, ~4 kHz, was too
+ *   piercing in play.)
  * - "Buzz-saw": above ~85% fan speed the blade tips go supersonic and the shaft's harmonics growl
  *   out of the intake.
  * - Jet mixing noise: the exhaust's roar, broadband, peaking near Strouhal 0.2 x jet speed / nozzle
  *   diameter and rising steeply with jet speed (Lighthill's eighth power, eased for a game).
- * - Core rumble; the afterburner's roar and crackle, which lights over LIGHT_SEC with a thump.
+ * - Rumble: the low, rough roar of the core and the jet (felt through the airframe in the
+ *   cockpit; very strong outside), and the afterburner's roar and crackle, which lights over
+ *   LIGHT_SEC with a thump.
  * - A howl while the engine accelerates hard.
  */
 
 /** Ground idle core speed, fraction of 100% N2. */
 export const IDLE_N2 = 0.68;
-/** Fan shaft at 100% N1, Hz (~13,270 rpm), and the fan's first-stage blades. */
+/** Fan shaft at 100% N1, Hz (~13,270 rpm), and the whine's order on it. */
 export const FAN_SHAFT_HZ = 221;
-export const FAN_BLADES = 18;
+export const WHINE_ORDER = 8;
 /** Fully-expanded jet speed at idle, military and in reheat, m/s; the nozzle's diameter, m. */
 const VJ_IDLE = 190;
 const VJ_MIL = 600;
@@ -122,7 +125,7 @@ export function engineVoiceParams(st: EngineSoundState, ear: EarPosition, out: E
   const power = Math.min(1, Math.max(0, (n2 - IDLE_N2) / (1 - IDLE_N2)));
   const howl = Math.min(1, Math.max(0, st.accel) * 2.5);
   out.shaftHz = n1 * FAN_SHAFT_HZ;
-  out.whineHz = out.shaftHz * FAN_BLADES;
+  out.whineHz = out.shaftHz * WHINE_ORDER;
   const vj = st.ab > 0 ? VJ_MIL + (VJ_AB - VJ_MIL) * st.ab : VJ_IDLE + (VJ_MIL - VJ_IDLE) * power * power;
   const jetDb = JET_DB_PER_DECADE * Math.log10(Math.max(1, vj) / VJ_MIL);
   const jetLevel = Math.pow(10, jetDb / 20) * spin;
@@ -131,18 +134,18 @@ export function engineVoiceParams(st: EngineSoundState, ear: EarPosition, out: E
   if (ear === 'cockpit') {
     // An F404 is quiet in the cockpit: the whine and a rumble through the airframe; the jet's
     // roar is behind and outrun; the air conditioning (src/ui/audio/ambience.ts) is louder.
-    out.whine = (0.012 + 0.012 * power + 0.02 * howl) * spin;
+    out.whine = (0.01 + 0.008 * power + 0.015 * howl) * spin;
     out.buzz = 0.012 * buzz;
     out.jet = 0.035 * jetLevel;
-    out.rumble = (0.02 + 0.04 * power) * spin;
+    out.rumble = (0.06 + 0.1 * power) * spin + 0.1 * st.ab;
     out.ab = 0.09 * st.ab;
     out.crackle = 0.02 * st.ab;
     out.muffleHz = 2200;
   } else {
-    out.whine = (0.05 + 0.03 * power + 0.05 * howl) * spin;
+    out.whine = (0.035 + 0.02 * power + 0.04 * howl) * spin;
     out.buzz = 0.07 * buzz;
     out.jet = 0.28 * jetLevel;
-    out.rumble = (0.03 + 0.06 * power) * spin;
+    out.rumble = (0.12 + 0.38 * power) * spin + 0.35 * st.ab;
     out.ab = 0.3 * st.ab;
     out.crackle = 0.12 * st.ab;
     out.muffleHz = 16000;
