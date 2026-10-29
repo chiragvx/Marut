@@ -2,7 +2,10 @@
  * src/hud/agSight.ts — air-to-ground symbology on the game HUD (conformal with the 3D view, like the
  * target box), from the snapshot's AG_* fields (computed in the sim: src/combat/agSight.ts):
  *   - CCIP: the pipper on the predicted impact point and the bomb-fall line from the flight path
- *     marker to it; time of flight beside it.
+ *     marker to it; time of flight beside it. When the impact point is further below the flight path
+ *     than the sight field (AG_SIGHT_FIELD_RAD), the pipper is pinned on the field's edge on the way
+ *     to it (dashed, with a caret pointing on down): put it on the target and hold release to
+ *     designate there (delayed release; the sim's src/combat/weaponStation.ts).
  *   - CCRP: a target box on the designated point (SPI), the azimuth steering line (fly to put it
  *     through the flight path marker; dashed until inside the release window, solid on it) and the
  *     release cue sliding down it to the marker as the release point nears.
@@ -10,7 +13,7 @@
  *     next in large letters under the flight path marker (SELECT TARGET, STEER, HOLD <release key>,
  *     the seconds to release, RELEASE, BOMB AWAY, PASSED), with a one-line hint below it.
  */
-import { AgCueCode, AgCueFlag, AgModeCode, HUD_EXT_BASE, SnapshotHud, SnapshotHudExt, type Vec3Like } from '../contracts/core';
+import { AG_SIGHT_FIELD_RAD, AgCueCode, AgCueFlag, AgModeCode, HUD_EXT_BASE, SnapshotHud, SnapshotHudExt, type Vec3Like } from '../contracts/core';
 import type { CameraState } from '../contracts/render';
 import { createScreenProjection, projectWorldToScreen } from './targetBox';
 
@@ -35,6 +38,71 @@ export interface AgKeys {
   launch: string;
 }
 
+/**
+ * Where the CCIP pipper is drawn: the impact point, or (further below the flight path than the sight
+ * field) a point on the field's edge on the way to it, `PINNED_RANGE_M` out. True when pinned.
+ */
+const PINNED_RANGE_M = 2000;
+export function ccipPipperWorld(playerPos: Readonly<Vec3Like>, playerVel: Readonly<Vec3Like>, impact: Readonly<Vec3Like>, out: Vec3Like): boolean {
+  out.x = impact.x;
+  out.y = impact.y;
+  out.z = impact.z;
+  const ix = impact.x - playerPos.x, iy = impact.y - playerPos.y, iz = impact.z - playerPos.z;
+  const ir = Math.hypot(ix, iy, iz);
+  const vs = Math.hypot(playerVel.x, playerVel.y, playerVel.z);
+  if (ir < 1 || vs < 1) return false;
+  const a = Math.acos(Math.max(-1, Math.min(1, (ix * playerVel.x + iy * playerVel.y + iz * playerVel.z) / (ir * vs))));
+  if (a <= AG_SIGHT_FIELD_RAD) return false;
+  // Slerp from the flight path towards the impact by the field angle (as the sim does).
+  const sinA = Math.sin(a);
+  const wv = Math.sin(a - AG_SIGHT_FIELD_RAD) / sinA / vs;
+  const wi = Math.sin(AG_SIGHT_FIELD_RAD) / sinA / ir;
+  out.x = playerPos.x + (playerVel.x * wv + ix * wi) * PINNED_RANGE_M;
+  out.y = playerPos.y + (playerVel.y * wv + iy * wi) * PINNED_RANGE_M;
+  out.z = playerPos.z + (playerVel.z * wv + iz * wi) * PINNED_RANGE_M;
+  return true;
+}
+
+const impactWorld: Vec3Like = { x: 0, y: 0, z: 0 };
+
+/** The CCIP pipper at `pt` (projected): a ring and centre dot, dashed with a caret pointing on down when pinned. */
+function drawPipper(ctx: CanvasRenderingContext2D, x: number, y: number, pinned: boolean): void {
+  if (pinned) ctx.setLineDash([4, 3]);
+  ctx.beginPath();
+  ctx.arc(x, y, 11, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.fillRect(x - 1.5, y - 1.5, 3, 3);
+  if (pinned) {
+    ctx.beginPath();
+    ctx.moveTo(x - 7, y + 16);
+    ctx.lineTo(x, y + 23);
+    ctx.lineTo(x + 7, y + 16);
+    ctx.stroke();
+  }
+}
+
+/**
+ * The 3D cockpit's helmet display: the CCIP pipper (pinned or not) where the cockpit HUD's glass
+ * does not show it (`insideHud` false for its world point).
+ */
+export function drawCcipHelmet(ctx: CanvasRenderingContext2D, camera: CameraState, hud: Float64Array, playerPos: Readonly<Vec3Like>, playerVel: Readonly<Vec3Like>, w: number, h: number, insideHud: (p: Vec3Like) => boolean): void {
+  if ((hud[SnapshotHud.AG_MODE] ?? 0) !== AgModeCode.Ccip) return;
+  impactWorld.x = hud[SnapshotHud.CCIP_X]!;
+  impactWorld.y = hud[SnapshotHud.CCIP_Y]!;
+  impactWorld.z = hud[SnapshotHud.CCIP_Z]!;
+  const pinned = ccipPipperWorld(playerPos, playerVel, impactWorld, ptWorld);
+  if (insideHud(ptWorld)) return;
+  projectWorldToScreen(camera, ptWorld, w, h, pPt);
+  if (!pPt.visible) return;
+  ctx.save();
+  ctx.strokeStyle = COLOR;
+  ctx.fillStyle = COLOR;
+  ctx.lineWidth = 1.6;
+  drawPipper(ctx, pPt.xPx, pPt.yPx, pinned);
+  ctx.restore();
+}
+
 export function drawAgSight(ctx: CanvasRenderingContext2D, camera: CameraState, hud: Float64Array, playerPos: Readonly<Vec3Like>, playerVel: Readonly<Vec3Like>, w: number, h: number, nowMs: number, keys: AgKeys): void {
   const mode = hud[SnapshotHud.AG_MODE] ?? 0;
   drawAgCue(ctx, hud, w, h, nowMs, keys);
@@ -54,9 +122,10 @@ export function drawAgSight(ctx: CanvasRenderingContext2D, camera: CameraState, 
   ctx.font = '13px monospace';
 
   if (mode === AgModeCode.Ccip) {
-    ptWorld.x = hud[SnapshotHud.CCIP_X]!;
-    ptWorld.y = hud[SnapshotHud.CCIP_Y]!;
-    ptWorld.z = hud[SnapshotHud.CCIP_Z]!;
+    impactWorld.x = hud[SnapshotHud.CCIP_X]!;
+    impactWorld.y = hud[SnapshotHud.CCIP_Y]!;
+    impactWorld.z = hud[SnapshotHud.CCIP_Z]!;
+    const pinned = ccipPipperWorld(playerPos, playerVel, impactWorld, ptWorld);
     projectWorldToScreen(camera, ptWorld, w, h, pPt);
     if (pPt.visible) {
       // Bomb-fall line from the flight path marker to the pipper.
@@ -66,12 +135,11 @@ export function drawAgSight(ctx: CanvasRenderingContext2D, camera: CameraState, 
         ctx.lineTo(pPt.xPx, pPt.yPx);
         ctx.stroke();
       }
-      ctx.beginPath();
-      ctx.arc(pPt.xPx, pPt.yPx, 11, 0, Math.PI * 2);
-      ctx.stroke();
-      ctx.fillRect(pPt.xPx - 1.5, pPt.yPx - 1.5, 3, 3);
-      ctx.textAlign = 'left';
-      ctx.fillText(`${t.toFixed(1)}`, pPt.xPx + 15, pPt.yPx + 4);
+      drawPipper(ctx, pPt.xPx, pPt.yPx, pinned);
+      if (!pinned) {
+        ctx.textAlign = 'left';
+        ctx.fillText(`${t.toFixed(1)}`, pPt.xPx + 15, pPt.yPx + 4);
+      }
     }
   } else if (mode === AgModeCode.Ccrp) {
     ptWorld.x = hud[SnapshotHud.SPI_X]!;
@@ -122,7 +190,10 @@ export function drawAgCue(ctx: CanvasRenderingContext2D, hud: Float64Array, w: n
   switch (cue) {
     case AgCueCode.Designate:
       big = 'SELECT TARGET';
-      small = `${keys.target}: next target  ·  or dive until the pipper shows`;
+      small =
+        (flags & AgCueFlag.PipperLimited) !== 0
+          ? `${keys.target}: next target  ·  or put the dashed pipper on it and hold ${keys.launch}`
+          : `${keys.target}: next target`;
       break;
     case AgCueCode.Ccip:
       big = 'CCIP';

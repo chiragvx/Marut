@@ -464,6 +464,16 @@ function releaseAirToGround(shooterId: EntityId, shooter: EntityState, inputs: P
     // release at all: a late drop lands long by however far the jet has flown.
     const ttr = state.ccrpTimeToReleaseSec;
     if (!(ttr <= 0 && ttr > -CCRP_LATE_SEC && Math.abs(state.ccrpCrossTrackM) <= CCRP_RELEASE_CROSS_M)) return;
+  } else if (state.groundMap && state.agPipperLimited) {
+    // Delayed release (the player's sight): the pipper is pinned at the edge of the sight field, short
+    // of where the bomb would land. The press designates the ground under it (a mapped target there
+    // if one is close) and, held, the bomb goes at the release point as in CCRP.
+    if (state.agClampValid) {
+      state.briefed = undefined;
+      designatePoint(state, nearestGroundContact(state.groundMap, state.agClampPoint, DESIGNATE_SNAP_M) ?? state.agClampPoint);
+      state.agSightDueSec = 0;
+    }
+    return;
   }
   const st = findStationWithStore(state.stations, state.selectedStoreId);
   if (!st) return;

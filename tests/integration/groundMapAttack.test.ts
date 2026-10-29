@@ -7,6 +7,7 @@
 import { describe, expect, test } from 'vitest';
 import {
   AgCueCode,
+  AG_SIGHT_FIELD_RAD,
   AgModeCode,
   GroundMapKind,
   HUD_BLOCK_START,
@@ -169,5 +170,40 @@ describe('ground-map attack', () => {
     }
     expect(last).toBe(AgCueCode.Passed);
     expect(s.events.some((e) => e.type === 'missileLaunch')).toBe(false);
+  });
+
+  test('delayed release: the pinned pipper on the truck, hold release: it designates there and the bomb goes on its own', () => {
+    const s = setup();
+    for (let i = 0; i < 4; i++) s.tick(inputs({ cycleWeapon: i % 2 === 0 }));
+    for (let i = 0; i < 10; i++) s.tick();
+    expect(s.hud(SnapshotHud.AG_MODE)).toBe(AgModeCode.Ccip);
+    // Level at 1500 m: the pipper is pinned 18 deg below the flight path, on the ground ~4.6 km ahead.
+    const pinnedAheadM = 1500 / Math.tan(AG_SIGHT_FIELD_RAD);
+    let held = false;
+    for (let t = 0; t < 120 * 90 && !s.events.some((e) => e.type === 'groundKill'); t++) {
+      if (!held && s.pos.z - NEAR.z <= pinnedAheadM) held = true;
+      s.tick(inputs({ launch: held }));
+      if (held && !s.hud(SnapshotHud.SPI_VALID)) expect(s.events.some((e) => e.type === 'missileLaunch')).toBe(false);
+    }
+    expect(held).toBe(true);
+    // Designated on the truck (snapped to it on the ground map), and one bomb at the release point.
+    expect(Math.hypot(s.hud(SnapshotHud.SPI_X) - NEAR.x, s.hud(SnapshotHud.SPI_Z) - NEAR.z)).toBeLessThan(5);
+    expect(s.events.filter((e) => e.type === 'missileLaunch' && e.weapon === 'bomb')).toHaveLength(1);
+    const impact = s.events.find((e) => e.type === 'groundImpact' && e.explosiveKg > 0) as { pos: { x: number; z: number } } | undefined;
+    expect(Math.hypot(impact!.pos.x - NEAR.x, impact!.pos.z - NEAR.z)).toBeLessThan(30);
+    expect(s.events.find((e) => e.type === 'groundKill')).toMatchObject({ typeId: 'truck-cargo' });
+  });
+
+  test('with the pipper in view a press still drops on the spot (CCIP)', () => {
+    const s = setup();
+    for (let i = 0; i < 4; i++) s.tick(inputs({ cycleWeapon: i % 2 === 0 }));
+    // Low and fast enough that the impact point is inside the sight field.
+    s.pos.y -= 1100;
+    for (let i = 0; i < 10; i++) s.tick();
+    expect(s.cue()).toBe(AgCueCode.Ccip);
+    s.tick(inputs({ launch: true }));
+    s.tick(inputs({ launch: true }));
+    expect(s.events.filter((e) => e.type === 'missileLaunch' && e.weapon === 'bomb')).toHaveLength(1);
+    expect(s.hud(SnapshotHud.SPI_VALID)).toBe(0);
   });
 });
