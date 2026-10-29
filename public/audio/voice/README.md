@@ -1,5 +1,9 @@
 # Voice warnings
 
+Generated with Microsoft's Indian English neural voice en-IN-NeerjaNeural (edge-tts, rate +10%),
+trimmed and loudness-normalised with ffmpeg. For a public release, regenerate through Azure Speech
+(same voice, licensed output).
+
 One file per line, named exactly as below (`.mp3`, mono, 44.1 or 48 kHz, silence trimmed, all
 peaking around -1 dBFS). A missing file is spoken by the browser's own voice instead, so lines can
 be added one at a time. Each file is a single utterance: the game repeats the lines that repeat.
