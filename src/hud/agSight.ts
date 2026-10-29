@@ -10,10 +10,12 @@
  *     through the flight path marker; dashed until inside the release window, solid on it) and the
  *     release cue sliding down it to the marker as the release point nears.
  *   - The release cue (SnapshotHudExt.AG_CUE, src/combat/weaponStation.ts updateAgCue): what to do
- *     next in large letters under the flight path marker (SELECT TARGET, STEER, HOLD <release key>,
+ *     next in large letters low on the screen (SELECT TARGET, STEER, HOLD <release key>,
  *     the seconds to release, RELEASE, BOMB AWAY, PASSED), with a one-line hint below it.
+ *   - Aiming help 'full' (AimingHelp): the predicted impact as a ring on the ground and, in CCIP, the
+ *     bomb's fall from the aircraft to it (a curve through both with the time of flight).
  */
-import { AG_SIGHT_FIELD_RAD, AgCueCode, AgCueFlag, AgModeCode, HUD_EXT_BASE, SnapshotHud, SnapshotHudExt, type Vec3Like } from '../contracts/core';
+import { AG_SIGHT_FIELD_RAD, AgCueCode, AgCueFlag, AgModeCode, AimingHelp, HUD_EXT_BASE, SnapshotHud, SnapshotHudExt, type Vec3Like } from '../contracts/core';
 import type { CameraState } from '../contracts/render';
 import { createScreenProjection, projectWorldToScreen } from './targetBox';
 
@@ -36,6 +38,72 @@ const ptWorld: Vec3Like = { x: 0, y: 0, z: 0 };
 export interface AgKeys {
   target: string;
   launch: string;
+}
+
+/** The impact ring's radius on the ground, m, and the points drawn round it and along the fall. */
+const RING_M = 15;
+const RING_POINTS = 32;
+const FALL_POINTS = 24;
+const pRing = createScreenProjection();
+const ringWorld: Vec3Like = { x: 0, y: 0, z: 0 };
+
+/**
+ * Aiming help 'full': the predicted impact as a ring on the ground, and in CCIP the bomb's fall: the
+ * curve from the aircraft through the impact point with the release velocity and the time of flight
+ * (p0 + v0 t + a t^2 / 2, with `a` making it arrive there; the sim flies the real one).
+ */
+export function drawAgAssist(ctx: CanvasRenderingContext2D, camera: CameraState, hud: Float64Array, playerPos: Readonly<Vec3Like>, playerVel: Readonly<Vec3Like>, w: number, h: number): void {
+  const mode = hud[SnapshotHud.AG_MODE] ?? 0;
+  if (mode === AgModeCode.None) return;
+  const ix = hud[SnapshotHud.CCIP_X]!, iy = hud[SnapshotHud.CCIP_Y]!, iz = hud[SnapshotHud.CCIP_Z]!;
+  ctx.save();
+  ctx.strokeStyle = AMBER;
+  ctx.lineWidth = 1.6;
+  ctx.globalAlpha = 0.9;
+  // The ring, where it is in view.
+  ctx.beginPath();
+  let pen = false;
+  for (let k = 0; k <= RING_POINTS; k++) {
+    const a = (k / RING_POINTS) * Math.PI * 2;
+    ringWorld.x = ix + Math.cos(a) * RING_M;
+    ringWorld.y = iy;
+    ringWorld.z = iz + Math.sin(a) * RING_M;
+    projectWorldToScreen(camera, ringWorld, w, h, pRing);
+    if (!pRing.visible) {
+      pen = false;
+      continue;
+    }
+    if (pen) ctx.lineTo(pRing.xPx, pRing.yPx);
+    else ctx.moveTo(pRing.xPx, pRing.yPx);
+    pen = true;
+  }
+  ctx.stroke();
+  // The fall (CCIP: the time figure is the time of flight).
+  const tof = hud[SnapshotHud.AG_TIME_SEC] ?? 0;
+  if (mode === AgModeCode.Ccip && tof > 0.2) {
+    const ax = (2 * (ix - playerPos.x - playerVel.x * tof)) / (tof * tof);
+    const ay = (2 * (iy - playerPos.y - playerVel.y * tof)) / (tof * tof);
+    const az = (2 * (iz - playerPos.z - playerVel.z * tof)) / (tof * tof);
+    ctx.setLineDash([3, 5]);
+    ctx.beginPath();
+    pen = false;
+    for (let k = 1; k <= FALL_POINTS; k++) {
+      const t = (k / FALL_POINTS) * tof;
+      ringWorld.x = playerPos.x + playerVel.x * t + 0.5 * ax * t * t;
+      ringWorld.y = playerPos.y + playerVel.y * t + 0.5 * ay * t * t;
+      ringWorld.z = playerPos.z + playerVel.z * t + 0.5 * az * t * t;
+      projectWorldToScreen(camera, ringWorld, w, h, pRing);
+      if (!pRing.visible) {
+        pen = false;
+        continue;
+      }
+      if (pen) ctx.lineTo(pRing.xPx, pRing.yPx);
+      else ctx.moveTo(pRing.xPx, pRing.yPx);
+      pen = true;
+    }
+    ctx.stroke();
+  }
+  ctx.restore();
 }
 
 /**
@@ -83,8 +151,8 @@ function drawPipper(ctx: CanvasRenderingContext2D, x: number, y: number, pinned:
 }
 
 /**
- * The 3D cockpit's helmet display: the CCIP pipper (pinned or not) where the cockpit HUD's glass
- * does not show it (`insideHud` false for its world point).
+ * The 3D cockpit's helmet display: the CCIP pipper where the cockpit HUD's glass does not show it
+ * (`insideHud` false for its world point), and a pinned pipper always.
  */
 export function drawCcipHelmet(ctx: CanvasRenderingContext2D, camera: CameraState, hud: Float64Array, playerPos: Readonly<Vec3Like>, playerVel: Readonly<Vec3Like>, w: number, h: number, insideHud: (p: Vec3Like) => boolean): void {
   if ((hud[SnapshotHud.AG_MODE] ?? 0) !== AgModeCode.Ccip) return;
@@ -92,7 +160,8 @@ export function drawCcipHelmet(ctx: CanvasRenderingContext2D, camera: CameraStat
   impactWorld.y = hud[SnapshotHud.CCIP_Y]!;
   impactWorld.z = hud[SnapshotHud.CCIP_Z]!;
   const pinned = ccipPipperWorld(playerPos, playerVel, impactWorld, ptWorld);
-  if (insideHud(ptWorld)) return;
+  // (The cockpit HUD draws only the impact point itself, never a pinned pipper.)
+  if (!pinned && insideHud(ptWorld)) return;
   projectWorldToScreen(camera, ptWorld, w, h, pPt);
   if (!pPt.visible) return;
   ctx.save();
@@ -103,9 +172,10 @@ export function drawCcipHelmet(ctx: CanvasRenderingContext2D, camera: CameraStat
   ctx.restore();
 }
 
-export function drawAgSight(ctx: CanvasRenderingContext2D, camera: CameraState, hud: Float64Array, playerPos: Readonly<Vec3Like>, playerVel: Readonly<Vec3Like>, w: number, h: number, nowMs: number, keys: AgKeys): void {
+export function drawAgSight(ctx: CanvasRenderingContext2D, camera: CameraState, hud: Float64Array, playerPos: Readonly<Vec3Like>, playerVel: Readonly<Vec3Like>, w: number, h: number, nowMs: number, keys: AgKeys, help: AimingHelp): void {
   const mode = hud[SnapshotHud.AG_MODE] ?? 0;
-  drawAgCue(ctx, hud, w, h, nowMs, keys);
+  drawAgCue(ctx, hud, w, h, nowMs, keys, help);
+  if (help === AimingHelp.Full) drawAgAssist(ctx, camera, hud, playerPos, playerVel, w, h);
   if (mode === AgModeCode.None) return;
   // Flight path marker: a point 2 km down the velocity vector.
   const sp = Math.hypot(playerVel.x, playerVel.y, playerVel.z);
@@ -176,8 +246,8 @@ export function drawAgSight(ctx: CanvasRenderingContext2D, camera: CameraState, 
 /** Seconds to release, as the cue reads it. */
 const secs = (t: number): string => (t >= 10 ? `${Math.round(t)}` : t.toFixed(1));
 
-/** The release cue: what to do next, large, under the flight path marker; a hint line below it. */
-export function drawAgCue(ctx: CanvasRenderingContext2D, hud: Float64Array, w: number, h: number, nowMs: number, keys: AgKeys): void {
+/** The release cue: what to do next, large, low on the screen; a hint line below it. */
+export function drawAgCue(ctx: CanvasRenderingContext2D, hud: Float64Array, w: number, h: number, nowMs: number, keys: AgKeys, help: AimingHelp): void {
   const cue = hud[HUD_EXT_BASE + SnapshotHudExt.AG_CUE] ?? 0;
   if (cue === AgCueCode.None) return;
   const flags = hud[HUD_EXT_BASE + SnapshotHudExt.AG_CUE_FLAGS] ?? 0;
@@ -229,8 +299,9 @@ export function drawAgCue(ctx: CanvasRenderingContext2D, hud: Float64Array, w: n
       color = AMBER;
       break;
   }
+  // Low on the screen: clear of the flight path marker, the pinned pipper below it and the steering line above.
   const cx = w * 0.5;
-  const y = h * 0.7;
+  const y = h * 0.82;
   ctx.save();
   ctx.fillStyle = color;
   ctx.strokeStyle = color;
@@ -253,7 +324,7 @@ export function drawAgCue(ctx: CanvasRenderingContext2D, hud: Float64Array, w: n
       ctx.fill();
     }
   }
-  if (small) {
+  if (small && help !== AimingHelp.Off) {
     ctx.font = '13px monospace';
     ctx.globalAlpha = 0.9;
     ctx.fillText(small, cx, y + 22);

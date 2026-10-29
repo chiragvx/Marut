@@ -8,7 +8,7 @@
  * exports of modules 04/08/09/11 rather than a contracts/*.ts file).
  */
 
-import { AutopilotFlag, EntityFlag, HUD_BLOCK_START, HUD_EXT_BASE, LIGHT_MODES, LockStateCode, NO_ENTITY_ID, PodFlag, ServiceStateCode, SnapshotHud, SnapshotHudExt, SpeedUnit, WarningBit, WeaponKindCode, WeatherMode, type AutopilotAction } from './contracts/core';
+import { AimingHelp, AutopilotFlag, EntityFlag, HUD_BLOCK_START, HUD_EXT_BASE, LIGHT_MODES, LockStateCode, NO_ENTITY_ID, PodFlag, ServiceStateCode, SnapshotHud, SnapshotHudExt, SpeedUnit, WarningBit, WeaponKindCode, WeatherMode, type AutopilotAction } from './contracts/core';
 import type {
   AiDifficulty,
   EntityId,
@@ -115,6 +115,8 @@ interface PersistedSettings {
   mouseSensitivity?: number;
   /** First-flight hints in flight (Settings -> Gameplay); missing = on. */
   hintsEnabled?: boolean;
+  /** Bombing aiming help (Settings -> Gameplay); missing = 'cues'. */
+  aimingHelp?: AimingHelp;
   /** Control rates, multipliers 0.5..1.5 (Settings -> Controls); missing = 1 each. */
   controlRates?: { pitch: number; roll: number; yaw: number };
 }
@@ -131,6 +133,7 @@ function loadPersistedSettings(): PersistedSettings | undefined {
     if (parsed.weatherEnabled !== undefined && typeof parsed.weatherEnabled !== 'boolean') return undefined;
     if (parsed.weatherMode !== undefined && !(Object.values(WeatherMode) as string[]).includes(parsed.weatherMode)) delete parsed.weatherMode;
     if (parsed.timeOfDayH !== undefined && !(typeof parsed.timeOfDayH === 'number' && parsed.timeOfDayH >= 0 && parsed.timeOfDayH <= 24)) delete parsed.timeOfDayH;
+    if (parsed.aimingHelp !== undefined && !(Object.values(AimingHelp) as string[]).includes(parsed.aimingHelp)) delete parsed.aimingHelp;
     const cr = parsed.controlRates;
     if (cr !== undefined && !(typeof cr === 'object' && cr !== null && [cr.pitch, cr.roll, cr.yaw].every((v) => typeof v === 'number' && Number.isFinite(v)))) delete parsed.controlRates;
     return parsed as PersistedSettings;
@@ -572,6 +575,7 @@ function showSettingsOverlay(): void {
     speedUnit: currentSpeedUnit,
     alphaLimiterEnabled: inputSystem ? !inputSystem.isAlphaLimiterDisabled() : true,
     hintsEnabled: persisted?.hintsEnabled ?? true,
+    aimingHelp: persisted?.aimingHelp ?? AimingHelp.Cues,
     controlRates: inputSystem ? inputSystem.getControlRates() : { pitch: 1, roll: 1, yaw: 1 },
   };
   const handle: SettingsScreenHandle = createSettingsScreen(uiRoot, initial, {
@@ -583,6 +587,7 @@ function showSettingsOverlay(): void {
         alphaLimiterEnabled: next.alphaLimiterEnabled,
         mouseSensitivity: next.mouseSensitivityMultiplier,
         hintsEnabled: next.hintsEnabled ?? true,
+        aimingHelp: next.aimingHelp ?? AimingHelp.Cues,
         ...(next.controlRates ? { controlRates: next.controlRates } : {}),
       });
       const tier = next.qualityOverride === 'auto' ? (loadPersistedSettings()?.cachedAutoTier ?? currentQualityTier) : next.qualityOverride;
@@ -598,6 +603,7 @@ function showSettingsOverlay(): void {
       inputSystem?.setAlphaLimiterDisabled(!next.alphaLimiterEnabled);
       if (inputSystem) applyMouseSettings(next.mouseEnabled ?? false, next.mouseSensitivityMultiplier, next.invertPitch);
       hintsEnabled = next.hintsEnabled ?? true;
+      applyAimingHelp(next.aimingHelp ?? AimingHelp.Cues);
       if (next.controlRates) inputSystem?.setControlRates(next.controlRates);
     },
     onRebindStart: (action) => {
@@ -1406,6 +1412,7 @@ async function boot(): Promise<void> {
   onResize();
   applyMouseSettings(inputSystem.inputMap.data.mouse.enabled, persisted?.mouseSensitivity ?? 1, inputSystem.inputMap.data.mouse.invertPitch ?? false);
   hintsEnabled = persisted?.hintsEnabled ?? true;
+  applyAimingHelp(persisted?.aimingHelp ?? AimingHelp.Cues);
   document.title = GAME_NAME;
   // Offline play and install: production builds only (a cached dev server would serve stale code).
   if (import.meta.env.PROD) void registerServiceWorker('../service-worker.js');
@@ -1814,6 +1821,11 @@ let podView = false;
 let podPolarity: 1 | 2 = 1;
 /** POD_FLAGS from the latest snapshot (is a pod carried?). */
 let lastPodFlags = 0;
+/** Bombing aiming help: the HUD's cues, and the release tone (off with 'off'). */
+function applyAimingHelp(level: AimingHelp): void {
+  hud?.setAimingHelp(level);
+  releaseTone.setEnabled(level !== AimingHelp.Off);
+}
 function pushWeaponKeys(): void {
   if (!hud || !inputSystem) return;
   const b = inputSystem.inputMap.data.keyboard.buttons;

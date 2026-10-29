@@ -26,7 +26,7 @@
  * =============================================================================
  */
 
-import type { AirportNavDb, AutopilotAction, QualityTier, QuatLike, SimEvent, SpeedUnit, TerrainChunkReadyMessage, Vec3Like, WeaponKind, WeatherMode } from './core';
+import type { AimingHelp, AirportNavDb, AutopilotAction, QualityTier, QuatLike, SimEvent, SpeedUnit, TerrainChunkReadyMessage, Vec3Like, WeaponKind, WeatherMode } from './core';
 import { WarningBit } from './core';
 import type { SettlementLayer } from './terrain';
 
@@ -609,6 +609,8 @@ export interface HudRenderer {
   setPodDisplay(polarity: 1 | 2, keys: { track: string; zoom: string; laser: string; view: string }): void;
   /** The target and release keys' labels, for the air-to-ground cues and the radar page's prompts. */
   setWeaponKeys(keys: { target: string; launch: string }): void;
+  /** Air-to-ground aiming help (core.ts AimingHelp); defaults to 'cues'. */
+  setAimingHelp(level: AimingHelp): void;
   resize(widthPx: number, heightPx: number, devicePixelRatio: number): void;
   setQualityTier(tier: QualityTier): void;
   /** Display unit for the airspeed tape only; defaults to 'ms' (SnapshotHud.IAS_MPS's own wire unit) until called. */

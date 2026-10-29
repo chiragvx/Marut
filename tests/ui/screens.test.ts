@@ -152,7 +152,7 @@ describe('settings', () => {
     expect(container.querySelector('[data-binding-action="pitchUp"]')!.parentElement!.textContent).toContain('T');
   });
 
-  it('speed unit, AoA limiter, mouse and hints report through onChange', () => {
+  it('speed unit, AoA limiter, mouse, hints and aiming help report through onChange', () => {
     const container = makeContainer();
     const onChange = vi.fn();
     createSettingsScreen(container, settingsInitial(), { onChange, onRebindStart: noop, onResetDefaults: noop, onBack: noop });
@@ -176,6 +176,11 @@ describe('settings', () => {
     expect(last().invertPitch).toBe(true);
     change(container.querySelector('[data-role="hints"]') as HTMLInputElement, false);
     expect(last().hintsEnabled).toBe(false);
+
+    const aiming = container.querySelector('[data-action="aiming-help"]') as HTMLSelectElement;
+    expect(aiming.value).toBe('cues');
+    change(aiming, 'full');
+    expect(last().aimingHelp).toBe('full');
   });
 
   it('shows keys by name, not by code', () => {

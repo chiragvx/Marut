@@ -177,7 +177,7 @@ describe('ground-map attack', () => {
     for (let i = 0; i < 4; i++) s.tick(inputs({ cycleWeapon: i % 2 === 0 }));
     for (let i = 0; i < 10; i++) s.tick();
     expect(s.hud(SnapshotHud.AG_MODE)).toBe(AgModeCode.Ccip);
-    // Level at 1500 m: the pipper is pinned 18 deg below the flight path, on the ground ~4.6 km ahead.
+    // Level at 1500 m: the pipper is pinned 11 deg below the flight path, on the ground ~7.7 km ahead.
     const pinnedAheadM = 1500 / Math.tan(AG_SIGHT_FIELD_RAD);
     let held = false;
     for (let t = 0; t < 120 * 90 && !s.events.some((e) => e.type === 'groundKill'); t++) {
@@ -198,7 +198,7 @@ describe('ground-map attack', () => {
     const s = setup();
     for (let i = 0; i < 4; i++) s.tick(inputs({ cycleWeapon: i % 2 === 0 }));
     // Low and fast enough that the impact point is inside the sight field.
-    s.pos.y -= 1100;
+    s.pos.y -= 1200;
     for (let i = 0; i < 10; i++) s.tick();
     expect(s.cue()).toBe(AgCueCode.Ccip);
     s.tick(inputs({ launch: true }));

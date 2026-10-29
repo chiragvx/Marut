@@ -18,7 +18,7 @@
 
 import { drawAirbaseMarkers, drawAirbaseTape } from './airbaseMarkers';
 import { drawAutopilotBugs, drawAutopilotStatus } from './autopilotHud';
-import { EntityFlag, SnapshotEntity, SnapshotHud, SpeedUnit, WarningBit, WeaponKindByCode, entityFieldOffset, isAirToGroundKind, type QualityTier } from '../contracts/core';
+import { AimingHelp, EntityFlag, SnapshotEntity, SnapshotHud, SpeedUnit, WarningBit, WeaponKindByCode, entityFieldOffset, isAirToGroundKind, type QualityTier } from '../contracts/core';
 import { RENDER_QUALITY_TABLE, type CameraState, type CreateHudRenderer, type HudAirbase, type HudRenderer, type HudRoutePoint, type HudSteerpoint } from '../contracts/render';
 import { drawRouteCaret, drawRouteData, drawRouteMarker } from './routeDisplay';
 import { drawSteerpointMarkers, drawSteerpointTape } from './steerpoints';
@@ -40,7 +40,7 @@ import { createTaxiGuideState, drawTaxiGuide, setTaxiGuide as applyTaxiGuide } f
 import { drawAirbrakeIndicator, drawAltitudeTape, drawAoaGReadout, drawBreakX, drawFuelIndicator, drawGearIndicator, drawHeadingTape, drawPowerIndicator, drawRadarAltitude, drawServiceStatus, drawSpeedTape } from './tapes';
 import { createScreenProjection, drawLeadSight, drawTargetBox, hasTarget } from './targetBox';
 import { drawWeaponStatus } from './weaponStatus';
-import { drawAgCue, drawAgSight, drawCcipHelmet } from './agSight';
+import { drawAgAssist, drawAgCue, drawAgSight, drawCcipHelmet } from './agSight';
 import { drawPodDisplay } from './podDisplay';
 import { drawRwrScope } from './rwrDisplay';
 
@@ -116,6 +116,7 @@ export const createHudRenderer: CreateHudRenderer = (canvas, initialTier) => {
   let podPolarity: 1 | 2 = 1;
   let podKeys = { track: 'I', zoom: 'U', laser: 'K', view: 'Y' };
   let weaponKeys = { target: 'T', launch: 'ENTER' };
+  let aimingHelp: AimingHelp = AimingHelp.Cues;
 
   const api: HudRenderer = {
     setOverlayMode(m) {
@@ -193,6 +194,10 @@ export const createHudRenderer: CreateHudRenderer = (canvas, initialTier) => {
       weaponKeys = keys;
     },
 
+    setAimingHelp(level) {
+      aimingHelp = level;
+    },
+
     setDebugSurfacesEnabled(enabled) {
       debugSurfacesEnabled = enabled;
     },
@@ -208,7 +213,7 @@ export const createHudRenderer: CreateHudRenderer = (canvas, initialTier) => {
 
       if (overlayMode === 'pod') {
         drawPodDisplay(ctx, hud, widthPx, heightPx, nowMs, podPolarity, podKeys);
-        drawAgCue(ctx, hud, widthPx, heightPx, nowMs, weaponKeys);
+        drawAgCue(ctx, hud, widthPx, heightPx, nowMs, weaponKeys, aimingHelp);
         drawWarnings(ctx, hud, nowMs, widthPx * 0.5, heightPx * 0.2);
         lastNowMs = nowMs;
         return;
@@ -223,9 +228,10 @@ export const createHudRenderer: CreateHudRenderer = (canvas, initialTier) => {
         drawRwrScope(ctx, hud, 70, heightPx - 140, 50, nowMs);
         // The release cue in words (the cockpit HUD carries the symbols), and the CCIP pipper where
         // the cockpit HUD's glass does not reach.
-        drawAgCue(ctx, hud, widthPx, heightPx, nowMs, weaponKeys);
+        drawAgCue(ctx, hud, widthPx, heightPx, nowMs, weaponKeys, aimingHelp);
         agPos.x = curr.posX[playerSlot]!; agPos.y = curr.posY[playerSlot]!; agPos.z = curr.posZ[playerSlot]!;
         agVel.x = curr.velX[playerSlot]!; agVel.y = curr.velY[playerSlot]!; agVel.z = curr.velZ[playerSlot]!;
+        if (aimingHelp === AimingHelp.Full) drawAgAssist(ctx, camera, hud, agPos, agVel, widthPx, heightPx);
         drawCcipHelmet(ctx, camera, hud, agPos, agVel, widthPx, heightPx, (p) => insideHudField(curr, playerSlot, p));
         lastNowMs = nowMs;
         if (taxiGuide.route || taxiGuide.message) {
@@ -306,7 +312,7 @@ export const createHudRenderer: CreateHudRenderer = (canvas, initialTier) => {
       drawLeadSight(ctx, camera, hud, widthPx, heightPx);
       agPos.x = curr.posX[playerSlot]!; agPos.y = curr.posY[playerSlot]!; agPos.z = curr.posZ[playerSlot]!;
       agVel.x = curr.velX[playerSlot]!; agVel.y = curr.velY[playerSlot]!; agVel.z = curr.velZ[playerSlot]!;
-      drawAgSight(ctx, camera, hud, agPos, agVel, widthPx, heightPx, nowMs, weaponKeys);
+      drawAgSight(ctx, camera, hud, agPos, agVel, widthPx, heightPx, nowMs, weaponKeys, aimingHelp);
       drawWeaponStatus(ctx, hud, widthPx - 16, heightPx - 44);
       drawRwrScope(ctx, hud, 70, heightPx - 140, 50, nowMs);
       drawWarnings(ctx, hud, nowMs, widthPx * 0.5, heightPx * 0.28);

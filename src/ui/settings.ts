@@ -8,7 +8,7 @@
  * (`onRebindStart`); the caller reports it with `setCapturedKey`; after 5 s without a key the row
  * reverts.
  */
-import type { QualityTier, SpeedUnit } from '../contracts/core';
+import type { AimingHelp, QualityTier, SpeedUnit } from '../contracts/core';
 import type { BindableAction, CreateSettingsScreen, KeyBinding, SettingsScreenHandle, SettingsState } from '../contracts/ui';
 import { BindableAction as BindableActionEnum } from '../contracts/ui';
 import { mountScreen } from './screenHandle';
@@ -21,6 +21,12 @@ const QUALITY_OPTIONS: readonly { value: QualityTier | 'auto'; label: string }[]
   { value: 'high', label: 'High' },
   { value: 'ultra', label: 'Ultra' },
 ];
+const AIMING_HELP_OPTIONS: readonly { value: AimingHelp; label: string }[] = [
+  { value: 'off', label: 'Off (the cue only)' },
+  { value: 'cues', label: 'Cues (hints and tone)' },
+  { value: 'full', label: 'Full (impact ring and bomb fall)' },
+];
+
 const SPEED_UNIT_OPTIONS: readonly { value: SpeedUnit; label: string }[] = [
   { value: 'ms', label: 'm/s' },
   { value: 'kt', label: 'knots' },
@@ -168,7 +174,9 @@ export const createSettingsScreen: CreateSettingsScreen = (container, initial, c
     { className: 'tj-stack tj-hidden', attrs: { 'data-tab': 'gameplay' } },
     row('Speed shown in', speedUnitSelect),
     row('AoA limiter (stops you pulling into a stall)', checkbox('On', current.alphaLimiterEnabled, (v) => { current.alphaLimiterEnabled = v; fireChange(); }, { 'data-role': 'alpha-limiter' })),
-    row('First-flight hints', checkbox('On', current.hintsEnabled ?? true, (v) => { current.hintsEnabled = v; fireChange(); }, { 'data-role': 'hints' }))
+    row('First-flight hints', checkbox('On', current.hintsEnabled ?? true, (v) => { current.hintsEnabled = v; fireChange(); }, { 'data-role': 'hints' })),
+    row('Bombing aiming help', select(AIMING_HELP_OPTIONS, current.aimingHelp ?? 'cues', (v) => { current.aimingHelp = v; fireChange(); }, { 'data-action': 'aiming-help' })),
+    h('p', { className: 'tj-note', text: 'How much the HUD helps you aim bombs and rockets. Off shows only what to do next (STEER, HOLD, RELEASE). Cues adds a hint line and a release tone. Full also draws where the bomb will land on the ground, and its fall.' })
   );
 
   const panes: Record<Tab, HTMLElement> = { graphics, controls, gameplay };

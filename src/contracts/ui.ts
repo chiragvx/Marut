@@ -26,7 +26,7 @@
  * =============================================================================
  */
 
-import type { AiDifficulty, HeightSampler, QualityTier, Result, SpeedUnit, WeatherMode } from './core';
+import type { AiDifficulty, AimingHelp, HeightSampler, QualityTier, Result, SpeedUnit, WeatherMode } from './core';
 
 // -----------------------------------------------------------------------------
 // 1. Generic screen-mount conventions. Every DOM screen factory in this file
@@ -224,6 +224,8 @@ export interface SettingsState {
   mouseEnabled?: boolean;
   /** First-flight hints in flight. Absent = on. */
   hintsEnabled?: boolean;
+  /** Air-to-ground aiming help on the HUD (contracts/core.ts AimingHelp). Absent = 'cues'. */
+  aimingHelp?: AimingHelp;
   /** Control rates (multipliers 0.5..1.5). Absent = 1 each. */
   controlRates?: { pitch: number; roll: number; yaw: number };
 }

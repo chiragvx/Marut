@@ -707,6 +707,14 @@ export const SpeedUnit = {
 export type SpeedUnit = (typeof SpeedUnit)[keyof typeof SpeedUnit];
 
 /**
+ * How much help the HUD gives with air-to-ground aiming (Settings -> Gameplay): 'off' the release
+ * cue in large letters only; 'cues' also its hint line and the release tone; 'full' also the
+ * predicted impact as a ring on the ground and the bomb's fall drawn from the aircraft to it.
+ */
+export const AimingHelp = { Off: 'off', Cues: 'cues', Full: 'full' } as const;
+export type AimingHelp = (typeof AimingHelp)[keyof typeof AimingHelp];
+
+/**
  * Weather choice (Settings): a fixed preset, 'dynamic' (random weather that changes every few
  * minutes, blending smoothly), or 'off' (clear sky and calm air: no clouds, wind or turbulence).
  */
@@ -1217,12 +1225,13 @@ export const AgCueCode = { None: 0, Designate: 1, Ccip: 2, Dive: 3, Steer: 4, Ho
 /** SnapshotHudExt.AG_CUE_FLAGS bits: the CCIP pipper is pinned at the edge of the sight field; the release button is held. */
 export const AgCueFlag = { PipperLimited: 1, LaunchHeld: 2 } as const;
 /**
- * The air-to-ground sight's field below the flight path, rad. A predicted impact further below than
- * this is off the HUD: the pipper is pinned on this edge (on the way to the impact point), the
+ * The air-to-ground sight's field below the flight path, rad (in the 3D cockpit the ground stays in
+ * view over the nose, through the HUD glass, to about this far below the flight path marker). A
+ * predicted impact further below than this is off the HUD: the pipper is pinned on this edge (on the way to the impact point), the
  * target key steps through the ground-map targets instead of designating at the pipper, and the
  * release button designates the ground under the pinned pipper (delayed release, then CCRP).
  */
-export const AG_SIGHT_FIELD_RAD = (18 * Math.PI) / 180;
+export const AG_SIGHT_FIELD_RAD = (11 * Math.PI) / 180;
 
 /**
  * Ground service state (SnapshotHud.SERVICE_STATE): None = not on a friendly stand/apron or not

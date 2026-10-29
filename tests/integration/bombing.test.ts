@@ -66,7 +66,8 @@ describe('bombing', () => {
     const s = setup('strike');
     s.select(2); // gun -> ASRAAM -> HSLD-250
     expect(s.hud(SnapshotHud.AG_MODE)).toBe(AgModeCode.Ccip);
-    const alt = s.groundY + 700;
+    // Low enough that the pipper is in the sight field (not pinned at its edge).
+    const alt = s.groundY + 300;
     const pos = { x: 0, y: alt, z: 0 };
     let released = false;
     for (let t = 0; t < 120 * 60 && !s.events.some((e) => e.type === 'groundKill'); t++) {
