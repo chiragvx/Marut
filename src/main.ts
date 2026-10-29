@@ -1887,8 +1887,9 @@ function updateFlightAudio(view: Float64Array, player: SnapshotEntityView | null
   if (voiceSay.length) voicePlayer.say(voiceSay);
   ambience.update({
     alive,
-    thrustFrac: view[hb + SnapshotHud.THRUST_FRAC] ?? 0,
+    throttle: player?.throttle ?? 0,
     afterburner: player?.afterburnerOn ?? false,
+    fuelKg: player?.fuelKg ?? 0,
     iasMps: view[hb + SnapshotHud.IAS_MPS] ?? 0,
     gearPos: view[hb + SnapshotHud.GEAR_POS] ?? 0,
     airbrake: lastPlayerAirbrake,

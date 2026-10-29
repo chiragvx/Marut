@@ -1,7 +1,7 @@
 /**
  * tests/ui/audio.test.ts — the sound's logic (no Web Audio here): the RWR's tones from one picture
- * to the next, what the voice warnings say and when, the voice queue's order and cut-offs, and the
- * engine and wind levels.
+ * to the next, what the voice warnings say and when, the voice queue's order and cut-offs, the
+ * air conditioning and wind, and the engine's RPM and sound levels.
  */
 import { describe, expect, it } from 'vitest';
 import { AutopilotFlag, WarningBit } from '../../src/contracts/core';
@@ -9,6 +9,7 @@ import { createRwrToneState, FORGET_SEC, LOCK_TONE_SEC, stepRwrTones, type RwrEm
 import { BINGO_FRAC, createVoiceWarningState, REARM_SEC, stepVoiceWarnings, VOICE_LINES, type VoiceInputs, type VoiceLineDef } from '../../src/ui/audio/voiceWarnings';
 import { STALE_SEC, VoiceQueue } from '../../src/ui/audio/voicePlayer';
 import { ambienceLevels, type AmbienceInputs, type AmbienceLevels } from '../../src/ui/audio/ambience';
+import { createEngineSoundState, engineVoiceParams, FAN_BLADES, FAN_SHAFT_HZ, IDLE_N2, n2ForThrottle, stepEngineSound, type EngineSoundInputs, type EngineSoundState, type EngineVoiceParams } from '../../src/ui/audio/engineModel';
 
 const SAM = 3; // LY-80
 const FIGHTER = 7; // JF-17
@@ -128,23 +129,83 @@ describe('voice queue', () => {
   });
 });
 
-describe('engine and wind', () => {
-  const lv = (): AmbienceLevels => ({ aircon: 0, whine: 0, whineHz: 0, rumble: 0, rumbleHz: 0, wind: 0, windHz: 0 });
-  const inp = (o: Partial<AmbienceInputs> = {}): AmbienceInputs => ({ alive: true, thrustFrac: 0.5, afterburner: false, iasMps: 200, gearPos: 0, airbrake: false, inCockpit: true, ...o });
+describe('air conditioning and wind', () => {
+  const lv = (): AmbienceLevels => ({ aircon: 0, wind: 0, windHz: 0 });
+  const inp = (o: Partial<AmbienceInputs> = {}): AmbienceInputs => ({ alive: true, throttle: 0.5, afterburner: false, fuelKg: 1000, iasMps: 200, gearPos: 0, airbrake: false, inCockpit: true, ...o });
 
-  it('in the cockpit the air conditioning is louder than the engine; outside, the engine roars', () => {
-    const c = ambienceLevels(inp(), 0.6, lv());
-    expect(c.aircon).toBeGreaterThan(c.whine);
-    const o = ambienceLevels(inp({ inCockpit: false }), 0.6, lv());
-    expect(o.aircon).toBe(0);
-    expect(o.rumble).toBeGreaterThan(c.rumble);
+  it('the air conditioning only in the cockpit; wind rises with airspeed and the airbrake; silent when dead', () => {
+    expect(ambienceLevels(inp(), lv()).aircon).toBeGreaterThan(0);
+    expect(ambienceLevels(inp({ inCockpit: false }), lv()).aircon).toBe(0);
+    expect(ambienceLevels(inp({ iasMps: 250 }), lv()).wind).toBeGreaterThan(ambienceLevels(inp({ iasMps: 100 }), lv()).wind);
+    expect(ambienceLevels(inp({ airbrake: true }), lv()).wind).toBeGreaterThan(ambienceLevels(inp(), lv()).wind);
+    const d = ambienceLevels(inp({ alive: false }), lv());
+    expect(d.aircon + d.wind).toBe(0);
+  });
+});
+
+describe('engine model', () => {
+  const run = (inputs: Partial<EngineSoundInputs>, sec: number, st = createEngineSoundState()) => {
+    const ev = { abLit: false, abOut: false };
+    let lit = 0, out = 0;
+    for (let t = 0; t < sec; t += 1 / 60) {
+      stepEngineSound(st, { throttle: 0, afterburner: false, running: true, iasMps: 0, ...inputs }, 1 / 60, ev);
+      if (ev.abLit) lit++;
+      if (ev.abOut) out++;
+    }
+    return { st, lit, out };
+  };
+  const params = (st: EngineSoundState, ear: 'cockpit' | 'outside' = 'outside'): EngineVoiceParams =>
+    engineVoiceParams(st, ear, { whineHz: 0, whine: 0, shaftHz: 0, buzz: 0, jet: 0, jetHz: 0, rumble: 0, ab: 0, crackle: 0, muffleHz: 0 });
+
+  it('RPM: idle at zero throttle, 100% at full, climbing steeply off idle (half thrust ~90%)', () => {
+    expect(n2ForThrottle(0)).toBe(IDLE_N2);
+    expect(n2ForThrottle(1)).toBe(1);
+    expect(n2ForThrottle(0.5)).toBeGreaterThan(0.88);
+    expect(n2ForThrottle(0.5)).toBeLessThan(0.93);
   });
 
-  it('wind rises with airspeed and with the airbrake; the afterburner adds rumble; silent when dead', () => {
-    expect(ambienceLevels(inp({ iasMps: 250 }), 0.6, lv()).wind).toBeGreaterThan(ambienceLevels(inp({ iasMps: 100 }), 0.6, lv()).wind);
-    expect(ambienceLevels(inp({ airbrake: true }), 0.6, lv()).wind).toBeGreaterThan(ambienceLevels(inp(), 0.6, lv()).wind);
-    expect(ambienceLevels(inp({ afterburner: true }), 1, lv()).rumble).toBeGreaterThan(ambienceLevels(inp(), 1, lv()).rumble);
-    const d = ambienceLevels(inp({ alive: false }), 1, lv());
-    expect(d.aircon + d.whine + d.rumble + d.wind).toBe(0);
+  it('the fan whine rises in pitch with RPM (a few kHz, as a jet on the ramp screams)', () => {
+    const idle = params(run({ throttle: 0 }, 2).st);
+    const mil = params(run({ throttle: 1 }, 2).st);
+    expect(idle.whineHz).toBeGreaterThan(1800);
+    expect(mil.whineHz).toBeGreaterThan(idle.whineHz * 1.5);
+    expect(mil.whineHz).toBe(FAN_SHAFT_HZ * FAN_BLADES);
+  });
+
+  it('the jet roar rises steeply with power; the buzz-saw only near full power; the reheat roar only lit', () => {
+    const idle = params(run({ throttle: 0 }, 2).st);
+    const mid = params(run({ throttle: 0.3 }, 2).st);
+    const mil = params(run({ throttle: 1 }, 2).st);
+    const ab = params(run({ throttle: 1, afterburner: true }, 2).st);
+    expect(mil.jet).toBeGreaterThan(idle.jet * 5);
+    expect(idle.buzz).toBe(0);
+    expect(mid.buzz).toBe(0);
+    expect(mil.buzz).toBeGreaterThan(0);
+    expect(mil.ab).toBe(0);
+    expect(ab.ab).toBeGreaterThan(0);
+    expect(ab.jet).toBeGreaterThan(mil.jet);
+  });
+
+  it('the afterburner lights over a moment (one thump) and goes out', () => {
+    const { st, lit } = run({ throttle: 1, afterburner: true }, 0.3);
+    expect(lit).toBe(1);
+    expect(st.ab).toBeGreaterThan(0.3);
+    expect(st.ab).toBeLessThan(0.7);
+    expect(run({ throttle: 1 }, 1, st).out).toBe(1);
+  });
+
+  it('out of fuel it runs down to a windmill over seconds, not at once', () => {
+    const { st } = run({ throttle: 1 }, 2);
+    run({ throttle: 1, running: false, iasMps: 200 }, 1, st);
+    expect(st.n2).toBeGreaterThan(0.6);
+    run({ throttle: 1, running: false, iasMps: 200 }, 20, st);
+    expect(st.n2).toBeLessThan(0.3);
+  });
+
+  it('muffled and quieter in the cockpit', () => {
+    const { st } = run({ throttle: 1 }, 2);
+    const c = params(st, 'cockpit'), o = params(st, 'outside');
+    expect(c.muffleHz).toBeLessThan(o.muffleHz);
+    expect(c.jet).toBeLessThan(o.jet);
   });
 });

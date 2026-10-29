@@ -1,24 +1,28 @@
 /**
  * src/ui/audio/ambience.ts — the sound of the jet, synthesised (no recorded sound):
  *
- * - in the cockpit, the air conditioning's steady rush (the loudest thing in a Tejas cockpit, its
- *   test pilots say), the F404 a quiet whine and rumble behind it, and the wind rising with the
- *   airspeed (more with the airbrake out or the gear down);
- * - outside (chase, external, fly-by), the engine's roar instead, louder with the afterburner;
+ * - the engine (src/ui/audio/engineModel.ts, engineVoice.ts): its RPM following the sim's spool,
+ *   the fan's whine, the buzz-saw at high power, the jet's roar, the afterburner lighting with a
+ *   thump; muffled in the cockpit, where the air conditioning's steady rush is louder (the
+ *   loudest thing in a Tejas cockpit, its test pilots say);
+ * - the wind rising with the airspeed (more with the airbrake out or the gear down);
  * - one-shots from the sim's events: the gun, a store's release thump, a missile's motor, chaff and
  *   flares, the gear's motor and its lock, touchdown, hits on you, and explosions near you (heard
  *   after the sound's travel time).
  *
- * `ambienceLevels` (pure, tested) maps the flight state to the loops' levels.
+ * `ambienceLevels` (pure, tested) maps the flight state to the air conditioning's and wind's levels.
  */
 import type { SimEvent, Vec3Like } from '../../contracts/core';
 import { AudioChannel, type AudioBus } from './audioBus';
+import { createEngineSoundState, engineVoiceParams, stepEngineSound, type EngineSoundEvents, type EngineVoiceParams } from './engineModel';
+import { createEngineVoice, type EngineVoice } from './engineVoice';
 
 export interface AmbienceInputs {
   alive: boolean;
-  /** Engine thrust, 0..1 of military; afterburner lit. */
-  thrustFrac: number;
+  /** The sim's spooled throttle (0..1), afterburner lit, and fuel left (none: the engine runs down). */
+  throttle: number;
   afterburner: boolean;
+  fuelKg: number;
   iasMps: number;
   /** Gear position 0 up .. 1 down. */
   gearPos: number;
@@ -29,10 +33,6 @@ export interface AmbienceInputs {
 
 export interface AmbienceLevels {
   aircon: number;
-  whine: number;
-  whineHz: number;
-  rumble: number;
-  rumbleHz: number;
   wind: number;
   windHz: number;
 }
@@ -41,27 +41,15 @@ const SOUND_MPS = 340;
 /** Explosions further than this are not heard. */
 const HEAR_EXPLOSION_M = 6000;
 
-export function ambienceLevels(inp: AmbienceInputs, rpm: number, out: AmbienceLevels): AmbienceLevels {
+export function ambienceLevels(inp: AmbienceInputs, out: AmbienceLevels): AmbienceLevels {
   if (!inp.alive) {
-    out.aircon = out.whine = out.rumble = out.wind = 0;
+    out.aircon = out.wind = 0;
     return out;
   }
   const q = Math.min(1, (inp.iasMps / 300) ** 2);
   const drag = 1 + (inp.airbrake ? 0.5 : 0) + inp.gearPos * 0.35;
-  const ab = inp.afterburner ? 1 : 0;
-  out.whineHz = 220 + 1100 * rpm;
-  out.rumbleHz = 160 + 500 * rpm + 300 * ab;
-  if (inp.inCockpit) {
-    out.aircon = 0.05;
-    out.whine = 0.012 + 0.02 * rpm;
-    out.rumble = 0.03 * rpm + 0.05 * ab;
-    out.wind = Math.min(0.16, 0.11 * q * drag);
-  } else {
-    out.aircon = 0;
-    out.whine = 0.02 + 0.03 * rpm;
-    out.rumble = 0.05 + 0.12 * rpm + 0.16 * ab;
-    out.wind = Math.min(0.12, 0.07 * q * drag);
-  }
+  out.aircon = inp.inCockpit ? 0.05 : 0;
+  out.wind = Math.min(inp.inCockpit ? 0.16 : 0.12, (inp.inCockpit ? 0.11 : 0.07) * q * drag);
   out.windHz = 350 + inp.iasMps * 4;
   return out;
 }
@@ -80,12 +68,15 @@ interface Loop {
 }
 
 export function createAmbience(bus: AudioBus): Ambience {
-  let loops: { aircon: Loop; whine: Loop; rumble: Loop; wind: Loop; gun: Loop; gearMotor: Loop } | null = null;
-  let rpm = 0;
+  let loops: { aircon: Loop; wind: Loop; gun: Loop; gearMotor: Loop } | null = null;
+  let engine: EngineVoice | null = null;
+  const engineState = createEngineSoundState();
+  const engineEv: EngineSoundEvents = { abLit: false, abOut: false };
+  const engineParams: EngineVoiceParams = { whineHz: 0, whine: 0, shaftHz: 0, buzz: 0, jet: 0, jetHz: 0, rumble: 0, ab: 0, crackle: 0, muffleHz: 0 };
   let gearWas = -1;
   let gunUntil = 0;
   let live = false;
-  const lv: AmbienceLevels = { aircon: 0, whine: 0, whineHz: 0, rumble: 0, rumbleHz: 0, wind: 0, windHz: 0 };
+  const lv: AmbienceLevels = { aircon: 0, wind: 0, windHz: 0 };
 
   const build = (): typeof loops => {
     const ac = bus.context();
@@ -124,8 +115,6 @@ export function createAmbience(bus: AudioBus): Ambience {
     };
     return {
       aircon: noiseLoop('highpass', 2200, 0.5, amb),
-      whine: oscLoop('sawtooth', 400, 'bandpass', 1200, 6, amb),
-      rumble: noiseLoop('lowpass', 300, 0.7, amb),
       wind: noiseLoop('bandpass', 800, 0.6, amb),
       // The GSh-23's buzz: ~57 shots a second.
       gun: oscLoop('square', 57, 'lowpass', 900, 1, fx),
@@ -178,17 +167,13 @@ export function createAmbience(bus: AudioBus): Ambience {
       if (!loops) loops = build();
       if (!loops) return;
       const ac = bus.context()!;
+      if (!engine) engine = createEngineVoice(ac, bus.channel(AudioChannel.Ambience)!);
       live = true;
-      // The sim's thrust already lags the throttle (spool-up); this only smooths it.
-      const target = inp.alive ? 0.25 + 0.75 * Math.min(1, inp.thrustFrac) : 0;
-      rpm += (target - rpm) * Math.min(1, dt * 4);
-      ambienceLevels(inp, rpm, lv);
+      stepEngineSound(engineState, { throttle: inp.throttle, afterburner: inp.afterburner, running: inp.alive && inp.fuelKg > 0, iasMps: inp.iasMps }, dt, engineEv);
+      engine.set(engineVoiceParams(engineState, inp.inCockpit ? 'cockpit' : 'outside', engineParams));
+      if (engineEv.abLit) engine.thump(inp.inCockpit ? 0.12 : 0.3);
+      ambienceLevels(inp, lv);
       set(loops.aircon.gain.gain, lv.aircon, 0.3);
-      set(loops.whine.gain.gain, lv.whine);
-      set(loops.whine.osc!.frequency, lv.whineHz * 0.35);
-      set(loops.whine.filter.frequency, lv.whineHz);
-      set(loops.rumble.gain.gain, lv.rumble);
-      set(loops.rumble.filter.frequency, lv.rumbleHz);
       set(loops.wind.gain.gain, lv.wind);
       set(loops.wind.filter.frequency, lv.windHz);
       set(loops.gun.gain.gain, inp.alive && ac.currentTime < gunUntil ? 0.22 : 0, 0.01);
@@ -237,6 +222,8 @@ export function createAmbience(bus: AudioBus): Ambience {
       gunUntil = 0;
       gearWas = -1;
       for (const l of Object.values(loops)) set(l.gain.gain, 0, 0.05);
+      engine?.silence();
+      engineState.initialised = false;
     },
   };
 }
