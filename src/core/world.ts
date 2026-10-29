@@ -354,6 +354,9 @@ class WorldImpl implements World {
       get missionSeed() {
         return self.missionSeedInternal;
       },
+      get windWorldMps() {
+        return self.windWorldMpsScratch;
+      },
       getInputs(id: EntityId): PilotInputs | undefined {
         return self.aircraft.get(id)?.inputs;
       },

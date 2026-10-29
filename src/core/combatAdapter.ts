@@ -51,6 +51,7 @@ import {
   type Decoy,
 } from '../combat';
 import { Quat } from '../math';
+import { stepStoreBody } from '../physics';
 import {
   GUN_MAX_AMMO_ROUNDS,
   IR_MAX_AMMO_MISSILES,
@@ -103,11 +104,12 @@ function loadoutFor(defId: string | undefined, fit?: LoadoutPreset): WeaponsLoad
   return out;
 }
 
-/** Default combat environment: still air, standard gravity, ISA density at each projectile's altitude. */
+/** Default combat environment: still air (the world's wind is copied in each tick), standard gravity, ISA density at each projectile's altitude. */
 function defaultCombatEnvironment(): CombatEnvironment {
   // Density by each projectile's own altitude (was sea level for everything, which cut missile
   // ranges at altitude by a factor of two or more).
-  return { airDensityKgM3: 1.225, windWorldMps: { x: 0, y: 0, z: 0 }, gravityMps2: 9.80665, densityAtAltitude: isaDensityKgM3 };
+  // Bombs and rockets with an airframe fly as rigid bodies (src/physics/storeBody.ts).
+  return { airDensityKgM3: 1.225, windWorldMps: { x: 0, y: 0, z: 0 }, gravityMps2: 9.80665, densityAtAltitude: isaDensityKgM3, stepFreeBody: stepStoreBody };
 }
 
 const EMPTY_CONTACTS: readonly Contact[] = [];
@@ -250,6 +252,9 @@ export function createCombatAdapter(): CombatPort & CombatPortWithContacts & Com
         spawnedState.rot.y = req.rotWorld.y;
         spawnedState.rot.z = req.rotWorld.z;
         spawnedState.rot.w = req.rotWorld.w;
+        spawnedState.omega.x = req.omegaBody?.x ?? 0;
+        spawnedState.omega.y = req.omegaBody?.y ?? 0;
+        spawnedState.omega.z = req.omegaBody?.z ?? 0;
         // Which missile it is, for the renderer's model.
         spawnedState.stores = req.profile ? Math.max(0, STORE_IDS.indexOf(req.profile.id)) : 0;
       }
@@ -369,6 +374,11 @@ export function createCombatAdapter(): CombatPort & CombatPortWithContacts & Com
     step(dtSec: number, ctxBase: CombatTickContext, eventsOut: EventQueue): void {
       const ctx = ctxBase as unknown as WorldCombatTickContext;
       const liveCount = ctx.liveCount;
+      // Free-falling stores drift with the wind (and the sight predicts that drift).
+      const wind = ctx.windWorldMps;
+      combatEnv.windWorldMps.x = wind?.x ?? 0;
+      combatEnv.windWorldMps.y = wind?.y ?? 0;
+      combatEnv.windWorldMps.z = wind?.z ?? 0;
       ensureDetectableCapacity(liveCount);
 
       // Build the shared per-tick DetectableEntity array once.
@@ -502,7 +512,7 @@ export function createCombatAdapter(): CombatPort & CombatPortWithContacts & Com
             spot.z = pod.point.z;
           }
         }
-        updateAgSight(state, observer, ctx.sampler, isaDensityKgM3, dtSec);
+        updateAgSight(state, observer, ctx.sampler, isaDensityKgM3, dtSec, combatEnv);
         writeCombatStatus(state, mustGetCombatStatus(ctx, observer.id));
 
         const lockedTarget = state.lockedTargetId !== undefined ? findDetectable(allEntities, state.lockedTargetId) : undefined;

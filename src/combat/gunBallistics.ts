@@ -6,7 +6,7 @@
  * factories. See docs/spec/07-combat.md sections 4.2, 4.6, 4.7, 4.9.
  */
 import type { EntityState, QuatLike, Vec3Like } from '../contracts/core';
-import { EntityKind, NO_ENTITY_ID } from '../contracts/core';
+import { EntityFlag, EntityKind, NO_ENTITY_ID } from '../contracts/core';
 import {
   DEFAULT_AIRCRAFT_HIT_ELLIPSOID_M,
   ProjectileKind,
@@ -20,6 +20,7 @@ import {
   type ProjectileStepResult,
   type DetectableEntity,
   type MissileFlightProfile,
+  type FreeBodyEnv,
 } from '../contracts/combat';
 import { Vec3 } from '../math';
 import { computePnAccel } from './proportionalNavigation';
@@ -27,6 +28,7 @@ import { updateIrGuidance } from './irMissileSeeker';
 import { updateRadarMissileGuidance } from './radarMissile';
 import { segmentHitsEllipsoid } from './hitDetection';
 import { projectileProfile } from './weaponProfiles';
+import { balluteOpen, createFreeBodyParams, freeBodyParamsInto, isRigidStore, soundSpeedAt } from './storeFlight';
 
 // -----------------------------------------------------------------------------
 // Pool factories (init-time only; allocation is expected/allowed here).
@@ -205,6 +207,8 @@ const _segStart: Vec3Like = { x: 0, y: 0, z: 0 };
 const _segEnd: Vec3Like = { x: 0, y: 0, z: 0 };
 const _ellipsoidResult = { hit: false, tEntry: NaN };
 const _impactPos: Vec3Like = { x: 0, y: 0, z: 0 };
+const _freeParams = createFreeBodyParams();
+const _freeEnv: FreeBodyEnv = { densityKgM3: 1.225, soundSpeedMps: 340.3, windWorldMps: { x: 0, y: 0, z: 0 }, gravityMps2: 9.80665 };
 
 export function velocityAlignQuat(velX: number, velY: number, velZ: number, out: QuatLike): void {
   const speed = Math.sqrt(velX * velX + velY * velY + velZ * velZ);
@@ -308,161 +312,154 @@ export const stepProjectile: StepProjectile = (state, projectile, candidates, sa
     updateRadarMissileGuidance(projectile, state.rot, state.pos, targetEntity, prof);
   }
 
-  // 3. Drag + gravity. Air density at this altitude when the environment provides it; with a
-  //    realism profile, the missile gets lighter as it burns, drag rises through the sound
-  //    barrier, and manoeuvring costs induced drag (added in step 5).
-  const fl = kind !== ProjectileKind.Bullet ? prof.flight : undefined;
-  const rho = env.densityAtAltitude ? env.densityAtAltitude(posY) : env.airDensityKgM3;
-  const speed = Math.sqrt(velX * velX + velY * velY + velZ * velZ);
-  let mass = phys.massKg;
-  const boostT = prof.motorBurnSec;
-  const sustT = fl ? fl.sustainBurnSec : 0;
-  if (fl && fl.propellantMassKg > 0) {
-    const totalI = prof.motorThrustN * boostT + fl.sustainThrustN * sustT;
-    const usedI = prof.motorThrustN * Math.min(projectile.ageSec, boostT) + fl.sustainThrustN * Math.max(0, Math.min(projectile.ageSec - boostT, sustT));
-    mass = phys.massKg - fl.propellantMassKg * (totalI > 0 ? usedI / totalI : 0);
-  }
-  let cd = phys.dragCoeff;
-  if (fl && fl.waveDragRise > 0) {
-    const mach = speed / Math.max(295, 340.3 - 0.0041 * posY);
-    cd *= mach < 0.85 ? 1 : mach < 1.1 ? 1 + (fl.waveDragRise * (mach - 0.85)) / 0.25 : 1 + fl.waveDragRise * Math.max(0.4, 1 - (mach - 1.1) * 0.3);
-  }
-  const q = 0.5 * rho * speed * speed;
-  let accelX = 0, accelY = -env.gravityMps2, accelZ = 0;
-  if (speed > 1e-9) {
-    // A retarded bomb's tail opens shortly after release (much more drag).
-    const retard = prof.bomb && projectile.ageSec >= prof.bomb.retardAfterSec ? prof.bomb.retardCdA : 0;
-    const dragAccelMag = q * (cd * phys.crossSectionM2 + retard) / mass;
-    accelX -= (velX / speed) * dragAccelMag;
-    accelY -= (velY / speed) * dragAccelMag;
-    accelZ -= (velZ / speed) * dragAccelMag;
-  }
-
-  // Out of energy: after burnout, too slow to manoeuvre. An air-to-air missile stops guiding and
-  // falls away on its own (visible, rather than vanishing mid-air); other stores self-destruct.
-  if (fl?.minSpeedMps && projectile.ageSec > boostT + sustT && speed < fl.minSpeedMps) {
-    if (kind === ProjectileKind.IrMissile || kind === ProjectileKind.RadarMissile) {
-      projectile.guidance = ProjectileGuidanceMode.Lost;
-    } else {
-      out.alive = false;
-      return { outcome: ProjectileOutcome.Expired, missDistanceM: NaN };
+  // Free-fall bombs and rockets with an airframe fly as rigid bodies (storeFlight.ts): their
+  // attitude is their own, and the fins (or a ballute) turn them into the airflow. Everything
+  // else is a point mass whose nose follows its velocity (steps 3-6).
+  let newPosX: number, newPosY: number, newPosZ: number;
+  if (env.stepFreeBody && isRigidStore(kind, prof)) {
+    freeBodyParamsInto(prof, projectile.ageSec - dtSec, dtSec, _freeParams);
+    _freeEnv.densityKgM3 = env.densityAtAltitude ? env.densityAtAltitude(posY) : env.airDensityKgM3;
+    _freeEnv.soundSpeedMps = soundSpeedAt(posY);
+    _freeEnv.windWorldMps = env.windWorldMps;
+    _freeEnv.gravityMps2 = env.gravityMps2;
+    env.stepFreeBody(out, _freeParams, _freeEnv, dtSec);
+    if (balluteOpen(prof, projectile.ageSec)) out.flags |= EntityFlag.TailOpen;
+    projectile.fuelFracRemaining = (_freeParams.thrustN ?? 0) > 0 ? 1 : 0;
+    newPosX = out.pos.x;
+    newPosY = out.pos.y;
+    newPosZ = out.pos.z;
+  } else {
+    // 3. Drag + gravity. Air density at this altitude when the environment provides it; with a
+    //    realism profile, the missile gets lighter as it burns, drag rises through the sound
+    //    barrier, and manoeuvring costs induced drag (added in step 5).
+    const fl = kind !== ProjectileKind.Bullet ? prof.flight : undefined;
+    const rho = env.densityAtAltitude ? env.densityAtAltitude(posY) : env.airDensityKgM3;
+    const speed = Math.sqrt(velX * velX + velY * velY + velZ * velZ);
+    let mass = phys.massKg;
+    const boostT = prof.motorBurnSec;
+    const sustT = fl ? fl.sustainBurnSec : 0;
+    if (fl && fl.propellantMassKg > 0) {
+      const totalI = prof.motorThrustN * boostT + fl.sustainThrustN * sustT;
+      const usedI = prof.motorThrustN * Math.min(projectile.ageSec, boostT) + fl.sustainThrustN * Math.max(0, Math.min(projectile.ageSec - boostT, sustT));
+      mass = phys.massKg - fl.propellantMassKg * (totalI > 0 ? usedI / totalI : 0);
     }
-  }
+    let cd = phys.dragCoeff;
+    if (fl && fl.waveDragRise > 0) {
+      const mach = speed / Math.max(295, 340.3 - 0.0041 * posY);
+      cd *= mach < 0.85 ? 1 : mach < 1.1 ? 1 + (fl.waveDragRise * (mach - 0.85)) / 0.25 : 1 + fl.waveDragRise * Math.max(0.4, 1 - (mach - 1.1) * 0.3);
+    }
+    const q = 0.5 * rho * speed * speed;
+    let accelX = 0, accelY = -env.gravityMps2, accelZ = 0;
+    if (speed > 1e-9) {
+      // A retarded bomb's tail opens shortly after release (much more drag).
+      const retard = prof.bomb && projectile.ageSec >= prof.bomb.retardAfterSec ? prof.bomb.retardCdA : 0;
+      const dragAccelMag = q * (cd * phys.crossSectionM2 + retard) / mass;
+      accelX -= (velX / speed) * dragAccelMag;
+      accelY -= (velY / speed) * dragAccelMag;
+      accelZ -= (velZ / speed) * dragAccelMag;
+    }
 
-  // 4. Motor thrust (missiles only): boost, then sustain.
-  if (kind !== ProjectileKind.Bullet) {
-    const thrustN = projectile.ageSec < boostT ? prof.motorThrustN : projectile.ageSec < boostT + sustT && fl ? fl.sustainThrustN : 0;
-    if (thrustN > 0) {
-      projectile.fuelFracRemaining = 1;
-      if (speed > 1e-6) {
-        const thrustAccel = thrustN / mass;
-        accelX += (velX / speed) * thrustAccel;
-        accelY += (velY / speed) * thrustAccel;
-        accelZ += (velZ / speed) * thrustAccel;
+    // Out of energy: after burnout, too slow to manoeuvre. An air-to-air missile stops guiding and
+    // falls away on its own (visible, rather than vanishing mid-air); other stores self-destruct.
+    if (fl?.minSpeedMps && projectile.ageSec > boostT + sustT && speed < fl.minSpeedMps) {
+      if (kind === ProjectileKind.IrMissile || kind === ProjectileKind.RadarMissile) {
+        projectile.guidance = ProjectileGuidanceMode.Lost;
+      } else {
+        out.alive = false;
+        return { outcome: ProjectileOutcome.Expired, missDistanceM: NaN };
       }
-    } else {
-      projectile.fuelFracRemaining = 0;
     }
-  }
 
-  // 5. Proportional-navigation lateral accel (guided kinds actively homing/datalinked only).
-  const pointGuided = projectile.guidance === ProjectileGuidanceMode.PointGuided && projectile.targetPoint !== undefined;
-  const guidanceActive = projectile.guidance === ProjectileGuidanceMode.IrHoming
-    || projectile.guidance === ProjectileGuidanceMode.RadarDatalink
-    || projectile.guidance === ProjectileGuidanceMode.RadarActive
-    || pointGuided;
-
-  if (guidanceActive) {
-    let tPos: Vec3Like = pointGuided ? projectile.targetPoint! : targetEntity ? targetEntity.pos : projectile.lastKnownTargetPos;
-    let tVel: Vec3Like = pointGuided ? ZERO_VEL : targetEntity ? targetEntity.vel : projectile.lastKnownTargetVel;
-    if (fl && !pointGuided) {
-      // What the missile actually knows. Mid-course (radar datalink): the launcher's radar track,
-      // sent every datalinkIntervalSec with an angular error that grows with range, and
-      // extrapolated in between (inertial flight if the launcher drops the track). Terminal
-      // (IR seeker / active radar seeker): the target seen through seeker noise.
-      if (projectile.guidance === ProjectileGuidanceMode.RadarDatalink) {
-        projectile.datalinkAgeSec = (projectile.datalinkAgeSec ?? 0) + dtSec;
-        if (targetEntity && projectile.datalinkOk && projectile.datalinkAgeSec >= (fl.datalinkIntervalSec ?? 1)) {
-          projectile.datalinkAgeSec = 0;
-          const rng = Math.hypot(targetEntity.pos.x - posX, targetEntity.pos.y - posY, targetEntity.pos.z - posZ);
-          const sigma = ((fl.datalinkErrMrad ?? 3) / 1000) * (rng + projectile.distanceTravelledM) + 20;
-          projectile.lastKnownTargetPos.x = targetEntity.pos.x + gauss(projectile) * sigma;
-          projectile.lastKnownTargetPos.y = targetEntity.pos.y + gauss(projectile) * sigma * 0.5;
-          projectile.lastKnownTargetPos.z = targetEntity.pos.z + gauss(projectile) * sigma;
-          projectile.lastKnownTargetVel.x = targetEntity.vel.x;
-          projectile.lastKnownTargetVel.y = targetEntity.vel.y;
-          projectile.lastKnownTargetVel.z = targetEntity.vel.z;
-        } else {
-          projectile.lastKnownTargetPos.x += projectile.lastKnownTargetVel.x * dtSec;
-          projectile.lastKnownTargetPos.y += projectile.lastKnownTargetVel.y * dtSec;
-          projectile.lastKnownTargetPos.z += projectile.lastKnownTargetVel.z * dtSec;
+    // 4. Motor thrust (missiles only): boost, then sustain.
+    if (kind !== ProjectileKind.Bullet) {
+      const thrustN = projectile.ageSec < boostT ? prof.motorThrustN : projectile.ageSec < boostT + sustT && fl ? fl.sustainThrustN : 0;
+      if (thrustN > 0) {
+        projectile.fuelFracRemaining = 1;
+        if (speed > 1e-6) {
+          const thrustAccel = thrustN / mass;
+          accelX += (velX / speed) * thrustAccel;
+          accelY += (velY / speed) * thrustAccel;
+          accelZ += (velZ / speed) * thrustAccel;
         }
-        tPos = projectile.lastKnownTargetPos;
-        tVel = projectile.lastKnownTargetVel;
-      } else if (targetEntity) {
-        const n = projectile.noiseOffset!;
-        projectile.noiseAgeSec = (projectile.noiseAgeSec ?? 0) + dtSec;
-        if (projectile.noiseAgeSec >= fl.seekerUpdateSec) {
-          projectile.noiseAgeSec = 0;
-          const rng = Math.hypot(targetEntity.pos.x - posX, targetEntity.pos.y - posY, targetEntity.pos.z - posZ);
-          const sigma = (fl.seekerNoiseMrad / 1000) * rng;
-          n.x = gauss(projectile) * sigma;
-          n.y = gauss(projectile) * sigma;
-          n.z = gauss(projectile) * sigma;
-        }
-        _noisyTarget.x = targetEntity.pos.x + n.x;
-        _noisyTarget.y = targetEntity.pos.y + n.y;
-        _noisyTarget.z = targetEntity.pos.z + n.z;
-        tPos = _noisyTarget;
+      } else {
+        projectile.fuelFracRemaining = 0;
       }
     }
-    if (fl) {
-      // Loft: climb towards a point above the target while far out (thin air carries further).
-      if (fl.loftRad && (projectile.guidance === ProjectileGuidanceMode.RadarDatalink || pointGuided)) {
-        const togo = Math.hypot(tPos.x - posX, tPos.z - posZ);
-        const fade = Math.max(0, Math.min(1, (togo - 18000) / 20000));
-        if (fade > 0) {
-          _loftTarget.x = tPos.x;
-          _loftTarget.y = tPos.y + Math.min(togo * Math.tan(fl.loftRad), 22000) * fade;
-          _loftTarget.z = tPos.z;
-          tPos = _loftTarget;
-        }
-      }
-    }
-    const gain = prof.pnGain;
-    // Available g: the airframe's limit, or what the wings can make at this dynamic pressure.
-    let maxAccel = prof.maxG * env.gravityMps2;
-    if (fl) maxAccel = Math.min(maxAccel, (fl.clMax * q * fl.liftAreaM2) / mass);
 
-    _missilePosScratch.x = posX; _missilePosScratch.y = posY; _missilePosScratch.z = posZ;
-    _missileVelScratch.x = velX; _missileVelScratch.y = velY; _missileVelScratch.z = velZ;
+    // 5. Proportional-navigation lateral accel (guided kinds actively homing/datalinked only).
+    const pointGuided = projectile.guidance === ProjectileGuidanceMode.PointGuided && projectile.targetPoint !== undefined;
+    const guidanceActive = projectile.guidance === ProjectileGuidanceMode.IrHoming
+      || projectile.guidance === ProjectileGuidanceMode.RadarDatalink
+      || projectile.guidance === ProjectileGuidanceMode.RadarActive
+      || pointGuided;
 
-    const glide = pointGuided && fl?.glideSpeedMps !== undefined && glideSteer(fl, posX, posY, posZ, velX, velY, velZ, speed, tPos, env.gravityMps2, _pnAccel);
-    if (glide) {
-      const m = Math.hypot(_pnAccel.x, _pnAccel.y, _pnAccel.z);
-      if (m > maxAccel) {
-        const k = maxAccel / m;
-        _pnAccel.x *= k;
-        _pnAccel.y *= k;
-        _pnAccel.z *= k;
+    if (guidanceActive) {
+      let tPos: Vec3Like = pointGuided ? projectile.targetPoint! : targetEntity ? targetEntity.pos : projectile.lastKnownTargetPos;
+      let tVel: Vec3Like = pointGuided ? ZERO_VEL : targetEntity ? targetEntity.vel : projectile.lastKnownTargetVel;
+      if (fl && !pointGuided) {
+        // What the missile actually knows. Mid-course (radar datalink): the launcher's radar track,
+        // sent every datalinkIntervalSec with an angular error that grows with range, and
+        // extrapolated in between (inertial flight if the launcher drops the track). Terminal
+        // (IR seeker / active radar seeker): the target seen through seeker noise.
+        if (projectile.guidance === ProjectileGuidanceMode.RadarDatalink) {
+          projectile.datalinkAgeSec = (projectile.datalinkAgeSec ?? 0) + dtSec;
+          if (targetEntity && projectile.datalinkOk && projectile.datalinkAgeSec >= (fl.datalinkIntervalSec ?? 1)) {
+            projectile.datalinkAgeSec = 0;
+            const rng = Math.hypot(targetEntity.pos.x - posX, targetEntity.pos.y - posY, targetEntity.pos.z - posZ);
+            const sigma = ((fl.datalinkErrMrad ?? 3) / 1000) * (rng + projectile.distanceTravelledM) + 20;
+            projectile.lastKnownTargetPos.x = targetEntity.pos.x + gauss(projectile) * sigma;
+            projectile.lastKnownTargetPos.y = targetEntity.pos.y + gauss(projectile) * sigma * 0.5;
+            projectile.lastKnownTargetPos.z = targetEntity.pos.z + gauss(projectile) * sigma;
+            projectile.lastKnownTargetVel.x = targetEntity.vel.x;
+            projectile.lastKnownTargetVel.y = targetEntity.vel.y;
+            projectile.lastKnownTargetVel.z = targetEntity.vel.z;
+          } else {
+            projectile.lastKnownTargetPos.x += projectile.lastKnownTargetVel.x * dtSec;
+            projectile.lastKnownTargetPos.y += projectile.lastKnownTargetVel.y * dtSec;
+            projectile.lastKnownTargetPos.z += projectile.lastKnownTargetVel.z * dtSec;
+          }
+          tPos = projectile.lastKnownTargetPos;
+          tVel = projectile.lastKnownTargetVel;
+        } else if (targetEntity) {
+          const n = projectile.noiseOffset!;
+          projectile.noiseAgeSec = (projectile.noiseAgeSec ?? 0) + dtSec;
+          if (projectile.noiseAgeSec >= fl.seekerUpdateSec) {
+            projectile.noiseAgeSec = 0;
+            const rng = Math.hypot(targetEntity.pos.x - posX, targetEntity.pos.y - posY, targetEntity.pos.z - posZ);
+            const sigma = (fl.seekerNoiseMrad / 1000) * rng;
+            n.x = gauss(projectile) * sigma;
+            n.y = gauss(projectile) * sigma;
+            n.z = gauss(projectile) * sigma;
+          }
+          _noisyTarget.x = targetEntity.pos.x + n.x;
+          _noisyTarget.y = targetEntity.pos.y + n.y;
+          _noisyTarget.z = targetEntity.pos.z + n.z;
+          tPos = _noisyTarget;
+        }
       }
-    }
-    // Unclamped magnitude, for the radar-missile g-saturation "lost" check.
-    if (!glide) computePnAccel(_missilePosScratch, _missileVelScratch, tPos, tVel, gain, Number.POSITIVE_INFINITY, _pnAccelUnclamped);
-    const unclampedMag = Math.sqrt(_pnAccelUnclamped.x * _pnAccelUnclamped.x + _pnAccelUnclamped.y * _pnAccelUnclamped.y + _pnAccelUnclamped.z * _pnAccelUnclamped.z);
-    if (unclampedMag >= maxAccel) {
-      projectile.gSaturatedSec += dtSec;
-    } else {
-      projectile.gSaturatedSec = 0;
-    }
-    if (kind === ProjectileKind.RadarMissile && projectile.gSaturatedSec >= (prof.radar?.gSaturationLostSec ?? Infinity)) {
-      projectile.guidance = ProjectileGuidanceMode.Lost;
-    } else {
-      if (!glide) computePnAccel(_missilePosScratch, _missileVelScratch, tPos, tVel, gain, maxAccel, _pnAccel);
-      if (pointGuided && !glide) {
-        // Guided bombs fly against gravity: the wings hold 1 g of lift on top of the steering
-        // command (within what they can make), so the bomb glides instead of sinking under it.
-        _pnAccel.y += env.gravityMps2;
+      if (fl) {
+        // Loft: climb towards a point above the target while far out (thin air carries further).
+        if (fl.loftRad && (projectile.guidance === ProjectileGuidanceMode.RadarDatalink || pointGuided)) {
+          const togo = Math.hypot(tPos.x - posX, tPos.z - posZ);
+          const fade = Math.max(0, Math.min(1, (togo - 18000) / 20000));
+          if (fade > 0) {
+            _loftTarget.x = tPos.x;
+            _loftTarget.y = tPos.y + Math.min(togo * Math.tan(fl.loftRad), 22000) * fade;
+            _loftTarget.z = tPos.z;
+            tPos = _loftTarget;
+          }
+        }
+      }
+      const gain = prof.pnGain;
+      // Available g: the airframe's limit, or what the wings can make at this dynamic pressure.
+      let maxAccel = prof.maxG * env.gravityMps2;
+      if (fl) maxAccel = Math.min(maxAccel, (fl.clMax * q * fl.liftAreaM2) / mass);
+
+      _missilePosScratch.x = posX; _missilePosScratch.y = posY; _missilePosScratch.z = posZ;
+      _missileVelScratch.x = velX; _missileVelScratch.y = velY; _missileVelScratch.z = velZ;
+
+      const glide = pointGuided && fl?.glideSpeedMps !== undefined && glideSteer(fl, posX, posY, posZ, velX, velY, velZ, speed, tPos, env.gravityMps2, _pnAccel);
+      if (glide) {
         const m = Math.hypot(_pnAccel.x, _pnAccel.y, _pnAccel.z);
         if (m > maxAccel) {
           const k = maxAccel / m;
@@ -471,43 +468,68 @@ export const stepProjectile: StepProjectile = (state, projectile, candidates, sa
           _pnAccel.z *= k;
         }
       }
-      if (fl && projectile.accelLat) {
-        // Autopilot/airframe lag, then induced drag for the lift being pulled.
-        const a = projectile.accelLat;
-        const k = Math.min(1, dtSec / Math.max(1e-3, fl.autopilotTauSec));
-        a.x += (_pnAccel.x - a.x) * k;
-        a.y += (_pnAccel.y - a.y) * k;
-        a.z += (_pnAccel.z - a.z) * k;
-        accelX += a.x; accelY += a.y; accelZ += a.z;
-        const aLat2 = a.x * a.x + a.y * a.y + a.z * a.z;
-        if (speed > 1e-6 && q > 1) {
-          const induced = (fl.inducedDragK * mass * aLat2) / (q * fl.liftAreaM2);
-          accelX -= (velX / speed) * induced;
-          accelY -= (velY / speed) * induced;
-          accelZ -= (velZ / speed) * induced;
-        }
+      // Unclamped magnitude, for the radar-missile g-saturation "lost" check.
+      if (!glide) computePnAccel(_missilePosScratch, _missileVelScratch, tPos, tVel, gain, Number.POSITIVE_INFINITY, _pnAccelUnclamped);
+      const unclampedMag = Math.sqrt(_pnAccelUnclamped.x * _pnAccelUnclamped.x + _pnAccelUnclamped.y * _pnAccelUnclamped.y + _pnAccelUnclamped.z * _pnAccelUnclamped.z);
+      if (unclampedMag >= maxAccel) {
+        projectile.gSaturatedSec += dtSec;
       } else {
-        accelX += _pnAccel.x; accelY += _pnAccel.y; accelZ += _pnAccel.z;
+        projectile.gSaturatedSec = 0;
       }
+      if (kind === ProjectileKind.RadarMissile && projectile.gSaturatedSec >= (prof.radar?.gSaturationLostSec ?? Infinity)) {
+        projectile.guidance = ProjectileGuidanceMode.Lost;
+      } else {
+        if (!glide) computePnAccel(_missilePosScratch, _missileVelScratch, tPos, tVel, gain, maxAccel, _pnAccel);
+        if (pointGuided && !glide) {
+          // Guided bombs fly against gravity: the wings hold 1 g of lift on top of the steering
+          // command (within what they can make), so the bomb glides instead of sinking under it.
+          _pnAccel.y += env.gravityMps2;
+          const m = Math.hypot(_pnAccel.x, _pnAccel.y, _pnAccel.z);
+          if (m > maxAccel) {
+            const k = maxAccel / m;
+            _pnAccel.x *= k;
+            _pnAccel.y *= k;
+            _pnAccel.z *= k;
+          }
+        }
+        if (fl && projectile.accelLat) {
+          // Autopilot/airframe lag, then induced drag for the lift being pulled.
+          const a = projectile.accelLat;
+          const k = Math.min(1, dtSec / Math.max(1e-3, fl.autopilotTauSec));
+          a.x += (_pnAccel.x - a.x) * k;
+          a.y += (_pnAccel.y - a.y) * k;
+          a.z += (_pnAccel.z - a.z) * k;
+          accelX += a.x; accelY += a.y; accelZ += a.z;
+          const aLat2 = a.x * a.x + a.y * a.y + a.z * a.z;
+          if (speed > 1e-6 && q > 1) {
+            const induced = (fl.inducedDragK * mass * aLat2) / (q * fl.liftAreaM2);
+            accelX -= (velX / speed) * induced;
+            accelY -= (velY / speed) * induced;
+            accelZ -= (velZ / speed) * induced;
+          }
+        } else {
+          accelX += _pnAccel.x; accelY += _pnAccel.y; accelZ += _pnAccel.z;
+        }
+      }
+    } else {
+      projectile.gSaturatedSec = 0;
+      if (projectile.accelLat) { projectile.accelLat.x = 0; projectile.accelLat.y = 0; projectile.accelLat.z = 0; }
     }
-  } else {
-    projectile.gSaturatedSec = 0;
-    if (projectile.accelLat) { projectile.accelLat.x = 0; projectile.accelLat.y = 0; projectile.accelLat.z = 0; }
-  }
 
-  // 6. Semi-implicit Euler integration.
-  const newVelX = velX + accelX * dtSec;
-  const newVelY = velY + accelY * dtSec;
-  const newVelZ = velZ + accelZ * dtSec;
-  const newPosX = posX + newVelX * dtSec;
-  const newPosY = posY + newVelY * dtSec;
-  const newPosZ = posZ + newVelZ * dtSec;
+    // 6. Semi-implicit Euler integration.
+    const newVelX = velX + accelX * dtSec;
+    const newVelY = velY + accelY * dtSec;
+    const newVelZ = velZ + accelZ * dtSec;
+    newPosX = posX + newVelX * dtSec;
+    newPosY = posY + newVelY * dtSec;
+    newPosZ = posZ + newVelZ * dtSec;
+
+    out.vel.x = newVelX; out.vel.y = newVelY; out.vel.z = newVelZ;
+    velocityAlignQuat(newVelX, newVelY, newVelZ, out.rot);
+  }
 
   const stepDx = newPosX - posX, stepDy = newPosY - posY, stepDz = newPosZ - posZ;
   projectile.distanceTravelledM += Math.sqrt(stepDx * stepDx + stepDy * stepDy + stepDz * stepDz);
-
-  out.vel.x = newVelX; out.vel.y = newVelY; out.vel.z = newVelZ;
-  velocityAlignQuat(newVelX, newVelY, newVelZ, out.rot);
 
   // 7. Hit / fuse resolution (armed projectiles only). Only aircraft other than the owner can be
   //    hit: `candidates` is the world's full live-entity list, which includes this projectile

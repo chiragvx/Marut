@@ -31,8 +31,10 @@ import {
   type WeaponStationRuntime,
   type WeaponsLoadout,
   type ProjectileSpawnRequest,
+  type CombatEnvironment,
 } from '../contracts/combat';
-import { ccrpSolution, predictImpact } from './agSight';
+import { ccrpSolution, predictImpact, type RigidRelease } from './agSight';
+import { releasePointBodyInto, releaseRatesInto } from './storeFlight';
 import { createPodState } from './targetingPod';
 import { Vec3, Quat, nextRange, type PrngState } from '../math';
 import { GENERIC_RADAR_PROFILE, defaultWeaponProfile } from './weaponProfiles';
@@ -234,6 +236,9 @@ function reselectIfEmpty(state: WeaponsState): void {
 const _muzzleOffsetW: { x: number; y: number; z: number } = { x: 0, y: 0, z: 0 };
 const _dirBody: { x: number; y: number; z: number } = { x: 0, y: 0, z: 0 };
 const _dirWorld: { x: number; y: number; z: number } = { x: 0, y: 0, z: 0 };
+const _releaseBody: { x: number; y: number; z: number } = { x: 0, y: 0, z: 0 };
+const _tubeAxis: { x: number; y: number; z: number } = { x: 0, y: 0, z: 0 };
+const _tubeQ = { x: 0, y: 0, z: 0, w: 1 };
 const _forwardW: { x: number; y: number; z: number } = { x: 0, y: 0, z: 0 };
 
 export const fireWeapons: FireWeapons = (
@@ -399,6 +404,15 @@ function releaseAirToGround(shooterId: EntityId, shooter: EntityState, inputs: P
     Vec3.normalize(_dirBody, _dirBody);
     Quat.rotate(shooter.rot, _dirBody, _dirWorld);
     pushStore(shooterId, shooter, st, _dirWorld.x * p.launchSpeedMps, _dirWorld.y * p.launchSpeedMps, _dirWorld.z * p.launchSpeedMps, ProjectileKind.Rocket, outRequests, outEvents, kind);
+    // The rocket points along its (dispersed) tube: the aircraft's attitude turned from +X onto it.
+    const sinT = Math.hypot(_dirBody.y, _dirBody.z);
+    if (sinT > 1e-9) {
+      _tubeAxis.x = 0;
+      _tubeAxis.y = -_dirBody.z / sinT;
+      _tubeAxis.z = _dirBody.y / sinT;
+      Quat.axisAngle(_tubeAxis, Math.atan2(sinT, _dirBody.x), _tubeQ);
+      Quat.multiply(shooter.rot, _tubeQ, outRequests[outRequests.length - 1]!.rotWorld);
+    }
     reselectIfEmpty(state);
     return;
   }
@@ -440,11 +454,13 @@ function releaseAirToGround(shooterId: EntityId, shooter: EntityState, inputs: P
   if (!st) return;
   st.count -= 1;
   state.releasedThisPress = true;
-  Quat.rotate(shooter.rot, st.posBodyM, _muzzleOffsetW);
+  Quat.rotate(shooter.rot, releasePointBodyInto(st.profile, st.posBodyM, _releaseBody), _muzzleOffsetW);
   // Ejected straight down off the rack (body -y).
   Quat.rotate(shooter.rot, { x: 0, y: -1, z: 0 }, _dirWorld);
   const v = st.profile.launchSpeedMps;
   pushStore(shooterId, shooter, st, _dirWorld.x * v, _dirWorld.y * v, _dirWorld.z * v, kind === WeaponKind.GuidedBomb ? ProjectileKind.GuidedBomb : ProjectileKind.Bomb, outRequests, outEvents, kind);
+  const rel = outRequests[outRequests.length - 1]!;
+  rel.omegaBody = releaseRatesInto(st.profile, shooter.omega, { x: 0, y: 0, z: 0 });
   if (gps) {
     outRequests[outRequests.length - 1]!.targetPoint = { x: state.spi.x, y: state.spi.y, z: state.spi.z };
     // Pre-planned aim points: the next weapon goes to the next one.
@@ -512,6 +528,7 @@ const _releasePos = { x: 0, y: 0, z: 0 };
 const BODY_DOWN = { x: 0, y: -1, z: 0 };
 const _ccrp = { timeToReleaseSec: 0, crossTrackM: 0 };
 const _pred = { valid: false, impact: { x: 0, y: 0, z: 0 }, tofSec: 0 };
+const _rigid: RigidRelease = { rot: { x: 0, y: 0, z: 0, w: 1 }, omegaBody: { x: 0, y: 0, z: 0 }, step: () => {}, windWorldMps: { x: 0, y: 0, z: 0 } };
 
 /**
  * The air-to-ground sight for the selected store (src/combat/agSight.ts): predicted impact, a
@@ -519,7 +536,7 @@ const _pred = { valid: false, impact: { x: 0, y: 0, z: 0 }, tofSec: 0 };
  * solution to the SPI. Runs at AG_SIGHT_HZ while an air-to-ground store is selected, and for the
  * gun while no air target is designated (strafing pipper).
  */
-export function updateAgSight(state: WeaponsState, shooter: EntityState, sampler: HeightSampler, densityAt: (altM: number) => number, dtSec: number): void {
+export function updateAgSight(state: WeaponsState, shooter: EntityState, sampler: HeightSampler, densityAt: (altM: number) => number, dtSec: number, env?: CombatEnvironment): void {
   const gun = gunGroundSight(state);
   if (!isAirToGroundKind(state.selectedWeapon) && !gun) {
     state.agValid = false;
@@ -541,11 +558,20 @@ export function updateAgSight(state: WeaponsState, shooter: EntityState, sampler
   Quat.rotate(shooter.rot, { x: 1, y: 0, z: 0 }, _fwdSight);
   Quat.rotate(shooter.rot, BODY_DOWN, _downSight);
   // From the store's own station, ejected the way the rack pushes it (as fireWeapons releases it).
-  Quat.rotate(shooter.rot, st.posBodyM, _stationW);
+  Quat.rotate(shooter.rot, releasePointBodyInto(st.profile, st.posBodyM, _releaseBody), _stationW);
   _releasePos.x = shooter.pos.x + _stationW.x;
   _releasePos.y = shooter.pos.y + _stationW.y;
   _releasePos.z = shooter.pos.z + _stationW.z;
-  predictImpact(st.profile, _releasePos, shooter.vel, _fwdSight, sampler, densityAt, _pred, _downSight);
+  // Bombs and rockets with an airframe: flown as the rigid body that is released.
+  let rigid: RigidRelease | undefined;
+  if (env?.stepFreeBody) {
+    _rigid.rot = shooter.rot;
+    releaseRatesInto(st.profile, shooter.omega, _rigid.omegaBody);
+    _rigid.step = env.stepFreeBody;
+    _rigid.windWorldMps = env.windWorldMps;
+    rigid = _rigid;
+  }
+  predictImpact(st.profile, _releasePos, shooter.vel, _fwdSight, sampler, densityAt, _pred, _downSight, rigid);
   state.agValid = _pred.valid;
   state.agTofSec = _pred.tofSec;
   state.agImpact.x = _pred.impact.x;

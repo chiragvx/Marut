@@ -32,6 +32,8 @@ export interface WorldCombatTickContext extends CombatTickContext {
   readonly ground?: GroundTargetSet;
   /** The mission's airport runways and their craters. */
   readonly runways?: RunwayDamage;
+  /** This tick's wind, world m/s (free-falling stores drift with it). Absent = still air. */
+  readonly windWorldMps?: Readonly<Vec3Like>;
   /** The mission's air-defence sites and their units (a new object per mission load). */
   readonly airDefence?: { sites: readonly AdSiteSpec[]; units: readonly AdUnitSpec[] };
 }

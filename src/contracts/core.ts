@@ -196,6 +196,8 @@ export const EntityFlag = {
   LightsLanding: 1 << 6,
   /** Formation lights (dim green strips). */
   LightsFormation: 1 << 7,
+  /** A free-fall store's retarding tail (ballute) is open. */
+  TailOpen: 1 << 8,
 } as const;
 
 /** All exterior-light bits of EntityFlags. */

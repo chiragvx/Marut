@@ -79,3 +79,36 @@ describe('stepStoreBody', () => {
     expect(s.vel.z).toBeGreaterThan(8);
   });
 });
+
+describe('stepStoreBody: drag rise, ballute, thrust', () => {
+  const STILL_ENV = { densityKgM3: 1.0, soundSpeedMps: 330, windWorldMps: STILL, gravityMps2: 0 };
+  const decel = (p: StoreBodyParams, v: number): number => {
+    const s = body(v, 0);
+    stepStoreBody(s, p, STILL_ENV, DT);
+    return (v - s.vel.x) / DT;
+  };
+
+  test('axial drag rises through the sound barrier', () => {
+    const p = { ...BASE, machDragRise: 1 };
+    const sub = decel(p, 0.7 * 330) / (0.7 * 0.7);
+    const trans = decel(p, 1.1 * 330) / (1.1 * 1.1);
+    expect(trans / sub).toBeGreaterThan(1.9);
+    expect(trans / sub).toBeLessThan(2.1);
+  });
+
+  test('a ballute adds its drag and holds the body into the airflow', () => {
+    expect(decel({ ...BASE, trailingCdA: 0.9, trailingArmM: -2.5 }, 200)).toBeGreaterThan(decel(BASE, 200) * 5);
+    // Without fins (neutral), a ballute alone weathercocks the body.
+    const s = body(200, 0.3);
+    const p = { ...BASE, cnAlpha: 0, trailingCdA: 0.9, trailingArmM: -2.5 };
+    for (let i = 0; i < 240; i++) stepStoreBody(s, p, { ...STILL_ENV, gravityMps2: 9.81 }, DT);
+    expect(alphaOf(s)).toBeLessThan(0.05);
+  });
+
+  test('thrust acts along the nose', () => {
+    const s = body(0, 0);
+    stepStoreBody(s, { ...BASE, thrustN: 2500 }, { ...STILL_ENV, densityKgM3: 0 }, 1);
+    expect(s.vel.x).toBeCloseTo(10, 6);
+    expect(s.vel.y).toBeCloseTo(0, 9);
+  });
+});

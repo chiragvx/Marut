@@ -97,7 +97,7 @@ export interface MeshAircraftRenderer {
   beginFrame(dtSec: number, originWorld: Readonly<Vec3Like>, cameraWorld: Readonly<Vec3Like>, timeSec: number): void;
   updateEntity(entityId: number, pos: Readonly<Vec3Like>, rot: Readonly<QuatLike>, state: Readonly<MeshAircraftState>, originWorld: Readonly<Vec3Like>): void;
   /** A missile or bomb in flight: store code (STORE_IDS), pointing along its velocity (else `rot`). */
-  updateMissile(code: number, pos: Readonly<Vec3Like>, vel: Readonly<Vec3Like>, rot: Readonly<QuatLike>, originWorld: Readonly<Vec3Like>): void;
+  updateMissile(code: number, pos: Readonly<Vec3Like>, vel: Readonly<Vec3Like>, rot: Readonly<QuatLike>, originWorld: Readonly<Vec3Like>, flags?: number): void;
   /** A store falling free (a jettisoned tank): store code (STORE_IDS) at its own attitude `rot`, centred on `pos`. */
   updateStore(code: number, pos: Readonly<Vec3Like>, rot: Readonly<QuatLike>, originWorld: Readonly<Vec3Like>): void;
   /** The drawing-buffer height (px) and the projection's [1][1] term, for sizing light glows. */
@@ -138,7 +138,8 @@ export function createMeshAircraftRenderer(root: THREE.Object3D, template: Aircr
   const storeBatches = storeModels.byCode.map((m) => (m ? batch(m.geometry, m.kind === 'missile' ? 512 : 192) : undefined));
   const railBatch = batch(storeModels.rail, 512);
   const twinBatch = batch(storeModels.twinRail, 256);
-  const allBatches = [...storeBatches.filter((b): b is StoreBatch => !!b), railBatch, twinBatch];
+  const balluteBatches = storeModels.byCode.map((m) => (m?.ballute ? batch(m.ballute, 48) : undefined));
+  const allBatches = [...storeBatches.filter((b): b is StoreBatch => !!b), ...balluteBatches.filter((b): b is StoreBatch => !!b), railBatch, twinBatch];
   const lights = createAircraftLights(root, template.lights, shared);
   const landingPivot = template.parts.find((p) => p.name === template.landingPart)?.pivot ?? [0, 0, 0];
 
@@ -357,15 +358,21 @@ export function createMeshAircraftRenderer(root: THREE.Object3D, template: Aircr
       lights.setViewportHeight(heightPx, projection11);
     },
 
-    updateMissile(code, pos, vel, rot, origin) {
+    updateMissile(code, pos, vel, rot, origin, flags = 0) {
       const model = storeModels.byCode[code];
       // Missiles and bombs (incl. guided and glide bombs) fly as missile entities; rocket pods stay on the pylon.
       if (!model || (model.kind !== 'missile' && model.kind !== 'bomb')) return;
-      vDir.set(vel.x, vel.y, vel.z);
-      if (vDir.lengthSq() > 1) qM.setFromUnitVectors(X_AXIS, vDir.normalize());
-      else qM.set(rot.x, rot.y, rot.z, rot.w);
+      if (model.kind === 'bomb') {
+        // Bombs fly at their own attitude (free-fall bombs are rigid bodies: the release wobble).
+        qM.set(rot.x, rot.y, rot.z, rot.w);
+      } else {
+        vDir.set(vel.x, vel.y, vel.z);
+        if (vDir.lengthSq() > 1) qM.setFromUnitVectors(X_AXIS, vDir.normalize());
+        else qM.set(rot.x, rot.y, rot.z, rot.w);
+      }
       mA.makeRotationFromQuaternion(qM).setPosition(pos.x - origin.x, pos.y - origin.y, pos.z - origin.z);
       put(storeBatches[code], mA);
+      if ((flags & EntityFlag.TailOpen) !== 0) put(balluteBatches[code], mA);
     },
 
     updateStore(code, pos, rot, origin) {

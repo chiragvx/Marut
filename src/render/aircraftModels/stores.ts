@@ -21,6 +21,8 @@ export interface StoreModel {
   geometry: THREE.BufferGeometry;
   /** Store frame -> attach frame (origin at the rail top / pylon attach point). */
   mount: THREE.Matrix4;
+  /** Retarded bombs: the open ballute and its risers, in the bomb's frame (drawn once its tail opens). */
+  ballute?: THREE.BufferGeometry;
 }
 
 interface FinSet {
@@ -385,6 +387,22 @@ function buildBomb(b: BombSpec): THREE.BufferGeometry {
   return merge(parts);
 }
 
+/**
+ * A retarded bomb's open ballute: risers fanning out from the tail to an inflated drag balloon
+ * about 1.1 m across, its widest point a metre behind the tail (where the sim's ballute pulls).
+ */
+function buildBallute(b: BombSpec): THREE.BufferGeometry {
+  const x0 = -b.len / 2;
+  const R = 0.56;
+  // Riser cone: tail to the balloon's front.
+  const risers = loft([x0 - 0.6, x0], (x) => circle(0, 0, 0.03 + ((x0 - x) / 0.6) * 0.26), 12, PART.dark);
+  // The balloon: rounded front, flattened back.
+  const prof = (u: number): number => R * Math.sin(Math.PI * Math.pow(u, 0.8)) + 0.02;
+  const xs = Array.from({ length: 11 }, (_, i) => x0 - 0.5 - 0.85 * (i / 10)).reverse();
+  const balloon = loft(xs, (x) => circle(0, 0, prof((x0 - 0.5 - x) / 0.85)), 18, PART.bandBrown);
+  return merge([risers, balloon, cap(x0 - 1.35, circle(0, 0, 0.02 + R * 0.05), 18, PART.bandBrown, [-1, 0, 0])]);
+}
+
 /** Rocket pod: a cylinder with a rounded nose, the tube mouths a dark disc at the front. */
 function buildPod(p: { len: number; dia: number }): THREE.BufferGeometry {
   const r = p.dia / 2;
@@ -451,7 +469,7 @@ export function buildStoreModels(): StoreModels {
     const t = TANKS[id];
     if (t) return { kind: 'tank', geometry: buildTank(t), mount: new THREE.Matrix4().makeTranslation(0, -(0.03 + t.dia / 2), 0) };
     const b = BOMBS[id];
-    if (b) return { kind: 'bomb', geometry: buildBomb(b), mount: new THREE.Matrix4().makeTranslation(0, -(0.05 + b.dia / 2), 0) };
+    if (b) return { kind: 'bomb', geometry: buildBomb(b), mount: new THREE.Matrix4().makeTranslation(0, -(0.05 + b.dia / 2), 0), ...(b.retarded ? { ballute: buildBallute(b) } : {}) };
     const p = PODS[id];
     if (p) return { kind: 'pod', geometry: buildPod(p), mount: new THREE.Matrix4().makeTranslation(0.1, -(0.04 + p.dia / 2), 0) };
     return undefined;

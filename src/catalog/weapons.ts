@@ -648,6 +648,14 @@ export const PL_15E: WeaponProfile = radarMissile({
 /** Shared shape of the unguided air-to-ground stores. */
 type AgFields = Omit<WeaponProfile, 'roundIntervalSec' | 'dispersionMrad' | 'motorBurnSec' | 'motorThrustN' | 'pnGain' | 'maxG' | 'proximityFuseRadiusM' | 'minLaunchRangeM' | 'damageFrac'> &
   Partial<Pick<WeaponProfile, 'roundIntervalSec' | 'dispersionMrad' | 'motorBurnSec' | 'motorThrustN'>>;
+/**
+ * A free-fall bomb's cruciform tail as a rigid body (WeaponProfile.airframe; game tuning): the
+ * fins' normal force acts about a quarter of the length behind the CG, so a bomb released at the
+ * aircraft's angle of attack swings nose-down into the airflow and settles within a second or two;
+ * drag rises through the sound barrier.
+ */
+const BOMB_FINS = { cnAlpha: 6, cmq: 25, clp: 4, machDragRise: 1 } as const;
+
 function agStore(p: AgFields): WeaponProfile {
   return { roundIntervalSec: 0, dispersionMrad: 0, motorBurnSec: 0, motorThrustN: 0, pnGain: 0, maxG: 0, proximityFuseRadiusM: 0, minLaunchRangeM: 0, damageFrac: 1, ...p };
 }
@@ -671,6 +679,7 @@ export const HSLD_450: WeaponProfile = agStore({
   armDistanceM: 250,
   launchSpeedMps: 2,
   warhead: { explosiveKg: 200 },
+  airframe: { lengthM: 3.3, diameterM: 0.4, ...BOMB_FINS, cpOffsetM: -0.8 },
 });
 
 /** DRDO HSLD-250: 250 kg high-speed low-drag bomb (~0.32 m body, ~110 kg explosive). */
@@ -689,6 +698,7 @@ export const HSLD_250: WeaponProfile = agStore({
   armDistanceM: 250,
   launchSpeedMps: 2,
   warhead: { explosiveKg: 110 },
+  airframe: { lengthM: 2.7, diameterM: 0.32, ...BOMB_FINS, cpOffsetM: -0.68 },
 });
 
 /**
@@ -712,6 +722,7 @@ export const HSLD_250R: WeaponProfile = agStore({
   launchSpeedMps: 2,
   warhead: { explosiveKg: 110 },
   bomb: { retardAfterSec: 0.3, retardCdA: 0.9 },
+  airframe: { lengthM: 2.8, diameterM: 0.32, ...BOMB_FINS, cpOffsetM: -0.7 },
 });
 
 /**
@@ -740,6 +751,7 @@ export const B8_S8: WeaponProfile = agStore({
   motorBurnSec: 0.7,
   motorThrustN: 9000,
   warhead: { explosiveKg: 1.2 },
+  airframe: { lengthM: 1.57, diameterM: 0.08, cnAlpha: 8, cpOffsetM: -0.45, cmq: 40, clp: 4, machDragRise: 0.8 },
 });
 
 /** Shared shape of guided bombs (they keep pnGain/maxG and have a flight profile). */
@@ -828,6 +840,7 @@ export const MK82: WeaponProfile = agStore({
   armDistanceM: 150,
   launchSpeedMps: 2,
   warhead: { explosiveKg: 89 },
+  airframe: { lengthM: 2.21, diameterM: 0.273, ...BOMB_FINS, cpOffsetM: -0.55 },
 });
 export const MK82_SE: WeaponProfile = agStore({
   id: 'mk-82-se',
@@ -845,6 +858,7 @@ export const MK82_SE: WeaponProfile = agStore({
   launchSpeedMps: 2,
   warhead: { explosiveKg: 89 },
   bomb: { retardAfterSec: 0.3, retardCdA: 0.9 },
+  airframe: { lengthM: 2.21, diameterM: 0.273, ...BOMB_FINS, cpOffsetM: -0.55 },
 });
 
 /**

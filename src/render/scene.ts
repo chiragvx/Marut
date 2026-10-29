@@ -729,7 +729,7 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
         for (let i = 0; i < curr.entityCount; i++) {
           if (curr.alive[i] === 1 && curr.kind[i] === EntityKindCode.missile) {
             interpolateEntity(snapshotBuf, i, f, interpEntity);
-            aircraftRenderer.updateMissile(curr.stores[i]!, interpEntity.pos, interpEntity.vel, interpEntity.rot, origin);
+            aircraftRenderer.updateMissile(curr.stores[i]!, interpEntity.pos, interpEntity.vel, interpEntity.rot, origin, curr.flags[i]!);
             continue;
           }
           if (curr.alive[i] === 1 && curr.kind[i] === EntityKindCode.effect) {

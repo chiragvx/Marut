@@ -335,6 +335,11 @@ export interface WeaponProfile {
   storeShellKg?: number;
   /** Free-fall bombs: a retarding tail (ballute) that opens `retardAfterSec` after release and adds `retardCdA` (Cd x area, m^2) of drag. */
   bomb?: { retardAfterSec: number; retardCdA: number };
+  /**
+   * Free-fall bombs and rockets: the store's body and fins, for flying it as a rigid body
+   * (contracts below: FreeBodyParams). Absent = a point mass (the other kinds).
+   */
+  airframe?: StoreAirframe;
   /** Guided bombs: how they find the target, and their launch envelope for the DLZ cue. */
   guided?: GuidedWeaponProfile;
   /** Anti-radiation missiles: the passive seeker's field of regard, its range, and how far off its
@@ -797,9 +802,11 @@ export interface ProjectileSpawnRequest {
   ownerId: EntityId;
   team: Team;
   posWorld: Vec3Like;
-  /** Advisory initial orientation; `stepProjectile` re-derives orientation from velocity every tick from the very next call onward, so this only matters for the spawn frame's render. */
+  /** Initial orientation. Point-mass kinds re-derive it from the velocity every tick; rigid-body stores (WeaponProfile.airframe) fly from it. */
   rotWorld: QuatLike;
   velWorld: Vec3Like;
+  /** Rigid-body stores: initial body rates (body frame, rad/s). Absent = zero. */
+  omegaBody?: Vec3Like;
   /** Missiles only; `undefined` for a bullet. */
   targetId?: EntityId;
   /** The fired store's profile. Absent = the generic profile for `kind`. */
@@ -915,7 +922,83 @@ export interface CombatEnvironment {
   gravityMps2: number;
   /** Air density at an altitude, kg/m^3. When present it replaces airDensityKgM3 (per projectile, per tick). */
   densityAtAltitude?: (altM: number) => number;
+  /**
+   * The rigid-body integrator for stores with an airframe (src/physics, injected by src/core).
+   * Absent = those stores fly as point masses too.
+   */
+  stepFreeBody?: StepFreeBody;
 }
+
+/** A free-fall store's body and fins (game tuning values; coefficients on the frontal area). */
+export interface StoreAirframe {
+  lengthM: number;
+  diameterM: number;
+  /** Normal-force slope of body plus fins, per rad. */
+  cnAlpha: number;
+  /** Where that force acts, body X from the CG, m (negative: behind it, so the store weathercocks). */
+  cpOffsetM: number;
+  /** Pitch/yaw rate damping (fins), and roll damping. */
+  cmq: number;
+  clp: number;
+  /** Transonic drag rise: the axial drag multiplies by up to 1 + this through Mach 0.85-1.1. */
+  machDragRise: number;
+}
+
+/** Position, velocity (world) and attitude, body rates (body frame) of a free-flying rigid body, as on EntityState. */
+export interface FreeBodyState {
+  pos: Vec3Like;
+  vel: Vec3Like;
+  rot: QuatLike;
+  omega: Vec3Like;
+}
+
+/** An axisymmetric slender body's mass, size and aerodynamics (game tuning values). */
+export interface FreeBodyParams {
+  massKg: number;
+  lengthM: number;
+  diameterM: number;
+  /** Axial drag coefficient on the frontal area at zero angle of attack (below the transonic rise). */
+  cdAxial: number;
+  /** Transonic drag rise of cdAxial (0 = none): up to 1 + this times through Mach 0.85-1.1. */
+  machDragRise?: number;
+  /** Normal-force slope of the body's potential (linear) lift, per rad, on the frontal area. */
+  cnAlpha: number;
+  /** Crossflow drag coefficient of the body seen side-on (a cylinder: ~1.2), on L x d. */
+  cdCrossflow: number;
+  /**
+   * Where the potential normal force acts, body X from the CG, m, flying nose-first. Negative =
+   * behind the CG (weathercock-stable: fins); positive = ahead (unstable: a finless body).
+   */
+  cpOffsetM: number;
+  /**
+   * True: the force stays at that body point when the store flies tail-first (fins). False: it moves
+   * to the leading end, mirrored (a finless body is unstable both ways round).
+   */
+  cpFixed: boolean;
+  /** Where the crossflow drag acts, body X from the CG, m (0 = the CG is at mid-length). */
+  crossflowArmM: number;
+  /** Pitch/yaw damping derivative, on q S L and the reduced rate w L / 2V. */
+  cmq: number;
+  /** Roll damping derivative, on q S d and p d / 2V. */
+  clp: number;
+  /** A drag device trailing the body (a retarding ballute): Cd x area, m^2, along the airflow; 0 = none. */
+  trailingCdA?: number;
+  /** Where it pulls, body X from the CG, m (behind the tail). */
+  trailingArmM?: number;
+  /** Motor thrust along the body's nose, N (0 = none). */
+  thrustN?: number;
+}
+
+export interface FreeBodyEnv {
+  densityKgM3: number;
+  /** Speed of sound here, m/s (for the transonic drag rise). */
+  soundSpeedMps?: number;
+  windWorldMps: Readonly<Vec3Like>;
+  gravityMps2: number;
+}
+
+/** Advances `s` by `dtSec` in place (fixed internal substeps). Allocation-free. */
+export type StepFreeBody = (s: FreeBodyState, p: Readonly<FreeBodyParams>, env: Readonly<FreeBodyEnv>, dtSec: number) => void;
 
 export const ProjectileOutcome = {
   Flying: 'flying',
