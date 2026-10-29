@@ -228,6 +228,8 @@ export interface SettingsState {
   aimingHelp?: AimingHelp;
   /** Control rates (multipliers 0.5..1.5). Absent = 1 each. */
   controlRates?: { pitch: number; roll: number; yaw: number };
+  /** Sound volumes, 0..1 (Settings -> Audio): everything, the voice warnings, the warning and RWR tones, the engine and effects. Absent = the defaults. */
+  audio?: { master: number; voice: number; tones: number; ambience: number };
 }
 
 export interface SettingsCallbacks {

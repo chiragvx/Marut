@@ -2,10 +2,11 @@
  * src/ui/releaseTone.ts — the release tone for a CCRP bomb attack (Web Audio), from the snapshot's
  * release cue (SnapshotHudExt.AG_CUE): from TONE_LEAD_SEC before the release point a short beep each
  * second, every half second in the last two, a steady tone at the release point, and silence once
- * the bomb is away (or the cue is anything else). The audio context starts on the first tone (after
- * the pilot's key presses, so the browser lets it play).
+ * the bomb is away (or the cue is anything else). It plays on the game's warning-tone channel
+ * (src/ui/audio/audioBus.ts).
  */
 import { AgCueCode } from '../contracts/core';
+import { AudioChannel, type AudioBus } from './audio/audioBus';
 
 /** Beeps start this long before the release point, s. */
 export const TONE_LEAD_SEC = 5;
@@ -29,7 +30,7 @@ export function releaseToneOn(cue: number, t: number): boolean {
   return t % period > period - BEEP_SEC;
 }
 
-export function createReleaseTone(): ReleaseTone {
+export function createReleaseTone(bus: AudioBus): ReleaseTone {
   let ac: AudioContext | null = null;
   let gain: GainNode | null = null;
   let on = false;
@@ -37,22 +38,18 @@ export function createReleaseTone(): ReleaseTone {
 
   const ensure = (): boolean => {
     if (ac) return true;
-    const Ctor = (globalThis as { AudioContext?: typeof AudioContext }).AudioContext;
-    if (!Ctor) return false;
-    try {
-      ac = new Ctor();
-      const osc = ac.createOscillator();
-      osc.type = 'sine';
-      osc.frequency.value = FREQ_HZ;
-      gain = ac.createGain();
-      gain.gain.value = 0;
-      osc.connect(gain).connect(ac.destination);
-      osc.start();
-      return true;
-    } catch {
-      ac = null;
-      return false;
-    }
+    const ctx = bus.context();
+    const dest = bus.channel(AudioChannel.Tones);
+    if (!ctx || !dest) return false;
+    ac = ctx;
+    const osc = ac.createOscillator();
+    osc.type = 'sine';
+    osc.frequency.value = FREQ_HZ;
+    gain = ac.createGain();
+    gain.gain.value = 0;
+    osc.connect(gain).connect(dest);
+    osc.start();
+    return true;
   };
 
   const set = (want: boolean): void => {

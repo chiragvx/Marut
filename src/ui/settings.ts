@@ -1,6 +1,7 @@
 /**
- * src/ui/settings.ts — implements CreateSettingsScreen (docs/spec/11-ui.md section 4.3), in three
- * tabs: Graphics (quality), Controls (keys, mouse), Gameplay (units, AoA limiter, flight hints).
+ * src/ui/settings.ts — implements CreateSettingsScreen (docs/spec/11-ui.md section 4.3), in four
+ * tabs: Graphics (quality), Controls (keys, mouse), Gameplay (units, AoA limiter, flight hints),
+ * Audio (volumes).
  * Time of day and weather are per flight now (Free Flight setup), not settings.
  *
  * Purely presentational: no storage I/O. Every change applies at once through `onChange`, which is
@@ -11,6 +12,7 @@
 import type { AimingHelp, QualityTier, SpeedUnit } from '../contracts/core';
 import type { BindableAction, CreateSettingsScreen, KeyBinding, SettingsScreenHandle, SettingsState } from '../contracts/ui';
 import { BindableAction as BindableActionEnum } from '../contracts/ui';
+import { DEFAULT_AUDIO_VOLUMES } from './audio/audioBus';
 import { mountScreen } from './screenHandle';
 import { button, checkbox, h, keyLabel, menuKeys, row, select, shell } from './kit';
 
@@ -91,7 +93,7 @@ function findBinding(bindings: readonly KeyBinding[], action: BindableAction): K
   return bindings.find((b) => b.action === action);
 }
 
-type Tab = 'graphics' | 'controls' | 'gameplay';
+type Tab = 'graphics' | 'controls' | 'gameplay' | 'audio';
 
 export const createSettingsScreen: CreateSettingsScreen = (container, initial, callbacks): SettingsScreenHandle => {
   let current: SettingsState = { ...initial, keyBindings: initial.keyBindings.map((b) => ({ ...b })) };
@@ -179,9 +181,34 @@ export const createSettingsScreen: CreateSettingsScreen = (container, initial, c
     h('p', { className: 'tj-note', text: 'How much the HUD helps you aim bombs and rockets. Off shows only what to do next (STEER, HOLD, RELEASE). Cues adds a hint line and a release tone. Full also draws where the bomb will land on the ground, and its fall.' })
   );
 
-  const panes: Record<Tab, HTMLElement> = { graphics, controls, gameplay };
+  // --- Audio ---
+  const volumes = { ...DEFAULT_AUDIO_VOLUMES, ...current.audio };
+  const volumeSlider = (key: keyof typeof volumes, label: string): HTMLElement => {
+    const pct = (v: number): string => `${Math.round(v * 100)}%`;
+    const value = h('span', { className: 'tj-value', text: pct(volumes[key]) });
+    const input = h('input', { className: 'tj-range', attrs: { 'data-role': `volume-${key}`, type: 'range', min: '0', max: '1', step: '0.05', 'aria-label': label } });
+    input.value = String(volumes[key]);
+    input.addEventListener('input', () => (value.textContent = pct(Number(input.value))));
+    input.addEventListener('change', () => {
+      volumes[key] = Number(input.value);
+      current.audio = { ...volumes };
+      fireChange();
+    });
+    return row(label, h('span', { className: 'tj-row' }, input, value));
+  };
+  const audio = h(
+    'div',
+    { className: 'tj-stack tj-hidden', attrs: { 'data-tab': 'audio' } },
+    volumeSlider('master', 'Volume'),
+    volumeSlider('voice', 'Voice warnings'),
+    volumeSlider('tones', 'Warning and RWR tones'),
+    volumeSlider('ambience', 'Engine, wind and weapons'),
+    h('p', { className: 'tj-note', text: 'The voice calls out warnings (PULL UP, MISSILE LAUNCH, FUEL LOW...). The radar-warning receiver sounds a tone for each new radar, a warble when one locks on, and a fast warble for a missile guided at you.' })
+  );
+
+  const panes: Record<Tab, HTMLElement> = { graphics, controls, gameplay, audio };
   const tabs = h('div', { className: 'tj-tabs', attrs: { role: 'tablist' } });
-  const tabButtons = (['graphics', 'controls', 'gameplay'] as const).map((t) => {
+  const tabButtons = (['graphics', 'controls', 'gameplay', 'audio'] as const).map((t) => {
     const b = h('button', { className: 'tj-tab', text: t[0]!.toUpperCase() + t.slice(1), attrs: { type: 'button', role: 'tab', 'aria-selected': String(t === 'graphics'), 'data-tab-button': t } });
     b.addEventListener('click', () => {
       for (const x of tabButtons) x.setAttribute('aria-selected', String(x === b));
@@ -190,7 +217,7 @@ export const createSettingsScreen: CreateSettingsScreen = (container, initial, c
     return b;
   });
   tabs.append(...tabButtons);
-  s.body.append(tabs, graphics, controls, gameplay);
+  s.body.append(tabs, graphics, controls, gameplay, audio);
 
   function cancelCaptureTimeout(): void {
     if (captureTimeoutHandle !== undefined) {

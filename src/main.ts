@@ -67,6 +67,11 @@ import {
 import './ui/ui.css';
 import { startAnalytics } from './ui/analytics';
 import { createReleaseTone } from './ui/releaseTone';
+import { createAudioBus, DEFAULT_AUDIO_VOLUMES, type AudioVolumes } from './ui/audio/audioBus';
+import { createRwrTonePlayer } from './ui/audio/rwrTones';
+import { createVoiceWarningState, stepVoiceWarnings, type VoiceLineDef } from './ui/audio/voiceWarnings';
+import { createVoicePlayer } from './ui/audio/voicePlayer';
+import { createAmbience } from './ui/audio/ambience';
 import { approachScene, nightDepartureScene, taxiScene, type ShowcaseScene } from './ui/showcase';
 import { createFlightOverlay, hintText, pickHint, type FlightOverlay, type HintId, type HintKeys } from './ui/flightOverlay';
 import { DEFAULT_INPUT_MAP_DATA } from './input/inputMap';
@@ -119,6 +124,8 @@ interface PersistedSettings {
   aimingHelp?: AimingHelp;
   /** Control rates, multipliers 0.5..1.5 (Settings -> Controls); missing = 1 each. */
   controlRates?: { pitch: number; roll: number; yaw: number };
+  /** Sound volumes, 0..1 (Settings -> Audio); missing = DEFAULT_AUDIO_VOLUMES. */
+  audio?: AudioVolumes;
 }
 
 function loadPersistedSettings(): PersistedSettings | undefined {
@@ -134,6 +141,8 @@ function loadPersistedSettings(): PersistedSettings | undefined {
     if (parsed.weatherMode !== undefined && !(Object.values(WeatherMode) as string[]).includes(parsed.weatherMode)) delete parsed.weatherMode;
     if (parsed.timeOfDayH !== undefined && !(typeof parsed.timeOfDayH === 'number' && parsed.timeOfDayH >= 0 && parsed.timeOfDayH <= 24)) delete parsed.timeOfDayH;
     if (parsed.aimingHelp !== undefined && !(Object.values(AimingHelp) as string[]).includes(parsed.aimingHelp)) delete parsed.aimingHelp;
+    const au = parsed.audio;
+    if (au !== undefined && !(typeof au === 'object' && au !== null && [au.master, au.voice, au.tones, au.ambience].every((v) => typeof v === 'number' && v >= 0 && v <= 1))) delete parsed.audio;
     const cr = parsed.controlRates;
     if (cr !== undefined && !(typeof cr === 'object' && cr !== null && [cr.pitch, cr.roll, cr.yaw].every((v) => typeof v === 'number' && Number.isFinite(v)))) delete parsed.controlRates;
     return parsed as PersistedSettings;
@@ -194,8 +203,16 @@ let hintsEnabled = true;
 const DEFAULT_LIGHT_MODE = 2;
 /** Master arm (3D cockpit switch): SAFE blocks the trigger and missile launch. Armed by default. */
 let masterArm = true;
-/** The CCRP release tone (src/ui/releaseTone.ts). */
-const releaseTone = createReleaseTone();
+/** Sound (src/ui/audio): one context and mix; the CCRP release tone (src/ui/releaseTone.ts), the
+ *  RWR tones, the voice warnings, and the engine, wind and weapons. */
+const audioBus = createAudioBus();
+const releaseTone = createReleaseTone(audioBus);
+const rwrTones = createRwrTonePlayer(audioBus);
+const voicePlayer = createVoicePlayer(audioBus, import.meta.env.BASE_URL);
+const ambience = createAmbience(audioBus);
+let voiceWarnings = createVoiceWarningState();
+const voiceSay: VoiceLineDef[] = [];
+let lastAudioSimSec = -1;
 /** One-shot presses from cockpit controls, added to the next frame's pilot inputs (frames left). */
 const cockpitPulse = { cycleWeapon: 0, cycleTarget: 0, radarModeCycle: 0, jettisonTanks: 0, requestService: 0 };
 /** Bumped at every spawn and rearm, so the cockpit starts counting gun rounds again. */
@@ -577,6 +594,7 @@ function showSettingsOverlay(): void {
     hintsEnabled: persisted?.hintsEnabled ?? true,
     aimingHelp: persisted?.aimingHelp ?? AimingHelp.Cues,
     controlRates: inputSystem ? inputSystem.getControlRates() : { pitch: 1, roll: 1, yaw: 1 },
+    audio: persisted?.audio ?? { ...DEFAULT_AUDIO_VOLUMES },
   };
   const handle: SettingsScreenHandle = createSettingsScreen(uiRoot, initial, {
     onChange: (next) => {
@@ -589,6 +607,7 @@ function showSettingsOverlay(): void {
         hintsEnabled: next.hintsEnabled ?? true,
         aimingHelp: next.aimingHelp ?? AimingHelp.Cues,
         ...(next.controlRates ? { controlRates: next.controlRates } : {}),
+        ...(next.audio ? { audio: next.audio } : {}),
       });
       const tier = next.qualityOverride === 'auto' ? (loadPersistedSettings()?.cachedAutoTier ?? currentQualityTier) : next.qualityOverride;
       if (tier !== currentQualityTier) {
@@ -604,6 +623,7 @@ function showSettingsOverlay(): void {
       if (inputSystem) applyMouseSettings(next.mouseEnabled ?? false, next.mouseSensitivityMultiplier, next.invertPitch);
       hintsEnabled = next.hintsEnabled ?? true;
       applyAimingHelp(next.aimingHelp ?? AimingHelp.Cues);
+      applyAudioVolumes(next.audio ?? DEFAULT_AUDIO_VOLUMES);
       if (next.controlRates) inputSystem?.setControlRates(next.controlRates);
     },
     onRebindStart: (action) => {
@@ -796,6 +816,7 @@ async function initWorkersAndRenderer(qualityTier: QualityTier): Promise<void> {
         const ev = readSnapshotEntity(view, header.playerIndex, entityViewScratch);
         if (playerEntityId === NO_ENTITY_ID) playerEntityId = ev.id;
         lastPlayer.x = ev.pos.x;
+        lastPlayer.y = ev.pos.y;
         lastPlayer.z = ev.pos.z;
         lastPlayer.speedMps = Math.hypot(ev.vel.x, ev.vel.y, ev.vel.z);
         lastPlayer.onGround = (ev.flags & EntityFlag.OnGround) !== 0;
@@ -812,7 +833,10 @@ async function initWorkersAndRenderer(qualityTier: QualityTier): Promise<void> {
       if (service === ServiceStateCode.Complete && serviceWas !== ServiceStateCode.Complete && appState === 'gameplay') flightOverlay?.message('Refuelled and rearmed');
       renderer.ingestSnapshot(view);
       hud.ingestSnapshot(view);
-      if (appState === 'gameplay') releaseTone.update(view[HUD_BLOCK_START + HUD_EXT_BASE + SnapshotHudExt.AG_CUE] ?? 0, view[HUD_BLOCK_START + SnapshotHud.AG_TIME_SEC] ?? 0);
+      if (appState === 'gameplay') {
+        releaseTone.update(view[HUD_BLOCK_START + HUD_EXT_BASE + SnapshotHudExt.AG_CUE] ?? 0, view[HUD_BLOCK_START + SnapshotHud.AG_TIME_SEC] ?? 0);
+        updateFlightAudio(view, header.playerIndex >= 0 ? entityViewScratch : null, header.simTimeSec);
+      }
       updateFlightOverlay(view);
       simWorker.postMessage({ type: 'releaseBuffer', buffer: (msg as SimSnapshotMessage).buffer } satisfies SimReleaseBufferMessage, [(msg as SimSnapshotMessage).buffer]);
       return;
@@ -821,6 +845,7 @@ async function initWorkersAndRenderer(qualityTier: QualityTier): Promise<void> {
       const eventsMsg = msg as SimEventsMessage;
       renderer.ingestEvents(eventsMsg.events);
       for (const ev of eventsMsg.events) {
+        if (appState === 'gameplay') ambience.event(ev, playerEntityId, lastPlayer);
         // The debrief's shots and hits are the player's own.
         if (ev.type === 'gunFire') {
           if (ev.shooterId === playerEntityId) statShotsFiredGun += 1;
@@ -1331,6 +1356,8 @@ function launchMission(missionIn: Mission, opts: { title: string; airStart: bool
 
   currentMission = mission;
   playerEntityId = NO_ENTITY_ID;
+  voiceWarnings = createVoiceWarningState();
+  rwrTones.reset();
   statKills = 0;
   statGroundKills = 0;
   statDeaths = 0;
@@ -1413,6 +1440,14 @@ async function boot(): Promise<void> {
   applyMouseSettings(inputSystem.inputMap.data.mouse.enabled, persisted?.mouseSensitivity ?? 1, inputSystem.inputMap.data.mouse.invertPitch ?? false);
   hintsEnabled = persisted?.hintsEnabled ?? true;
   applyAimingHelp(persisted?.aimingHelp ?? AimingHelp.Cues);
+  applyAudioVolumes(persisted?.audio ?? DEFAULT_AUDIO_VOLUMES);
+  // Browsers let audio start only after a key press or click.
+  const unlockAudio = (): void => {
+    audioBus.resume();
+    voicePlayer.preload();
+  };
+  window.addEventListener('keydown', unlockAudio, { capture: true });
+  window.addEventListener('pointerdown', unlockAudio, { capture: true });
   document.title = GAME_NAME;
   // Offline play and install: production builds only (a cached dev server would serve stale code).
   if (import.meta.env.PROD) void registerServiceWorker('../service-worker.js');
@@ -1503,7 +1538,14 @@ function frame(nowMs: number): void {
     simWorker.postMessage({ type: 'input', entityId: playerEntityId, inputs: pilotInputsScratch } as const);
   }
   if (appState !== 'gameplay' && cockpitTip && cockpitTip.style.display !== 'none') hideCockpitTip();
-  if (appState !== 'gameplay') releaseTone.silence();
+  if (appState !== 'gameplay') {
+    releaseTone.silence();
+    rwrTones.silence();
+    voicePlayer.silence();
+    ambience.silence();
+    lastAudioSimSec = -1;
+  }
+  voicePlayer.update();
   tickPendingStart(nowMs);
   tickShowcase(dtSec);
   tickLookKeys(dtSec);
@@ -1760,7 +1802,7 @@ function autopilotKey(action: string, held: boolean): void {
 let lastPlayerGearCmd = true;
 let lastPlayerAirbrake = false;
 /** The player as of the latest snapshot (for taxi guidance). */
-const lastPlayer = { x: 0, z: 0, speedMps: 0, onGround: false, valid: false };
+const lastPlayer = { x: 0, y: 0, z: 0, speedMps: 0, onGround: false, valid: false };
 const taxiGraphs = new Map<string, TaxiGraph>();
 
 /**
@@ -1821,6 +1863,38 @@ let podView = false;
 let podPolarity: 1 | 2 = 1;
 /** POD_FLAGS from the latest snapshot (is a pod carried?). */
 let lastPodFlags = 0;
+/** Sound volumes (Settings -> Audio). The browser's speech (the voice fallback) is not on the mix. */
+function applyAudioVolumes(v: AudioVolumes): void {
+  audioBus.setVolumes(v);
+  voicePlayer.setSpeechVolume(v.master * v.voice);
+  voicePlayer.setEnabled(v.voice > 0);
+}
+/** In flight, from each snapshot: the RWR tones, the voice warnings, and the engine and wind. */
+function updateFlightAudio(view: Float64Array, player: SnapshotEntityView | null, simSec: number): void {
+  const dt = lastAudioSimSec < 0 ? 0 : Math.max(0, Math.min(0.1, simSec - lastAudioSimSec));
+  lastAudioSimSec = simSec;
+  const hb = HUD_BLOCK_START;
+  const alive = player?.alive ?? false;
+  rwrTones.update(view, hb, simSec);
+  stepVoiceWarnings(voiceWarnings, {
+    warningBits: view[hb + SnapshotHud.WARNING_BITS] ?? 0,
+    apFlags: view[hb + SnapshotHud.AP_FLAGS] ?? 0,
+    chaff: view[hb + SnapshotHud.CHAFF] ?? 0,
+    flares: view[hb + SnapshotHud.FLARES] ?? 0,
+    fuelKg: view[hb + SnapshotHud.FUEL_KG] ?? 0,
+    alive,
+  }, simSec, voiceSay);
+  if (voiceSay.length) voicePlayer.say(voiceSay);
+  ambience.update({
+    alive,
+    thrustFrac: view[hb + SnapshotHud.THRUST_FRAC] ?? 0,
+    afterburner: player?.afterburnerOn ?? false,
+    iasMps: view[hb + SnapshotHud.IAS_MPS] ?? 0,
+    gearPos: view[hb + SnapshotHud.GEAR_POS] ?? 0,
+    airbrake: lastPlayerAirbrake,
+    inCockpit: podView || CAMERA_MODE_CYCLE[cameraModeIndex] === 'cockpit' || CAMERA_MODE_CYCLE[cameraModeIndex] === 'cockpit3d',
+  }, dt);
+}
 /** Bombing aiming help: the HUD's cues, and the release tone (off with 'off'). */
 function applyAimingHelp(level: AimingHelp): void {
   hud?.setAimingHelp(level);
