@@ -69,6 +69,8 @@ import {
   WARNING_LOW_FUEL_FRAC,
   WARNING_OVER_G_NEG,
   WARNING_OVER_G_POS,
+  WARNING_OVERSPEED_IAS_MPS,
+  WARNING_OVERSPEED_MACH,
   WARNING_TERRAIN_PULLUP_AGL_M,
   WARNING_TERRAIN_PULLUP_SINK_MPS,
   TERRAIN_IMPACT_PENETRATION_M,
@@ -1012,6 +1014,7 @@ class WorldImpl implements World {
       if (t.stalled && !(state.flags & EntityFlag.OnGround) && t.iasMps > 25) bits |= WarningBit.Stall;
       if (t.fuelFrac < WARNING_LOW_FUEL_FRAC) bits |= WarningBit.LowFuel;
       if (t.gLoad > WARNING_OVER_G_POS || t.gLoad < WARNING_OVER_G_NEG) bits |= WarningBit.OverG;
+      if (t.iasMps > WARNING_OVERSPEED_IAS_MPS || t.mach > WARNING_OVERSPEED_MACH) bits |= WarningBit.Overspeed;
       // Ground proximity. The player: a predicted recovery over the terrain ahead (src/core/gcas.ts),
       // except configured to land (gear down, slow), where only a steep sink close to the ground warns.
       const landing = (state.flags & EntityFlag.GearDownCommanded) !== 0 && t.iasMps < 110;
@@ -1041,6 +1044,7 @@ class WorldImpl implements World {
         this.pushWarningEdge(state.id, prevBits, bits, WarningBit.Stall);
         this.pushWarningEdge(state.id, prevBits, bits, WarningBit.LowFuel);
         this.pushWarningEdge(state.id, prevBits, bits, WarningBit.OverG);
+        this.pushWarningEdge(state.id, prevBits, bits, WarningBit.Overspeed);
         this.pushWarningEdge(state.id, prevBits, bits, WarningBit.TerrainPullUp);
         this.pushWarningEdge(state.id, prevBits, bits, WarningBit.GearUnsafe);
       }

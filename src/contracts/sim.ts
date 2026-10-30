@@ -77,6 +77,9 @@ export const EVENT_QUEUE_CAPACITY = 256;
 export const WARNING_LOW_FUEL_FRAC = 0.1;
 export const WARNING_OVER_G_POS = 9.0;
 export const WARNING_OVER_G_NEG = -3.0;
+/** Overspeed: the airframe's limits, ~730 kt indicated low down or Mach 1.6 high up. */
+export const WARNING_OVERSPEED_IAS_MPS = 375;
+export const WARNING_OVERSPEED_MACH = 1.6;
 export const WARNING_TERRAIN_PULLUP_AGL_M = 150;
 export const WARNING_TERRAIN_PULLUP_SINK_MPS = 10;
 export const WARNING_GEAR_UNSAFE_AGL_M = 300;

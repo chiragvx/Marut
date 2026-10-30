@@ -4,9 +4,10 @@
  * LAUNCH) cuts off a less urgent one; a line already waiting is not queued twice; one that has
  * waited STALE_SEC is dropped (it is no longer news).
  *
- * The voice is the recorded file public/audio/voice/<id>.mp3 when there is one. Until it is
- * recorded, the browser's own speech says the line (an Indian English voice when the system has
- * one), so every line works from the start and the files can be added one by one.
+ * The voice is the recorded file public/audio/voice/<id>.mp3 (a female Indian English voice). A
+ * line whose file is still loading waits for it. Only a file that cannot be had falls back to the
+ * browser's speech, and only to a female voice: no female voice on the system, no fallback (the
+ * warning is still on the HUD), so the voice never changes to a man's.
  */
 import { AudioChannel, type AudioBus } from './audioBus';
 import { ALL_VOICE_LINES, INTERRUPT_PRIORITY, type VoiceLineDef } from './voiceWarnings';
@@ -33,13 +34,17 @@ export class VoiceQueue {
     return playing !== null && line.priority <= INTERRUPT_PRIORITY && line.priority < playing.priority;
   }
 
+  /** The next line to say, if any (it stays queued: `next` takes it). */
+  peek(nowSec: number): VoiceLineDef | null {
+    while (this.pending.length && nowSec - this.pending[0]!.queuedSec > STALE_SEC) this.pending.shift();
+    return this.pending[0]?.line ?? null;
+  }
+
   /** The next line to say, if any. */
   next(nowSec: number): VoiceLineDef | null {
-    while (this.pending.length) {
-      const p = this.pending.shift()!;
-      if (nowSec - p.queuedSec <= STALE_SEC) return p.line;
-    }
-    return null;
+    const line = this.peek(nowSec);
+    if (line) this.pending.shift();
+    return line;
   }
 
   clear(): void {
@@ -61,6 +66,10 @@ export interface VoicePlayer {
 
 type Clip = AudioBuffer | 'missing' | 'loading';
 
+/** A system voice known to be a woman's (by name: the browsers give no gender). */
+export const isFemaleVoice = (name: string): boolean =>
+  !/\bmale\b/i.test(name) && /female|heera|neerja|swara|kalpana|veena|lekha|zira|aria|jenny|hazel|susan|samantha|karen|moira|tessa|google us english|google हिन्दी/i.test(name);
+
 export function createVoicePlayer(bus: AudioBus, baseUrl: string): VoicePlayer {
   const queue = new VoiceQueue();
   const clips = new Map<string, Clip>();
@@ -77,13 +86,7 @@ export function createVoicePlayer(bus: AudioBus, baseUrl: string): VoicePlayer {
     if (synthVoice !== undefined && synthVoice !== null) return synthVoice;
     const voices = synth?.getVoices() ?? [];
     if (!voices.length) return null;
-    const female = (v: SpeechSynthesisVoice): boolean => /female|heera|neerja|swara|kalpana|veena|lekha|google/i.test(v.name);
-    synthVoice =
-      voices.find((v) => v.lang === 'en-IN' && female(v)) ??
-      voices.find((v) => v.lang === 'en-IN') ??
-      voices.find((v) => v.lang.startsWith('en') && female(v)) ??
-      voices.find((v) => v.lang.startsWith('en')) ??
-      null;
+    synthVoice = voices.find((v) => v.lang === 'en-IN' && isFemaleVoice(v.name)) ?? voices.find((v) => v.lang.startsWith('en') && isFemaleVoice(v.name)) ?? null;
     return synthVoice;
   };
 
@@ -141,15 +144,15 @@ export function createVoicePlayer(bus: AudioBus, baseUrl: string): VoicePlayer {
       source = src;
       return;
     }
-    if (clip === undefined) load(line.id);
-    if (!synth || typeof SpeechSynthesisUtterance === 'undefined') {
+    // No file: a female system voice, or nothing.
+    const v = pickVoice();
+    if (!synth || typeof SpeechSynthesisUtterance === 'undefined' || !v) {
       playing = null;
       return;
     }
     const u = new SpeechSynthesisUtterance(line.text);
-    const v = pickVoice();
-    if (v) u.voice = v;
-    u.lang = v?.lang ?? 'en-IN';
+    u.voice = v;
+    u.lang = v.lang;
     u.rate = 1.15;
     u.volume = Math.min(1, voiceVolume);
     u.onend = () => finished(line);
@@ -168,8 +171,14 @@ export function createVoicePlayer(bus: AudioBus, baseUrl: string): VoicePlayer {
     },
     update() {
       if (playing || !enabled) return;
-      const line = queue.next(now());
-      if (line) start(line);
+      const t = now();
+      const next = queue.peek(t);
+      if (!next) return;
+      // Its file not loaded yet: wait for it (it is dropped if it goes stale).
+      const clip = clips.get(next.id);
+      if (clip === undefined) load(next.id);
+      if (clip === undefined || clip === 'loading') return;
+      start(queue.next(t)!);
     },
     silence() {
       queue.clear();

@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest';
 import { AutopilotFlag, WarningBit } from '../../src/contracts/core';
 import { createRwrToneState, FORGET_SEC, LOCK_TONE_SEC, stepRwrTones, type RwrEmitter, type RwrToneCommand } from '../../src/ui/audio/rwrTones';
 import { BINGO_FRAC, createVoiceWarningState, REARM_SEC, stepVoiceWarnings, VOICE_LINES, type VoiceInputs, type VoiceLineDef } from '../../src/ui/audio/voiceWarnings';
-import { STALE_SEC, VoiceQueue } from '../../src/ui/audio/voicePlayer';
+import { isFemaleVoice, STALE_SEC, VoiceQueue } from '../../src/ui/audio/voicePlayer';
 import { absorptionHz, multiplyQuat, toListener, travelSec } from '../../src/ui/audio/spatial';
 import { ambienceLevels, type AmbienceInputs, type AmbienceLevels } from '../../src/ui/audio/ambience';
 import { createEngineSoundState, engineVoiceParams, FAN_SHAFT_HZ, IDLE_N2, n2ForThrottle, WHINE_ORDER, stepEngineSound, type EngineSoundInputs, type EngineSoundState, type EngineVoiceParams } from '../../src/ui/audio/engineModel';
@@ -121,6 +121,20 @@ describe('voice warnings', () => {
 });
 
 describe('voice queue', () => {
+  it('peek leaves the line queued (it waits for its file); stale lines go', () => {
+    const q = new VoiceQueue();
+    q.push(VOICE_LINES.gear, 0, null);
+    expect(q.peek(1)?.id).toBe('gear');
+    expect(q.next(1)?.id).toBe('gear');
+    q.push(VOICE_LINES.gear, 2, null);
+    expect(q.peek(2 + STALE_SEC + 0.1)).toBeNull();
+  });
+
+  it('the speech fallback only takes a female voice', () => {
+    for (const n of ['Microsoft Heera - English (India)', 'Microsoft Neerja Online (Natural) - English (India)', 'Google UK English Female', 'Microsoft Zira - English (United States)', 'Samantha']) expect(isFemaleVoice(n)).toBe(true);
+    for (const n of ['Microsoft Ravi - English (India)', 'Google UK English Male', 'Microsoft David - English (United States)', 'Daniel']) expect(isFemaleVoice(n)).toBe(false);
+  });
+
   it('says the most urgent first; does not queue a line twice; drops stale lines', () => {
     const q = new VoiceQueue();
     q.push(VOICE_LINES.fuelLow, 0, null);
