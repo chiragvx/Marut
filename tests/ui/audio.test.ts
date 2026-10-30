@@ -78,7 +78,18 @@ describe('voice warnings', () => {
     say({}, 0.5);
     expect(say({ warningBits: WarningBit.Overspeed }, 1)).toEqual([]);
     say({}, 2);
-    expect(say({ warningBits: WarningBit.Overspeed }, 2 + REARM_SEC)).toEqual(['overspeed']);
+    expect(say({ warningBits: WarningBit.Overspeed }, 2 + (VOICE_LINES.overspeed.rearmSec ?? REARM_SEC))).toEqual(['overspeed']);
+  });
+
+  it('a hard pull bobbing over the G limit is one OVER G', () => {
+    const say = run();
+    const said: string[] = [];
+    // Over the limit for 0.3 s in every 2.5 s, for 20 s.
+    for (let t = 0; t <= 20; t = Math.round((t + 0.05) * 100) / 100) said.push(...say({ warningBits: t % 2.5 < 0.3 ? WarningBit.OverG : 0 }, t));
+    expect(said).toEqual(['over_g']);
+    // Clear for 10 s, then over again: said again.
+    say({}, 20.3);
+    expect(say({ warningBits: WarningBit.OverG }, 30.5)).toEqual(['over_g']);
   });
 
   it('chaff and flares: low at a quarter, out at none; a rearm starts again', () => {

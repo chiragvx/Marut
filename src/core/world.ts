@@ -64,6 +64,7 @@ import {
   DEFAULT_ENTITY_POOL_CAPACITY,
   EVENT_QUEUE_CAPACITY,
   WARNING_GEAR_UNSAFE_AGL_M,
+  WARNING_GEAR_UNSAFE_MAX_IAS_MPS,
   WARNING_GEAR_UNSAFE_SINK_MPS,
   WARNING_LOW_FUEL_FRAC,
   WARNING_OVER_G_NEG,
@@ -1029,6 +1030,7 @@ class WorldImpl implements World {
       if (
         t.altAglM < WARNING_GEAR_UNSAFE_AGL_M &&
         t.vspeedMps < -WARNING_GEAR_UNSAFE_SINK_MPS &&
+        t.iasMps < WARNING_GEAR_UNSAFE_MAX_IAS_MPS &&
         state.gearPos < 0.99 &&
         !(state.flags & EntityFlag.GearDownCommanded)
       ) {

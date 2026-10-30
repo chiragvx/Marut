@@ -81,6 +81,8 @@ export const WARNING_TERRAIN_PULLUP_AGL_M = 150;
 export const WARNING_TERRAIN_PULLUP_SINK_MPS = 10;
 export const WARNING_GEAR_UNSAFE_AGL_M = 300;
 export const WARNING_GEAR_UNSAFE_SINK_MPS = 1;
+/** The gear warning only when slow enough to be landing (~175 kt): not on a fast, low attack run. */
+export const WARNING_GEAR_UNSAFE_MAX_IAS_MPS = 90;
 
 /**
  * Ground contact is otherwise only modeled at the 3 landing-gear legs (src/physics/

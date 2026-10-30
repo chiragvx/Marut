@@ -4,8 +4,9 @@
  * left, and the fuel. Pure (tested); src/ui/audio/voicePlayer.ts says the lines.
  *
  * Each line is said once when its warning comes on; a few repeat while it lasts (PULL UP, a missile
- * inbound, the stall). A warning that clears and comes back within REARM_SEC is not said again (a
- * flickering warning would chatter). Countermeasures: "low" at a quarter of what was loaded, "out"
+ * inbound, the stall). A warning that clears and comes back is not said again until it has been
+ * clear for its `rearmSec` (REARM_SEC by default): a hard pull bobbing over the G limit is one
+ * OVER G, not one every few seconds; a lock that drops and re-acquires, one RADAR LOCK. Countermeasures: "low" at a quarter of what was loaded, "out"
  * at none. Bingo: at BINGO_FRAC of the fullest the tanks have been this flight.
  *
  * The voice files are public/audio/voice/<id>.mp3 (see VOICE_LINES' `text` for what each says).
@@ -19,6 +20,8 @@ export interface VoiceLineDef {
   priority: number;
   /** Said again every this many seconds while the warning lasts. */
   repeatSec?: number;
+  /** Clear this long before it is said again when it comes back, s (default REARM_SEC). */
+  rearmSec?: number;
 }
 
 export const VOICE_LINES = {
@@ -26,12 +29,12 @@ export const VOICE_LINES = {
   engineFire: { id: 'engine_fire', text: 'Engine fire', priority: 2, repeatSec: 6 },
   missileLaunch: { id: 'missile_launch', text: 'Missile launch', priority: 3, repeatSec: 3 },
   stall: { id: 'stall', text: 'Angle of attack', priority: 4, repeatSec: 3 },
-  overG: { id: 'over_g', text: 'Over G', priority: 5 },
-  overspeed: { id: 'overspeed', text: 'Overspeed', priority: 6 },
-  gear: { id: 'gear', text: 'Gear', priority: 7 },
-  configuration: { id: 'configuration', text: 'Configuration', priority: 8 },
-  radarLock: { id: 'radar_lock', text: 'Radar lock', priority: 9 },
-  fuelLow: { id: 'fuel_low', text: 'Fuel low', priority: 10 },
+  overG: { id: 'over_g', text: 'Over G', priority: 5, rearmSec: 10 },
+  overspeed: { id: 'overspeed', text: 'Overspeed', priority: 6, rearmSec: 5 },
+  gear: { id: 'gear', text: 'Gear', priority: 7, rearmSec: 10 },
+  configuration: { id: 'configuration', text: 'Configuration', priority: 8, rearmSec: 5 },
+  radarLock: { id: 'radar_lock', text: 'Radar lock', priority: 9, rearmSec: 6 },
+  fuelLow: { id: 'fuel_low', text: 'Fuel low', priority: 10, rearmSec: 30 },
   bingo: { id: 'bingo', text: 'Bingo fuel', priority: 11 },
   autopilotOff: { id: 'autopilot_off', text: 'Autopilot disengaged', priority: 12 },
   chaffOut: { id: 'chaff_out', text: 'Chaff out', priority: 13 },
@@ -132,7 +135,7 @@ export function stepVoiceWarnings(st: VoiceWarningState, inp: VoiceInputs, nowSe
     const b = st.bits[i]!;
     const on = (inp.warningBits & bit) !== 0;
     if (on && !b.on) {
-      if (nowSec - b.clearedSec >= REARM_SEC || line.repeatSec !== undefined) {
+      if (nowSec - b.clearedSec >= (line.rearmSec ?? REARM_SEC) || line.repeatSec !== undefined) {
         out.push(line);
         b.saidSec = nowSec;
       }
