@@ -2,7 +2,6 @@
   "tiger_netra": "Tiger one, Netra.",
   "vajra_netra": "Vajra one, Netra.",
   "netra": "Netra.",
-
   "n0": "zero",
   "n1": "one",
   "n2": "two",
@@ -33,7 +32,6 @@
   "t80": "eighty",
   "t90": "ninety",
   "hundred": "hundred",
-
   "braa": "Single group, braa,",
   "angels": "angels",
   "cherubs": "cherubs",
@@ -60,7 +58,6 @@
   "d_sw": "south-west",
   "d_w": "west",
   "d_nw": "north-west",
-
   "duel_scramble": "Scramble, scramble. Single bandit has crossed the border west of Bathinda, inbound to the base. Take off runway one-three, turn west and climb.",
   "duel_airborne": "Netra has the bandit. Turn west, buster.",
   "duel_contact": "That's your bandit. Hostile, J F seventeen. Cleared to engage.",
@@ -72,7 +69,6 @@
   "duel_base": "Bandit is closing on Bathinda. Hurry up!",
   "duel_hit": "You're hit! Check your systems.",
   "duel_splash": "Splash one! Good kill, Tiger one. Picture clean. Return to base.",
-
   "strike_brief": "Your target is the fuel depot at P A F Shahbaz. Four storage tanks inside an earth berm. Target coordinates,",
   "strike_push": "Push to I P Alpha. Stay low, under five hundred feet, and keep under their radar.",
   "strike_painted": "You're painted by their early warning radar. Get down low.",
@@ -89,5 +85,16 @@
   "strike_away": "Copy release. Keep the laser on it till impact.",
   "strike_hit": "Good hit! Tank burning.",
   "strike_no_hits": "No hits observed. Re-attack.",
-  "strike_shack": "Shack! The depot is burning. Vajra one, egress east, low and fast. Good work."
+  "strike_shack": "Shack! The depot is burning. Vajra one, egress east, low and fast. Good work.",
+  "p_tiger_wilco": "Tiger one, wilco.",
+  "p_tiger_contact": "Tiger one, contact.",
+  "p_tiger_fox3": "Tiger one, fox three!",
+  "p_tiger_fox2": "Tiger one, fox two!",
+  "p_tiger_defending": "Tiger one, defending!",
+  "p_tiger_splash": "Tiger one, splash one!",
+  "p_vajra_wilco": "Vajra one, wilco.",
+  "p_vajra_ip": "Vajra one, I P inbound.",
+  "p_vajra_captured": "Vajra one, captured.",
+  "p_vajra_bombs": "Vajra one, bombs away!",
+  "p_vajra_defending": "Vajra one, defending!"
 }

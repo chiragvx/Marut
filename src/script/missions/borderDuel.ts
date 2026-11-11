@@ -51,7 +51,10 @@ export class BorderDuelScript extends ScriptBase {
     if (!p.alive) return;
 
     if (this.phase === 'scramble') {
-      if (f.t > 1.5 && this.once('scramble')) this.say(RadioPriority.High, 'tiger_netra', 'duel_scramble');
+      if (f.t > 1.5 && this.once('scramble')) {
+        this.say(RadioPriority.High, 'tiger_netra', 'duel_scramble');
+        this.own('p_tiger_wilco', 'Wilco.', RadioPriority.High);
+      }
       if (p.onGround || p.aglM <= 150) {
         this.setObjective(1, STEPS, 'Scramble: take off from runway 13', b ? `Bandit ${braaDetail(p.x, p.z, b)}` : 'Bandit inbound from the west');
         return;
@@ -82,6 +85,7 @@ export class BorderDuelScript extends ScriptBase {
       } else this.offCourseSince = -1;
       if (designated) {
         this.phase = 'engage';
+        this.own('p_tiger_contact', 'Contact.', RadioPriority.High);
         this.say(RadioPriority.High, 'tiger_netra', 'duel_contact');
       }
     }
@@ -110,12 +114,14 @@ export class BorderDuelScript extends ScriptBase {
       case 'missileLaunch':
         if (e.shooterId === playerId) {
           if (e.weapon === 'radar_missile' || e.weapon === 'ir_missile') {
-            this.own(e.weapon === 'radar_missile' ? 'Fox 3!' : 'Fox 2!');
+            if (e.weapon === 'radar_missile') this.own('p_tiger_fox3', 'Fox 3!');
+            else this.own('p_tiger_fox2', 'Fox 2!');
             if (this.ready('fox', 15)) this.say(RadioPriority.Chatter, line('duel_fox'));
             this.arm('missed', 30);
           }
         } else if (this.hostileIds.has(e.shooterId) && this.ready('defend', 12)) {
           this.say(RadioPriority.Urgent, 'tiger_netra', 'duel_defend');
+          this.own('p_tiger_defending', 'Defending!');
         }
         break;
       case 'hit':
@@ -124,7 +130,7 @@ export class BorderDuelScript extends ScriptBase {
       case 'kill':
         if (this.hostileIds.has(e.targetId)) {
           this.disarm('missed');
-          if (e.sourceId === playerId) this.own('Splash one!');
+          if (e.sourceId === playerId) this.own('p_tiger_splash', 'Splash one!');
           this.phase = 'splash';
           this.marks = [];
           this.say(RadioPriority.High, 'duel_splash');

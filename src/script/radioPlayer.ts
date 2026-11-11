@@ -3,7 +3,8 @@
  * recorded clips public/audio/radio/<id>.mp3 back to back, through a radio's sound (a 300 Hz -
  * 3.3 kHz band, a little drive, hiss under the voice, a squelch click at each end). One call at a
  * time, most urgent first; an Urgent call cuts off a lesser one; a call that waited too long is
- * dropped. The subtitle is shown as the call starts (the player's own calls at once). With the
+ * dropped. The player's own calls (p_* clips) play through an oxygen-mask mic instead of the radio.
+ * The subtitle is shown as the call starts. With the
  * voice volume at zero, or a clip missing, the subtitle still shows for as long as it would take.
  */
 import { AudioChannel, type AudioBus } from '../ui/audio/audioBus';
@@ -42,7 +43,7 @@ export function createRadioPlayer(bus: AudioBus, baseUrl: string, onSubtitle: (t
   let busyUntil = 0;
   let playing: Transmission | null = null;
   let sources: AudioScheduledSourceNode[] = [];
-  let chain: { input: GainNode; hiss: GainNode; noise: AudioBuffer } | null = null;
+  let chain: { input: GainNode; mask: GainNode; hiss: GainNode; noise: AudioBuffer } | null = null;
   const now = (): number => performance.now() / 1000;
 
   const load = (id: RadioClipId): void => {
@@ -109,7 +110,27 @@ export function createRadioPlayer(bus: AudioBus, baseUrl: string, onSubtitle: (t
     hiss.gain.value = 0;
     hissSrc.connect(hissBand).connect(hiss).connect(dest);
     hissSrc.start();
-    return { input, hiss, noise };
+    // The pilot's own voice through the oxygen mask's mic: wider than the radio, a boxy resonance
+    // from the mask, a touch of drive; no hiss (it is the intercom, heard in the helmet).
+    const mask = ac.createGain();
+    mask.gain.value = 1;
+    const mhp = ac.createBiquadFilter();
+    mhp.type = 'highpass';
+    mhp.frequency.value = 180;
+    const box = ac.createBiquadFilter();
+    box.type = 'peaking';
+    box.frequency.value = 950;
+    box.Q.value = 2.2;
+    box.gain.value = 7;
+    const mlp = ac.createBiquadFilter();
+    mlp.type = 'lowpass';
+    mlp.frequency.value = 4800;
+    const mdrive = ac.createWaveShaper();
+    mdrive.curve = curve;
+    const mout = ac.createGain();
+    mout.gain.value = 0.5;
+    mask.connect(mhp).connect(box).connect(mlp).connect(mdrive).connect(mout).connect(dest);
+    return { input, mask, hiss, noise };
   };
 
   /** A squelch click: a short burst of band-passed noise. */
@@ -157,19 +178,21 @@ export function createRadioPlayer(bus: AudioBus, baseUrl: string, onSubtitle: (t
     }
     if (!chain) chain = build();
     if (!chain) return;
-    let t = ac.currentTime + 0.09;
-    click(ac, ac.currentTime + 0.01, 0.06, 0.1, 2600);
-    chain.hiss.gain.setTargetAtTime(0.012, ac.currentTime, 0.02);
+    const own = !!tx.own;
+    let t = ac.currentTime + (own ? 0.05 : 0.09);
+    // The press-to-talk click; the radio's hiss only on the controller's calls.
+    click(ac, ac.currentTime + 0.01, own ? 0.03 : 0.06, own ? 0.05 : 0.1, own ? 3500 : 2600);
+    if (!own) chain.hiss.gain.setTargetAtTime(0.012, ac.currentTime, 0.02);
     for (const b of bufs as AudioBuffer[]) {
       const src = ac.createBufferSource();
       src.buffer = b;
-      src.connect(chain.input);
+      src.connect(own ? chain.mask : chain.input);
       src.start(t);
       sources.push(src);
       t += b.duration + GAP_SEC;
     }
-    click(ac, t + 0.02, 0.11, 0.14, 1800);
-    chain.hiss.gain.setTargetAtTime(0, t + 0.05, 0.02);
+    click(ac, t + 0.02, own ? 0.04 : 0.11, own ? 0.05 : 0.14, own ? 3000 : 1800);
+    if (!own) chain.hiss.gain.setTargetAtTime(0, t + 0.05, 0.02);
     const sec = t + 0.16 - ac.currentTime;
     busyUntil = now() + sec;
     onSubtitle(tx, sec * 1000 + HOLD_AFTER_MS);
@@ -179,7 +202,7 @@ export function createRadioPlayer(bus: AudioBus, baseUrl: string, onSubtitle: (t
     say(calls) {
       const t = now();
       for (const tx of calls) {
-        if (tx.own) {
+        if (tx.own && tx.clips.length === 0) {
           onSubtitle(tx, 2200);
           continue;
         }

@@ -136,8 +136,8 @@ export abstract class ScriptBase implements MissionScript {
     const p = compose(...parts.map((x) => (typeof x === 'string' ? line(x) : x)));
     this.outbox.push({ from: this.controller, text: p.text, clips: p.clips, priority, maxAgeSec: priority === 0 ? 4 : priority === 1 ? 12 : 25 });
   }
-  /** The player's own call: a subtitle only. */
-  protected own(text: string): void {
-    this.outbox.push({ from: this.callsign, text, clips: [], priority: 2, maxAgeSec: 4, own: true });
+  /** The player's own call (a p_* clip in the pilot's voice), said before a reply queued with it. */
+  protected own(clip: RadioClipId, text: string, priority: RadioPriority = 1): void {
+    this.outbox.push({ from: this.callsign, text, clips: [clip], priority, maxAgeSec: priority === 0 ? 6 : 20, own: true });
   }
 }

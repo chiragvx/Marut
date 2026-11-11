@@ -74,7 +74,9 @@ describe('Border Duel script', () => {
     const s = new BorderDuelScript();
     s.update(frame({ t: 2, hostiles: [bandit] }));
     expect(s.objective()!.step).toBe(1);
-    expect(s.drain().map((x) => x.clips[1])).toEqual(['duel_scramble']);
+    const scramble = s.drain();
+    expect(scramble.map((x) => x.clips.at(-1))).toEqual(['duel_scramble', 'p_tiger_wilco']);
+    expect(scramble[1]).toMatchObject({ from: 'TIGER 1', own: true, text: 'Wilco.' });
     expect(s.markers()[0]).toMatchObject({ name: 'Bandit', objective: true });
 
     s.update(frame({ t: 40, hostiles: [bandit], player: { onGround: false, aglM: 400, y: 600, headingRad: (270 * Math.PI) / 180 } }));
@@ -87,7 +89,7 @@ describe('Border Duel script', () => {
 
     s.update(frame({ t: 60, hostiles: [bandit], targetId: 7, lockState: LockStateCode.locked, player: { onGround: false, aglM: 400, y: 600 } }));
     expect(s.objective()!.step).toBe(3);
-    expect(s.drain().map((x) => x.clips.at(-1))).toEqual(['duel_contact', 'duel_lock']);
+    expect(s.drain().map((x) => x.clips.at(-1))).toEqual(['p_tiger_contact', 'duel_contact', 'duel_lock']);
 
     s.event({ type: 'missileLaunch', shooterId: 1, missileId: 50, weapon: 'radar_missile' }, 1);
     expect(s.drain().map((x) => x.text)).toEqual(['Fox 3!', 'Netra copies fox.']);
@@ -126,22 +128,22 @@ describe('Precision Strike script', () => {
     s.update(frame({ t: 2, player: { ...air, ...start } }));
     const brief = s.drain();
     expect(brief[0]!.text).toMatch(/Target coordinates: N 30°0\d\.\d', E 074°0\d\.\d'\. Elevation 600 feet\./);
-    expect(brief[1]!.clips).toEqual(['strike_push']);
+    expect(brief.slice(1).map((x) => x.clips[0])).toEqual(['strike_push', 'p_vajra_wilco']);
     expect(s.markers().map((m) => m.name)).toEqual(['IP Alpha', 'Fuel depot']);
 
     s.update(frame({ t: 200, player: { ...air, x: geo.ip.x, z: geo.ip.z } }));
     expect(s.objective()!.step).toBe(2);
-    expect(s.drain().map((x) => x.clips.find((c) => c.startsWith('strike_')))).toEqual(['strike_ip', 'strike_talk1', 'strike_talk2']);
+    expect(s.drain().map((x) => x.clips.find((c) => c.startsWith('strike_') || c.startsWith('p_')))).toEqual(['p_vajra_ip', 'strike_ip', 'strike_talk1', 'strike_talk2']);
 
     // A mark 800 m south of the depot: the depot is north of it.
     s.update(frame({ t: 210, spiValid: true, spiX: geo.target.x, spiZ: geo.target.z + 800, player: { ...air, x: geo.ip.x, z: geo.ip.z } }));
     expect(s.drain()[0]!.text).toBe('Negative, wrong target. The depot is 800 metres north of your mark.');
     s.update(frame({ t: 230, spiValid: true, spiX: geo.target.x + 30, spiZ: geo.target.z, dlz: DlzCode.InRange, player: { ...air, x: geo.ip.x, z: geo.ip.z } }));
     expect(s.objective()!.step).toBe(3);
-    expect(s.drain().map((x) => x.clips.at(-1))).toEqual(['strike_good_mark', 'strike_in_range']);
+    expect(s.drain().map((x) => x.clips.at(-1))).toEqual(['p_vajra_captured', 'strike_good_mark', 'strike_in_range']);
 
     s.event({ type: 'missileLaunch', shooterId: 1, missileId: 60, weapon: 'guided_bomb' }, 1);
-    expect(s.drain().map((x) => x.text)).toEqual(['Bombs away.', 'Copy release. Keep the laser on it till impact.']);
+    expect(s.drain().map((x) => x.text)).toEqual(['Bombs away!', 'Copy release. Keep the laser on it till impact.']);
     const kill = (id: string) => ({ type: 'groundKill' as const, entityId: -1, targetId: `pafb-shahbaz:${id}`, typeId: 'fuel_tank', groupId: 'fuel-depot', team: 1 as const, sourceId: 60, pos: { x: 0, y: 0, z: 0 }, burnSec: 300 });
     s.event(kill('FUEL-TANK-107'), 1);
     expect(s.drain()[0]!.text).toBe('Good hit! Tank burning. 3 remaining.');

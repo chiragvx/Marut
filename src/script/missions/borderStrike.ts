@@ -83,7 +83,10 @@ export class BorderStrikeScript extends ScriptBase {
     // The threats: the early-warning radar sees you, a SAM radar locks, a launch.
     const warn = f.warningBits;
     if (f.rwrCount > 0 && p.aglM > 200 && this.done('brief') && this.once('painted')) this.say(RadioPriority.High, 'vajra_netra', 'strike_painted');
-    if ((warn & WarningBit.MissileLaunch) !== 0 && (this.lastWarn & WarningBit.MissileLaunch) === 0 && this.ready('sam', 8)) this.say(RadioPriority.Urgent, 'strike_sam');
+    if ((warn & WarningBit.MissileLaunch) !== 0 && (this.lastWarn & WarningBit.MissileLaunch) === 0 && this.ready('sam', 8)) {
+      this.say(RadioPriority.Urgent, 'strike_sam');
+      this.own('p_vajra_defending', 'Defending!');
+    }
     else if ((warn & WarningBit.MissileLock) !== 0 && (this.lastWarn & WarningBit.MissileLock) === 0 && this.ready('spike', 20)) this.say(RadioPriority.High, 'strike_spiked');
     this.lastWarn = warn;
 
@@ -91,6 +94,7 @@ export class BorderStrikeScript extends ScriptBase {
       if (f.t > 1.5 && this.once('brief')) {
         this.say(RadioPriority.High, 'vajra_netra', 'strike_brief', this.coordsCall(), 'elevation', words(Math.max(100, Math.round((tg.y * FT_PER_M) / 100) * 100)), 'feet');
         this.say(RadioPriority.Normal, 'strike_push');
+        this.own('p_vajra_wilco', 'Wilco.', RadioPriority.Normal);
       }
       const dIp = Math.hypot(this.geo.ip.x - p.x, this.geo.ip.z - p.z);
       const ipBrg = threeDigits(bearingDeg(p.x, p.z, this.geo.ip.x, this.geo.ip.z));
@@ -98,6 +102,7 @@ export class BorderStrikeScript extends ScriptBase {
       if (dIp < AT_IP_M || dTarget < IP_BEFORE_M + 1000) {
         this.phase = 'find';
         const nm = Math.max(1, Math.round(dTarget / 1852));
+        this.own('p_vajra_ip', 'IP inbound.', RadioPriority.High);
         this.say(RadioPriority.High, 'vajra_netra', 'strike_ip', digits(brg), words(nm), 'miles');
         this.say(RadioPriority.Normal, 'strike_talk1');
         this.say(RadioPriority.Normal, 'strike_talk2');
@@ -111,6 +116,7 @@ export class BorderStrikeScript extends ScriptBase {
       if (off < GOOD_MARK_M) {
         if (!this.goodMark) {
           this.goodMark = true;
+          this.own('p_vajra_captured', 'Captured.', RadioPriority.High);
           this.say(RadioPriority.High, 'vajra_netra', 'strike_good_mark');
           if (this.phase === 'find') this.phase = 'destroy';
         }
@@ -140,7 +146,7 @@ export class BorderStrikeScript extends ScriptBase {
       case 'missileLaunch':
         if (e.shooterId !== playerId) break;
         if (e.weapon === 'guided_bomb' || e.weapon === 'bomb') {
-          this.own('Bombs away.');
+          this.own('p_vajra_bombs', 'Bombs away!');
           if (this.ready('away', 10)) this.say(RadioPriority.Normal, 'strike_away');
           this.arm('nohits', 35);
         }
