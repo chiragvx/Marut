@@ -441,7 +441,13 @@ function buildTank(t: { len: number; dia: number; noseLen: number; tailLen: numb
     return r;
   };
   const xs = Array.from({ length: 41 }, (_, i) => -L / 2 + (L * i) / 40);
-  return merge([loft(xs, (x) => circle(0, 0, radius(L / 2 - x)), 24, PART.pylon), cap(-L / 2, circle(0, 0, radius(L)), 24, PART.pylon, [-1, 0, 0])]);
+  const parts = [loft(xs, (x) => circle(0, 0, radius(L / 2 - x)), 24, PART.pylon), cap(-L / 2, circle(0, 0, radius(L)), 24, PART.pylon, [-1, 0, 0])];
+  // The pylon's sway braces: a pair of posts either side of the lugs, fore and aft, bearing on the
+  // tank's shoulders up to the pylon's base (the 3 cm gap of the mount).
+  for (const sx of [-0.42, 0.42]) {
+    for (const sz of [-1, 1]) parts.push(box([sx, r + 0.01, sz * 0.07], [0.022, 0.025, 0.012], PART.metal));
+  }
+  return merge(parts);
 }
 
 /**

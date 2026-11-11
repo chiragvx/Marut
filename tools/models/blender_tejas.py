@@ -229,9 +229,10 @@ for c in comps:
     lab = classify(c, main_c)
     if lab == 'pylon':
         if c['mx'].y > -0.1:
-            # The pylon itself (it meets the wing): part of the airframe, and a store station.
+            # The source's pylon (a shallow stub, where photos show a deep slab): its box marks the
+            # station; the piece is dropped and a generated pylon replaces it (section 6).
             pylon_boxes.append((c['mn'].copy(), c['mx'].copy()))
-            lab = 'body'
+            lab = 'srcPylon'
         else:
             # A missile launcher/rail built under the pylon (inboard and outboard stations): dropped;
             # the renderer hangs the right launcher for whatever the station carries.
@@ -704,14 +705,112 @@ for mn, mx in pylon_boxes:
     c = (mn + mx) / 2
     pos = 'inner' if abs(c.z) < 2.0 else 'mid' if abs(c.z) < 2.9 else 'outer'
     clusters.setdefault((pos, 'R' if c.z > 0 else 'L'), []).append((mn, mx))
+# The airframe as seen from below (the wing's underside over each station).
+_bm = bmesh.new()
+for _o in groups['body']:
+    _bm.from_mesh(_o.data)
+airframe = BVHTree.FromBMesh(_bm)
+_bm.free()
+
+
+def under_y(x, z):
+    """y of the airframe's lower surface over (x, z), or None (nothing overhead)."""
+    h = airframe.ray_cast(blend((x, -3.0, z)), blend((0, 1, 0)))
+    return None if h[0] is None else body(h[0]).y
+
+
+# Wing pylons, from photos of the Tejas (the inboard ones with 1200 L tanks, the outboard with an
+# R-73 or ASRAAM, the IDRW Mk1A static display): slab-sided, ~14 cm thick, about as deep below the
+# wing as the tank's radius, the length of the launcher; a rounded nose, a flat bottom where the
+# stores' lugs are, and a long ramp from the bottom up to the wing behind.
+PYLON_SPEC = {'inner': dict(L=2.1, depth=0.32), 'mid': dict(L=1.95, depth=0.30), 'outer': dict(L=1.8, depth=0.27)}
+PYLON_HALF_W = 0.068
+
+
+def add_wing_pylon(xc, zc, L, depth):
+    """Builds the pylon joined to the airframe; returns (x0, x1, bottom y)."""
+    xs = [xc - L / 2 + L * i / 60 for i in range(61)]
+    hits = [(x, under_y(x, zc)) for x in xs]
+    hits = [(x, y) for x, y in hits if y is not None]
+    x0, x1 = hits[0][0], hits[-1][0]
+
+    def wy(x):
+        for (xa, ya), (xb, yb) in zip(hits, hits[1:]):
+            if xa <= x <= xb:
+                return ya + (yb - ya) * (x - xa) / max(1e-6, xb - xa)
+        return hits[0][1] if x < x0 else hits[-1][1]
+
+    y_bot = wy(xc) - depth
+    nose, tail = 0.3, 0.55
+    nx, nr = 56, 28
+    rings = []
+    for i in range(nx + 1):
+        t = i / nx
+        x = x0 + (x1 - x0) * t
+        top = wy(x) + 0.02
+        h = top - y_bot
+        kw = 1.0
+        if x > x1 - nose:
+            u = min(0.985, (x - (x1 - nose)) / nose)
+            bot = top - h * math.sqrt(1 - u * u)
+            kw = math.sqrt(1 - u * u) ** 0.6
+        elif x < x0 + tail:
+            u = (x0 + tail - x) / tail
+            bot = y_bot + (h - 0.03) * u ** 1.4
+            kw = 1 - 0.55 * u
+        else:
+            bot = y_bot
+        rings.append((x, top, bot, PYLON_HALF_W * max(0.12, kw)))
+    vb, faces = [], []
+    e = 0.22  # superellipse exponent: flat flanks, rounded lower edges
+    for x, top, bot, hw in rings:
+        cy, hy = (top + bot) / 2, (top - bot) / 2
+        for j in range(nr):
+            a = 2 * math.pi * j / nr
+            ca, sa = math.cos(a), math.sin(a)
+            vb.append(blend((x, cy + hy * math.copysign(abs(sa) ** e, sa), zc + hw * math.copysign(abs(ca) ** e, ca))))
+    for i in range(nx):
+        for j in range(nr):
+            a, b = i * nr + j, i * nr + (j + 1) % nr
+            faces.append((a, b, b + nr, a + nr))
+    faces.append(tuple(range(nr)))
+    faces.append(tuple(nx * nr + j for j in reversed(range(nr))))
+    me = bpy.data.meshes.new('pylonWing')
+    me.from_pydata(vb, [], faces)
+    me.update()
+    bm2 = bmesh.new()
+    bm2.from_mesh(me)
+    bmesh.ops.triangulate(bm2, faces=bm2.faces[:])
+    bmesh.ops.recalc_face_normals(bm2, faces=bm2.faces[:])
+    bm2.to_mesh(me)
+    bm2.free()
+    for poly in me.polygons:
+        poly.use_smooth = True
+    # The plain paint texel, but spread by a tiny planar map: a single UV for every vertex leaves the
+    # tangent frame undefined, and the shader's normal-mapping then stripes the flanks.
+    uvl = me.uv_layers.new(name='UVMap')
+    for poly in me.polygons:
+        for li in poly.loop_indices:
+            q = body(me.vertices[me.loops[li].vertex_index].co)
+            uvl.data[li].uv = (LID_UV[0] + 2e-4 * q.x, LID_UV[1] + 2e-4 * (q.y + 0.5 * (q.z - zc)))
+    me.materials.append(main.data.materials[0])
+    o = bpy.data.objects.new('pylonWing', me)
+    bpy.context.scene.collection.objects.link(o)
+    groups['body'].append(o)
+    return x0, x1, y_bot
+
+
 pylons = []
 for key in [('outer', 'L'), ('outer', 'R'), ('mid', 'L'), ('mid', 'R'), ('inner', 'L'), ('inner', 'R')]:
     boxes = clusters[key]
-    # Stores hang from the pylon's base, centred on it (its suspension lugs).
     mn = Vector((min(b[0].x for b in boxes), min(b[0].y for b in boxes), min(b[0].z for b in boxes)))
     mx = Vector((max(b[1].x for b in boxes), max(b[1].y for b in boxes), max(b[1].z for b in boxes)))
-    pylons.append(dict(stationId=STATION[key], x=round((mn.x + mx.x) / 2, 3), z=round((mn.z + mx.z) / 2, 3),
-                       len=round(mx.x - mn.x, 3), attachY=round(mn.y, 3)))
+    xc, zc = (mn.x + mx.x) / 2, (mn.z + mx.z) / 2
+    spec = PYLON_SPEC[key[0]]
+    x0, x1, yb = add_wing_pylon(xc, zc, spec['L'], spec['depth'])
+    print('PYLON', key, 'x %.3f..%.3f z %.3f bottom %.3f (source bottom %.3f)' % (x0, x1, zc, yb, mn.y))
+    # Stores hang from the pylon's base, centred on the station.
+    pylons.append(dict(stationId=STATION[key], x=round(xc, 3), z=round(zc, 3), len=round(x1 - x0, 3), attachY=round(yb, 3)))
 
 
 def add_body_box(x0, x1, y_top, y_bot, half_w, nose=0.25, tail=0.2):
