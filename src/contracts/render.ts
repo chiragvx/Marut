@@ -428,6 +428,8 @@ export interface ShowcaseFrame {
   fovDeg: number;
   /** Shifts the view so the look-at point sits this fraction of the screen width right of centre (0 = centred). */
   offsetX?: number;
+  /** The camera's up direction (world, need not be unit); world up when absent. Lets a shot roll with the jet. */
+  up?: Vec3Like;
   aircraft: readonly ShowcaseAircraft[];
 }
 

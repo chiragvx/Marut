@@ -84,6 +84,8 @@ body.site {
 }
 .site-hero-media { position: absolute; inset: 0; z-index: -2; }
 .site-hero-media img { width: 100%; height: 100%; object-fit: cover; object-position: 85% 50%; animation: site-drift 26s ease-out both; }
+.site-hero-media video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: 62% 50%; opacity: 0; transition: opacity 0.9s ease; }
+.site-hero-media video.site-on { opacity: 1; }
 .site-hero::before {
   content: ""; position: absolute; inset: 0; z-index: -1;
   background:

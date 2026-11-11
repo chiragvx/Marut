@@ -629,7 +629,9 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
         skyFog.followCamera(camera.position);
         farGround.update(origin);
         if (cameraPose.useLookAt) {
-          camera.up.set(0, 1, 0);
+          const up = showcase?.up;
+          if (up) camera.up.set(up.x, up.y, up.z);
+          else camera.up.set(0, 1, 0);
           camera.lookAt(cameraPose.lookAt.x - origin.x, cameraPose.lookAt.y - origin.y, cameraPose.lookAt.z - origin.z);
         } else {
           camera.quaternion.set(cameraPose.rot.x, cameraPose.rot.y, cameraPose.rot.z, cameraPose.rot.w);

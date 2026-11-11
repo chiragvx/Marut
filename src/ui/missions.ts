@@ -1,17 +1,19 @@
 /**
  * src/ui/missions.ts — the mission list and the briefing.
  *
- * List: one card per mission (base, bandits, one-line objective, and whether it has been flown,
- * with the best time); choosing one opens its briefing. Briefing: situation, objective, the keys to
+ * List: a big tile per open mission (art, air-to-air or ground strike, base, objective, and whether
+ * it has been flown, with the best time), then the locked ones; choosing a tile opens its briefing. Briefing: situation, objective, the keys to
  * lock and fire (missiles launch only on a lock), difficulty and loadout, then Start.
  */
 import type { AiDifficulty } from '../contracts/core';
 import type { AircraftDefinition } from '../contracts/aircraft';
 import type { ScreenHandle } from '../contracts/ui';
 import type { BaseInfo, MissionEntry } from '../core/missions/catalogue';
-import { UNTESTED_BADGE, UNTESTED_NOTE } from '../core/missions/catalogue';
+import { LOCKED_NOTE, UNTESTED_BADGE, UNTESTED_NOTE, missionKind, missionLocked } from '../core/missions/catalogue';
 import { mountScreen } from './screenHandle';
-import { button, field, h, keyCap, menuKeys, segmented, shell } from './kit';
+import { button, field, h, keyCap, lockTag, menuKeys, segmented, shell } from './kit';
+import duelArt from './art/op-duel.webp';
+import strikeArt from './art/op-strike.webp';
 import { createLoadoutEditor, describeFit, fitSummary, selectionFit, selectionName, type LoadoutSelection } from './loadoutEditor';
 
 export interface MissionProgress {
@@ -24,31 +26,58 @@ export function formatDuration(sec: number): string {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 }
 
+/** Each open mission's tile art (frames from the hero reel, tools/site/captureReel.mjs). */
+const MISSION_ART: Record<string, string> = { 'border-duel': duelArt, 'border-strike': strikeArt };
+
+/**
+ * The mission select: the open missions as big tiles (art, type, objective, status), then every
+ * other mission, locked, in a row of small tiles.
+ */
 export function createMissionList(
   container: HTMLElement,
   opts: { missions: readonly MissionEntry[]; bases: readonly BaseInfo[]; progress: Readonly<Record<string, MissionProgress>> },
   cb: { onSelect(id: string): void; onBack(): void }
 ): ScreenHandle {
-  const s = shell({ title: 'Missions', sub: 'Air-to-air. Each one starts at a base; the enemy is already on its way.', back: { onClick: () => cb.onBack() } });
+  const open = opts.missions.filter((m) => !missionLocked(m.id) && !opts.bases.find((b) => b.id === m.baseId)?.locked);
+  const locked = opts.missions.filter((m) => !open.includes(m));
+  const s = shell({ title: 'Missions', eyebrow: 'Punjab · Bhisiana AFS', sub: 'Take off from Bhisiana. The enemy is already on its way.', back: { onClick: () => cb.onBack() } });
   s.root.classList.add('tj-missions');
-  const cards = opts.missions.map((m) => {
+  const tiles = open.map((m, i) => {
     const base = opts.bases.find((b) => b.id === m.baseId);
     const p = opts.progress[m.id];
-    const status = p?.completed ? h('span', { className: 'tj-badge tj-badge--ok', text: p.bestSec !== undefined ? `Done · ${formatDuration(p.bestSec)}` : 'Done' }) : h('span', { className: 'tj-badge', text: 'Not flown' });
-    const card = h(
+    const status = p?.completed ? h('span', { className: 'tj-badge tj-badge--ok', text: p.bestSec !== undefined ? `Done · ${formatDuration(p.bestSec)}` : 'Done' }) : m.recommended ? h('span', { className: 'tj-op-first', text: 'Fly this one first' }) : h('span', { className: 'tj-badge', text: 'Not flown' });
+    const art = MISSION_ART[m.id];
+    const tile = h(
       'button',
-      { className: 'tj-card', attrs: { type: 'button', 'data-mission': m.id } },
-      h('span', { className: 'tj-card-title' }, h('span', { text: m.title }), status),
-      h('span', { className: 'tj-card-meta', text: `${base?.name ?? ''} · ${m.targets !== undefined ? `${m.targets} ground targets` : `${m.bandits} bandit${m.bandits === 1 ? '' : 's'}`}` }, base?.untested ? h('span', { className: 'tj-badge tj-badge--warn tj-badge--inline', text: UNTESTED_BADGE }) : false),
-      h('span', { text: m.objective }),
-      m.recommended ? h('span', { className: 'tj-label', text: 'Fly this one first' }) : false
+      { className: 'tj-card tj-op', attrs: { type: 'button', 'data-mission': m.id } },
+      art ? h('img', { className: 'tj-op-art', attrs: { src: art, alt: '', loading: 'lazy', decoding: 'async' } }) : false,
+      h('span', { className: 'tj-op-top' }, h('span', { className: 'tj-op-num', text: String(i + 1).padStart(2, '0') }), h('span', { className: 'tj-op-type', text: missionKind(m) }), status),
+      h(
+        'span',
+        { className: 'tj-op-main' },
+        h('span', { className: 'tj-op-title', text: m.title }),
+        h('span', { className: 'tj-card-meta', text: `${base?.name ?? ''} · ${m.targets !== undefined ? `${m.targets} ground targets` : `${m.bandits} bandit${m.bandits === 1 ? '' : 's'}`}` }, base?.untested ? h('span', { className: 'tj-badge tj-badge--warn tj-badge--inline', text: UNTESTED_BADGE }) : false),
+        h('span', { className: 'tj-op-obj', text: m.objective }),
+        h('span', { className: 'tj-op-go', text: 'Briefing ›' })
+      )
     );
-    card.addEventListener('click', () => cb.onSelect(m.id));
-    return card;
+    tile.addEventListener('click', () => cb.onSelect(m.id));
+    return tile;
   });
-  s.body.append(h('div', { className: 'tj-cards' }, ...cards), h('p', { className: 'tj-note', text: 'More missions in later versions.' }));
+  const lockedTiles = locked.map((m) =>
+    h(
+      'div',
+      { className: 'tj-card tj-op-mini tj-locked', attrs: { 'data-mission': m.id, 'aria-disabled': 'true', title: LOCKED_NOTE } },
+      h('span', { className: 'tj-op-row' }, h('span', { className: 'tj-op-type', text: missionKind(m) }), lockTag()),
+      h('span', { className: 'tj-op-title', text: m.title })
+    )
+  );
+  s.body.append(
+    h('div', { className: 'tj-ops' }, ...tiles),
+    ...(lockedTiles.length === 0 ? [] : [h('section', { className: 'tj-ops-more', attrs: { 'aria-label': 'Locked missions' } }, h('div', { className: 'tj-ops-more-head', text: `Locked · ${LOCKED_NOTE}` }), h('div', { className: 'tj-ops-locked' }, ...lockedTiles))])
+  );
   const handle = mountScreen(container, s.root);
-  const release = menuKeys(s.root, () => cb.onBack(), { initialFocus: cards[0] });
+  const release = menuKeys(s.root, () => cb.onBack(), { initialFocus: tiles[0] });
   return { ...handle, destroy: () => { release(); handle.destroy(); } };
 }
 
@@ -67,7 +96,7 @@ export function createBriefing(
   let difficulty = opts.difficulty;
   let loadout = opts.loadout;
   const m = opts.entry;
-  const s = shell({ title: m.title, eyebrow: `Mission ${opts.index + 1} · ${opts.base?.name ?? ''}`, back: { label: 'Missions', onClick: () => cb.onBack() } });
+  const s = shell({ title: m.title, eyebrow: `Mission ${String(opts.index + 1).padStart(2, '0')} · ${missionKind(m)} · ${opts.base?.name ?? ''}`, back: { label: 'Missions', onClick: () => cb.onBack() }, crumb: ['Missions', 'Briefing'] });
   s.root.classList.add('tj-briefing');
 
   const k = opts.keys;

@@ -73,9 +73,10 @@ import { createVoiceWarningState, stepVoiceWarnings, type VoiceLineDef } from '.
 import { createVoicePlayer } from './ui/audio/voicePlayer';
 import { createAmbience } from './ui/audio/ambience';
 import { airToAirScene, approachScene, lowPassScene, nightDepartureScene, taxiScene, type ShowcaseScene } from './ui/showcase';
+import { REEL_SHOTS } from './ui/reel';
 import { createFlightOverlay, hintText, pickHint, type FlightOverlay, type HintId, type HintKeys } from './ui/flightOverlay';
 import { DEFAULT_INPUT_MAP_DATA } from './input/inputMap';
-import { BASES, MISSIONS, baseInfo, freeFlightMission, missionEntry, type BaseId } from './core/missions/catalogue';
+import { BASES, MISSIONS, baseInfo, freeFlightMission, missionEntry, missionLocked, playableMissions, type BaseId } from './core/missions/catalogue';
 import { createChunkManager } from './terrain';
 import { buildCoastProfile, createHeightSampler } from './terrain';
 import { RIVER_FLOATS, packRiver } from './terrain/riverMath';
@@ -307,7 +308,7 @@ function savedFreeFlight(): FreeFlightSetup {
   const s = loadJson<Partial<FreeFlightSetup>>(STORAGE.freeFlight) ?? {};
   const d = DEFAULT_FREE_FLIGHT;
   return {
-    baseId: BASES.some((b) => b.id === s.baseId) ? (s.baseId as BaseId) : d.baseId,
+    baseId: BASES.some((b) => b.id === s.baseId && !b.locked) ? (s.baseId as BaseId) : d.baseId,
     start: s.start === 'parked' || s.start === 'runway' || s.start === 'air' ? s.start : d.start,
     timeOfDayH: typeof s.timeOfDayH === 'number' && s.timeOfDayH >= 0 && s.timeOfDayH <= 24 ? s.timeOfDayH : d.timeOfDayH,
     weather: isWeather(s.weather) && s.weather !== 'off' ? s.weather : d.weather,
@@ -321,8 +322,9 @@ function savedProgress(): Record<string, MissionProgress> {
 
 function savedLastFlight(): Flight | undefined {
   const f = loadJson<Flight>(STORAGE.lastFlight);
-  if (f?.kind === 'free' && f.setup) return { kind: 'free', setup: { ...savedFreeFlight(), ...f.setup } };
-  if (f?.kind === 'mission' && missionEntry(f.id)) return f;
+  if (f?.kind === 'free' && f.setup) return baseInfo(f.setup.baseId).locked ? undefined : { kind: 'free', setup: { ...savedFreeFlight(), ...f.setup } };
+  // A mission this build has locked is no longer offered to continue.
+  if (f?.kind === 'mission' && missionEntry(f.id) && !missionLocked(f.id)) return f;
   return undefined;
 }
 
@@ -349,8 +351,8 @@ function showMainMenu(): void {
     uiRoot,
     {
       ...(last ? { continueLabel: flightTitle(last) } : {}),
-      missionsDone: MISSIONS.filter((m) => progress[m.id]?.completed).length,
-      missionsTotal: MISSIONS.length,
+      missionsDone: playableMissions().filter((m) => progress[m.id]?.completed).length,
+      missionsTotal: playableMissions().length,
       qualityLabel: qualityLabel(),
       ...(fb ? { feedbackUrl: fb } : {}),
     },
@@ -387,8 +389,9 @@ function showMissions(): void {
 }
 
 function showBriefing(id: string): void {
-  const index = MISSIONS.findIndex((m) => m.id === id);
-  const entry = MISSIONS[index];
+  const open = playableMissions();
+  const index = open.findIndex((m) => m.id === id);
+  const entry = open[index];
   if (!entry) return showMissions();
   destroyCurrentScreen();
   appState = 'missionSelect';
@@ -735,7 +738,7 @@ function showDebrief(ended: MissionEndedEvent): void {
     progress[entry.id] = { completed: true, bestSec: newBest ? stats.durationSec : prev!.bestSec! };
     saveJson(STORAGE.progress, progress);
   }
-  const nextEntry = entry ? MISSIONS[MISSIONS.indexOf(entry) + 1] : undefined;
+  const nextEntry = entry ? playableMissions()[playableMissions().findIndex((m) => m.id === entry.id) + 1] : undefined;
   const fb = feedbackUrl({ screen: 'debrief', missionId: stats.missionId, quality: currentQualityTier });
   currentScreen = createDebriefScreen(
     uiRoot,
@@ -1260,7 +1263,8 @@ function showcaseSceneFor(index: number): ShowcaseScene | undefined {
   const rwyId = activeRunway(layout, { x: wind.x, z: wind.z });
   const runway = layout.runways.find((r) => r.id === rwyId) ?? layout.runways[0];
   if (!runway) return undefined;
-  const shot = SHOWCASE_SHOTS[((index % SHOWCASE_SHOTS.length) + SHOWCASE_SHOTS.length) % SHOWCASE_SHOTS.length]!;
+  const list = devShowcase?.reel ? REEL_SHOTS : SHOWCASE_SHOTS;
+  const shot = list[((index % list.length) + list.length) % list.length]!;
   const scene = shot(layout, runway);
   weatherMode = 'clear';
   renderer.setWeather(weatherMode, 7);
@@ -1288,12 +1292,14 @@ function enterShowcaseScene(index: number): void {
  * Dev aid: ?showcase=<shot>,<t>[,near][,z<k>][,o<x>] holds the cinematic at shot 0 (air-to-air), 1 (low pass), 2 (approach), 3 (taxi) or 4 (night take-off), t s
  * in; `near` moves the camera to 25 m beside the jet (for checking it against the ground); `z0.6`
  * narrows the lens to 0.6 of the shot's and `o0.3` puts the subject 0.3 of the width right of
- * centre (for stills, e.g. the landing page's captures).
+ * centre (for stills, e.g. the landing page's captures). `r<i>` in place of the shot holds the
+ * landing page's reel shot i instead (src/ui/reel.ts, rendered by tools/site/captureReel.mjs).
  */
-const devShowcase = ((): { index: number; t: number; near: boolean; zoom: number; offsetX?: number } | undefined => {
+const devShowcase = ((): { index: number; t: number; near: boolean; zoom: number; offsetX?: number; reel: boolean } | undefined => {
   const v = new URLSearchParams(location.search).get('showcase')?.split(',');
   if (!v || v.length < 2) return undefined;
-  const index = Number(v[0]);
+  const reel = v[0]!.startsWith('r');
+  const index = Number(reel ? v[0]!.slice(1) : v[0]);
   const t = Number(v[1]);
   const opt = (k: string): number | undefined => {
     const o = v.slice(2).find((x) => x.startsWith(k));
@@ -1303,7 +1309,7 @@ const devShowcase = ((): { index: number; t: number; near: boolean; zoom: number
   const z = opt('z');
   const o = opt('o');
   if (!Number.isFinite(index) || !Number.isFinite(t)) return undefined;
-  return { index, t, near: v.includes('near'), zoom: z !== undefined && z > 0 ? z : 1, ...(o !== undefined ? { offsetX: o } : {}) };
+  return { index, t, reel, near: v.includes('near'), zoom: z !== undefined && z > 0 ? z : 1, ...(o !== undefined ? { offsetX: o } : {}) };
 })();
 
 function devShowcaseFrame(sc: ShowcaseScene, t: number): ShowcaseFrame {

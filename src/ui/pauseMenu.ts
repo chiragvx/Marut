@@ -5,7 +5,7 @@
  */
 import type { CreatePauseMenu } from '../contracts/ui';
 import { mountScreen } from './screenHandle';
-import { button, externalLink, h, menuKeys } from './kit';
+import { button, crumb, externalLink, h, menuKeys } from './kit';
 
 export const createPauseMenu: CreatePauseMenu = (container, callbacks, options = {}) => {
   const list = h('div', { className: 'tj-menu' });
@@ -36,6 +36,7 @@ export const createPauseMenu: CreatePauseMenu = (container, callbacks, options =
   const panel = h(
     'div',
     { className: 'tj-panel', attrs: { style: 'width: min(460px, 100%)' } },
+    crumb('Flight', 'Paused'),
     h('div', { className: 'tj-head' }, h('h1', { className: 'tj-title', text: 'Paused' }), options.subtitle ? h('p', { className: 'tj-sub', text: options.subtitle }) : false),
     list,
     confirmSlot,

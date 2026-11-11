@@ -6,7 +6,7 @@
 import type { CreateDebriefScreen, DebriefStats } from '../contracts/ui';
 import { MissionOutcome } from '../contracts/ui';
 import { mountScreen } from './screenHandle';
-import { button, externalLink, h, menuKeys } from './kit';
+import { button, crumb, externalLink, h, menuKeys } from './kit';
 import { formatDuration } from './missions';
 
 /** The headline for a result. */
@@ -41,6 +41,7 @@ export const createDebriefScreen: CreateDebriefScreen = (container, stats, callb
   const panel = h(
     'div',
     { className: 'tj-panel', attrs: { style: 'width: min(720px, 100%)' } },
+    crumb('Debrief'),
     h('div', { className: 'tj-head' }, h('div', { className: 'tj-eyebrow', text: options.title ?? '' }), h('h1', { className: 'tj-title', text: outcomeTitle(stats, free) })),
     h('div', { className: 'tj-stats' }, ...tiles),
     objectives,

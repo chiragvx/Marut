@@ -11,6 +11,8 @@
  * handles keys.
  */
 
+import { GAME_NAME } from './links';
+
 type Child = Node | string | false | null | undefined;
 
 export interface HOpts {
@@ -55,14 +57,33 @@ export interface Shell {
   actions: HTMLDivElement;
 }
 
-/** The standard menu layout: title block, body, footer (Back on the left, actions on the right). */
-export function shell(o: { title: string; eyebrow?: string; sub?: string; back?: { label?: string; onClick: () => void }; narrow?: boolean; className?: string; clear?: boolean }): Shell {
+/** The breadcrumb in the frame's top bar: the game's name, then where you are. */
+export function crumb(...path: string[]): HTMLDivElement {
+  const c = h('div', { className: 'tj-crumb', attrs: { 'aria-hidden': 'true' } }, h('b', { text: GAME_NAME }));
+  for (const p of path) c.append(h('i', { text: '/' }), h('span', { text: p }));
+  return c;
+}
+
+/** A padlock and a word: on anything this build has locked. */
+export function lockTag(text = 'Locked'): HTMLSpanElement {
+  const t = h('span', { className: 'tj-lock' });
+  t.innerHTML = '<svg viewBox="0 0 12 14" aria-hidden="true"><path d="M3 6V4a3 3 0 0 1 6 0v2h1.5c.3 0 .5.2.5.5v7c0 .3-.2.5-.5.5h-9a.5.5 0 0 1-.5-.5v-7c0-.3.2-.5.5-.5H3Zm1.5 0h3V4a1.5 1.5 0 0 0-3 0v2Z"/></svg>';
+  t.append(text);
+  return t;
+}
+
+/**
+ * The standard menu layout, in the title screen's frame: breadcrumb (top bar), title block, body,
+ * footer in the bottom bar (Back on the left, actions on the right).
+ */
+export function shell(o: { title: string; eyebrow?: string; sub?: string; back?: { label?: string; onClick: () => void }; narrow?: boolean; className?: string; clear?: boolean; crumb?: string[] }): Shell {
   const body = h('div', { className: 'tj-body' });
   const actions = h('div', { className: 'tj-foot-actions' });
-  const foot = h('div', { className: 'tj-foot' }, o.back ? button(`← ${o.back.label ?? 'Back'}`, o.back.onClick, 'default', { 'data-action': 'back' }) : false, actions);
+  const foot = h('div', { className: 'tj-foot' }, o.back ? button(o.back.label ?? 'Back', o.back.onClick, 'default', { 'data-action': 'back' }) : false, actions);
   const panel = h(
     'div',
     { className: `tj-panel${o.narrow ? ' tj-panel--narrow' : ''}` },
+    crumb(...(o.crumb ?? [o.title])),
     h('div', { className: 'tj-head' }, o.eyebrow ? h('div', { className: 'tj-eyebrow', text: o.eyebrow }) : false, h('h1', { className: 'tj-title', text: o.title }), o.sub ? h('p', { className: 'tj-sub', text: o.sub }) : false),
     body,
     foot

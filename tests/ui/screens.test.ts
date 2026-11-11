@@ -12,7 +12,7 @@ import { createControlsScreen } from '../../src/ui/controls';
 import { menuKeys } from '../../src/ui/kit';
 import type { DebriefStats, SettingsState } from '../../src/contracts/ui';
 import { tejasDefinition } from '../../src/aircraft';
-import { BASES, MISSIONS } from '../../src/core/missions/catalogue';
+import { BASES, MISSIONS, PLAYABLE_MISSIONS, missionKind, missionLocked, playableMissions } from '../../src/core/missions/catalogue';
 
 function makeContainer(): HTMLElement {
   const el = document.createElement('div');
@@ -246,7 +246,7 @@ describe('missions and briefing', () => {
   it('a mission card opens its briefing; Start passes difficulty and loadout', () => {
     const container = makeContainer();
     const onSelect = vi.fn();
-    createMissionList(container, { missions: MISSIONS, bases: BASES, progress: { 'konkan-dogfight': { completed: true, bestSec: 252 } } }, { onSelect, onBack: noop });
+    createMissionList(container, { missions: MISSIONS, bases: BASES, progress: { 'border-duel': { completed: true, bestSec: 252 } } }, { onSelect, onBack: noop });
     expect(container.textContent).toContain('Done · 4:12');
     click(container, '[data-mission="border-duel"]');
     expect(onSelect).toHaveBeenCalledWith('border-duel');
@@ -300,20 +300,35 @@ describe('loading screen', () => {
   });
 });
 
-describe('untested base tag', () => {
-  it('INS Hansa is tagged in Free Flight, the mission list and its briefings; Bhisiana is not', () => {
-    const ff = makeContainer();
-    createFreeFlightSetup(ff, { bases: BASES, def: tejasDefinition, setup: DEFAULT_FREE_FLIGHT }, { onFly: noop, onBack: noop });
-    expect(ff.querySelector('[data-base="hansa"]')!.textContent).toContain('Not fully tested');
-    expect(ff.querySelector('[data-base="bathinda"]')!.textContent).not.toContain('Not fully tested');
+describe('locked content', () => {
+  it('opens one air-to-air and one ground strike mission, both at Bhisiana; the rest are listed, locked', () => {
+    expect(PLAYABLE_MISSIONS).toEqual(['border-duel', 'border-strike']);
+    expect(playableMissions().map(missionKind)).toEqual(['Air-to-air', 'Ground strike']);
+    expect(playableMissions().every((m) => m.baseId === 'bathinda')).toBe(true);
 
+    const onSelect = vi.fn();
     const list = makeContainer();
-    createMissionList(list, { missions: MISSIONS, bases: BASES, progress: {} }, { onSelect: noop, onBack: noop });
+    createMissionList(list, { missions: MISSIONS, bases: BASES, progress: {} }, { onSelect, onBack: noop });
     for (const m of MISSIONS) {
-      const tagged = list.querySelector(`[data-mission="${m.id}"]`)!.textContent!.includes('Not fully tested');
-      expect(tagged).toBe(m.baseId === 'hansa');
+      const tile = list.querySelector<HTMLElement>(`[data-mission="${m.id}"]`)!;
+      expect(tile.classList.contains('tj-locked')).toBe(missionLocked(m.id));
+      tile.click();
     }
+    expect(onSelect.mock.calls.map((c) => c[0])).toEqual(['border-duel', 'border-strike']);
+  });
 
+  it('shows INS Hansa locked in Free Flight: it cannot be picked, and a saved Hansa setup falls back to Bhisiana', () => {
+    const ff = makeContainer();
+    const onFly = vi.fn();
+    createFreeFlightSetup(ff, { bases: BASES, def: tejasDefinition, setup: { ...DEFAULT_FREE_FLIGHT, baseId: 'hansa' } }, { onFly, onBack: noop });
+    const hansa = ff.querySelector<HTMLElement>('[data-base="hansa"]')!;
+    expect(hansa.classList.contains('tj-locked')).toBe(true);
+    hansa.click();
+    click(ff, '[data-action="fly"]');
+    expect(onFly.mock.calls[0]![0].baseId).toBe('bathinda');
+  });
+
+  it('still tags an untested base in a briefing', () => {
     const hansaMission = MISSIONS.find((m) => m.baseId === 'hansa')!;
     const b = makeContainer();
     createBriefing(b, { entry: hansaMission, base: BASES.find((x) => x.id === 'hansa'), index: 0, def: tejasDefinition, difficulty: 'veteran', loadout: {}, keys: { target: 'T', launch: 'Enter', weapon: 'Tab', gun: 'Space' } }, { onStart: noop, onBack: noop });

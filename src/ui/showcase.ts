@@ -39,7 +39,7 @@ export function capStores(): { a: number; b: number } {
   return packStoreSlots(slots, { a: 0, b: 0 });
 }
 
-interface RunwayFrame {
+export interface RunwayFrame {
   /** Threshold, ground level. */
   tx: number;
   tz: number;
@@ -52,13 +52,13 @@ interface RunwayFrame {
   rz: number;
 }
 
-function runwayFrame(layout: AirportLayout, runway: RunwayDef): RunwayFrame {
+export function runwayFrame(layout: AirportLayout, runway: RunwayDef): RunwayFrame {
   const h = runway.headingRad;
   return { tx: runway.thresholdWorldX, tz: runway.thresholdWorldZ, elev: layout.elevationM, heading: h, dx: Math.sin(h), dz: -Math.cos(h), rx: Math.cos(h), rz: Math.sin(h) };
 }
 
 /** A point `along` metres down the runway from the threshold, `right` metres to its right, `up` above the field. */
-function at(f: RunwayFrame, along: number, right: number, up: number, out: Vec3Like): Vec3Like {
+export function at(f: RunwayFrame, along: number, right: number, up: number, out: Vec3Like): Vec3Like {
   out.x = f.tx + f.dx * along + f.rx * right;
   out.y = f.elev + up;
   out.z = f.tz + f.dz * along + f.rz * right;
@@ -66,28 +66,28 @@ function at(f: RunwayFrame, along: number, right: number, up: number, out: Vec3L
 }
 
 
-function makeAircraft(): ShowcaseAircraft {
+export function makeAircraft(): ShowcaseAircraft {
   const stores = capStores();
   return { id: 900001, pos: { x: 0, y: 0, z: 0 }, rot: { x: 0, y: 0, z: 0, w: 1 }, vel: { x: 0, y: 0, z: 0 }, gearPos: 1, throttle: 0.5, afterburner: false, flags: 0, stores: stores.a, storesB: stores.b };
 }
 
-const deg = Math.PI / 180;
+export const deg = Math.PI / 180;
 /** Where the subject sits across the screen (fraction of the width right of centre), clear of the menu on the left. */
 const SUBJECT_OFFSET_X = 0.2;
 /** Height of the aircraft's origin above its wheels (the gear legs' contact points, tejasGeometry.ts). */
 const GEAR_HEIGHT_M = 1.1;
 
-const lerp = (a: number, b: number, t: number): number => a + (b - a) * t;
-const ease = (t: number): number => t * t * (3 - 2 * t);
+export const lerp = (a: number, b: number, t: number): number => a + (b - a) * t;
+export const ease = (t: number): number => t * t * (3 - 2 * t);
 
 /** Where the base's buildings are, in runway coordinates: metres along from the threshold and to the right. */
-interface Hub {
+export interface Hub {
   along: number;
   right: number;
 }
 
 /** The middle of the base's shelters, hangars and parking (the reference point if it has none). */
-function baseHub(layout: AirportLayout, f: RunwayFrame): Hub {
+export function baseHub(layout: AirportLayout, f: RunwayFrame): Hub {
   const pts: { worldX: number; worldZ: number }[] = [...layout.parkingSpots, ...(layout.structures ?? [])];
   if (pts.length === 0) pts.push({ worldX: layout.referenceWorldX, worldZ: layout.referenceWorldZ });
   let along = 0;
@@ -99,7 +99,7 @@ function baseHub(layout: AirportLayout, f: RunwayFrame): Hub {
   return { along: along / pts.length, right: right / pts.length };
 }
 
-const clamp01 = (x: number): number => Math.min(1, Math.max(0, x));
+export const clamp01 = (x: number): number => Math.min(1, Math.max(0, x));
 
 /**
  * The shared camera move: from the far side of the base's buildings, a slow high pass looking across
@@ -124,7 +124,7 @@ function baseCamera(f: RunwayFrame, hub: Hub, jet: ShowcaseAircraft, t: number, 
   frame.fovDeg = lerp(44, 13, ease(clamp01((t - 6) / (durationSec * 0.6))));
 }
 
-function setRot(jet: ShowcaseAircraft, q: QuatLike): void {
+export function setRot(jet: ShowcaseAircraft, q: QuatLike): void {
   jet.rot.x = q.x;
   jet.rot.y = q.y;
   jet.rot.z = q.z;
@@ -135,12 +135,12 @@ function setRot(jet: ShowcaseAircraft, q: QuatLike): void {
  * The field of view that keeps an aircraft `fraction` of the view's height tall at `distM` (a long
  * lens that zooms out as it comes closer), within [minDeg, maxDeg].
  */
-function jetFov(distM: number, fraction: number, minDeg: number, maxDeg: number): number {
+export function jetFov(distM: number, fraction: number, minDeg: number, maxDeg: number): number {
   const fov = (2 * Math.atan(13.2 / (2 * fraction * Math.max(1, distM)))) / deg;
   return Math.min(maxDeg, Math.max(minDeg, fov));
 }
 
-function distance(a: Vec3Like, b: Vec3Like): number {
+export function distance(a: Vec3Like, b: Vec3Like): number {
   return Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
 }
 

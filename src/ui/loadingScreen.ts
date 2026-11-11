@@ -5,19 +5,20 @@
  */
 import type { CreateLoadingScreen } from '../contracts/ui';
 import { mountScreen } from './screenHandle';
-import { button, h, keyCap, menuKeys } from './kit';
+import { button, crumb, h, keyCap, menuKeys } from './kit';
 
 export const createLoadingScreen: CreateLoadingScreen = (container, opts = {}) => {
   const bar = h('div');
   const progress = h('div', { className: 'tj-progress', attrs: { role: 'progressbar', 'aria-valuemin': '0', 'aria-valuemax': '100' } }, bar);
   const message = h('p', { className: 'tj-note', text: 'Loading…', attrs: { 'data-role': 'message' } });
-  const startSlot = h('div', { className: 'tj-row', attrs: { style: 'justify-content: center; min-height: 48px' } });
+  const startSlot = h('div', { className: 'tj-row', attrs: { style: 'min-height: 48px' } });
   const tips = opts.tips && opts.tips.length > 0
     ? h('div', { className: 'tj-stack' }, h('span', { className: 'tj-label', text: 'Your first keys' }), h('div', { className: 'tj-keylist' }, ...opts.tips.map(([keys, label]) => h('div', { className: 'tj-keyrow' }, h('span', { text: label }), h('span', { className: 'tj-row', attrs: { style: 'gap: 4px' } }, ...keys.map(keyCap))))))
     : false;
   const panel = h(
     'div',
     { className: 'tj-panel tj-panel--narrow' },
+    crumb('Loading'),
     h('div', { className: 'tj-head' }, opts.eyebrow ? h('div', { className: 'tj-eyebrow', text: opts.eyebrow }) : false, h('h1', { className: 'tj-title', text: opts.title ?? 'Loading' })),
     tips,
     h('div', { className: 'tj-stack' }, progress, message),

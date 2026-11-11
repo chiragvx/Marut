@@ -26,6 +26,8 @@ export interface BaseInfo {
   parkedLabel: string;
   /** Not fully tested yet: the menus tag the base (and its missions) so players expect bugs. */
   untested?: boolean;
+  /** Not open in this build: shown, locked (and its missions with it). */
+  locked?: boolean;
 }
 
 /** The tag and the line the menus show for an untested base. */
@@ -53,8 +55,32 @@ export const BASES: readonly BaseInfo[] = [
     parkingSpotId: 'PARK-1',
     parkedLabel: 'on the apron',
     untested: true,
+    locked: true,
   },
 ];
+
+/** What the menus say on something locked. */
+export const LOCKED_NOTE = 'Unlocks in a later update';
+
+/**
+ * The missions this build opens, in order: one air-to-air, one ground strike, both over Punjab.
+ * The rest are listed, locked.
+ */
+export const PLAYABLE_MISSIONS: readonly BuiltinMissionId[] = ['border-duel', 'border-strike'];
+
+export function missionLocked(id: string): boolean {
+  return !PLAYABLE_MISSIONS.includes(id as BuiltinMissionId);
+}
+
+/** The open missions, in PLAYABLE_MISSIONS order. */
+export function playableMissions(): MissionEntry[] {
+  return PLAYABLE_MISSIONS.map((id) => MISSIONS.find((m) => m.id === id)!).filter(Boolean);
+}
+
+/** Air-to-air or ground strike, for the mission tiles. */
+export function missionKind(m: MissionEntry): string {
+  return m.targets !== undefined ? 'Ground strike' : 'Air-to-air';
+}
 
 export interface MissionEntry {
   /** The mission file's id. */

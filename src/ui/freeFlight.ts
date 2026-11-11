@@ -7,9 +7,9 @@ import type { WeatherMode } from '../contracts/core';
 import type { AircraftDefinition } from '../contracts/aircraft';
 import type { ScreenHandle } from '../contracts/ui';
 import type { BaseId, BaseInfo, StartMode } from '../core/missions/catalogue';
-import { UNTESTED_BADGE, UNTESTED_NOTE } from '../core/missions/catalogue';
+import { LOCKED_NOTE, UNTESTED_BADGE, UNTESTED_NOTE } from '../core/missions/catalogue';
 import { mountScreen } from './screenHandle';
-import { button, field, h, menuKeys, segmented, shell } from './kit';
+import { button, field, h, lockTag, menuKeys, segmented, shell } from './kit';
 import { createLoadoutEditor, describeFit, selectionFit, selectionName, type LoadoutSelection } from './loadoutEditor';
 import { formatTimeOfDay } from './settings';
 
@@ -39,11 +39,22 @@ export interface FreeFlightCallbacks {
 
 export function createFreeFlightSetup(container: HTMLElement, opts: { bases: readonly BaseInfo[]; def: AircraftDefinition; setup: FreeFlightSetup }, cb: FreeFlightCallbacks): ScreenHandle {
   const setup: FreeFlightSetup = { ...opts.setup, loadout: { ...opts.setup.loadout } };
-  const s = shell({ title: 'Free Flight', sub: 'Take off and fly. No enemies, no time limit.', back: { onClick: () => cb.onBack() } });
+  if (opts.bases.find((b) => b.id === setup.baseId)?.locked) setup.baseId = opts.bases.find((b) => !b.locked)?.id ?? setup.baseId;
+  const s = shell({ title: 'Free Flight', eyebrow: 'Punjab · No enemies, no time limit', sub: 'Pick the hour, the weather and what hangs under the wings, then fly.', back: { onClick: () => cb.onBack() } });
   s.root.classList.add('tj-free-flight');
 
-  // Bases.
+  // Bases (a locked one is shown, padlocked, and cannot be picked).
   const baseCards = opts.bases.map((b) => {
+    if (b.locked) {
+      return h(
+        'div',
+        { className: 'tj-card tj-locked', attrs: { 'data-base': b.id, 'aria-disabled': 'true', title: LOCKED_NOTE } },
+        h('span', { className: 'tj-card-title' }, h('span', { text: b.name }), lockTag()),
+        h('span', { className: 'tj-card-meta', text: b.place }),
+        h('span', { text: b.blurb }),
+        h('span', { className: 'tj-note', text: LOCKED_NOTE })
+      );
+    }
     const card = h(
       'button',
       { className: 'tj-card', attrs: { type: 'button', role: 'radio', 'aria-checked': String(b.id === setup.baseId), 'data-base': b.id } },
@@ -54,7 +65,7 @@ export function createFreeFlightSetup(container: HTMLElement, opts: { bases: rea
     );
     card.addEventListener('click', () => {
       setup.baseId = b.id;
-      for (const c of baseCards) c.setAttribute('aria-checked', String(c === card));
+      for (const c of baseCards) if (c.getAttribute('role') === 'radio') c.setAttribute('aria-checked', String(c === card));
       renderStart();
     });
     return card;

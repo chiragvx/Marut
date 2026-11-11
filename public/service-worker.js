@@ -33,6 +33,8 @@ self.addEventListener('fetch', (event) => {
   if (url.origin !== self.location.origin) return;
   // Vercel's analytics script and endpoints: always from the network, never cached.
   if (url.pathname.startsWith('/_vercel/')) return;
+  // Video (the landing page's hero reel) streams in ranges: straight from the network, never cached.
+  if (req.headers.has('range') || /\.(mp4|webm)$/.test(url.pathname)) return;
   const isPage = req.mode === 'navigate' || (req.headers.get('accept') || '').includes('text/html');
   if (isPage) {
     event.respondWith(
