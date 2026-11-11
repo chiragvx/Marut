@@ -1179,8 +1179,9 @@ function tickPendingStart(nowMs: number): void {
   const prog = chunkManager?.loadProgress() ?? { resident: 0, desired: 0 };
   const frac = prog.desired > 0 ? prog.resident / prog.desired : 0;
   const elapsed = nowMs - p.t0;
-  p.loading.setProgress(0.2 + 0.8 * frac, 'Loading terrain…');
-  if ((playerEntityId !== NO_ENTITY_ID && frac >= 0.9 && elapsed > 800) || elapsed > 20000) {
+  const jetReady = renderer.aircraftModelReady();
+  p.loading.setProgress(0.2 + 0.8 * frac, frac >= 0.9 && !jetReady ? 'Loading aircraft…' : 'Loading terrain…');
+  if ((playerEntityId !== NO_ENTITY_ID && frac >= 0.9 && jetReady && elapsed > 800) || elapsed > 20000) {
     p.shown = true;
     if (devAutoStart) {
       pendingStart = undefined;
@@ -1311,7 +1312,7 @@ function tickShowcase(dtSec: number): void {
     renderer.setShowcase(sc.frame(0));
     showcaseT += dtSec;
     const prog = chunkManager?.loadProgress() ?? { resident: 0, desired: 0 };
-    if ((prog.desired > 0 && prog.resident / prog.desired >= 0.9 && showcaseT > 0.8) || showcaseT > SHOWCASE_LOAD_TIMEOUT_SEC) {
+    if ((prog.desired > 0 && prog.resident / prog.desired >= 0.9 && renderer.aircraftModelReady() && showcaseT > 0.8) || showcaseT > SHOWCASE_LOAD_TIMEOUT_SEC) {
       showcasePhase = 'playing';
       showcaseT = 0;
       setFade(false);

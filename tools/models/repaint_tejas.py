@@ -1,10 +1,14 @@
 """
 tools/models/repaint_tejas.py - repaint the source Tejas texture from its prototype camouflage to
-the IAF air-superiority grey, keeping panel lines, rivets, grime and every marking.
+the IAF Tejas's blue-grey, keeping panel lines, rivets, grime and every marking.
 
 The camouflage is six flat colours. Each pixel is fitted as a shaded camouflage colour (k * c) or a
 blend of two of them (antialiased patch edges); where that fit is close, the pixel is repainted as
 k * GREY (so lines and shading survive). Markings, metal, glass, tyres etc. don't fit and are kept.
+
+Panel lines are softened (the source's are near-black), and a faint low-frequency tonal variation
+breaks up large panels. The paint mask is written next to the output (<out>_mask.png) so the
+metal-roughness map can be given the paint's satin finish.
 
 Usage: python -I repaint_tejas.py <in baseColor.png> <out.png> [size]
 """
@@ -23,8 +27,10 @@ CAMO = np.array([
     (177, 188, 171),  # pale grey-green spots
 ], dtype=np.float32) / 255.0
 
-# Target paint (sRGB): the same light grey the procedural model uses (linear 0.52/0.56/0.595).
-GREY = np.array([190, 197, 203], dtype=np.float32) / 255.0
+# Target paint (sRGB): the darker blue-grey of service Tejas (matched to air-to-air photographs).
+GREY = np.array([156, 165, 171], dtype=np.float32) / 255.0
+# How much of the source's shading (panel lines, rivets) is kept: 1 = all, 0 = flat paint.
+LINE_KEEP = 0.55
 # Residual (sRGB units) under which a pixel counts as camouflage, and the soft band above it.
 FIT_IN = 0.035
 FIT_OUT = 0.07
@@ -79,9 +85,16 @@ def main() -> None:
     res_s = best_res / np.maximum(flat @ lum_w, 0.02) ** 0.5 * 0.25
     wgt = np.clip((FIT_OUT - res_s) / (FIT_OUT - FIT_IN), 0.0, 1.0)[:, None]
     grey = to_lin(GREY)
-    repainted = best_k[:, None] * grey
+    k = np.where(best_k < 1.0, 1.0 - (1.0 - best_k) * LINE_KEEP, best_k)
+    # Faint weathering: smooth noise (+-4%) over a few hundred texels.
+    rng = np.random.default_rng(7)
+    lo = Image.fromarray((rng.random((max(8, h // 256), max(8, w // 256))) * 255).astype(np.uint8)).resize((w, h), Image.BICUBIC)
+    mid = Image.fromarray((rng.random((max(8, h // 64), max(8, w // 64))) * 255).astype(np.uint8)).resize((w, h), Image.BICUBIC)
+    var = 1.0 + 0.06 * (np.asarray(lo, np.float32) / 255.0 - 0.5) + 0.03 * (np.asarray(mid, np.float32) / 255.0 - 0.5)
+    repainted = (k * var.reshape(-1))[:, None] * grey
     outp = wgt * repainted + (1.0 - wgt) * flat
     Image.fromarray((to_srgb(outp).reshape(h, w, 3) * 255.0 + 0.5).astype(np.uint8)).save(out)
+    Image.fromarray((wgt.reshape(h, w) * 255.0 + 0.5).astype(np.uint8)).save(out.rsplit('.', 1)[0] + '_mask.png')
     print(f'repainted {float((wgt > 0.5).mean()) * 100:.1f}% of pixels -> {out}')
 
 

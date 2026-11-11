@@ -52,9 +52,9 @@ const VS = /* glsl */ `
     vNormalL = normal;
     vUv = uv;
     if (aNoz > 0.0) {
-      // Petals swing open about their hinge ring: up to +30% radius at the exit.
+      // Petals swing open about their hinge ring: up to +15% radius at the exit.
       vec2 c = vec2(uNozzleY, 0.0);
-      p.yz = c + (p.yz - c) * (1.0 + uNozzle * 0.3 * aNoz);
+      p.yz = c + (p.yz - c) * (1.0 + uNozzle * 0.15 * aNoz);
     }
     vec4 lp = vec4(p, 1.0);
     vec3 nl = normal;
@@ -157,7 +157,7 @@ const FS = /* glsl */ `
         // Hostile: plain dark grey; keep the panel lines, drop coloured markings.
         float lum = dot(base, vec3(0.2126, 0.7152, 0.0722));
         float sat = max(max(base.r, base.g), base.b) - min(min(base.r, base.g), base.b);
-        col = paint * (sat > 0.08 ? 1.0 : clamp(lum / 0.5, 0.0, 1.25));
+        col = paint * (sat > 0.08 ? 1.0 : clamp(lum / 0.3, 0.0, 1.25));
       }
       ks = mix(0.4, 0.04, mr.g);
       shin = mix(90.0, 10.0, mr.g);
@@ -386,7 +386,7 @@ const FLAME_VS = /* glsl */ `
     float x0 = uExitX;
     p.x = x0 + (p.x - x0) * flick;
     vec2 c = vec2(uNozzleY, 0.0);
-    p.yz = c + (p.yz - c) * (1.0 + uNozzle * 0.3 * (1.0 - aU));
+    p.yz = c + (p.yz - c) * (1.0 + uNozzle * 0.15 * (1.0 - aU));
     vec4 wr = modelMatrix * vec4(p, 1.0);
     vWorld = wr.xyz + uOrigin;
     vNormalW = normalize(mat3(modelMatrix) * normal);

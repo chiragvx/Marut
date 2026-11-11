@@ -88,6 +88,9 @@ interface Instance {
   airbrake: number;
   slat: number;
   nozzle: number;
+  /** Wheels: ground distance rolled (m) and the current rolling speed (m/s; spins down in the air). */
+  rolled: number;
+  rollSpeed: number;
 }
 
 const NO_ID = -1;
@@ -230,6 +233,15 @@ export function createMeshAircraftRenderer(root: THREE.Object3D, template: Aircr
       airframe.add(node);
       return { node, part, axis: new THREE.Vector3(...part.axis) };
     });
+    // Parts that ride on another (wheels on their legs): placed in the parent's hinge frame.
+    for (const pn of parts) {
+      const parentName = pn.part.parent;
+      const parent = parentName ? parts.find((q) => q.part.name === parentName) : undefined;
+      if (!parent) continue;
+      const pp = parent.part.pivot;
+      pn.node.position.set(pn.part.pivot[0] - pp[0], pn.part.pivot[1] - pp[1], pn.part.pivot[2] - pp[2]);
+      parent.node.add(pn.node);
+    }
     const flameMat = createAircraftFlameMaterial(shared, template.nozzleAxisY, template.nozzleExitX);
     flameMat.uniforms.uSeed.value = instances.length * 1.7;
     const flame = new THREE.Mesh(template.flame, flameMat);
@@ -238,7 +250,7 @@ export function createMeshAircraftRenderer(root: THREE.Object3D, template: Aircr
     airframe.add(flame);
     root.add(group);
     const landingNode = parts.find((p) => p.part.name === template.landingPart)?.node;
-    return { root: group, parts, body, flameMat, flame, airframe, landingNode, assignedId: NO_ID, airbrake: 0, slat: 0, nozzle: 0 };
+    return { root: group, parts, body, flameMat, flame, airframe, landingNode, assignedId: NO_ID, airbrake: 0, slat: 0, nozzle: 0, rolled: 0, rollSpeed: 0 };
   }
 
   const camWorld = { x: 0, y: 0, z: 0 };
@@ -283,6 +295,10 @@ export function createMeshAircraftRenderer(root: THREE.Object3D, template: Aircr
         inst.slat = approach(inst.slat, slatTarget, 1.5, 1.5, dt);
         inst.nozzle = approach(inst.nozzle, nozTarget, 1.5, 1.0, dt);
       }
+      // Wheels roll with the ground speed; airborne they spin down (brakes on retraction) in ~3 s.
+      const groundSpeed = Math.hypot(s.vel.x, s.vel.y, s.vel.z);
+      inst.rollSpeed = s.onGround ? groundSpeed : Math.max(0, inst.rollSpeed - Math.max(15, inst.rollSpeed * 0.8) * dt);
+      inst.rolled = (inst.rolled + inst.rollSpeed * dt) % 10000;
 
       inst.root.visible = true;
       // From inside this aircraft's canopy (the 3D cockpit), its exterior canopy frame isn't drawn.
@@ -313,6 +329,10 @@ export function createMeshAircraftRenderer(root: THREE.Object3D, template: Aircr
             pn.node.visible = p.keepVisible === true || f < 0.99;
             break;
           }
+          case 'wheel':
+            // Rolling forwards turns the top of the wheel forwards: negative about the (+z) axle.
+            angle = -((inst.rolled / (p.radiusM ?? 0.3)) % (2 * Math.PI));
+            break;
           case 'slat':
             angle = inst.slat * p.travelRad;
             break;

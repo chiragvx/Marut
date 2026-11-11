@@ -102,6 +102,86 @@ for c in comps:
     c['mx'] += d_body
 
 
+# --- 2b. Symmetry: the source poses some left-side pieces differently from their right twins
+# (slats drooped, slat-strut relief panels open under the wing, the main leg a few cm off). Every
+# left piece with an identical mirrored twin on the right is moved onto that twin's mirror image. ---
+def _kabsch(a, b):
+    ca, cb = a.mean(0), b.mean(0)
+    u, _, vt = np.linalg.svd((a - ca).T @ (b - cb))
+    d = np.sign(np.linalg.det(vt.T @ u.T))
+    r = vt.T @ np.diag([1.0, 1.0, d]) @ u.T
+    return r, cb - r @ ca
+
+
+def _icp(a, b, iters=40):
+    r, t = np.eye(3), b.mean(0) - a.mean(0)
+    for _ in range(iters):
+        q = a @ r.T + t
+        nn = b[np.argmin(((q[:, None, :] - b[None, :, :]) ** 2).sum(2), axis=1)]
+        r, t = _kabsch(a, nn)
+    q = a @ r.T + t
+    rms = float(np.sqrt(((q[:, None, :] - b[None, :, :]) ** 2).sum(2).min(1).mean()))
+    return r, t, rms
+
+
+def _comp_vidx(c):
+    me = c['obj'].data
+    return sorted({vi for fi in c['faces'] for vi in me.polygons[fi].vertices})
+
+
+def _centre(c):
+    return (c['mn'] + c['mx']) / 2
+
+
+# The source's centreline is a few cm off z = 0: find it from the twin pairs' midpoints and shift the
+# model onto it (so mirroring through z = 0 doesn't open gaps on the left).
+rights = [c for c in comps if _centre(c).z > 0.3 and c['n'] <= 400]
+mids = []
+for c in comps:
+    cc = _centre(c)
+    if cc.z > -0.3 or c['n'] > 400:
+        continue
+    tw = [r for r in rights if r['n'] == c['n'] and (_centre(r) - Vector((cc.x, cc.y, -cc.z))).length < 0.4]
+    if tw:
+        mids.append((_centre(min(tw, key=lambda r: (_centre(r) - Vector((cc.x, cc.y, -cc.z))).length)).z + cc.z) / 2)
+z_mid = sorted(mids)[len(mids) // 2] if mids else 0.0
+print('SYMMETRY plane at z %.4f from %d pairs; recentring' % (z_mid, len(mids)))
+for o in meshes:
+    o.data.transform(Matrix.Translation(blend((0, 0, -z_mid))))
+for c in comps:
+    c['mn'].z -= z_mid
+    c['mx'].z -= z_mid
+
+moved = 0
+for c in comps:
+    cc = _centre(c)
+    if cc.z > -0.3 or c['n'] > 400:
+        continue
+    twins = [r for r in rights if r['n'] == c['n'] and (_centre(r) - Vector((cc.x, cc.y, -cc.z))).length < 0.4]
+    if not twins:
+        continue
+    tw = min(twins, key=lambda r: (_centre(r) - Vector((cc.x, cc.y, -cc.z))).length)
+    li = _comp_vidx(c)
+    a = np.array([tuple(c['obj'].data.vertices[i].co) for i in li])
+    b = np.array([tuple(tw['obj'].data.vertices[i].co) for i in _comp_vidx(tw)]) * np.array([1.0, -1.0, 1.0])  # body z = -Blender y
+    if len(a) != len(b):
+        continue
+    r, t, rms = _icp(a, b)
+    ang = math.degrees(math.acos(max(-1.0, min(1.0, (np.trace(r) - 1) / 2))))
+    shift = float(np.abs(a @ r.T + t - a).max())
+    if rms > 0.002 or shift < 0.004:
+        continue
+    q = a @ r.T + t
+    for i, vi in enumerate(li):
+        c['obj'].data.vertices[vi].co = Vector(tuple(q[i]))
+    vs = [body(Vector(tuple(p))) for p in q]
+    c['mn'] = Vector((min(v.x for v in vs), min(v.y for v in vs), min(v.z for v in vs)))
+    c['mx'] = Vector((max(v.x for v in vs), max(v.y for v in vs), max(v.z for v in vs)))
+    moved += 1
+    print('SYMMETRY moved left piece at', tuple(round(x, 2) for x in cc), 'n', c['n'], 'rot %.1f deg, max shift %.3f m' % (ang, shift))
+print('SYMMETRY', moved, 'left pieces moved onto their right twins')
+
+
 # --- 3. Sort the pieces. ---
 def is_glass(o):
     return 'glass' in o.data.materials[0].name.lower()
@@ -148,12 +228,32 @@ labels = {}
 for c in comps:
     lab = classify(c, main_c)
     if lab == 'pylon':
-        pylon_boxes.append((c['mn'].copy(), c['mx'].copy()))
-        lab = 'body'
+        if c['mx'].y > -0.1:
+            # The pylon itself (it meets the wing): part of the airframe, and a store station.
+            pylon_boxes.append((c['mn'].copy(), c['mx'].copy()))
+            lab = 'body'
+        else:
+            # A missile launcher/rail built under the pylon (inboard and outboard stations): dropped;
+            # the renderer hangs the right launcher for whatever the station carries.
+            lab = 'launcherRail'
     c['label'] = lab
     labels.setdefault(c['obj'].name, {})
     for fi in c['faces']:
         labels[c['obj'].name][fi] = lab
+# Wheels: each leg's tyres (big round pieces reaching the ground) and everything inside them (hubs,
+# brakes) become their own parts, riding on the leg and rolling with the ground speed.
+WHEEL_LABEL = {'noseGear': 'noseWheels', 'mainGearR': 'mainWheelR', 'mainGearL': 'mainWheelL'}
+for gl, wl in WHEEL_LABEL.items():
+    leg = [c for c in comps if c['label'] == gl]
+    tyres = [c for c in leg if c['n'] >= 100 and (c['mx'] - c['mn']).x > 0.3 and (c['mx'] - c['mn']).y > 0.3 and c['mn'].y < WHEEL_BOTTOM_Y + 0.03]
+    for t in tyres:
+        lo = t['mn'] - Vector((0.01, 0.01, 0.01))
+        hi = t['mx'] + Vector((0.01, 0.01, 0.01))
+        for c in leg:
+            if all(lo[i] <= c['mn'][i] and c['mx'][i] <= hi[i] for i in range(3)):
+                c['label'] = wl
+                for fi in c['faces']:
+                    labels[c['obj'].name][fi] = wl
 for lab in sorted({c['label'] for c in comps}):
     sel = [c for c in comps if c['label'] == lab]
     print('GROUP', lab, len(sel), sum(c['n'] for c in sel))
@@ -251,27 +351,8 @@ canopy_deg, canopy_err = fit_angle(['canopyFrame'], canopy_pivot, (0, 0, 1), sil
 print('CANOPY pivot', canopy_pivot, 'close', canopy_deg, 'deg, sill error', round(canopy_err, 3))
 transform_group(['canopyFrame', 'canopyGlass'], hinge_rotation(canopy_pivot, (0, 0, 1), canopy_deg))
 
-# --- 4b. Left slats: the source has them posed partly drooped (the right ones are retracted). Fit
-# each left slat rigidly onto the mirror image of its right twin (ICP) and move it there. ---
-def _kabsch(a, b):
-    ca, cb = a.mean(0), b.mean(0)
-    u, _, vt = np.linalg.svd((a - ca).T @ (b - cb))
-    d = np.sign(np.linalg.det(vt.T @ u.T))
-    r = vt.T @ np.diag([1.0, 1.0, d]) @ u.T
-    return r, cb - r @ ca
-
-
-def _icp(a, b, iters=60):
-    r, t = np.eye(3), b.mean(0) - a.mean(0)
-    for _ in range(iters):
-        q = a @ r.T + t
-        nn = b[np.argmin(((q[:, None, :] - b[None, :, :]) ** 2).sum(2), axis=1)]
-        r, t = _kabsch(a, nn)
-    q = a @ r.T + t
-    rms = float(np.sqrt(((q[:, None, :] - b[None, :, :]) ** 2).sum(2).min(1).mean()))
-    return r, t, rms
-
-
+# --- 4b. Left slats: posed drooped by up to 45 deg in the source, more than the general symmetry
+# pass (2b) is sure to catch: fit each onto its mirrored right twin again, with more iterations. ---
 for k in (0, 1, 2):
     lo = groups.get('slatL%d' % k, [])
     ro = groups.get('slatR%d' % k, [])
@@ -279,7 +360,7 @@ for k in (0, 1, 2):
         continue
     a = np.array([tuple(v.co) for o in lo for v in o.data.vertices])
     b = np.array([tuple(v.co) for o in ro for v in o.data.vertices]) * np.array([1.0, -1.0, 1.0])  # body z = -Blender y
-    r, t, rms = _icp(a, b)
+    r, t, rms = _icp(a, b, iters=60)
     ang = math.degrees(math.acos(max(-1.0, min(1.0, (np.trace(r) - 1) / 2))))
     print('SLAT L%d -> mirror of R%d: rotate %.1f deg, move %.3f m, rms %.4f m' % (k, k, ang, float(np.linalg.norm(t + r @ a.mean(0) - a.mean(0))), rms))
     if rms < 0.02:
@@ -303,9 +384,11 @@ def end_point(vs, key, pick):
     return pick(near)
 
 
-def edge_line(vs, span, chord, front):
+def edge_line(vs, span, chord, front, mid=False):
     """Hinge line along one edge: in 8 bins along `span`, the extreme vertex along `chord` (max if
-    `front`, else min); a least-squares line through them. Returns (point at the inner end, unit dir)."""
+    `front`, else min); a least-squares line through them. Returns (point at the inner end, unit dir).
+    `mid`: use the mean of the bin's vertices within 1.5 cm of that extreme instead (the middle of a
+    thick edge, so the line doesn't tilt from the top skin at one end to the bottom at the other)."""
     lo = min(span(v) for v in vs)
     hi = max(span(v) for v in vs)
     pts = []
@@ -314,7 +397,11 @@ def edge_line(vs, span, chord, front):
         b = lo + (hi - lo) * (i + 1) / 8
         bin_v = [v for v in vs if a <= span(v) <= b]
         if bin_v:
-            pts.append(max(bin_v, key=chord) if front else min(bin_v, key=chord))
+            ext = max(bin_v, key=chord) if front else min(bin_v, key=chord)
+            if mid:
+                near = [v for v in bin_v if abs(chord(v) - chord(ext)) < 0.015]
+                ext = sum(near, Vector()) / len(near)
+            pts.append(ext)
     n = len(pts)
     c = sum(pts, Vector()) / n
     ts = [span(p) - span(c) for p in pts]
@@ -342,7 +429,7 @@ for side, sgn in (('R', 1), ('L', -1)):
         vs = all_verts([name])
         if not vs:
             continue
-        inner, d = edge_line(vs, lambda v: abs(v.z), lambda v: v.x, False)
+        inner, d = edge_line(vs, lambda v: abs(v.z), lambda v: v.x, False, mid=True)
         parts[name] = dict(driver='slat', pivot=inner, axis=unit_pos_z(d), travelRad=-18 * deg)
 
     # Airbrake: hinged along its forward edge (it opens up and out into the airflow); close it onto
@@ -365,7 +452,7 @@ for side, sgn in (('R', 1), ('L', -1)):
     # so it swings aft and in, from the top of the leg into the bay under the doors (x -1.6..-0.5):
     # the shortest rotation taking the leg's direction (top -> wheel centre) to "aft and
     # slightly out", ending with the wheel inside the airframe at the back of the bay.
-    vs = all_verts(['mainGear' + side])
+    vs = all_verts(['mainGear' + side, 'mainWheel' + side])
     top = max(vs, key=lambda v: v.y - 0.3 * abs(v.z))
     ymin = min(v.y for v in vs)
     wheel = [v for v in vs if v.y < ymin + 0.55]
@@ -426,6 +513,189 @@ vs = all_verts(['rudder'])
 botv, d = edge_line(vs, lambda v: v.y, lambda v: v.x, True)
 parts['rudder'] = dict(driver='rudder', pivot=botv, axis=-d if d.y > 0 else d, travelRad=0)
 
+# Wheel hubs: axle through the tyres' centre, along the principal direction nearest the lateral (z)
+# axis (a twin-wheel pair is wider than it is round); rolling radius.
+for wl, gl in (('noseWheels', 'noseGear'), ('mainWheelR', 'mainGearR'), ('mainWheelL', 'mainGearL')):
+    vs = all_verts([wl])
+    if not vs:
+        continue
+    pts = np.array([tuple(v) for v in vs])
+    c = (pts.min(0) + pts.max(0)) / 2
+    w, ev = np.linalg.eigh(np.cov((pts - c).T))
+    ax = ev[:, int(np.argmax(np.abs(ev[2, :])))]
+    ax = ax if ax[2] >= 0 else -ax
+    rad = float(np.max(np.linalg.norm(np.cross(pts - c, ax), axis=1)))
+    parts[wl] = dict(driver='wheel', pivot=Vector(tuple(c)), axis=Vector(tuple(ax)), travelRad=0, parent=gl, radius=rad)
+    print('WHEEL', wl, 'centre', tuple(round(float(x), 3) for x in c), 'axis', tuple(round(float(x), 3) for x in ax), 'r', round(rad, 3))
+
+# --- 5b. Bay lids. The source leaves parts of the wheel wells open with the gear up (inboard of the
+# main bay doors; the nose leg's drag-brace slot): find them by ray-casting the belly from below
+# against the airframe and the closed doors, and close each with a generated flush door that
+# follows the skin's curve and opens with the gear. ---
+def closed_door_bvh():
+    bm = bmesh.new()
+    for name, p in parts.items():
+        if p['driver'] != 'gear' or not p.get('keepVisible'):
+            continue
+        m = hinge_rotation(p['pivot'], p['axis'], math.degrees(p['travelRad']))
+        for o in groups.get(name, []):
+            me = o.data.copy()
+            me.transform(m)
+            bm.from_mesh(me)
+            bpy.data.meshes.remove(me)
+    tree = BVHTree.FromBMesh(bm)
+    bm.free()
+    return tree
+
+
+doors_closed = closed_door_bvh()
+LID_STEP = 0.02
+
+
+def belly_hit(x, z):
+    """(y of the first surface seen from below, True if it is a closed door) or None."""
+    o = blend((x, -3.0, z))
+    up = blend((0, 1, 0))
+    a = fuselage.ray_cast(o, up)
+    b = doors_closed.ray_cast(o, up)
+    if a[0] is None and b[0] is None:
+        return None
+    if b[0] is not None and (a[0] is None or b[3] <= a[3] + 0.002):
+        return body(b[0]).y, True
+    return body(a[0]).y, False
+
+
+def find_openings(x0, x1, z0, z1, depth=0.05):
+    """Cells (i, k) of the box where the first surface seen from below is the airframe (not a closed
+    door) and lies `depth` above the lowest skin in its column of the box: an open well."""
+    xs = [x0 + i * LID_STEP for i in range(int((x1 - x0) / LID_STEP) + 1)]
+    zs = [z0 + k * LID_STEP for k in range(int((z1 - z0) / LID_STEP) + 1)]
+    hit = {(i, k): belly_hit(x, z) for i, x in enumerate(xs) for k, z in enumerate(zs)}
+    rec = set()
+    for k in range(len(zs)):
+        col = [hit[(i, k)][0] for i in range(len(xs)) if hit[(i, k)] is not None]
+        if not col:
+            continue
+        skin = min(col)
+        for i in range(len(xs)):
+            h = hit[(i, k)]
+            if h is not None and not h[1] and h[0] > skin + depth:
+                rec.add((i, k))
+    return xs, zs, rec
+
+
+def lid_rect(xs, zs, rec, seed):
+    """The connected opening nearest the seed point (x, z) as a rectangle (x0, x1, z0, z1), or None."""
+    if not rec:
+        return None
+    start = min(rec, key=lambda c: (xs[c[0]] - seed[0]) ** 2 + (zs[c[1]] - seed[1]) ** 2)
+    seen, best = set(), []
+    for c in [start]:
+        if c in seen:
+            continue
+        comp, stack = [], [c]
+        seen.add(c)
+        while stack:
+            i, k = stack.pop()
+            comp.append((i, k))
+            for n in ((i + 1, k), (i - 1, k), (i, k + 1), (i, k - 1)):
+                if n in rec and n not in seen:
+                    seen.add(n)
+                    stack.append(n)
+        if len(comp) > len(best):
+            best = comp
+    if len(best) < 6:
+        return None
+    i0 = min(c[0] for c in best)
+    i1 = max(c[0] for c in best)
+    k0 = min(c[1] for c in best)
+    k1 = max(c[1] for c in best)
+    return xs[i0] - LID_STEP / 2, xs[i1] + LID_STEP / 2, zs[k0] - LID_STEP / 2, zs[k1] + LID_STEP / 2
+
+
+def skin_y(x, z, z0, z1):
+    """Skin height across an opening: linear between the surfaces seen just outside its two sides."""
+    def side(zz, step):
+        for _ in range(8):
+            h = belly_hit(x, zz)
+            if h is not None:
+                return h[0]
+            zz += step
+        return None
+    ya = side(z0 - 0.015, -0.01)
+    yb = side(z1 + 0.015, 0.01)
+    if ya is None or yb is None:
+        return ya if yb is None else yb
+    return ya + (yb - ya) * (z - z0) / (z1 - z0)
+
+
+def plain_uv():
+    """A plain painted spot of the texture (the belly aft of the main bays) for the lids."""
+    uv = main.data.uv_layers.active.data
+    for poly in main.data.polygons:
+        c = body(poly.center)
+        if abs(c.x + 2.3) < 0.15 and abs(c.z) < 0.08 and c.y < -0.3:
+            li = poly.loop_indices
+            return (sum(uv[i].uv.x for i in li) / len(li), sum(uv[i].uv.y for i in li) / len(li))
+    return (0.5, 0.5)
+
+
+LID_UV = plain_uv()
+
+
+def make_lid(name, rect, hinge_side):
+    """A curved panel over rect (x0, x1, z0, z1), 3 mm proud of the skin, hinged along its z0 or z1
+    edge (hinge_side -1 / +1) and opening 90 deg downwards; authored open, as the gear parts are."""
+    x0, x1, z0, z1 = rect
+    nx = max(2, int((x1 - x0) / 0.05) + 1)
+    nz = max(2, int((z1 - z0) / 0.03) + 1)
+    vb = []
+    for i in range(nx):
+        x = x0 + (x1 - x0) * i / (nx - 1)
+        for k in range(nz):
+            z = z0 + (z1 - z0) * k / (nz - 1)
+            y = skin_y(x, z, z0, z1)
+            if y is None:
+                print('LID', name, 'skipped: no skin around it')
+                return
+            vb.append(Vector((x, y - 0.003, z)))
+    faces = [(i * nz + k, (i + 1) * nz + k, (i + 1) * nz + k + 1, i * nz + k + 1) for i in range(nx - 1) for k in range(nz - 1)]
+    me = bpy.data.meshes.new(name)
+    me.from_pydata([blend(v) for v in vb], [], faces)
+    me.update()
+    if body(me.polygons[0].normal).y > 0:  # face down (outwards)
+        me.flip_normals()
+    uvl = me.uv_layers.new(name='UVMap')
+    for lp in uvl.data:
+        lp.uv = LID_UV
+    me.materials.append(main.data.materials[0])
+    o = bpy.data.objects.new(name, me)
+    bpy.context.scene.collection.objects.link(o)
+    zh = z0 if hinge_side < 0 else z1
+    pivot = Vector((x0, skin_y(x0, zh, z0, z1) - 0.003, zh))
+    # + rotation about this axis swings the free edge down (open); the part closes by -90 deg.
+    axis = Vector((1.0 if hinge_side < 0 else -1.0, 0, 0))
+    o.data.transform(hinge_rotation(pivot, axis, 90))
+    groups[name] = [o]
+    parts[name] = dict(driver='gear', pivot=pivot, axis=axis, travelRad=-90 * deg, keepVisible=True)
+    print('LID', name, 'x %.2f..%.2f z %.2f..%.2f, hinge z %.2f' % (x0, x1, z0, z1, zh))
+
+
+for side, sgn in (('R', 1), ('L', -1)):
+    # Forward of the outer bay door, inboard of the fuselage side: the well round the top of the leg.
+    za, zb = (0.12, 0.7) if sgn > 0 else (-0.7, -0.12)
+    xs, zs, rec = find_openings(-0.8, 0.25, za, zb)
+    pv = parts['mainGear' + side]['pivot']
+    r = lid_rect(xs, zs, rec, (pv.x, pv.z))
+    print('MAIN WELL', side, len(rec), 'open cells', r)
+    if r:
+        make_lid('mainInnerDoor' + side, r, -1 if sgn > 0 else 1)  # hinged on its inboard edge
+xs, zs, rec = find_openings(1.9, 3.05, -0.3, 0.3)
+r = lid_rect(xs, zs, rec, (2.7, 0.0))
+print('NOSE WELL', len(rec), 'open cells', r)
+if r:
+    make_lid('noseSlotDoor', r, -1)
+
 # --- 6. Scene data: pylons, lights, nozzle, canopy box. ---
 STATION = {('inner', 'L'): 'wing-inner-l', ('inner', 'R'): 'wing-inner-r', ('mid', 'L'): 'wing-mid-l',
            ('mid', 'R'): 'wing-mid-r', ('outer', 'L'): 'wing-outer-l', ('outer', 'R'): 'wing-outer-r'}
@@ -437,15 +707,65 @@ for mn, mx in pylon_boxes:
 pylons = []
 for key in [('outer', 'L'), ('outer', 'R'), ('mid', 'L'), ('mid', 'R'), ('inner', 'L'), ('inner', 'R')]:
     boxes = clusters[key]
-    lowest = min(boxes, key=lambda b: b[0].y)
-    x0 = min(b[0].x for b in boxes)
-    x1 = max(b[1].x for b in boxes)
-    pylons.append(dict(stationId=STATION[key], x=round((lowest[0].x + lowest[1].x) / 2, 3), z=round(sum((b[0].z + b[1].z) / 2 for b in boxes) / len(boxes), 3),
-                       len=round(x1 - x0, 3), attachY=round(lowest[0].y, 3)))
-# Centreline: no pylon in the source; hang stores 12 cm under the belly at the procedural station.
-hit = fuselage.ray_cast(blend((-0.35, -3.0, 0.0)), blend((0, 1, 0)))
-belly_y = body(hit[0]).y if hit[0] is not None else -0.7
-pylons.append(dict(stationId='centreline', x=-0.35, z=0.0, len=1.6, attachY=round(belly_y - 0.12, 3)))
+    # Stores hang from the pylon's base, centred on it (its suspension lugs).
+    mn = Vector((min(b[0].x for b in boxes), min(b[0].y for b in boxes), min(b[0].z for b in boxes)))
+    mx = Vector((max(b[1].x for b in boxes), max(b[1].y for b in boxes), max(b[1].z for b in boxes)))
+    pylons.append(dict(stationId=STATION[key], x=round((mn.x + mx.x) / 2, 3), z=round((mn.z + mx.z) / 2, 3),
+                       len=round(mx.x - mn.x, 3), attachY=round(mn.y, 3)))
+
+
+def add_body_box(x0, x1, y_top, y_bot, half_w, nose=0.25, tail=0.2):
+    """A streamlined pylon (rounded slab, tapered at both ends) joined to the airframe."""
+    nx, nr = 12, 12
+    vb, faces = [], []
+    for i in range(nx + 1):
+        x = x0 + (x1 - x0) * i / nx
+        k = min(1.0, (x - x0) / tail, (x1 - x) / nose)
+        k = max(0.15, math.sqrt(max(0.0, k)))
+        for j in range(nr):
+            a = 2 * math.pi * j / nr
+            ca, sa = math.cos(a), math.sin(a)
+            e = 0.5
+            z = half_w * k * math.copysign(abs(ca) ** e, ca)
+            y = (y_top + y_bot) / 2 + (y_top - y_bot) / 2 * math.copysign(abs(sa) ** e, sa)
+            vb.append(blend((x, y, z)))
+    for i in range(nx):
+        for j in range(nr):
+            a, b = i * nr + j, i * nr + (j + 1) % nr
+            faces.append((a, b, b + nr, a + nr))
+    faces.append(tuple(range(nr)))
+    faces.append(tuple(nx * nr + j for j in reversed(range(nr))))
+    me = bpy.data.meshes.new('pylonGen')
+    me.from_pydata(vb, [], faces)
+    me.update()
+    bm2 = bmesh.new()
+    bm2.from_mesh(me)
+    bmesh.ops.triangulate(bm2, faces=bm2.faces[:])
+    bmesh.ops.recalc_face_normals(bm2, faces=bm2.faces[:])
+    bm2.to_mesh(me)
+    bm2.free()
+    uvl = me.uv_layers.new(name='UVMap')
+    for lp in uvl.data:
+        lp.uv = LID_UV
+    me.materials.append(main.data.materials[0])
+    o = bpy.data.objects.new('pylonGen', me)
+    bpy.context.scene.collection.objects.link(o)
+    groups['body'].append(o)
+
+
+# Centreline: no pylon in the source; a generated one under the belly between the main legs.
+CL_X0, CL_X1 = -1.05, 0.35
+belly = [belly_hit(x, 0.0) for x in (CL_X0, (CL_X0 + CL_X1) / 2, CL_X1)]
+belly_y = min(h[0] for h in belly if h is not None) if any(belly) else -0.7
+add_body_box(CL_X0, CL_X1, belly_y + 0.03, belly_y - 0.12, 0.06)
+pylons.append(dict(stationId='centreline', x=round((CL_X0 + CL_X1) / 2, 3), z=0.0, len=round(CL_X1 - CL_X0, 3), attachY=round(belly_y - 0.12, 3)))
+
+# Sensor pod station under the port intake: the intake's lowest point near x 1.25.
+pod_hits = [(belly_hit(1.25, -zz), zz) for zz in (0.4, 0.45, 0.5, 0.55, 0.6, 0.65, 0.7)]
+pod_hits = [(h[0], zz) for h, zz in pod_hits if h is not None]
+pod_y, pod_z = min(pod_hits) if pod_hits else (-0.75, 0.74)
+pod_mount = [1.25, round(pod_y - 0.04, 3), round(-pod_z, 3)]
+print('POD MOUNT (port intake)', pod_mount)
 
 mv = verts(main)
 tip = max(mv, key=lambda v: v.z)
@@ -530,6 +850,9 @@ for name, p in parts.items():
         o['keepVisible'] = True
     # Gear timing: legs fold over the first 3/4 of the retraction, then the doors close (reversed on
     # the way down: doors open, then the legs come down).
+    if p.get('parent'):
+        o['parent'] = p['parent']
+        o['radiusM'] = round(p['radius'], 4)
     if p['driver'] == 'gear':
         o['travelWindow'] = [0.7, 1.0] if 'Door' in name else [0.0, 0.75]
     keep.add(o)
@@ -539,7 +862,7 @@ for o in list(bpy.data.objects):
         bpy.data.objects.remove(o)
 
 sc = bpy.context.scene
-sc['marut'] = dict(pylons=pylons, lights=lights, nozzle=nozzle, canopyInterior=canopy_box,
+sc['marut'] = dict(pylons=pylons, podMount=pod_mount, lights=lights, nozzle=nozzle, canopyInterior=canopy_box,
                    credit='"HAL Tejas" by dimal965 (https://sketchfab.com/3d-models/hal-tejas-fd95c85e2452490cbe32f80175498441), CC BY 4.0; repainted and rigged for Marut')
 print('PYLONS', pylons)
 print('LIGHTS', lights)

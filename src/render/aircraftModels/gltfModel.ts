@@ -8,7 +8,7 @@
  * - `body`: the fixed airframe; `cockpit`: interior + canopy frame (hidden from inside the 3D
  *   cockpit); `glass`: canopy and windscreen;
  * - every other mesh is a moving part whose node extras carry `driver`, `pivot`, `axis`,
- *   `travelRad` and optionally `keepVisible`, `travelWindow` (ArticulatedPart's fields and sign conventions);
+ *   `travelRad` and optionally `keepVisible`, `travelWindow`, `parent` + `radiusM` (wheels) (ArticulatedPart's fields and sign conventions);
  * - scene extras `marut`: pylons, lights, nozzle {exitX, axisY}, canopyInterior, credit.
  * Everything else (stores, lights, flame, team colours) works as for the procedural model.
  */
@@ -17,13 +17,17 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { cap, circle, loft, PART, range } from './meshBuild';
 import type { V3 } from './meshBuild';
+import { TEJAS_GLB_HASH } from './tejasGlbVersion';
 import { buildFlame, INTAKE_STATION, NOZZLE_AXIS_Y, NOZZLE_EXIT_X, type AircraftModelTemplate, type ArticulatedPart, type LIGHTS, type PartDriver, type Pylon } from './tejasModel';
 
-/** The imported Tejas (relative to the page, so it works under /play/ and in the Android build). */
-export const TEJAS_GLB_URL = new URL('../models/tejas.glb', document.baseURI).href;
+/** The imported Tejas (relative to the page, so it works under /play/ and in the Android build);
+ *  versioned by content so a rebuilt model is never served from a stale cache. */
+export const TEJAS_GLB_URL = new URL(`../models/tejas.glb?v=${TEJAS_GLB_HASH}`, document.baseURI).href;
 
 interface SceneExtras {
   pylons: Pylon[];
+  /** The sensor-pod station under the port intake. */
+  podMount?: V3;
   lights: Omit<typeof LIGHTS, never>;
   /** The nozzle's exit and axis; hinge/exit radii when the source's own nozzle was cut out for ours. */
   nozzle: { exitX: number; axisY: number; hingeX?: number; hingeR?: number; exitR?: number };
@@ -31,7 +35,7 @@ interface SceneExtras {
   credit?: string;
 }
 
-const DRIVERS: readonly PartDriver[] = ['elevonL', 'elevonR', 'rudder', 'gear', 'slat', 'airbrake'];
+const DRIVERS: readonly PartDriver[] = ['elevonL', 'elevonR', 'rudder', 'gear', 'slat', 'airbrake', 'wheel'];
 
 /** A mesh's geometry in its node's frame baked out, with the attributes the aircraft shader reads. */
 function prepare(mesh: THREE.Mesh, part: number): THREE.BufferGeometry {
@@ -105,7 +109,7 @@ export function templateFromGltf(scene: THREE.Object3D): AircraftModelTemplate {
 
   const parts: ArticulatedPart[] = [];
   for (const [name, mesh] of meshes) {
-    const ud = mesh.userData as { driver?: string; pivot?: unknown; axis?: unknown; travelRad?: number; keepVisible?: boolean; travelWindow?: unknown };
+    const ud = mesh.userData as { driver?: string; pivot?: unknown; axis?: unknown; travelRad?: number; keepVisible?: boolean; travelWindow?: unknown; parent?: string; radiusM?: number };
     if (!ud.driver) continue;
     if (!DRIVERS.includes(ud.driver as PartDriver)) throw new Error(`aircraft GLB: part "${name}" has unknown driver ${ud.driver}`);
     parts.push({
@@ -116,6 +120,8 @@ export function templateFromGltf(scene: THREE.Object3D): AircraftModelTemplate {
       driver: ud.driver as PartDriver,
       travelRad: Number(ud.travelRad ?? 0),
       ...(ud.keepVisible ? { keepVisible: true } : {}),
+      ...(ud.parent ? { parent: ud.parent } : {}),
+      ...(ud.radiusM ? { radiusM: Number(ud.radiusM) } : {}),
       ...(Array.isArray(ud.travelWindow) ? { travelWindow: [Number(ud.travelWindow[0]), Number(ud.travelWindow[1])] as [number, number] } : {}),
     });
   }
@@ -140,7 +146,7 @@ export function templateFromGltf(scene: THREE.Object3D): AircraftModelTemplate {
     nozzleAxisY: extras.nozzle.axisY,
     nozzleExitX: extras.nozzle.exitX,
     pylons: extras.pylons,
-    podMounts: [INTAKE_STATION],
+    podMounts: [extras.podMount ? v3(extras.podMount) : INTAKE_STATION],
     lights: {
       navLeft: v3(L.navLeft),
       navRight: v3(L.navRight),

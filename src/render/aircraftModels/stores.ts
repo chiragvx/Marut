@@ -14,7 +14,7 @@
  */
 import * as THREE from 'three';
 import { STORE_IDS } from '../../contracts/core';
-import { PART, box, cap, circle, loft, merge, plate, range, type V3 } from './meshBuild';
+import { PART, box, cap, circle, loft, merge, plate, range, type Section, type V3 } from './meshBuild';
 
 export interface StoreModel {
   kind: 'missile' | 'tank' | 'bomb' | 'pod';
@@ -287,9 +287,11 @@ const PODS: Record<string, { len: number; dia: number }> = {
 /** Twin bomb carrier: the two bombs' centres either side of the pylon. */
 export const BOMB_RACK_Z = 0.23;
 
+/** Drop tanks: no published drawings; sized so the shape holds the rated volume (1200 L inboard:
+ *  4.6 m x 0.68 m, the tail running past the wing's trailing edge as in photos; 725 L centreline). */
 const TANKS: Record<string, { len: number; dia: number; noseLen: number; tailLen: number }> = {
-  'tank-1200l': { len: 4.0, dia: 0.72, noseLen: 1.3, tailLen: 1.1 },
-  'tank-725l': { len: 3.8, dia: 0.52, noseLen: 1.1, tailLen: 1.0 },
+  'tank-1200l': { len: 4.6, dia: 0.68, noseLen: 1.4, tailLen: 1.2 },
+  'tank-725l': { len: 3.8, dia: 0.58, noseLen: 1.1, tailLen: 1.0 },
 };
 
 /** Rail depth below its attach point, m; missiles hang just below it. */
@@ -430,9 +432,24 @@ function buildTank(t: { len: number; dia: number; noseLen: number; tailLen: numb
   return merge([loft(xs, (x) => circle(0, 0, radius(L / 2 - x)), 24, PART.pylon), cap(-L / 2, circle(0, 0, radius(L)), 24, PART.pylon, [-1, 0, 0])]);
 }
 
-/** A launch rail hanging from its attach point (the origin), 1.8 m long. */
+/**
+ * A launch rail hanging from its attach point (the origin), 1.8 m long: a streamlined launcher body
+ * (rounded section, a long pointed fairing in front, tapered behind) with the metal T-rail the
+ * missile's hangers slide on along its underside.
+ */
 function buildRail(): THREE.BufferGeometry {
-  return merge([box([0.15, -RAIL_DEPTH / 2, 0], [0.9, RAIL_DEPTH / 2, 0.04], PART.pylon), box([0.15, -RAIL_DEPTH + 0.008, 0], [0.88, 0.008, 0.055], PART.metal)]);
+  const x0 = -0.75;
+  const x1 = 1.05;
+  const halfW = 0.045;
+  const k = (x: number): number => Math.max(0.12, Math.sqrt(Math.min(1, (x1 - x) / 0.35, (x - x0) / 0.15)));
+  const sec = (x: number): Section => ({ cy: -RAIL_DEPTH / 2, cz: 0, w: halfW * k(x), hT: RAIL_DEPTH / 2, hB: (RAIL_DEPTH / 2) * (0.4 + 0.6 * k(x)), n: 3 });
+  const xs = range(x0, x1, 0.05);
+  return merge([
+    loft(xs, sec, 16, PART.pylon),
+    cap(x0, sec(x0), 16, PART.pylon, [-1, 0, 0]),
+    cap(x1, sec(x1), 16, PART.pylon, [1, 0, 0]),
+    box([0.12, -RAIL_DEPTH + 0.006, 0], [0.82, 0.006, 0.03], PART.metal),
+  ]);
 }
 
 /** The two rails' frames on a twin launcher: [left (-z), right (+z)], each canted outwards. */

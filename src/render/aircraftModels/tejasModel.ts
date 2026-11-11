@@ -909,7 +909,7 @@ export function buildFlame(): THREE.BufferGeometry {
 // -----------------------------------------------------------------------------
 
 /** How a moving part is driven (see meshAircraftRenderer.ts). */
-export type PartDriver = 'elevonL' | 'elevonR' | 'rudder' | 'gear' | 'slat' | 'airbrake';
+export type PartDriver = 'elevonL' | 'elevonR' | 'rudder' | 'gear' | 'slat' | 'airbrake' | 'wheel';
 
 export interface ArticulatedPart {
   name: string;
@@ -925,6 +925,10 @@ export interface ArticulatedPart {
   /** Gear parts: the span of the retraction (0 = down .. 1 = up) over which this part moves, so the
    *  doors close after the legs are in and open before they come down (default the whole travel). */
   travelWindow?: [number, number];
+  /** Rides on another part (by name): its pivot moves with that part (a wheel on its leg). */
+  parent?: string;
+  /** Wheels: rolling radius, m (the part spins about its axle with the ground speed). */
+  radiusM?: number;
 }
 
 export interface AircraftModelTemplate {

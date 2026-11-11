@@ -148,18 +148,23 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
   scene.add(aircraftRoot);
   // Solid articulated aircraft; it replaces the original wireframe, so registerAircraftModel's
   // WireframeModel is no longer drawn. The procedural Tejas draws at once; the imported, textured
-  // model (public/models/tejas.glb) replaces it when loaded. Dev aid: ?jetmodel=classic keeps the
-  // procedural one.
+  // model (public/models/tejas.glb) replaces it when loaded (aircraftModelReady: the loading screens
+  // wait for it). Dev aid: ?jetmodel=classic keeps the procedural one.
   let aircraftRenderer = createMeshAircraftRenderer(aircraftRoot, withLivery(buildTejasModel()));
   let sceneDisposed = false;
+  let modelReady = true;
   if (typeof location === 'undefined' || new URLSearchParams(location.search).get('jetmodel') !== 'classic') {
+    modelReady = false;
     loadGltfAircraftModel(TEJAS_GLB_URL)
       .then((template) => {
         if (sceneDisposed) return;
         aircraftRenderer.dispose();
         aircraftRenderer = createMeshAircraftRenderer(aircraftRoot, template);
       })
-      .catch((err: unknown) => console.warn('[aircraft] imported model failed to load; keeping the procedural Tejas', err));
+      .catch((err: unknown) => console.warn('[aircraft] imported model failed to load; keeping the procedural Tejas', err))
+      .finally(() => {
+        modelReady = true;
+      });
   }
   const aircraftState = {
     elevonL: 0,
@@ -490,6 +495,9 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
       groundHeightAt = heightAt;
     },
 
+    aircraftModelReady() {
+      return modelReady;
+    },
     setShowcase(frame) {
       showcase = frame;
     },

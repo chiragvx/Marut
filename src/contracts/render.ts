@@ -492,6 +492,9 @@ export interface CockpitAuxState {
 }
 
 export interface SceneRenderer {
+  /** False while the imported aircraft model is still downloading (true once it is in, or it failed
+   *  and the built-in model stays): loading screens wait for it so the jet never swaps mid-flight. */
+  aircraftModelReady(): boolean;
   /** Draw a scripted camera and aircraft (the menu's cinematic) instead of the flight; null returns to the flight. */
   setShowcase(frame: ShowcaseFrame | null): void;
   /** Call on window resize / orientation change / initial mount. */
