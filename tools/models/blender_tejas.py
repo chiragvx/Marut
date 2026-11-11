@@ -719,48 +719,64 @@ def under_y(x, z):
     return None if h[0] is None else body(h[0]).y
 
 
-# Wing pylons, from photos of the Tejas (the inboard ones with 1200 L tanks, the outboard with an
-# R-73 or ASRAAM, the IDRW Mk1A static display): slab-sided, ~14 cm thick, about as deep below the
-# wing as the tank's radius, the length of the launcher; a rounded nose, a flat bottom where the
-# stores' lugs are, and a long ramp from the bottom up to the wing behind.
-PYLON_SPEC = {'inner': dict(L=2.1, depth=0.32), 'mid': dict(L=1.95, depth=0.30), 'outer': dict(L=1.8, depth=0.27)}
-PYLON_HALF_W = 0.068
+# Wing pylons, from photos of the Tejas (a gear-down flypast with tanks and empty launchers, the
+# IDRW Mk1A display, a 1200 L tank line-up): long, shallow fairings in the airframe's paint, tucked
+# under the wing from just aft of the leading edge back to the elevon hinge line, where they taper to a
+# point; ~13 cm thick, a rounded nose, a flat bottom where the launcher or the tank's lugs sit.
+PYLON_SPEC = {'inner': dict(front=1.0, depth=0.2), 'mid': dict(front=0.95, depth=0.19), 'outer': dict(front=0.85, depth=0.17)}
+PYLON_HALF_W = 0.065
+PYLON_TAIL = -0.05  # relative to the wing box's end (the elevon hinge line): just ahead of it, clear of the elevons
+PYLON_TAPER = 0.6  # the tail's sweep up from the flat bottom
 
 
-def add_wing_pylon(xc, zc, L, depth):
+def add_wing_pylon(xc, zc, front, depth):
     """Builds the pylon joined to the airframe; returns (x0, x1, bottom y)."""
-    xs = [xc - L / 2 + L * i / 60 for i in range(61)]
+    step = 0.02
+    # The wing overhead: from the station forward to the leading edge (or `front`), aft to the
+    # trailing edge.
+    hits = []
+    x = xc
+    while x < xc + front and under_y(x, zc) is not None:
+        x += step
+    x1 = x - step
+    x = xc
+    while under_y(x - step, zc) is not None and x > xc - 4:
+        x -= step
+    x_te = x
+    xs = [x_te + (x1 - x_te) * i / 80 for i in range(81)]
     hits = [(x, under_y(x, zc)) for x in xs]
     hits = [(x, y) for x, y in hits if y is not None]
-    x0, x1 = hits[0][0], hits[-1][0]
 
     def wy(x):
         for (xa, ya), (xb, yb) in zip(hits, hits[1:]):
             if xa <= x <= xb:
                 return ya + (yb - ya) * (x - xa) / max(1e-6, xb - xa)
-        return hits[0][1] if x < x0 else hits[-1][1]
+        return hits[0][1] if x < hits[0][0] else hits[-1][1]
 
     y_bot = wy(xc) - depth
-    nose, tail = 0.3, 0.55
-    nx, nr = 56, 28
+    x0 = x_te - PYLON_TAIL
+    y_te = wy(x_te)
+    nose = 0.28
+    nx, nr = 72, 28
     rings = []
     for i in range(nx + 1):
-        t = i / nx
-        x = x0 + (x1 - x0) * t
-        top = wy(x) + 0.02
-        h = top - y_bot
+        x = x0 + (x1 - x0) * i / nx
         kw = 1.0
+        # Top: a little inside the wing (less near its thin trailing edge); the last few cm behind
+        # it, level with the trailing edge.
+        top = wy(x) + 0.02 * min(1.0, (x - x_te) / 0.3) if x >= x_te else y_te
+        h = top - y_bot
+        bot = y_bot
         if x > x1 - nose:
             u = min(0.985, (x - (x1 - nose)) / nose)
             bot = top - h * math.sqrt(1 - u * u)
             kw = math.sqrt(1 - u * u) ** 0.6
-        elif x < x0 + tail:
-            u = (x0 + tail - x) / tail
-            bot = y_bot + (h - 0.03) * u ** 1.4
-            kw = 1 - 0.55 * u
-        else:
-            bot = y_bot
-        rings.append((x, top, bot, PYLON_HALF_W * max(0.12, kw)))
+        elif x < x0 + PYLON_TAPER:
+            # The tail: the bottom sweeps up to a point at the elevon hinge line, narrowing.
+            u = min(0.97, (x0 + PYLON_TAPER - x) / PYLON_TAPER)
+            bot = y_bot + (h - 0.01) * u ** 1.3
+            kw = 1 - 0.75 * u
+        rings.append((x, top, bot, PYLON_HALF_W * max(0.08, kw)))
     vb, faces = [], []
     e = 0.22  # superellipse exponent: flat flanks, rounded lower edges
     for x, top, bot, hw in rings:
@@ -807,7 +823,7 @@ for key in [('outer', 'L'), ('outer', 'R'), ('mid', 'L'), ('mid', 'R'), ('inner'
     mx = Vector((max(b[1].x for b in boxes), max(b[1].y for b in boxes), max(b[1].z for b in boxes)))
     xc, zc = (mn.x + mx.x) / 2, (mn.z + mx.z) / 2
     spec = PYLON_SPEC[key[0]]
-    x0, x1, yb = add_wing_pylon(xc, zc, spec['L'], spec['depth'])
+    x0, x1, yb = add_wing_pylon(xc, zc, spec['front'], spec['depth'])
     print('PYLON', key, 'x %.3f..%.3f z %.3f bottom %.3f (source bottom %.3f)' % (x0, x1, zc, yb, mn.y))
     # Stores hang from the pylon's base, centred on the station.
     pylons.append(dict(stationId=STATION[key], x=round(xc, 3), z=round(zc, 3), len=round(x1 - x0, 3), attachY=round(yb, 3)))

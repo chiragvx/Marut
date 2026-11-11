@@ -297,7 +297,7 @@ const TANKS: Record<string, { len: number; dia: number; noseLen: number; tailLen
 /** Launcher depth below its attach point (the pylon's base), m; missiles hang on short hangers
  *  just below it. As in photos of the Tejas's R-73 / ASRAAM / Derby stations: a slab-sided beam
  *  about two-thirds of the missile's length, as deep as the missile is thick. */
-const RAIL_DEPTH = 0.15;
+const RAIL_DEPTH = 0.13;
 /** Hanger gap between the launcher's rail and the missile's body. */
 const HANGER = 0.014;
 /** Twin launcher: a wide adapter beam under the pylon with a rail canted out from each lower edge.
@@ -451,28 +451,30 @@ function buildTank(t: { len: number; dia: number; noseLen: number; tailLen: numb
 }
 
 /**
- * A launcher hanging from its attach point (the origin, at its top): a slab-sided beam with flat
- * flanks and rounded lower edges, the front a long wedge fairing whose underside sweeps up to the
- * pylon, a short taper at the back; along its underside the metal T-rail and the two hangers the
- * missile rides on.
+ * A launcher hanging from its attach point (the origin, at its top), as on the Tejas's wing stations:
+ * a light-grey beam with flat flanks and rounded lower edges, a blunt rounded nose and a short taper
+ * behind; along its underside the metal T-rail and the two hangers the missile rides on.
  */
-function buildRail(len = 2.0, depth = RAIL_DEPTH, halfW = 0.055): THREE.BufferGeometry {
-  const x1 = 0.25 + len * 0.55;
+function buildRail(len = 2.3, depth = RAIL_DEPTH, halfW = 0.058): THREE.BufferGeometry {
+  const x1 = 0.25 + len * 0.5;
   const x0 = x1 - len;
-  const noseL = len * 0.24;
-  const tailL = len * 0.08;
+  const noseL = 0.16;
+  const tailL = len * 0.1;
   const k = (x: number): number => {
-    if (x > x1 - noseL) return 0.18 + 0.82 * Math.sqrt(Math.max(0, (x1 - x) / noseL));
-    if (x < x0 + tailL) return 0.55 + 0.45 * ((x - x0) / tailL);
+    if (x > x1 - noseL) {
+      const u = Math.min(0.97, (x - (x1 - noseL)) / noseL);
+      return Math.max(0.25, Math.sqrt(1 - u * u));
+    }
+    if (x < x0 + tailL) return 0.5 + 0.5 * ((x - x0) / tailL);
     return 1;
   };
   const sec = (x: number): Section => {
-    const d = depth * k(x);
-    return { cy: -d / 2, cz: 0, w: halfW * (0.45 + 0.55 * Math.min(1, k(x) * 1.15)), hT: d / 2, hB: d / 2, n: 4 };
+    const d = depth * (0.35 + 0.65 * k(x));
+    return { cy: -d / 2, cz: 0, w: halfW * k(x), hT: d / 2, hB: d / 2, n: 3.5 };
   };
-  const xs = [...range(x0, x1 - noseL, 0.1), ...range(x1 - noseL + 0.02, x1, 0.02)];
+  const xs = [...range(x0, x1 - noseL, 0.1), ...range(x1 - noseL + 0.016, x1, 0.016)];
   const railX0 = x0 + tailL + 0.05;
-  const railX1 = x1 - noseL;
+  const railX1 = x1 - noseL - 0.05;
   const parts = [
     loft(xs, sec, 20, PART.pylon),
     cap(x0, sec(x0), 20, PART.pylon, [-1, 0, 0]),
@@ -491,9 +493,9 @@ export const TWIN_RAIL_FRAMES: readonly [THREE.Matrix4, THREE.Matrix4] = [-1, 1]
 
 /** Twin launcher: the adapter beam and its two canted rails. */
 function buildTwinRail(): THREE.BufferGeometry {
-  const parts: THREE.BufferGeometry[] = [buildRail(1.8, TWIN_ADAPTER_DEPTH, TWIN_ADAPTER_HALF_W)];
+  const parts: THREE.BufferGeometry[] = [buildRail(2.0, TWIN_ADAPTER_DEPTH, TWIN_ADAPTER_HALF_W)];
   for (const f of TWIN_RAIL_FRAMES) {
-    const rail = buildRail(1.9, TWIN_RAIL_DEPTH, 0.045).translate(0, TWIN_RAIL_DEPTH - RAIL_DEPTH, 0);
+    const rail = buildRail(2.1, TWIN_RAIL_DEPTH, 0.045).translate(0, TWIN_RAIL_DEPTH - RAIL_DEPTH, 0);
     rail.applyMatrix4(f);
     parts.push(rail);
   }
