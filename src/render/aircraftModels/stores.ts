@@ -294,12 +294,24 @@ const TANKS: Record<string, { len: number; dia: number; noseLen: number; tailLen
   'tank-725l': { len: 3.8, dia: 0.58, noseLen: 1.1, tailLen: 1.0 },
 };
 
-/** Rail depth below its attach point, m; missiles hang just below it. */
-const RAIL_DEPTH = 0.07;
-/** Twin-rail launcher: rails either side of the pylon, canted outwards. */
-const TWIN_RAIL_Z = 0.24;
-const TWIN_RAIL_Y = -0.12;
-const TWIN_CANT = (30 * Math.PI) / 180;
+/** Launcher depth below its attach point (the pylon's base), m; missiles hang on short hangers
+ *  just below it. As in photos of the Tejas's R-73 / ASRAAM / Derby stations: a slab-sided beam
+ *  about two-thirds of the missile's length, as deep as the missile is thick. */
+const RAIL_DEPTH = 0.15;
+/** Hanger gap between the launcher's rail and the missile's body. */
+const HANGER = 0.014;
+/** Twin launcher: a wide adapter beam under the pylon with a rail canted out from each lower edge.
+ *  The rails are shallower than a single launcher; each rail's frame origin sits where a full-depth
+ *  rail's top would be, so the missile mounts are shared. Missile centres end up ~0.2 m either side. */
+const TWIN_ADAPTER_DEPTH = 0.1;
+const TWIN_ADAPTER_HALF_W = 0.1;
+const TWIN_RAIL_DEPTH = 0.1;
+const TWIN_CANT = (35 * Math.PI) / 180;
+/** The rail's top centre, tucked into the adapter's lower edge. */
+const TWIN_ROOT_Y = -0.085;
+const TWIN_ROOT_Z = 0.09;
+const TWIN_RAIL_Y = TWIN_ROOT_Y + (RAIL_DEPTH - TWIN_RAIL_DEPTH) * Math.cos(TWIN_CANT);
+const TWIN_RAIL_Z = TWIN_ROOT_Z - (RAIL_DEPTH - TWIN_RAIL_DEPTH) * Math.sin(TWIN_CANT);
 
 /** Tangent-ogive radius at distance d back from the point of an ogive of length l and base radius r. */
 function ogive(d: number, l: number, r: number): number {
@@ -433,23 +445,37 @@ function buildTank(t: { len: number; dia: number; noseLen: number; tailLen: numb
 }
 
 /**
- * A launch rail hanging from its attach point (the origin), 1.8 m long: a streamlined launcher body
- * (rounded section, a long pointed fairing in front, tapered behind) with the metal T-rail the
- * missile's hangers slide on along its underside.
+ * A launcher hanging from its attach point (the origin, at its top): a slab-sided beam with flat
+ * flanks and rounded lower edges, the front a long wedge fairing whose underside sweeps up to the
+ * pylon, a short taper at the back; along its underside the metal T-rail and the two hangers the
+ * missile rides on.
  */
-function buildRail(): THREE.BufferGeometry {
-  const x0 = -0.75;
-  const x1 = 1.05;
-  const halfW = 0.045;
-  const k = (x: number): number => Math.max(0.12, Math.sqrt(Math.min(1, (x1 - x) / 0.35, (x - x0) / 0.15)));
-  const sec = (x: number): Section => ({ cy: -RAIL_DEPTH / 2, cz: 0, w: halfW * k(x), hT: RAIL_DEPTH / 2, hB: (RAIL_DEPTH / 2) * (0.4 + 0.6 * k(x)), n: 3 });
-  const xs = range(x0, x1, 0.05);
-  return merge([
-    loft(xs, sec, 16, PART.pylon),
-    cap(x0, sec(x0), 16, PART.pylon, [-1, 0, 0]),
-    cap(x1, sec(x1), 16, PART.pylon, [1, 0, 0]),
-    box([0.12, -RAIL_DEPTH + 0.006, 0], [0.82, 0.006, 0.03], PART.metal),
-  ]);
+function buildRail(len = 2.0, depth = RAIL_DEPTH, halfW = 0.055): THREE.BufferGeometry {
+  const x1 = 0.25 + len * 0.55;
+  const x0 = x1 - len;
+  const noseL = len * 0.24;
+  const tailL = len * 0.08;
+  const k = (x: number): number => {
+    if (x > x1 - noseL) return 0.18 + 0.82 * Math.sqrt(Math.max(0, (x1 - x) / noseL));
+    if (x < x0 + tailL) return 0.55 + 0.45 * ((x - x0) / tailL);
+    return 1;
+  };
+  const sec = (x: number): Section => {
+    const d = depth * k(x);
+    return { cy: -d / 2, cz: 0, w: halfW * (0.45 + 0.55 * Math.min(1, k(x) * 1.15)), hT: d / 2, hB: d / 2, n: 4 };
+  };
+  const xs = [...range(x0, x1 - noseL, 0.1), ...range(x1 - noseL + 0.02, x1, 0.02)];
+  const railX0 = x0 + tailL + 0.05;
+  const railX1 = x1 - noseL;
+  const parts = [
+    loft(xs, sec, 20, PART.pylon),
+    cap(x0, sec(x0), 20, PART.pylon, [-1, 0, 0]),
+    cap(x1, sec(x1), 20, PART.pylon, [1, 0, 0]),
+    // T-rail and the two hangers (just forward of the missile's mid-body and near its tail).
+    box([(railX0 + railX1) / 2, -depth - 0.004, 0], [(railX1 - railX0) / 2, 0.005, 0.022], PART.metal),
+  ];
+  for (const hx of [0.7, -0.45]) parts.push(box([hx, -depth - HANGER / 2, 0], [0.05, HANGER / 2, 0.012], PART.metal));
+  return merge(parts);
 }
 
 /** The two rails' frames on a twin launcher: [left (-z), right (+z)], each canted outwards. */
@@ -457,16 +483,12 @@ export const TWIN_RAIL_FRAMES: readonly [THREE.Matrix4, THREE.Matrix4] = [-1, 1]
   new THREE.Matrix4().makeTranslation(0, TWIN_RAIL_Y, side * TWIN_RAIL_Z).multiply(new THREE.Matrix4().makeRotationX(-side * TWIN_CANT))
 ) as [THREE.Matrix4, THREE.Matrix4];
 
-/** Twin-rail launcher: an adapter under the pylon with a canted rail either side. */
+/** Twin launcher: the adapter beam and its two canted rails. */
 function buildTwinRail(): THREE.BufferGeometry {
-  const parts: THREE.BufferGeometry[] = [box([0.1, -0.05, 0], [0.7, 0.05, 0.07], PART.pylon)];
-  for (const [k, side] of [
-    [0, -1],
-    [1, 1],
-  ] as const) {
-    parts.push(box([0.1, -0.085, side * TWIN_RAIL_Z * 0.5], [0.5, 0.025, TWIN_RAIL_Z * 0.5], PART.pylon));
-    const rail = buildRail();
-    rail.applyMatrix4(TWIN_RAIL_FRAMES[k]!);
+  const parts: THREE.BufferGeometry[] = [buildRail(1.8, TWIN_ADAPTER_DEPTH, TWIN_ADAPTER_HALF_W)];
+  for (const f of TWIN_RAIL_FRAMES) {
+    const rail = buildRail(1.9, TWIN_RAIL_DEPTH, 0.045).translate(0, TWIN_RAIL_DEPTH - RAIL_DEPTH, 0);
+    rail.applyMatrix4(f);
     parts.push(rail);
   }
   return merge(parts);
@@ -482,7 +504,7 @@ export interface StoreModels {
 export function buildStoreModels(): StoreModels {
   const byCode = STORE_IDS.map((id): StoreModel | undefined => {
     const m = MISSILES[id];
-    if (m) return { kind: 'missile', geometry: buildMissile(m), mount: new THREE.Matrix4().makeTranslation(0.25, -(RAIL_DEPTH + 0.005 + m.dia / 2), 0) };
+    if (m) return { kind: 'missile', geometry: buildMissile(m), mount: new THREE.Matrix4().makeTranslation(0.25, -(RAIL_DEPTH + HANGER + m.dia / 2), 0) };
     const t = TANKS[id];
     if (t) return { kind: 'tank', geometry: buildTank(t), mount: new THREE.Matrix4().makeTranslation(0, -(0.03 + t.dia / 2), 0) };
     const b = BOMBS[id];
