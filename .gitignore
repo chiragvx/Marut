@@ -8,3 +8,6 @@ dist-tools/
 *.log
 .DS_Store
 acceptance-report.json
+
+# Downloaded 3D model sources (large; processed outputs are committed instead)
+tools/models/source/

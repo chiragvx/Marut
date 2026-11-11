@@ -77,6 +77,7 @@ import { createSunShadows } from './sunShadows';
 import { TERRAIN_QUALITY_PROFILES, TERRAIN_WORLD_EXTENT_M } from '../contracts/terrain';
 import { createMeshAircraftRenderer } from './meshAircraftRenderer';
 import { buildTejasModel } from './aircraftModels/tejasModel';
+import { loadGltfAircraftModel, TEJAS_GLB_URL } from './aircraftModels/gltfModel';
 import { LIVERY_MAP, tejasLiveryTexture } from './aircraftModels/tejasLivery';
 
 /** The Tejas with its livery (markings, panel lines). */
@@ -145,9 +146,21 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
 
   const aircraftRoot = new THREE.Group();
   scene.add(aircraftRoot);
-  // Solid articulated aircraft (a procedural Tejas until an art asset exists); it replaces the
-  // original wireframe, so registerAircraftModel's WireframeModel is no longer drawn.
-  const aircraftRenderer = createMeshAircraftRenderer(aircraftRoot, withLivery(buildTejasModel()));
+  // Solid articulated aircraft; it replaces the original wireframe, so registerAircraftModel's
+  // WireframeModel is no longer drawn. The procedural Tejas draws at once; the imported, textured
+  // model (public/models/tejas.glb) replaces it when loaded. Dev aid: ?jetmodel=classic keeps the
+  // procedural one.
+  let aircraftRenderer = createMeshAircraftRenderer(aircraftRoot, withLivery(buildTejasModel()));
+  let sceneDisposed = false;
+  if (typeof location === 'undefined' || new URLSearchParams(location.search).get('jetmodel') !== 'classic') {
+    loadGltfAircraftModel(TEJAS_GLB_URL)
+      .then((template) => {
+        if (sceneDisposed) return;
+        aircraftRenderer.dispose();
+        aircraftRenderer = createMeshAircraftRenderer(aircraftRoot, template);
+      })
+      .catch((err: unknown) => console.warn('[aircraft] imported model failed to load; keeping the procedural Tejas', err));
+  }
   const aircraftState = {
     elevonL: 0,
     elevonR: 0,
@@ -865,6 +878,7 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
     },
 
     dispose() {
+      sceneDisposed = true;
       cockpit?.dispose();
       aircraftRenderer.dispose();
       terrainConsumer.dispose();

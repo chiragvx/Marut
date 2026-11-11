@@ -40,6 +40,10 @@ export const PART = {
   door: 25,
   /** Bombs: olive drab. */
   bomb: 26,
+  /** Imported models: painted from their own texture set (aircraftMaterial uBaseMap etc.). */
+  textured: 27,
+  /** As `textured`, but cockpit interior and canopy frame: hidden from inside the 3D cockpit. */
+  texturedCockpit: 28,
 } as const;
 
 /** Monotone cubic through (xs ascending, ys). */

@@ -882,7 +882,7 @@ function buildMainBayDoor(side: 1 | -1): { geometry: THREE.BufferGeometry; pivot
 // Afterburner flame
 // -----------------------------------------------------------------------------
 
-function buildFlame(): THREE.BufferGeometry {
+export function buildFlame(): THREE.BufferGeometry {
   const len = 3.8;
   const n = 24;
   const rows = 12;
@@ -944,6 +944,8 @@ export interface AircraftModelTemplate {
   canopyInterior: { min: V3; max: V3 };
   /** Markings and panel lines (a texture needs a DOM, so the renderer's owner attaches it). */
   livery?: import('../aircraftMaterial').AircraftLivery;
+  /** Imported models: their texture set (parts drawn as PART.textured sample it). */
+  textures?: import('../aircraftMaterial').AircraftTextures;
 }
 
 function unit(v: V3): V3 {

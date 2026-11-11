@@ -215,7 +215,7 @@ export function createMeshAircraftRenderer(root: THREE.Object3D, template: Aircr
     const airframe = new THREE.Group();
     airframe.position.x = template.offsetX;
     group.add(airframe);
-    const body = createAircraftBodyMaterial(shared, template.nozzleAxisY, template.livery);
+    const body = createAircraftBodyMaterial(shared, template.nozzleAxisY, template.livery, template.textures, template.textures ? template.nozzleExitX + 0.7 : undefined);
     const bodyMesh = new THREE.Mesh(template.body, body);
     bodyMesh.layers.enable(AIRCRAFT_SHADOW_LAYER);
     airframe.add(bodyMesh);

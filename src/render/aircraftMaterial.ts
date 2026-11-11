@@ -33,6 +33,8 @@ const VS = /* glsl */ `
   ${ATMOSPHERE_GLSL}
   attribute float aPart;
   attribute float aNoz;
+  /** Imported (textured) models: tangent (xyz) and handedness (w) for the normal map. */
+  attribute vec4 aTangent;
   uniform vec3 uOrigin;
   uniform vec3 uCamRel;
   uniform float uNozzle;
@@ -43,9 +45,12 @@ const VS = /* glsl */ `
   varying float vPart;
   varying float vNoz;
   varying vec3 vNormalL;
+  varying vec2 vUv;
+  varying vec4 vTangentW;
   void main() {
     vec3 p = position;
     vNormalL = normal;
+    vUv = uv;
     if (aNoz > 0.0) {
       // Petals swing open about their hinge ring: up to +30% radius at the exit.
       vec2 c = vec2(uNozzleY, 0.0);
@@ -61,6 +66,7 @@ const VS = /* glsl */ `
     vec4 wr = modelMatrix * lp;
     vWorld = wr.xyz + uOrigin;
     vNormalW = normalize(mat3(modelMatrix) * nl);
+    vTangentW = vec4(mat3(modelMatrix) * aTangent.xyz, aTangent.w);
     vPos = position;
     vPart = aPart;
     vNoz = aNoz;
@@ -96,6 +102,14 @@ const FS = /* glsl */ `
   uniform float uLiveryOn;
   /** 1 when the camera is inside this aircraft's canopy (the 3D cockpit): skip the exterior canopy frame. */
   uniform float uInterior;
+  /** Imported models (PART.textured / texturedCockpit): base colour (sRGB), metal-roughness (G rough,
+   *  B metal, glTF), tangent-space normal map; uHotX = body x aft of which the airframe is engine-hot (FLIR). */
+  uniform sampler2D uBaseMap;
+  uniform sampler2D uMrMap;
+  uniform sampler2D uNormalMap;
+  uniform float uHotX;
+  varying vec2 vUv;
+  varying vec4 vTangentW;
   vec4 livery(vec3 p, vec3 nl) {
     float u = (p.x - uLiveryMap.x) / (uLiveryMap.y - uLiveryMap.x);
     vec2 uv;
@@ -124,7 +138,31 @@ const FS = /* glsl */ `
     vec3 glow = vec3(0.0);
 
     bool painted = part == 0 || part == 2 || part == 3 || part == 4 || part == 22 || part == 25;
-    if (part == 22) {
+    bool textured = part == 27 || part == 28;
+    if (textured) {
+      // Imported model: its own paint, markings, panel lines and normal map.
+      if (part == 28 && uInterior > 0.5) discard;
+      vec3 base = pow(texture2D(uBaseMap, vUv).rgb, vec3(2.2));
+      vec3 mr = texture2D(uMrMap, vUv).rgb;
+      vec3 tn = texture2D(uNormalMap, vUv).rgb * 2.0 - 1.0;
+      vec3 t = vTangentW.xyz - n * dot(n, vTangentW.xyz);
+      if (dot(t, t) > 1e-8) {
+        t = normalize(t);
+        vec3 b = cross(n, t) * (vTangentW.w < 0.0 ? -1.0 : 1.0);
+        n = normalize(t * tn.x + b * tn.y + n * tn.z);
+      }
+      if (friendly) {
+        col = base;
+      } else {
+        // Hostile: plain dark grey; keep the panel lines, drop coloured markings.
+        float lum = dot(base, vec3(0.2126, 0.7152, 0.0722));
+        float sat = max(max(base.r, base.g), base.b) - min(min(base.r, base.g), base.b);
+        col = paint * (sat > 0.08 ? 1.0 : clamp(lum / 0.5, 0.0, 1.25));
+      }
+      ks = mix(0.4, 0.04, mr.g);
+      shin = mix(90.0, 10.0, mr.g);
+      refl = mix(0.03, 0.3, mr.b) * (1.0 - 0.7 * mr.g);
+    } else if (part == 22) {
       // Radome: lighter grey dielectric.
       col = friendly ? vec3(0.74, 0.76, 0.76) : vec3(0.5, 0.52, 0.53);
       ks = 0.12;
@@ -236,7 +274,8 @@ const FS = /* glsl */ `
     vec3 env = atmSky(reflect(-V, n));
     col = col * (amb + uAtmSunCol * diff) + uAtmSunCol * spec + env * refl * (0.4 + 3.0 * fres) + glow;
     // FLIR: a warm airframe; the nozzle and engine white-hot, more so with power.
-    if (uAtmThermal > 0.5) col = vec3(part == 6 || part == 7 ? 1.6 : 0.8 + 0.3 * uThrottle);
+    bool hot = part == 6 || part == 7 || (textured && vPos.x < uHotX);
+    if (uAtmThermal > 0.5) col = vec3(hot ? 1.6 : 0.8 + 0.3 * uThrottle);
     gl_FragColor = vec4(atmApply(col, vWorld), 1.0);
   }
 `;
@@ -257,7 +296,20 @@ export interface AircraftLivery {
   map: { x0: number; x1: number; y0: number; y1: number; halfZ: number };
 }
 
-export function createAircraftBodyMaterial(shared: AircraftSharedUniforms, nozzleAxisY: number, livery?: AircraftLivery): THREE.ShaderMaterial & { uniforms: AircraftBodyUniforms } {
+/** An imported model's texture set (glTF PBR). */
+export interface AircraftTextures {
+  base: THREE.Texture;
+  metalRough: THREE.Texture;
+  normal: THREE.Texture;
+}
+
+export function createAircraftBodyMaterial(
+  shared: AircraftSharedUniforms,
+  nozzleAxisY: number,
+  livery?: AircraftLivery,
+  textures?: AircraftTextures,
+  hotX = -1e9,
+): THREE.ShaderMaterial & { uniforms: AircraftBodyUniforms } {
   return new THREE.ShaderMaterial({
     uniforms: {
       ...getAtmosphereUniforms(),
@@ -270,6 +322,10 @@ export function createAircraftBodyMaterial(shared: AircraftSharedUniforms, nozzl
       uLiveryHalfZ: { value: livery?.map.halfZ ?? 1 },
       uLiveryOn: { value: livery?.texture ? 1 : 0 },
       uInterior: { value: 0 },
+      uBaseMap: { value: textures?.base ?? null },
+      uMrMap: { value: textures?.metalRough ?? null },
+      uNormalMap: { value: textures?.normal ?? null },
+      uHotX: { value: hotX },
       uTeam: { value: 0 },
       uLightState: { value: new THREE.Vector4(0, 0, 0, 0) },
       uThrottle: { value: 0 },

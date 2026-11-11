@@ -55,4 +55,6 @@ The full list is under Controls in the main menu, or press F1 in flight.
 
 Airbase layouts for Bhisiana and Shahbaz are based on OpenStreetMap data, © OpenStreetMap contributors, available under the [Open Database License](https://opendatacommons.org/licenses/odbl/).
 
+The Tejas 3D model (`public/models/tejas.glb`) is based on ["HAL Tejas"](https://sketchfab.com/3d-models/hal-tejas-fd95c85e2452490cbe32f80175498441) by [dimal965](https://sketchfab.com/dimal965), licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). Changes: repainted grey, split into moving parts, canopy and airbrakes closed, rescaled to the game frame (`tools/models/build_tejas.py`).
+
 Marut is an independent project and is not affiliated with HAL, the Indian Air Force or the Indian Navy.
