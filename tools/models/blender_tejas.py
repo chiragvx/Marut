@@ -724,6 +724,10 @@ def under_y(x, z):
 # under the wing from just aft of the leading edge back to the elevon hinge line, where they taper to a
 # point; ~13 cm thick, a rounded nose, a flat bottom where the launcher or the tank's lugs sit.
 PYLON_SPEC = {'inner': dict(front=1.0, depth=0.2), 'mid': dict(front=0.95, depth=0.19), 'outer': dict(front=0.85, depth=0.17)}
+# Where the stores hang, forward of the source pylon boxes' midpoints (m): in the photos the 1200 L
+# tanks' noses reach forward under the intakes with their tails near the trailing edge, and the
+# outboard missiles' fins sit well ahead of the trailing edge, noses at or past the leading edge.
+STORE_FWD = {'inner': 0.85, 'mid': 0.45, 'outer': 0.4}
 PYLON_HALF_W = 0.065
 PYLON_TAIL = -0.05  # relative to the wing box's end (the elevon hinge line): just ahead of it, clear of the elevons
 PYLON_TAPER = 0.6  # the tail's sweep up from the flat bottom
@@ -823,10 +827,12 @@ for key in [('outer', 'L'), ('outer', 'R'), ('mid', 'L'), ('mid', 'R'), ('inner'
     mx = Vector((max(b[1].x for b in boxes), max(b[1].y for b in boxes), max(b[1].z for b in boxes)))
     xc, zc = (mn.x + mx.x) / 2, (mn.z + mx.z) / 2
     spec = PYLON_SPEC[key[0]]
-    x0, x1, yb = add_wing_pylon(xc, zc, spec['front'], spec['depth'])
+    fwd = STORE_FWD[key[0]]
+    # The fairing reaches far enough forward to cover the store's front lug.
+    x0, x1, yb = add_wing_pylon(xc, zc, max(spec['front'], fwd + 0.75), spec['depth'])
     print('PYLON', key, 'x %.3f..%.3f z %.3f bottom %.3f (source bottom %.3f)' % (x0, x1, zc, yb, mn.y))
-    # Stores hang from the pylon's base, centred on the station.
-    pylons.append(dict(stationId=STATION[key], x=round(xc, 3), z=round(zc, 3), len=round(x1 - x0, 3), attachY=round(yb, 3)))
+    # Stores hang from the pylon's base, STORE_FWD ahead of the station's centre.
+    pylons.append(dict(stationId=STATION[key], x=round(xc + fwd, 3), z=round(zc, 3), len=round(x1 - x0, 3), attachY=round(yb, 3)))
 
 
 def add_body_box(x0, x1, y_top, y_bot, half_w, nose=0.25, tail=0.2):
