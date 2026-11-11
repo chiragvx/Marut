@@ -1,6 +1,8 @@
 /**
  * src/ui/showcase.ts — the main menu's cinematic: shots of Bhisiana (Bathinda) with a Tejas doing
- * something worth watching. Golden hour: a slow pass over the base onto a Tejas on final, touching
+ * something worth watching. It opens on the jet itself: air-to-air, a camera ship holding station
+ * off a fully loaded Tejas over the base and easing round it; then a low pass down the runway that
+ * ends in an afterburner pull-up into the vertical. Golden hour: a slow pass over the base onto a Tejas on final, touching
  * down a few hundred metres in. Late afternoon: a Tejas taxiing head-on, seen from the grass. Night:
  * an afterburner take-off tracked from beside the runway. (departureScene, INS Hansa, is kept for
  * when that base is tested.) Everything is placed from the base's own runway and taxiways.
@@ -18,6 +20,8 @@ export interface ShowcaseScene {
   /** How long the scene plays, s (fades included). */
   durationSec: number;
   timeOfDayH: number;
+  /** The shot's caption under the menu (lower third): what it is, and where. */
+  caption: { title: string; place: string };
   frame(tSec: number): ShowcaseFrame;
 }
 
@@ -162,6 +166,7 @@ export function approachScene(layout: AirportLayout, runway: RunwayDef, duration
   const look: Vec3Like = { x: 0, y: 0, z: 0 };
   return {
     durationSec,
+    caption: { title: 'Finals', place: 'Bhisiana AFS · Runway' },
     timeOfDayH: 17.25,
     frame(t) {
       // Approach: 1.5 km from touchdown at 72 m/s (down at ~21 s), then the landing roll.
@@ -238,6 +243,7 @@ export function departureScene(layout: AirportLayout, runway: RunwayDef, duratio
   const look: Vec3Like = { x: 0, y: 0, z: 0 };
   return {
     durationSec,
+    caption: { title: 'Departure', place: 'INS Hansa · Goa' },
     timeOfDayH: 8.3,
     frame(t) {
       takeoff(f, jet, t, q);
@@ -266,6 +272,7 @@ export function nightDepartureScene(layout: AirportLayout, runway: RunwayDef, du
   const side = hub.right < 0 ? 1 : -1;
   return {
     durationSec,
+    caption: { title: 'Night launch', place: 'Bhisiana AFS · Bathinda' },
     timeOfDayH: 18.8,
     frame(t) {
       takeoff(f, jet, t, q);
@@ -345,6 +352,7 @@ export function taxiScene(layout: AirportLayout, runway: RunwayDef, durationSec 
   setRot(jet, Quat.fromYawPitchRoll(heading, 0, 0, q));
   return {
     durationSec,
+    caption: { title: 'Taxi', place: 'Bhisiana AFS · Bathinda' },
     timeOfDayH: 17.0,
     frame(t) {
       // Rolling up to taxi speed over the first 3 s.
@@ -366,6 +374,119 @@ export function taxiScene(layout: AirportLayout, runway: RunwayDef, durationSec 
       frame.lookAt.z = jet.pos.z;
       // Head-on the jet shows its 4.4 m height, not its length: 0.8 of 13.2 m keeps it ~1/4 of the view.
       frame.fovDeg = jetFov(distance(frame.camPos, jet.pos), 0.8, 3.5, 55);
+      return frame;
+    },
+  };
+}
+
+/**
+ * Air-to-air over Bhisiana in the late afternoon: a camera ship holds station off a Tejas carrying
+ * the full CAP fit, 450 m above the base, and eases round it from ahead of the wing to its rear
+ * quarter while the jet rocks gently through a few degrees of bank.
+ */
+export function airToAirScene(layout: AirportLayout, runway: RunwayDef, durationSec = 22): ShowcaseScene {
+  const f = runwayFrame(layout, runway);
+  const hub = baseHub(layout, f);
+  const jet = makeAircraft();
+  jet.gearPos = 0;
+  jet.throttle = 0.78;
+  jet.flags = EntityFlag.Lights | EntityFlag.LightsStrobe;
+  const speed = 150;
+  // The camera on the side away from the buildings: they pass beneath, beyond the jet.
+  const side = hub.right < 0 ? 1 : -1;
+  const frame: ShowcaseFrame = { camPos: { x: 0, y: 0, z: 0 }, lookAt: { x: 0, y: 0, z: 0 }, fovDeg: 32, offsetX: 0.15, aircraft: [jet] };
+  const q: QuatLike = { x: 0, y: 0, z: 0, w: 1 };
+  return {
+    durationSec,
+    timeOfDayH: 16.9,
+    caption: { title: 'Air-to-air', place: 'Tejas Mk1A · over Bhisiana AFS' },
+    frame(t) {
+      const along = -1800 + speed * t;
+      const lat = hub.right * 0.6;
+      const height = 450 + 6 * Math.sin(t * 0.35);
+      at(f, along, lat, height, jet.pos);
+      const roll = 7 * deg * Math.sin(t * 0.42) - 3 * deg;
+      setRot(jet, Quat.fromYawPitchRoll(f.heading, 2.5 * deg, roll, q));
+      jet.vel.x = f.dx * speed;
+      jet.vel.y = 0;
+      jet.vel.z = f.dz * speed;
+      // Round from 35 deg off the nose to 150 deg (the rear quarter), drifting a little wider and lower.
+      const u = ease(clamp01(t / durationSec));
+      const th = lerp(35, 150, u) * deg;
+      const r = lerp(25, 27, u);
+      const fwd = Math.cos(th) * r;
+      const lateral = side * Math.sin(th) * r;
+      frame.camPos.x = jet.pos.x + f.dx * fwd + f.rx * lateral;
+      frame.camPos.y = jet.pos.y + lerp(4, 1.5, u);
+      frame.camPos.z = jet.pos.z + f.dz * fwd + f.rz * lateral;
+      frame.lookAt.x = jet.pos.x + f.dx * lerp(1.0, -1.0, u);
+      frame.lookAt.y = jet.pos.y;
+      frame.lookAt.z = jet.pos.z + f.dz * lerp(1.0, -1.0, u);
+      frame.fovDeg = lerp(34, 38, u);
+      return frame;
+    },
+  };
+}
+
+/** The low pass's height above the runway, m. */
+export const PASS_HEIGHT_M = 25;
+
+/**
+ * A low pass down Bhisiana's runway: from beside the runway, a few metres up, a long lens picks up
+ * a Tejas at 25 m and 230 m/s, swings with it as it goes by, then watches it pull up on
+ * afterburner into the vertical and climb away.
+ */
+export function lowPassScene(layout: AirportLayout, runway: RunwayDef, durationSec = 15): ShowcaseScene {
+  const f = runwayFrame(layout, runway);
+  const hub = baseHub(layout, f);
+  const jet = makeAircraft();
+  jet.gearPos = 0;
+  jet.flags = EntityFlag.Lights | EntityFlag.LightsStrobe;
+  jet.groundY = f.elev;
+  const speed = 230;
+  const passAt = 6.5;
+  const pullAt = passAt + 1.4;
+  const camAlong = 1200;
+  // Away from the buildings, ~85 m off the centreline, 12 m up: level with the pass, over the trees.
+  const side = hub.right < 0 ? 1 : -1;
+  const frame: ShowcaseFrame = { camPos: { x: 0, y: 0, z: 0 }, lookAt: { x: 0, y: 0, z: 0 }, fovDeg: 20, offsetX: SUBJECT_OFFSET_X, aircraft: [jet] };
+  const q: QuatLike = { x: 0, y: 0, z: 0, w: 1 };
+  /** Along-runway distance and height after `tp` s of the pull-up (flight path up at 40 deg/s to 80 deg). */
+  const pull = (tp: number): { s: number; h: number; gamma: number } => {
+    let s = 0;
+    let h = 0;
+    const n = Math.max(1, Math.ceil(tp / 0.02));
+    const dt = tp / n;
+    for (let i = 0; i < n; i++) {
+      const g = Math.min(80 * deg, 40 * deg * (i + 0.5) * dt);
+      s += Math.cos(g) * speed * dt;
+      h += Math.sin(g) * speed * dt;
+    }
+    return { s, h, gamma: Math.min(80 * deg, 40 * deg * tp) };
+  };
+  return {
+    durationSec,
+    timeOfDayH: 16.4,
+    caption: { title: 'Low pass', place: 'Bhisiana AFS · Runway' },
+    frame(t) {
+      const tp = Math.max(0, t - pullAt);
+      const p = pull(tp);
+      const along = camAlong + speed * (Math.min(t, pullAt) - passAt) + p.s;
+      at(f, along, 0, PASS_HEIGHT_M + p.h, jet.pos);
+      setRot(jet, Quat.fromYawPitchRoll(f.heading, p.gamma + 2 * deg, 0, q));
+      jet.vel.x = f.dx * speed * Math.cos(p.gamma);
+      jet.vel.y = speed * Math.sin(p.gamma);
+      jet.vel.z = f.dz * speed * Math.cos(p.gamma);
+      jet.afterburner = t > pullAt - 0.6;
+      jet.throttle = jet.afterburner ? 1 : 0.85;
+      at(f, camAlong, side * 85, 12, frame.camPos);
+      frame.lookAt.x = jet.pos.x;
+      frame.lookAt.y = jet.pos.y;
+      frame.lookAt.z = jet.pos.z;
+      frame.fovDeg = jetFov(distance(frame.camPos, jet.pos), 0.7, 2.1, 55);
+      // Centred while it whips past (the pan is fast), back right of centre as it climbs away.
+      const near = clamp01(1 - Math.abs(t - passAt) / 2.5);
+      frame.offsetX = SUBJECT_OFFSET_X * (1 - near);
       return frame;
     },
   };

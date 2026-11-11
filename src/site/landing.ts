@@ -2,7 +2,8 @@
 /**
  * src/site/landing.ts — the landing page's only script (it never loads the game): fills in the
  * name, version and feedback links from src/ui/links.ts, offers "Install app" where the browser
- * allows it, and on phones and tablets swaps Play for a "best on a desktop" note.
+ * allows it, on phones and tablets swaps Play for a "best on a desktop" note, solidifies the nav
+ * once the hero has scrolled away and reveals the sections as they come into view.
  */
 import '../ui/ui.css';
 import './site.css';
@@ -25,15 +26,41 @@ for (const el of q('feedback-nav')) el.replaceWith(externalLink('Feedback', fb, 
 for (const el of q('feedback-footer')) el.replaceWith(externalLink('Feedback', fb, 'Feedback (coming soon)'));
 for (const el of q('feedback-band')) {
   const link = fb
-    ? Object.assign(document.createElement('a'), { className: 'tj-btn tj-btn--big', href: fb, target: '_blank', rel: 'noopener', textContent: 'Give feedback ↗' })
-    : Object.assign(document.createElement('span'), { className: 'tj-btn tj-btn--big', textContent: 'Feedback form coming soon', ariaDisabled: 'true' });
+    ? Object.assign(document.createElement('a'), { className: 'site-btn site-btn--ghost site-btn--big', href: fb, target: '_blank', rel: 'noopener', textContent: 'Give feedback ↗' })
+    : Object.assign(document.createElement('span'), { className: 'site-btn site-btn--ghost site-btn--big', textContent: 'Feedback soon', ariaDisabled: 'true' });
   el.replaceWith(link);
 }
 
 // Phones and tablets: the game is keyboard-first.
 if (isTouchFirstDevice()) {
-  for (const el of q('actions')) el.classList.add('tj-hidden');
-  for (const el of q('desktop-note')) el.classList.remove('tj-hidden');
+  for (const el of q('actions')) el.classList.add('site-hidden');
+  for (const el of q('desktop-note')) el.classList.remove('site-hidden');
+}
+
+// The nav: clear over the hero, solid once it has scrolled away.
+const nav = q('nav')[0];
+if (nav) {
+  const onScroll = (): void => {
+    nav.classList.toggle('site-nav--solid', window.scrollY > window.innerHeight * 0.6);
+  };
+  window.addEventListener('scroll', onScroll, { passive: true });
+  onScroll();
+}
+
+// Sections rise into view as they are scrolled to (visible from the start without the observer).
+if ('IntersectionObserver' in window && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
+  document.body.classList.add('site-js');
+  const io = new IntersectionObserver(
+    (entries) => {
+      for (const e of entries) {
+        if (!e.isIntersecting) continue;
+        e.target.classList.add('site-in');
+        io.unobserve(e.target);
+      }
+    },
+    { rootMargin: '0px 0px -12% 0px' }
+  );
+  for (const el of Array.from(document.querySelectorAll('.site-reveal'))) io.observe(el);
 }
 
 // Install as an app, where the browser offers it.

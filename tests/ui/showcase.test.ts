@@ -5,7 +5,7 @@ import type { ShowcaseFrame } from '../../src/contracts/render';
 import { resolveBuiltinMission } from '../../src/core';
 import { BASES, baseInfo } from '../../src/core/missions/catalogue';
 import { activeRunway } from '../../src/airport/taxiGraph';
-import { approachScene, departureScene, nightDepartureScene, taxiScene, type ShowcaseScene } from '../../src/ui/showcase';
+import { airToAirScene, approachScene, departureScene, lowPassScene, PASS_HEIGHT_M, nightDepartureScene, taxiScene, type ShowcaseScene } from '../../src/ui/showcase';
 
 function sceneFor(baseId: 'bathinda' | 'hansa', make: typeof approachScene): { scene: ShowcaseScene; layout: AirportLayout; runwayId: string } {
   const base = baseInfo(baseId);
@@ -26,6 +26,8 @@ function jetScreenFraction(fr: ShowcaseFrame): number {
 
 describe.each([
   // name, base, scene, lowest camera above the field (m), camera looks down at the jet throughout
+  ['Bathinda air-to-air', 'bathinda', airToAirScene, 300, false],
+  ['Bathinda low pass', 'bathinda', lowPassScene, 2, false],
   ['Bathinda approach', 'bathinda', approachScene, 80, true],
   ['Bathinda taxi', 'bathinda', taxiScene, 1, false],
   ['Bathinda night take-off', 'bathinda', nightDepartureScene, 2, false],
@@ -58,6 +60,32 @@ describe.each([
 });
 
 describe('menu cinematic shots', () => {
+  test('every shot has a caption', () => {
+    for (const make of [airToAirScene, lowPassScene, approachScene, taxiScene, nightDepartureScene]) {
+      const c = sceneFor('bathinda', make).scene.caption;
+      expect(c.title.length).toBeGreaterThan(0);
+      expect(c.place.length).toBeGreaterThan(0);
+    }
+  });
+
+  test('the low pass goes by at runway height, then pulls up into a steep climb', () => {
+    const { scene, layout } = sceneFor('bathinda', lowPassScene);
+    expect(scene.frame(6.5).aircraft[0]!.pos.y - layout.elevationM).toBeCloseTo(PASS_HEIGHT_M, 0);
+    const end = scene.frame(scene.durationSec).aircraft[0]!;
+    expect(end.pos.y - layout.elevationM).toBeGreaterThan(500);
+    expect(end.afterburner).toBe(true);
+  });
+
+  test('air-to-air: the camera ship stays 15-30 m off the jet', () => {
+    const { scene } = sceneFor('bathinda', airToAirScene);
+    for (let t = 0; t <= scene.durationSec; t += 0.5) {
+      const fr = scene.frame(t);
+      const d = Math.hypot(fr.camPos.x - fr.aircraft[0]!.pos.x, fr.camPos.y - fr.aircraft[0]!.pos.y, fr.camPos.z - fr.aircraft[0]!.pos.z);
+      expect(d).toBeGreaterThan(15);
+      expect(d).toBeLessThan(30);
+    }
+  });
+
   test('the approach touches down a few hundred metres past the threshold, not on it', () => {
     const { scene, layout, runwayId } = sceneFor('bathinda', approachScene);
     const rw = layout.runways.find((r) => r.id === runwayId)!;

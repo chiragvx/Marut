@@ -72,7 +72,7 @@ import { createRwrTonePlayer } from './ui/audio/rwrTones';
 import { createVoiceWarningState, stepVoiceWarnings, type VoiceLineDef } from './ui/audio/voiceWarnings';
 import { createVoicePlayer } from './ui/audio/voicePlayer';
 import { createAmbience } from './ui/audio/ambience';
-import { approachScene, nightDepartureScene, taxiScene, type ShowcaseScene } from './ui/showcase';
+import { airToAirScene, approachScene, lowPassScene, nightDepartureScene, taxiScene, type ShowcaseScene } from './ui/showcase';
 import { createFlightOverlay, hintText, pickHint, type FlightOverlay, type HintId, type HintKeys } from './ui/flightOverlay';
 import { DEFAULT_INPUT_MAP_DATA } from './input/inputMap';
 import { BASES, MISSIONS, baseInfo, freeFlightMission, missionEntry, type BaseId } from './core/missions/catalogue';
@@ -1197,7 +1197,7 @@ function tickPendingStart(nowMs: number): void {
 }
 
 // -----------------------------------------------------------------------------
-// The menu's cinematic (src/ui/showcase.ts): three shots of Bhisiana (Bathinda), looping behind the
+// The menu's cinematic (src/ui/showcase.ts): five shots of Bhisiana (Bathinda), looping behind the
 // menus. The base's world loads once (capped at High quality); each shot waits for the terrain
 // around its camera before fading in, and fades to black before the next.
 // -----------------------------------------------------------------------------
@@ -1210,6 +1210,31 @@ let showcaseScene: ShowcaseScene | undefined;
 let showcasePhase: 'loading' | 'playing' = 'loading';
 let showcaseT = 0;
 let fadeEl: HTMLDivElement | undefined;
+/** The shot's caption, lower right under the menus (src/ui/ui.css .tj-shot-caption). */
+let captionEl: HTMLDivElement | undefined;
+
+function setShowcaseCaption(c: ShowcaseScene['caption'] | undefined, shot: number): void {
+  if (!captionEl) {
+    captionEl = document.createElement('div');
+    captionEl.className = 'tj-shot-caption tj-passive';
+    captionEl.setAttribute('aria-hidden', 'true');
+    uiRoot.prepend(captionEl);
+  }
+  captionEl.classList.remove('tj-shot-caption--on');
+  if (!c) return;
+  const n = SHOWCASE_SHOTS.length;
+  captionEl.innerHTML = '';
+  const num = document.createElement('span');
+  num.className = 'tj-shot-num';
+  num.textContent = `${String((shot % n) + 1).padStart(2, '0')} / ${String(n).padStart(2, '0')}`;
+  const title = document.createElement('span');
+  title.className = 'tj-shot-title';
+  title.textContent = c.title;
+  const place = document.createElement('span');
+  place.className = 'tj-shot-place';
+  place.textContent = c.place;
+  captionEl.append(num, title, place);
+}
 
 function setFade(black: boolean): void {
   if (!fadeEl) {
@@ -1222,7 +1247,7 @@ function setFade(black: boolean): void {
 }
 
 /** The cinematic's shots, in order (all at Bhisiana: INS Hansa is left out until it is tested). */
-const SHOWCASE_SHOTS = [approachScene, taxiScene, nightDepartureScene] as const;
+const SHOWCASE_SHOTS = [airToAirScene, lowPassScene, approachScene, taxiScene, nightDepartureScene] as const;
 /** The world the cinematic has loaded (a new one only when the base changes). */
 let showcaseWorldBase: string | undefined;
 
@@ -1254,25 +1279,38 @@ function enterShowcaseScene(index: number): void {
   showcasePhase = 'loading';
   showcaseT = 0;
   setFade(true);
+  setShowcaseCaption(showcaseScene?.caption, ((index % SHOWCASE_SHOTS.length) + SHOWCASE_SHOTS.length) % SHOWCASE_SHOTS.length);
   if (showcaseScene) renderer.setShowcase(showcaseScene.frame(0));
 }
 
 /** Plays the cinematic behind the menus (no-op if already playing). */
 /**
- * Dev aid: ?showcase=<shot>,<t>[,near] holds the cinematic at shot 0 (approach), 1 (taxi) or 2 (night take-off), t s
- * in; `near` moves the camera to 25 m beside the jet (for checking it against the ground).
+ * Dev aid: ?showcase=<shot>,<t>[,near][,z<k>][,o<x>] holds the cinematic at shot 0 (air-to-air), 1 (low pass), 2 (approach), 3 (taxi) or 4 (night take-off), t s
+ * in; `near` moves the camera to 25 m beside the jet (for checking it against the ground); `z0.6`
+ * narrows the lens to 0.6 of the shot's and `o0.3` puts the subject 0.3 of the width right of
+ * centre (for stills, e.g. the landing page's captures).
  */
-const devShowcase = ((): { index: number; t: number; near: boolean } | undefined => {
+const devShowcase = ((): { index: number; t: number; near: boolean; zoom: number; offsetX?: number } | undefined => {
   const v = new URLSearchParams(location.search).get('showcase')?.split(',');
   if (!v || v.length < 2) return undefined;
   const index = Number(v[0]);
   const t = Number(v[1]);
-  return Number.isFinite(index) && Number.isFinite(t) ? { index, t, near: v[2] === 'near' } : undefined;
+  const opt = (k: string): number | undefined => {
+    const o = v.slice(2).find((x) => x.startsWith(k));
+    const n = o === undefined ? NaN : Number(o.slice(1));
+    return Number.isFinite(n) ? n : undefined;
+  };
+  const z = opt('z');
+  const o = opt('o');
+  if (!Number.isFinite(index) || !Number.isFinite(t)) return undefined;
+  return { index, t, near: v.includes('near'), zoom: z !== undefined && z > 0 ? z : 1, ...(o !== undefined ? { offsetX: o } : {}) };
 })();
 
 function devShowcaseFrame(sc: ShowcaseScene, t: number): ShowcaseFrame {
   const fr = sc.frame(t);
   const jet = fr.aircraft[0];
+  if (devShowcase && devShowcase.zoom !== 1) fr.fovDeg *= devShowcase.zoom;
+  if (devShowcase?.offsetX !== undefined) fr.offsetX = devShowcase.offsetX;
   if (!devShowcase?.near || !jet) return fr;
   const vh = Math.hypot(jet.vel.x, jet.vel.z) || 1;
   fr.camPos.x = jet.pos.x - (jet.vel.z / vh) * 25;
@@ -1302,6 +1340,7 @@ function stopShowcase(): void {
   renderer.setShowcase(null);
   hudCanvas.style.visibility = 'visible';
   setFade(false);
+  setShowcaseCaption(undefined, 0);
 }
 
 function tickShowcase(dtSec: number): void {
@@ -1316,6 +1355,7 @@ function tickShowcase(dtSec: number): void {
       showcasePhase = 'playing';
       showcaseT = 0;
       setFade(false);
+      captionEl?.classList.add('tj-shot-caption--on');
     }
     return;
   }
@@ -1325,7 +1365,10 @@ function tickShowcase(dtSec: number): void {
   }
   showcaseT += dtSec;
   renderer.setShowcase(sc.frame(showcaseT));
-  if (showcaseT > sc.durationSec - SHOWCASE_FADE_SEC) setFade(true);
+  if (showcaseT > sc.durationSec - SHOWCASE_FADE_SEC) {
+    setFade(true);
+    captionEl?.classList.remove('tj-shot-caption--on');
+  }
   if (showcaseT >= sc.durationSec) enterShowcaseScene(showcaseIndex + 1);
 }
 

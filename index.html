@@ -6,13 +6,14 @@
     <title>Marut: combat flight over India, in your browser</title>
     <meta name="description" content="A free combat flight simulator that runs in your browser. Fly the Tejas Mk1A from Bathinda in Punjab or INS Hansa in Goa. No download, no sign-up." />
     <link rel="manifest" href="./manifest.webmanifest" />
-    <meta name="theme-color" content="#e8ebed" />
+    <meta name="theme-color" content="#06080b" />
+    <link rel="preload" as="image" href="/src/site/media/hero.webp" fetchpriority="high" />
     <script type="module" src="/src/site/landing.ts"></script>
   </head>
   <body class="site">
-    <!-- Images are captures from the game (src/site/media). Wireframe styling until the brand pass. -->
-    <header class="site-nav">
-      <a class="site-brand" href="./" data-site="name">Marut</a>
+    <!-- Images are captures from the game (src/site/media), taken from the menu cinematic (src/ui/showcase.ts). -->
+    <header class="site-nav" data-site="nav">
+      <a class="site-brand" href="./"><span class="site-brand-mark" aria-hidden="true"></span><span data-site="name">Marut</span></a>
       <nav aria-label="Sections">
         <a href="#modes">Modes</a>
         <a href="#aircraft">Aircraft</a>
@@ -20,110 +21,156 @@
         <a href="#controls">Controls</a>
         <span data-site="feedback-nav"></span>
       </nav>
-      <a class="tj-btn tj-btn--primary site-play" href="./play/" data-site="play">Play now</a>
+      <a class="site-btn site-btn--primary site-play" href="./play/" data-site="play">Play now</a>
     </header>
 
     <main>
-      <section class="site-hero">
+      <!-- Hero: full screen, the jet air-to-air over Punjab. -->
+      <section class="site-hero" aria-labelledby="hero-title">
+        <div class="site-hero-media" aria-hidden="true">
+          <img src="/src/site/media/hero.webp" alt="" width="1920" height="1080" fetchpriority="high" />
+        </div>
+        <div class="site-hud" aria-hidden="true">
+          <span class="site-hud-corner site-hud-corner--tl"></span><span class="site-hud-corner site-hud-corner--tr"></span>
+          <span class="site-hud-corner site-hud-corner--bl"></span><span class="site-hud-corner site-hud-corner--br"></span>
+          <div class="site-hud-read">
+            <span><b>ALT</b> 450 M</span><span><b>IAS</b> 290 KT</span><span><b>HDG</b> 133°</span><span><b>LOC</b> 30.27N 74.76E</span>
+          </div>
+        </div>
         <div class="site-hero-copy">
-          <p class="tj-eyebrow" data-site="version">Early access</p>
-          <h1>Fly the Tejas over India. In your browser.</h1>
-          <p class="site-lede">A free combat flight simulator. Take off from Bathinda in Punjab or INS Hansa in Goa, fly where you like, or take on another fighter. No download, no sign-up.</p>
+          <p class="site-kicker" data-site="version">Early access</p>
+          <h1 id="hero-title" class="site-display"><span>Fly the Tejas</span><span class="site-display-2">over India.</span></h1>
+          <p class="site-lede">A free combat flight simulator in your browser. Take off from Bathinda in Punjab or INS Hansa in Goa, fly where you like, or go hunting for another fighter. No download, no sign-up.</p>
           <div class="site-actions" data-site="actions">
-            <a class="tj-btn tj-btn--primary tj-btn--big" href="./play/" data-site="play">Play now, free</a>
-            <button class="tj-btn tj-btn--big" type="button" data-site="install" hidden>Install app</button>
+            <a class="site-btn site-btn--primary site-btn--big" href="./play/" data-site="play">Play free <span aria-hidden="true">→</span></a>
+            <button class="site-btn site-btn--ghost site-btn--big" type="button" data-site="install" hidden>Install app</button>
           </div>
-          <p class="site-desktop-note tj-hidden" data-site="desktop-note">Best on a desktop with a keyboard. <a href="./play/">Try anyway</a></p>
-          <p class="tj-note">Desktop · keyboard · Chrome, Edge or Firefox</p>
+          <p class="site-desktop-note site-hidden" data-site="desktop-note">Best on a desktop with a keyboard. <a href="./play/">Try anyway</a></p>
+          <p class="site-fine">Desktop · keyboard · Chrome, Edge or Firefox</p>
         </div>
-        <img class="site-shot" src="/src/site/media/hero.webp" alt="A Tejas Mk1A with missiles and drop tanks flying over the fields of Punjab" width="1600" height="900" fetchpriority="high" />
+        <a class="site-scroll" href="#numbers" aria-label="Scroll down"><span></span></a>
       </section>
 
-      <section id="modes" class="site-section">
-        <h2>Two ways to fly</h2>
-        <div class="site-grid-2">
-          <a class="site-card" href="./play/#free">
-            <span class="tj-label">Mode</span>
-            <h3>Free Flight</h3>
-            <p>Start in a hardened shelter, on the runway or in the air. Pick the time of day, the weather and what hangs under the wings, then fly for as long as you like.</p>
-            <img class="site-shot" src="/src/site/media/free-flight.webp" alt="A Tejas taxiing head-on towards the camera at Bathinda, taxi light on" width="960" height="540" loading="lazy" decoding="async" />
+      <!-- At a glance. -->
+      <section id="numbers" class="site-strip site-reveal" aria-label="At a glance">
+        <div class="site-stat"><b>Mk1A</b><span>HAL Tejas, single-seat</span></div>
+        <div class="site-stat"><b>7</b><span>Pylons, your choice of fit</span></div>
+        <div class="site-stat"><b>11</b><span>Missions, air-to-air</span></div>
+        <div class="site-stat"><b>2</b><span>Bases: Punjab and Goa</span></div>
+        <div class="site-stat"><b>0</b><span>Downloads. It runs in the browser</span></div>
+      </section>
+
+      <!-- Modes. -->
+      <section id="modes" class="site-section" aria-labelledby="modes-title">
+        <header class="site-head site-reveal">
+          <p class="site-kicker">Modes</p>
+          <h2 id="modes-title" class="site-h2">Two ways to fly</h2>
+        </header>
+        <div class="site-tiles">
+          <a class="site-tile site-reveal" href="./play/#free">
+            <img src="/src/site/media/free-flight.webp" alt="A Tejas Mk1A taxiing towards the camera at Bathinda, tanks and missiles under the wings" width="1920" height="1080" loading="lazy" decoding="async" />
+            <span class="site-tile-copy">
+              <span class="site-tile-num">01</span>
+              <span class="site-tile-title">Free Flight</span>
+              <span class="site-tile-text">Start in a hardened shelter, on the runway or in the air. Pick the hour, the weather and what hangs under the wings, then fly for as long as you like.</span>
+              <span class="site-tile-go">Fly <span aria-hidden="true">→</span></span>
+            </span>
           </a>
-          <a class="site-card" href="./play/#missions">
-            <span class="tj-label">Mode</span>
-            <h3>Missions</h3>
-            <p>Air-to-air: find the enemy on radar, lock on and shoot it down. Three missions: a one-on-one over the Punjab border, a scramble from the shelters against two bandits, and a duel off the Goa coast.</p>
-            <img class="site-shot" src="/src/site/media/missions.webp" alt="Chase view of a Tejas over Punjab with the head-up display" width="960" height="540" loading="lazy" decoding="async" />
+          <a class="site-tile site-reveal" href="./play/#missions">
+            <img src="/src/site/media/missions.webp" alt="Chase view of a Tejas over Punjab with the head-up display and radar" width="1920" height="1080" loading="lazy" decoding="async" />
+            <span class="site-tile-copy">
+              <span class="site-tile-num">02</span>
+              <span class="site-tile-title">Missions</span>
+              <span class="site-tile-text">Find the enemy on radar, lock on and shoot it down. One-on-ones over the Punjab border, scrambles from the shelters, duels off the Goa coast.</span>
+              <span class="site-tile-go">Fight <span aria-hidden="true">→</span></span>
+            </span>
           </a>
         </div>
       </section>
 
-      <section id="aircraft" class="site-section site-grid-2">
-        <img class="site-shot" src="/src/site/media/aircraft.webp" alt="Side view of the Tejas Mk1A on the taxiway at sunset, carrying ASRAAM and Astra missiles and drop tanks" width="1120" height="700" loading="lazy" decoding="async" />
-        <div>
-          <span class="tj-label">The aircraft</span>
-          <h2>HAL Tejas Mk1A</h2>
-          <p>India's single-engine delta-wing fighter, flown with a physics flight model and fly-by-wire limits.</p>
+      <!-- The aircraft: full-bleed, specs over it. -->
+      <section id="aircraft" class="site-feature" aria-labelledby="aircraft-title">
+        <img class="site-feature-media" src="/src/site/media/aircraft.webp" alt="A Tejas Mk1A from its rear quarter over the fields of Punjab, afterburner nozzle, tanks and missiles" width="1920" height="1080" loading="lazy" decoding="async" />
+        <div class="site-feature-panel site-reveal">
+          <p class="site-kicker">The aircraft</p>
+          <h2 id="aircraft-title" class="site-h2">HAL Tejas Mk1A</h2>
+          <p>India's single-engine delta fighter, flown with a physics flight model and fly-by-wire limits. Every panel moves: elevons, slats, rudder, airbrakes, the gear and its doors, and a nozzle that opens on afterburner.</p>
           <dl class="site-specs">
-            <dt>Length</dt><dd>13.2 m</dd>
-            <dt>Wingspan</dt><dd>8.2 m</dd>
-            <dt>Engine</dt><dd>GE F404-IN20, 84 kN with afterburner</dd>
-            <dt>Weapons in the game</dt><dd>ASRAAM, R-73, Derby, Astra Mk1, 23 mm gun</dd>
-            <dt>Loadouts</dt><dd>Choose what goes on each of the seven pylons, including drop tanks</dd>
-            <dt>Lights</dt><dd>Navigation lights, strobes, landing and taxi light, formation lights</dd>
-            <dt>Views</dt><dd>Cockpit, chase with free look, orbit and fly-by</dd>
+            <div><dt>Length</dt><dd>13.2 <small>m</small></dd></div>
+            <div><dt>Wingspan</dt><dd>8.2 <small>m</small></dd></div>
+            <div><dt>Thrust</dt><dd>84 <small>kN</small></dd></div>
+            <div><dt>Top speed</dt><dd>1.6 <small>Mach</small></dd></div>
           </dl>
+          <ul class="site-chips" aria-label="Weapons in the game">
+            <li>ASRAAM</li><li>R-73</li><li>Derby</li><li>Astra Mk1</li><li>23 mm gun</li><li>1200 L tanks</li>
+          </ul>
         </div>
       </section>
 
-      <section id="day-night" class="site-section">
-        <h2>Dawn to dusk, and after dark</h2>
-        <p>Set the clock to any hour. Runways, taxiways and towns light up after dark, and the Tejas carries working lights: press L to step through them.</p>
-        <div class="site-grid-2">
-          <figure class="site-figure">
-            <img class="site-shot" src="/src/site/media/approach.webp" alt="A Tejas touching down at the aiming point on the Bathinda runway in the evening" width="960" height="540" loading="lazy" decoding="async" />
-            <figcaption>Golden hour: touchdown at Bathinda.</figcaption>
+      <!-- Moments. -->
+      <section id="day-night" class="site-section" aria-labelledby="moments-title">
+        <header class="site-head site-reveal">
+          <p class="site-kicker">Any hour</p>
+          <h2 id="moments-title" class="site-h2">Dawn to dusk, and after dark</h2>
+          <p class="site-sub">Set the clock to any hour. Runways, taxiways and towns light up after dark, and the Tejas carries working lights: press L to step through them.</p>
+        </header>
+        <div class="site-pair">
+          <figure class="site-shot site-reveal">
+            <img src="/src/site/media/pullup.webp" alt="A Tejas pulling up into the vertical on afterburner after a low pass" width="1920" height="1080" loading="lazy" decoding="async" />
+            <figcaption><span>Low pass</span>Down the runway at 25 metres, then straight up on afterburner.</figcaption>
           </figure>
-          <figure class="site-figure">
-            <img class="site-shot" src="/src/site/media/night.webp" alt="A Tejas lifting off at night on afterburner between the runway edge lights" width="960" height="540" loading="lazy" decoding="async" />
-            <figcaption>Nightfall: an afterburner take-off between the runway lights.</figcaption>
+          <figure class="site-shot site-reveal">
+            <img src="/src/site/media/night.webp" alt="A Tejas lifting off at night on afterburner between the runway edge lights" width="1920" height="1080" loading="lazy" decoding="async" />
+            <figcaption><span>Night launch</span>An afterburner take-off between the runway lights at Bhisiana.</figcaption>
           </figure>
         </div>
       </section>
 
-      <section id="bases" class="site-section">
-        <h2>Where you fly</h2>
-        <div class="site-grid-2">
-          <div class="site-card">
-            <img class="site-shot" src="/src/site/media/bathinda.webp" alt="Bhisiana Air Force Station from the air: the runway, taxiways and hardened shelters on the Punjab plains" width="960" height="540" loading="lazy" decoding="async" />
-            <h3>Bhisiana AFS, Bathinda</h3>
-            <p>The main base: the Punjab plains near the border, with hardened aircraft shelters, a lit runway and taxi guidance to it.</p>
+      <!-- Bases. -->
+      <section id="bases" class="site-section" aria-labelledby="bases-title">
+        <header class="site-head site-reveal">
+          <p class="site-kicker">Where you fly</p>
+          <h2 id="bases-title" class="site-h2">Two bases, real places</h2>
+        </header>
+        <div class="site-pair">
+          <div class="site-base site-reveal">
+            <img src="/src/site/media/bathinda.webp" alt="Bhisiana Air Force Station from the air: the runway, taxiways and hardened shelters on the Punjab plains" width="960" height="540" loading="lazy" decoding="async" />
+            <div>
+              <h3>Bhisiana AFS, Bathinda</h3>
+              <p>The main base: the Punjab plains near the border, with hardened aircraft shelters, a lit runway and taxi guidance to it.</p>
+            </div>
           </div>
-          <div class="site-card">
-            <img class="site-shot" src="/src/site/media/hansa.webp" alt="INS Hansa from the air: the runway on its plateau, with the Zuari estuary and the Arabian Sea beyond" width="960" height="540" loading="lazy" decoding="async" />
-            <h3>INS Hansa, Goa <span class="tj-badge tj-badge--warn">Not fully tested</span></h3>
-            <p>Coast, estuaries and headlands, with the Western Ghats inland. Still being tested: you may run into bugs here.</p>
+          <div class="site-base site-reveal">
+            <img src="/src/site/media/hansa.webp" alt="INS Hansa from the air: the runway on its plateau, with the Zuari estuary and the Arabian Sea beyond" width="960" height="540" loading="lazy" decoding="async" />
+            <div>
+              <h3>INS Hansa, Goa <span class="site-badge">Not fully tested</span></h3>
+              <p>Coast, estuaries and headlands, with the Western Ghats inland. Still being tested: you may run into bugs here.</p>
+            </div>
           </div>
         </div>
       </section>
 
-      <section id="controls" class="site-section site-grid-2">
-        <div>
-          <h2>Controls at a glance</h2>
-          <div class="tj-keylist site-keys">
-            <div class="tj-keyrow"><span>Nose down / up</span><span><span class="tj-key">W</span> <span class="tj-key">S</span></span></div>
-            <div class="tj-keyrow"><span>Roll left / right</span><span><span class="tj-key">A</span> <span class="tj-key">D</span></span></div>
-            <div class="tj-keyrow"><span>Throttle up / down</span><span><span class="tj-key">Z</span> <span class="tj-key">X</span></span></div>
-            <div class="tj-keyrow"><span>Afterburner</span><span class="tj-key">Shift</span></div>
-            <div class="tj-keyrow"><span>Next target, fire missile</span><span><span class="tj-key">T</span> <span class="tj-key">Enter</span></span></div>
-            <div class="tj-keyrow"><span>Gun, landing gear</span><span><span class="tj-key">Space</span> <span class="tj-key">G</span></span></div>
-            <div class="tj-keyrow"><span>Airbrake and wheel brakes</span><span class="tj-key">B</span></div>
-            <div class="tj-keyrow"><span>Lights, change view</span><span><span class="tj-key">L</span> <span class="tj-key">V</span></span></div>
-            <div class="tj-keyrow"><span>Look around</span><span>Right-drag or <span class="tj-key">←</span> <span class="tj-key">↑</span> <span class="tj-key">↓</span> <span class="tj-key">→</span></span></div>
-            <div class="tj-keyrow"><span>Pause, all controls</span><span><span class="tj-key">Esc</span> <span class="tj-key">F1</span></span></div>
+      <!-- Controls. -->
+      <section id="controls" class="site-section site-controls" aria-labelledby="controls-title">
+        <div class="site-reveal">
+          <p class="site-kicker">Controls</p>
+          <h2 id="controls-title" class="site-h2">At a glance</h2>
+          <div class="site-keys">
+            <div><span>Nose down / up</span><span><kbd>W</kbd><kbd>S</kbd></span></div>
+            <div><span>Roll left / right</span><span><kbd>A</kbd><kbd>D</kbd></span></div>
+            <div><span>Throttle up / down</span><span><kbd>Z</kbd><kbd>X</kbd></span></div>
+            <div><span>Afterburner</span><span><kbd>Shift</kbd></span></div>
+            <div><span>Next target, fire missile</span><span><kbd>T</kbd><kbd>Enter</kbd></span></div>
+            <div><span>Gun, landing gear</span><span><kbd>Space</kbd><kbd>G</kbd></span></div>
+            <div><span>Airbrake and wheel brakes</span><span><kbd>B</kbd></span></div>
+            <div><span>Lights, change view</span><span><kbd>L</kbd><kbd>V</kbd></span></div>
+            <div><span>Look around</span><span>Right-drag or <kbd>←</kbd><kbd>↑</kbd><kbd>↓</kbd><kbd>→</kbd></span></div>
+            <div><span>Pause, all controls</span><span><kbd>Esc</kbd><kbd>F1</kbd></span></div>
           </div>
         </div>
-        <div>
-          <h2>Runs on</h2>
+        <div class="site-reveal">
+          <p class="site-kicker">Runs on</p>
+          <h2 class="site-h2">Your browser</h2>
           <ul class="site-list">
             <li>A desktop or laptop browser with WebGL 2 (Chrome, Edge, Firefox)</li>
             <li>A keyboard; a mouse or gamepad is optional</li>
@@ -133,17 +180,27 @@
         </div>
       </section>
 
-      <section class="site-band">
-        <div><h2>Tell us what you think</h2><p>This is an early version. Your feedback decides what comes next.</p></div>
-        <span data-site="feedback-band"></span>
+      <!-- Final call. -->
+      <section class="site-final" aria-labelledby="final-title">
+        <img class="site-final-media" src="/src/site/media/climb.webp" alt="" width="1920" height="1080" loading="lazy" decoding="async" />
+        <div class="site-final-copy site-reveal">
+          <p class="site-kicker">Bhisiana tower</p>
+          <h2 id="final-title" class="site-display site-display--small">Cleared for take-off.</h2>
+          <div class="site-actions">
+            <a class="site-btn site-btn--primary site-btn--big" href="./play/" data-site="play">Play free <span aria-hidden="true">→</span></a>
+            <span data-site="feedback-band"></span>
+          </div>
+          <p class="site-fine">An early version: your feedback decides what comes next.</p>
+        </div>
       </section>
     </main>
 
     <footer class="site-footer">
+      <p class="site-footer-brand"><span class="site-brand-mark" aria-hidden="true"></span><span data-site="name">Marut</span> <span data-site="version-footer"></span></p>
       <p>Unofficial fan project. Not affiliated with HAL, ADA, the Indian Air Force or the Indian Navy.</p>
       <p>Airbase layouts from OpenStreetMap data, © OpenStreetMap contributors, available under the Open Database Licence (ODbL).</p>
-      <p>Tejas 3D model based on <a href="https://sketchfab.com/3d-models/hal-tejas-fd95c85e2452490cbe32f80175498441">"HAL Tejas"</a> by <a href="https://sketchfab.com/dimal965">dimal965</a>, licensed under <a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a>; repainted and split into moving parts.</p>
-      <p><span data-site="version-footer"></span> · <span data-site="feedback-footer"></span> · <a href="./play/">Play</a></p>
+      <p>Tejas 3D model based on <a href="https://sketchfab.com/3d-models/hal-tejas-fd95c85e2452490cbe32f80175498441">"HAL Tejas"</a> by <a href="https://sketchfab.com/dimal965">dimal965</a>, licensed under <a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a>; repainted and split into moving parts. Fonts: Barlow, SIL Open Font License.</p>
+      <p><span data-site="feedback-footer"></span> · <a href="./play/">Play</a></p>
     </footer>
   </body>
 </html>
