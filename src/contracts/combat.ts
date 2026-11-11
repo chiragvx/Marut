@@ -345,6 +345,11 @@ export interface WeaponProfile {
   /** Anti-radiation missiles: the passive seeker's field of regard, its range, and how far off its
    *  remembered aim drifts when the radar stops transmitting while the missile is still far out. */
   arm?: { seekerHalfAngleDeg: number; maxRangeM: number; memoryErrorM: number };
+  /**
+   * The motor's burns in order when there are more than boost + sustain, or a coast between them
+   * (a second pulse). When present it replaces motorBurnSec/motorThrustN and flight.sustain*.
+   */
+  motorPhases?: readonly { thrustN: number; burnSec: number; delaySec?: number }[];
   /** Published/validated launch envelope at ~10 km, launcher at Mach 0.9, non-manoeuvring target (m). For the AI and HUD cues. */
   envelope?: { rMaxHeadOnM: number; rMaxTailM: number; rNoEscapeM: number };
 }
