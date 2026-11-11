@@ -304,10 +304,15 @@ export function createMeshAircraftRenderer(root: THREE.Object3D, template: Aircr
           case 'rudder':
             angle = s.rudder;
             break;
-          case 'gear':
-            angle = (1 - s.gearPos) * p.travelRad;
-            pn.node.visible = p.keepVisible === true || s.gearPos > 0.01;
+          case 'gear': {
+            const r = 1 - s.gearPos;
+            const w = p.travelWindow;
+            const f = w ? Math.min(1, Math.max(0, (r - w[0]) / (w[1] - w[0]))) : r;
+            angle = f * p.travelRad;
+            // Legs are hidden once folded away (doors stay, closed over the bays).
+            pn.node.visible = p.keepVisible === true || f < 0.99;
             break;
+          }
           case 'slat':
             angle = inst.slat * p.travelRad;
             break;

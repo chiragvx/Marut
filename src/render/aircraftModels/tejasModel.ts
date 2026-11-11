@@ -922,6 +922,9 @@ export interface ArticulatedPart {
   travelRad: number;
   /** Gear parts are hidden when fully retracted, except these (doors, which stay closed over the bays). */
   keepVisible?: boolean;
+  /** Gear parts: the span of the retraction (0 = down .. 1 = up) over which this part moves, so the
+   *  doors close after the legs are in and open before they come down (default the whole travel). */
+  travelWindow?: [number, number];
 }
 
 export interface AircraftModelTemplate {

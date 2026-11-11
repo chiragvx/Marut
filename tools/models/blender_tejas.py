@@ -19,6 +19,7 @@ import sys
 
 import bmesh
 import bpy
+import numpy as np
 from mathutils import Matrix, Vector
 from mathutils.bvhtree import BVHTree
 
@@ -250,6 +251,46 @@ canopy_deg, canopy_err = fit_angle(['canopyFrame'], canopy_pivot, (0, 0, 1), sil
 print('CANOPY pivot', canopy_pivot, 'close', canopy_deg, 'deg, sill error', round(canopy_err, 3))
 transform_group(['canopyFrame', 'canopyGlass'], hinge_rotation(canopy_pivot, (0, 0, 1), canopy_deg))
 
+# --- 4b. Left slats: the source has them posed partly drooped (the right ones are retracted). Fit
+# each left slat rigidly onto the mirror image of its right twin (ICP) and move it there. ---
+def _kabsch(a, b):
+    ca, cb = a.mean(0), b.mean(0)
+    u, _, vt = np.linalg.svd((a - ca).T @ (b - cb))
+    d = np.sign(np.linalg.det(vt.T @ u.T))
+    r = vt.T @ np.diag([1.0, 1.0, d]) @ u.T
+    return r, cb - r @ ca
+
+
+def _icp(a, b, iters=60):
+    r, t = np.eye(3), b.mean(0) - a.mean(0)
+    for _ in range(iters):
+        q = a @ r.T + t
+        nn = b[np.argmin(((q[:, None, :] - b[None, :, :]) ** 2).sum(2), axis=1)]
+        r, t = _kabsch(a, nn)
+    q = a @ r.T + t
+    rms = float(np.sqrt(((q[:, None, :] - b[None, :, :]) ** 2).sum(2).min(1).mean()))
+    return r, t, rms
+
+
+for k in (0, 1, 2):
+    lo = groups.get('slatL%d' % k, [])
+    ro = groups.get('slatR%d' % k, [])
+    if not lo or not ro:
+        continue
+    a = np.array([tuple(v.co) for o in lo for v in o.data.vertices])
+    b = np.array([tuple(v.co) for o in ro for v in o.data.vertices]) * np.array([1.0, -1.0, 1.0])  # body z = -Blender y
+    r, t, rms = _icp(a, b)
+    ang = math.degrees(math.acos(max(-1.0, min(1.0, (np.trace(r) - 1) / 2))))
+    print('SLAT L%d -> mirror of R%d: rotate %.1f deg, move %.3f m, rms %.4f m' % (k, k, ang, float(np.linalg.norm(t + r @ a.mean(0) - a.mean(0))), rms))
+    if rms < 0.02:
+        m = Matrix.Identity(4)
+        for i in range(3):
+            for j in range(3):
+                m[i][j] = float(r[i, j])
+            m[i][3] = float(t[i])
+        for o in lo:
+            o.data.transform(m)
+
 # --- 5. Hinges. ---
 deg = math.pi / 180
 parts = {}
@@ -320,16 +361,41 @@ for side, sgn in (('R', 1), ('L', -1)):
     open_axis = axis if close_deg < 0 else -axis
     parts['airbrake' + side] = dict(driver='airbrake', pivot=pivot, axis=open_axis, travelRad=abs(close_deg) * deg)
 
-    # Main gear: folds inwards about +x (R) / -x (L) from the top of the leg.
+    # Main gear: the 1.3 m leg can't fold straight inwards (the wheels would meet under the belly),
+    # so it swings aft and in, from the top of the leg into the bay under the doors (x -1.6..-0.5):
+    # the shortest rotation taking the leg's direction (top -> wheel centre) to "aft and
+    # slightly out", ending with the wheel inside the airframe at the back of the bay.
     vs = all_verts(['mainGear' + side])
     top = max(vs, key=lambda v: v.y - 0.3 * abs(v.z))
-    parts['mainGear' + side] = dict(driver='gear', pivot=Vector((top.x, top.y, top.z)), axis=Vector((sgn, 0, 0)), travelRad=92 * deg)
+    ymin = min(v.y for v in vs)
+    wheel = [v for v in vs if v.y < ymin + 0.55]
+    wc = Vector(((min(v.x for v in wheel) + max(v.x for v in wheel)) / 2, (min(v.y for v in wheel) + max(v.y for v in wheel)) / 2,
+                 (min(v.z for v in wheel) + max(v.z for v in wheel)) / 2))
+    leg = wc - top
+    stow = Vector((-1.0, 0.0, 0.12 * sgn)).normalized()
+    g_axis = leg.cross(stow).normalized()
+    g_ang = leg.angle(stow)
+    print('MAIN GEAR', side, 'wheel centre', tuple(round(c, 3) for c in wc), 'stowed at', tuple(round(c, 3) for c in top + stow * leg.length), 'angle', round(math.degrees(g_ang), 1))
+    parts['mainGear' + side] = dict(driver='gear', pivot=Vector((top.x, top.y, top.z)), axis=g_axis, travelRad=g_ang)
 
-# Main bay doors ride on the legs (they close the bay as the leg folds in): the leg's hinge, kept visible.
+# Main bay doors: hinged along their top edge (at the wing root), swinging in and up to close the bay.
 for side in ('R', 'L'):
-    if groups.get('mainBayDoor' + side):
-        g = parts['mainGear' + side]
-        parts['mainBayDoor' + side] = dict(g, keepVisible=True)
+    name = 'mainBayDoor' + side
+    if not groups.get(name):
+        continue
+    sgn = 1 if side == 'R' else -1
+    vs = all_verts([name])
+    ymax = max(v.y for v in vs)
+    topv = [v for v in vs if v.y > ymax - 0.04]
+    a0 = min(topv, key=lambda v: v.x)
+    a1 = max(topv, key=lambda v: v.x)
+    pivot = (a0 + a1) / 2
+    axis = (a1 - a0).normalized() * sgn  # ~ +x (R) / -x (L): + = swing inwards
+    ymin = min(v.y for v in vs)
+    far = [v for v in vs if v.y < ymin + 0.12]
+    close_deg, err = fit_angle([name], pivot, axis, far, 0, 150, inside_tol=0.03)
+    print('BAY DOOR', side, 'close', close_deg, 'err', round(err, 3))
+    parts[name] = dict(driver='gear', pivot=pivot, axis=axis, travelRad=close_deg * deg, keepVisible=True)
 
 # Nose doors: hinged along their top edge (axis along x); travel swings them inwards to horizontal.
 for name in [n for n in list(groups) if n.startswith('nose') and 'Door' in n]:
@@ -396,6 +462,35 @@ lights = dict(
     landingDir=[math.cos(0.07), -math.sin(0.07), 0])
 noz = [v for v in verts(main) if v.x < -4.3 and v.y < 0.6 and abs(v.z) < 0.5]
 nozzle = dict(exitX=round(min(v.x for v in noz), 3), axisY=round((min(v.y for v in noz) + max(v.y for v in noz)) / 2, 3))
+
+# The source's nozzle (fixed petals and a flat-painted inside) is replaced by the renderer's own
+# (petals that open with the engine, heat-blued metal, an interior that glows with power): cut out
+# everything aft of the shroud ring inside the petals' radius, and record its shape.
+NOZ_CUT_X = -4.5
+NOZ_CUT_R = 0.47
+
+
+def _noz_r(v):
+    return math.hypot(v.y - nozzle['axisY'], v.z)
+
+
+bm = bmesh.new()
+bm.from_mesh(main.data)
+cut = [f for f in bm.faces if all(body(v.co).x < NOZ_CUT_X and _noz_r(body(v.co)) < NOZ_CUT_R for v in f.verts)]
+# ...and the flat disc closing the fuselage end inside the shroud (it would hide the engine face).
+cut += [f for f in bm.faces if f not in cut and all(body(v.co).x < NOZ_CUT_X + 0.1 for v in f.verts)
+        and _noz_r(body(f.calc_center_median())) < 0.3]
+cut_v = [body(v.co) for f in cut for v in f.verts]
+lip = [v for v in cut_v if v.x < nozzle['exitX'] + 0.03]
+petal_v = [v for v in cut_v if v.x < NOZ_CUT_X]
+hinge = [v for v in petal_v if v.x > max(c.x for c in petal_v) - 0.03]
+nozzle['hingeX'] = round(max(v.x for v in petal_v), 3)
+nozzle['hingeR'] = round(sorted(_noz_r(v) for v in hinge)[len(hinge) * 3 // 4], 3)
+nozzle['exitR'] = round(max(_noz_r(v) for v in lip), 3)
+bmesh.ops.delete(bm, geom=cut, context='FACES')
+bm.to_mesh(main.data)
+bm.free()
+print('NOZZLE CUT', len(cut), 'faces;', nozzle)
 gl = all_verts(['canopyGlass', 'windscreen'])
 canopy_box = dict(min=[min(v.x for v in gl), min(v.y for v in gl) - 0.1, -0.45], max=[max(v.x for v in gl), max(v.y for v in gl), 0.45])
 
@@ -433,6 +528,10 @@ for name, p in parts.items():
     o['travelRad'] = round(p['travelRad'], 5)
     if p.get('keepVisible'):
         o['keepVisible'] = True
+    # Gear timing: legs fold over the first 3/4 of the retraction, then the doors close (reversed on
+    # the way down: doors open, then the legs come down).
+    if p['driver'] == 'gear':
+        o['travelWindow'] = [0.7, 1.0] if 'Door' in name else [0.0, 0.75]
     keep.add(o)
     print('PART', name, o['driver'], o['pivot'], o['axis'], round(math.degrees(o['travelRad']), 1))
 for o in list(bpy.data.objects):

@@ -193,21 +193,50 @@ const FS = /* glsl */ `
       ks = 0.02;
       refl = 0.0;
     } else if (part == 6) {
-      // Nozzle: bare metal, heat-blued towards the exit, petal seams.
-      col = mix(vec3(0.36, 0.34, 0.31), vec3(0.24, 0.22, 0.27), vNoz);
-      float a = atan(p.z, p.y - uNozzleY) / 6.2831853 * 14.0;
-      float s = abs(fract(a) - 0.5) * 2.0;
-      col *= vNoz > 0.0 ? 0.75 + 0.25 * smoothstep(0.02, 0.12, s) : 1.0;
+      // Bare metal. Nozzle petals (vNoz > 0, 0 at the hinge .. 1 at the exit): titanium, heat-tinted
+      // straw -> bronze -> blue towards the exit, 16 overlapping petals with dark seams and streaks.
+      col = vec3(0.36, 0.34, 0.31);
       ks = 0.4;
       shin = 45.0;
+      if (vNoz > 0.0) {
+        float a = atan(p.z, p.y - uNozzleY) / 6.2831853 * 16.0;
+        float f = fract(a);
+        vec3 ti = vec3(0.46, 0.45, 0.43);
+        vec3 bronze = vec3(0.42, 0.33, 0.22);
+        vec3 blue = vec3(0.24, 0.25, 0.34);
+        col = vNoz < 0.55 ? mix(ti, bronze, vNoz / 0.55) : mix(bronze, blue, (vNoz - 0.55) / 0.45);
+        // Each petal overlaps the next: brighter at its leading edge, a dark seam where it tucks under.
+        col *= 0.8 + 0.2 * f;
+        col *= mix(0.45, 1.0, smoothstep(0.0, 0.06, f) * smoothstep(1.0, 0.94, f));
+        col *= 0.93 + 0.07 * sin(a * 23.0 + vNoz * 9.0) * sin(a * 7.0);
+        // Soot at the lip.
+        col *= 1.0 - 0.45 * smoothstep(0.82, 1.0, vNoz);
+        ks = 0.55;
+        shin = 30.0;
+        refl = 0.12;
+      }
     } else if (part == 7) {
-      // Engine interior: dark, glowing with heat; bright in afterburner.
-      col = vec3(0.05);
-      ks = 0.05;
-      refl = 0.0;
-      float heat = mix(0.1 * uThrottle * uThrottle, 1.0, uAB);
+      // Engine interior (vNoz 1 at the exit .. 0 deep inside): a ribbed liner and, at the back, the
+      // turbine face behind the flameholder rings; dull red with power, white-hot in afterburner.
       float depth = 1.0 - vNoz;
-      glow = vec3(1.0, 0.42, 0.12) * heat * (0.35 + 0.65 * depth) * (0.6 + 0.8 * uAtmLights) + vec3(1.0, 0.85, 0.6) * uAB * depth * 0.8;
+      float r = length(vec2(p.y - uNozzleY, p.z));
+      bool face = abs(normalize(vNormalL).x) > 0.9;
+      float rib = face ? 0.0 : smoothstep(0.75, 0.95, abs(fract(p.x * 8.0) - 0.5) * 2.0);
+      float ring = 0.0;
+      if (face) {
+        float ang = atan(p.z, p.y - uNozzleY) / 6.2831853 * 28.0;
+        float spoke = smoothstep(0.8, 0.95, abs(fract(ang) - 0.5) * 2.0);
+        ring = max(smoothstep(0.85, 0.97, abs(fract(r * 9.0) - 0.5) * 2.0), spoke * step(0.06, r));
+      }
+      col = vec3(0.2, 0.19, 0.18) * (1.0 - 0.7 * depth) * (1.0 - 0.6 * rib);
+      if (face) col = vec3(0.05) * (1.0 + 1.5 * ring);
+      ks = 0.08;
+      shin = 20.0;
+      refl = 0.0;
+      float heat = mix(0.05 + 0.25 * uThrottle * uThrottle, 1.0, uAB);
+      vec3 dull = vec3(1.0, 0.33, 0.08) * heat * pow(depth, 1.5) * (0.5 + 0.8 * uAtmLights);
+      vec3 hotc = mix(vec3(1.0, 0.5, 0.16), vec3(1.0, 0.9, 0.68), depth) * uAB * (0.35 + 0.9 * depth);
+      glow = (dull + hotc) * (1.0 - 0.55 * rib) * (1.0 - 0.7 * ring);
     } else if (part == 8) {
       col = vec3(0.8, 0.8, 0.78);
       ks = 0.25;

@@ -8,14 +8,14 @@
  * - `body`: the fixed airframe; `cockpit`: interior + canopy frame (hidden from inside the 3D
  *   cockpit); `glass`: canopy and windscreen;
  * - every other mesh is a moving part whose node extras carry `driver`, `pivot`, `axis`,
- *   `travelRad` and optionally `keepVisible` (ArticulatedPart's fields and sign conventions);
+ *   `travelRad` and optionally `keepVisible`, `travelWindow` (ArticulatedPart's fields and sign conventions);
  * - scene extras `marut`: pylons, lights, nozzle {exitX, axisY}, canopyInterior, credit.
  * Everything else (stores, lights, flame, team colours) works as for the procedural model.
  */
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { PART } from './meshBuild';
+import { cap, circle, loft, PART, range } from './meshBuild';
 import type { V3 } from './meshBuild';
 import { buildFlame, INTAKE_STATION, NOZZLE_AXIS_Y, NOZZLE_EXIT_X, type AircraftModelTemplate, type ArticulatedPart, type LIGHTS, type PartDriver, type Pylon } from './tejasModel';
 
@@ -25,7 +25,8 @@ export const TEJAS_GLB_URL = new URL('../models/tejas.glb', document.baseURI).hr
 interface SceneExtras {
   pylons: Pylon[];
   lights: Omit<typeof LIGHTS, never>;
-  nozzle: { exitX: number; axisY: number };
+  /** The nozzle's exit and axis; hinge/exit radii when the source's own nozzle was cut out for ours. */
+  nozzle: { exitX: number; axisY: number; hingeX?: number; hingeR?: number; exitR?: number };
   canopyInterior: { min: V3; max: V3 };
   credit?: string;
 }
@@ -51,6 +52,30 @@ function prepare(mesh: THREE.Mesh, part: number): THREE.BufferGeometry {
   return g.index ? g : g.setIndex([...Array(n).keys()]);
 }
 
+/**
+ * The renderer's own nozzle (as the procedural model's), fitted to the imported tailpipe: a shroud
+ * lip at the hinge, petals (aNoz 0 at the hinge .. 1 at the exit: they open with uNozzle and are
+ * heat-blued towards the exit) and the engine interior, glowing with throttle and afterburner.
+ */
+function buildNozzle(n: Required<SceneExtras['nozzle']>): THREE.BufferGeometry {
+  const { exitX: xe, axisY: cy, hingeX: x0, hingeR: rh, exitR: re } = n;
+  const t = (x: number): number => Math.min(1, Math.max(0, (x0 - x) / (x0 - xe)));
+  const petalR = (x: number): number => rh + (re - rh) * t(x);
+  const xi = x0 + 0.12;
+  const gs = [
+    loft([x0 - 0.02, x0 + 0.03, x0 + 0.06], (x) => circle(cy, 0, rh + 0.012 - 0.004 * ((x - x0) / 0.06)), 48, PART.metal),
+    loft(range(xe, x0, 0.04), (x) => circle(cy, 0, petalR(x)), 56, PART.metal, { noz: t }),
+    loft(range(xe, xi, 0.05), (x) => circle(cy, 0, xi - x > 0 ? 0.72 * rh + (re - 0.012 - 0.72 * rh) * ((xi - x) / (xi - xe)) : 0.72 * rh), 48, PART.engine, { inward: true, noz: t }),
+    cap(xi, circle(cy, 0, 0.72 * rh), 48, PART.engine, [-1, 0, 0]),
+  ];
+  return mergeGeometries(gs.map((g) => {
+    const c = g.getAttribute('position').count;
+    g.setAttribute('uv', new THREE.Float32BufferAttribute(new Float32Array(c * 2), 2));
+    g.setAttribute('aTangent', new THREE.Float32BufferAttribute(new Float32Array(c * 4), 4));
+    return g;
+  }))!;
+}
+
 function v3(a: unknown): V3 {
   const r = a as number[];
   return [Number(r[0]), Number(r[1]), Number(r[2])];
@@ -73,12 +98,14 @@ export function templateFromGltf(scene: THREE.Object3D): AircraftModelTemplate {
   const fixed = [prepare(bodyMesh, PART.textured)];
   if (meshes.has('cockpit')) fixed.push(prepare(meshes.get('cockpit')!, PART.texturedCockpit));
   if (meshes.has('glass')) fixed.push(prepare(meshes.get('glass')!, PART.canopy));
+  const nz = extras.nozzle;
+  if (nz.hingeX !== undefined && nz.hingeR !== undefined && nz.exitR !== undefined) fixed.push(buildNozzle(nz as Required<SceneExtras['nozzle']>));
   const body = mergeGeometries(fixed);
   if (!body) throw new Error('aircraft GLB: body geometries do not merge');
 
   const parts: ArticulatedPart[] = [];
   for (const [name, mesh] of meshes) {
-    const ud = mesh.userData as { driver?: string; pivot?: unknown; axis?: unknown; travelRad?: number; keepVisible?: boolean };
+    const ud = mesh.userData as { driver?: string; pivot?: unknown; axis?: unknown; travelRad?: number; keepVisible?: boolean; travelWindow?: unknown };
     if (!ud.driver) continue;
     if (!DRIVERS.includes(ud.driver as PartDriver)) throw new Error(`aircraft GLB: part "${name}" has unknown driver ${ud.driver}`);
     parts.push({
@@ -89,6 +116,7 @@ export function templateFromGltf(scene: THREE.Object3D): AircraftModelTemplate {
       driver: ud.driver as PartDriver,
       travelRad: Number(ud.travelRad ?? 0),
       ...(ud.keepVisible ? { keepVisible: true } : {}),
+      ...(Array.isArray(ud.travelWindow) ? { travelWindow: [Number(ud.travelWindow[0]), Number(ud.travelWindow[1])] as [number, number] } : {}),
     });
   }
 
