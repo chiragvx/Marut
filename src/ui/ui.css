@@ -223,6 +223,28 @@ a.tj-link { color: var(--tj-ink); }
   border-radius: var(--tj-radius); padding: 10px 16px; font-size: 15px; max-width: min(520px, 90vw); text-align: center;
 }
 .tj-hint .tj-key { background: transparent; color: var(--tj-overlay-ink); }
+/* A scripted mission's objective (src/script): step counter, title, live detail; flashes when it changes. */
+.tj-objective--mission { max-width: 340px; border-left: 3px solid #6fe3ff; gap: 3px; }
+.tj-objective--mission .tj-label { color: #6fe3ff; opacity: 1; font: 600 11px/1.2 var(--tj-mono); letter-spacing: 0.14em; text-transform: uppercase; }
+.tj-objective--mission > span:nth-child(2) { font-weight: 600; font-size: 15px; }
+.tj-objective--mission .tj-note { font: 12px/1.35 var(--tj-mono); }
+.tj-objective--new { animation: tj-obj-new 1.5s ease-out; }
+@keyframes tj-obj-new {
+  0%, 30% { box-shadow: 0 0 0 2px #6fe3ff, 0 0 24px rgba(111, 227, 255, 0.55); }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+/* Radio subtitles: who is talking, then what they said. */
+.tj-radio { position: absolute; left: 50%; bottom: 9%; transform: translateX(-50%); width: min(640px, 92vw); display: grid; gap: 6px; justify-items: center; }
+.tj-radio-line {
+  background: rgba(6, 12, 16, 0.72); color: #eef6f8; border-radius: var(--tj-radius);
+  padding: 7px 14px; font-size: 15px; line-height: 1.35; text-align: center;
+  transition: opacity 0.4s ease;
+}
+.tj-radio-line:not(:last-child) { opacity: 0.55; }
+.tj-radio-from { color: #6fe3ff; font: 700 12px/1 var(--tj-mono); letter-spacing: 0.12em; margin-right: 10px; }
+.tj-radio-line--own .tj-radio-from { color: #9be38c; }
+.tj-radio-line--out { opacity: 0; }
+@media (prefers-reduced-motion: reduce) { .tj-objective--new { animation: none; } }
 
 /* ---- Orientation prompt (phones in portrait) -------------------------------------------- */
 

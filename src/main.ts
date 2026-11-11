@@ -27,7 +27,9 @@ import type { MainToTerrainMessage, SimEvent, TerrainToMainMessage } from './con
 import type { MainToTerrainMessageExt, TerrainToMainMessageExt, AirportFlattenZone, TerrainParams } from './contracts/terrain';
 import type { AirportLayout } from './contracts/airport';
 import { CameraMode } from './contracts/render';
-import type { CameraState, CockpitAction, HudRenderer, SceneEnvironment, SceneRenderer, ShowcaseFrame } from './contracts/render';
+import type { CameraState, CockpitAction, HudRenderer, HudSteerpoint, SceneEnvironment, SceneRenderer, ShowcaseFrame } from './contracts/render';
+import { createMissionScript, type MissionScript, type ScriptFrame } from './script';
+import { createRadioPlayer } from './script/radioPlayer';
 import type { PlayerInputSystem } from './contracts/input';
 import { RebindDeviceKind } from './contracts/input';
 import type { BindableAction, DebriefStats, LoadingScreenHandle, OrientationPromptHandle, ScreenHandle, SettingsScreenHandle, SettingsState } from './contracts/ui';
@@ -210,6 +212,12 @@ const audioBus = createAudioBus();
 const releaseTone = createReleaseTone(audioBus);
 const rwrTones = createRwrTonePlayer(audioBus);
 const voicePlayer = createVoicePlayer(audioBus, import.meta.env.BASE_URL);
+/** The scripted missions' radio (src/script): the voice and the subtitles. */
+const radioPlayer = createRadioPlayer(audioBus, import.meta.env.BASE_URL, (tx, ms) => flightOverlay?.showRadio(tx.from, tx.text, !!tx.own, ms));
+/** The flying mission's script (src/script), if it has one; the HUD's own steerpoints under its markers. */
+let missionScript: MissionScript | undefined;
+let baseSteerpoints: HudSteerpoint[] = [];
+let debriefTimer: ReturnType<typeof setTimeout> | undefined;
 const ambience = createAmbience(audioBus);
 let voiceWarnings = createVoiceWarningState();
 const voiceSay: VoiceLineDef[] = [];
@@ -243,6 +251,25 @@ let statMissilesHit = 0;
 const simWorker = new Worker(new URL('./core/sim.worker.ts', import.meta.url), { type: 'module' });
 const terrainWorker = new Worker(new URL('./terrain/terrain.worker.ts', import.meta.url), { type: 'module' });
 
+const scriptEntityScratch: SnapshotEntityView = {
+  id: NO_ENTITY_ID,
+  kind: 'aircraft',
+  team: 0,
+  pos: { x: 0, y: 0, z: 0 },
+  rot: { x: 0, y: 0, z: 0, w: 1 },
+  vel: { x: 0, y: 0, z: 0 },
+  omega: { x: 0, y: 0, z: 0 },
+  alive: false,
+  hp: 0,
+  fuelKg: 0,
+  elevonL: 0,
+  elevonR: 0,
+  rudder: 0,
+  gearPos: 0,
+  throttle: 0,
+  afterburnerOn: false,
+  flags: 0,
+};
 const entityViewScratch: SnapshotEntityView = {
   id: NO_ENTITY_ID,
   kind: 'aircraft',
@@ -840,6 +867,7 @@ async function initWorkersAndRenderer(qualityTier: QualityTier): Promise<void> {
         releaseTone.update(view[HUD_BLOCK_START + HUD_EXT_BASE + SnapshotHudExt.AG_CUE] ?? 0, view[HUD_BLOCK_START + SnapshotHud.AG_TIME_SEC] ?? 0);
         updateFlightAudio(view, header.playerIndex >= 0 ? entityViewScratch : null, header.simTimeSec);
       }
+      if (missionScript && appState === 'gameplay') tickMissionScript(view, header.entityCount, header.playerIndex, header.simTimeSec);
       updateFlightOverlay(view);
       simWorker.postMessage({ type: 'releaseBuffer', buffer: (msg as SimSnapshotMessage).buffer } satisfies SimReleaseBufferMessage, [(msg as SimSnapshotMessage).buffer]);
       return;
@@ -849,6 +877,7 @@ async function initWorkersAndRenderer(qualityTier: QualityTier): Promise<void> {
       renderer.ingestEvents(eventsMsg.events);
       for (const ev of eventsMsg.events) {
         if (appState === 'gameplay') ambience.event(ev, playerEntityId, lastPlayer);
+        missionScript?.event(ev, playerEntityId);
         // The debrief's shots and hits are the player's own.
         if (ev.type === 'gunFire') {
           if (ev.shooterId === playerEntityId) statShotsFiredGun += 1;
@@ -880,8 +909,21 @@ async function initWorkersAndRenderer(qualityTier: QualityTier): Promise<void> {
           }
         }
       }
+      if (missionScript) radioPlayer.say(missionScript.drain());
       const missionEnded = eventsMsg.events.find((x): x is MissionEndedEvent => x.type === 'missionEnded');
-      if (missionEnded) showDebrief(missionEnded);
+      if (missionEnded) {
+        // A scripted mission's closing call plays before the debrief.
+        const hold = missionScript && missionEnded.outcome === 'success' ? missionScript.outroSec : 0;
+        if (hold > 0) {
+          if (!debriefTimer) {
+            const mission = currentMission;
+            debriefTimer = setTimeout(() => {
+              debriefTimer = undefined;
+              if (currentMission === mission && (appState === 'gameplay' || appState === 'paused')) showDebrief(missionEnded);
+            }, hold * 1000);
+          }
+        } else showDebrief(missionEnded);
+      }
     }
   };
 }
@@ -1017,7 +1059,7 @@ function applyWeatherSetting(mission: Mission): Mission {
  * Loads a mission's world into the view (terrain streaming, airfields, the renderer's environment),
  * for a flight or for the menu's cinematic. `tier` sets how much terrain streams in.
  */
-function setupWorldView(mission: Mission, tier: QualityTier): void {
+function setupWorldView(mission: Mission, tier: QualityTier, scripted = false): void {
   const terrainParams = mission.world.terrain as TerrainParams;
   const airportLayouts = mission.world.airports as readonly AirportLayout[];
   const flattenZones: readonly AirportFlattenZone[] = airportLayouts.flatMap((a) => a.flattenZones);
@@ -1027,7 +1069,9 @@ function setupWorldView(mission: Mission, tier: QualityTier): void {
   const heightAt = createHeightSampler(terrainParams, flattenZones).heightAt;
   renderer.setGroundHeight(heightAt);
   hud.setRoute((mission.route ?? []).map((w) => ({ name: w.name, ...(w.tot !== undefined ? { tot: w.tot } : {}) })));
-  hud.setSteerpoints([...buildSteerpoints(mission.groundGroups ?? [], heightAt), ...buildStructureSteerpoints(mission.objectives, airportLayouts)]);
+  // A scripted mission marks its own objectives (src/script); the threats stay.
+  baseSteerpoints = [...buildSteerpoints(mission.groundGroups ?? [], heightAt), ...(scripted ? [] : buildStructureSteerpoints(mission.objectives, airportLayouts))];
+  hud.setSteerpoints(baseSteerpoints);
   renderer.setEnvironment(buildSceneEnvironment(terrainParams, airportLayouts, { x: mission.weather.windWorldMps.x, z: mission.weather.windWorldMps.z }));
   renderer.setWeather(weatherMode, newWeatherSeed());
 
@@ -1097,16 +1141,79 @@ function hintKeys(): HintKeys {
   };
 }
 
+/** The mission script's view of this snapshot (src/script/director.ts ScriptFrame), reused. */
+const scriptHostiles: ScriptFrame['hostiles'][number][] = [];
+const scriptFrame: ScriptFrame = {
+  t: 0,
+  player: { id: NO_ENTITY_ID, x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, headingRad: 0, aglM: 0, onGround: true, alive: false },
+  hostiles: scriptHostiles,
+  targetId: -1,
+  lockState: 0,
+  warningBits: 0,
+  rwrCount: 0,
+  spiValid: false,
+  spiX: 0,
+  spiZ: 0,
+  dlz: 0,
+};
+
+/** Runs the mission script on a snapshot: its objective markers into the HUD, its radio calls out. */
+function tickMissionScript(view: Float64Array, entityCount: number, playerIndex: number, simSec: number): void {
+  const script = missionScript;
+  if (!script) return;
+  const hudv = (f: number): number => view[HUD_BLOCK_START + f] ?? 0;
+  const f = scriptFrame;
+  f.t = simSec;
+  scriptHostiles.length = 0;
+  const pl = f.player;
+  pl.alive = false;
+  for (let i = 0; i < entityCount; i++) {
+    const e = readSnapshotEntity(view, i, scriptEntityScratch);
+    if (i === playerIndex) {
+      pl.id = e.id;
+      pl.x = e.pos.x;
+      pl.y = e.pos.y;
+      pl.z = e.pos.z;
+      pl.vx = e.vel.x;
+      pl.vy = e.vel.y;
+      pl.vz = e.vel.z;
+      pl.alive = e.alive;
+      pl.onGround = (e.flags & EntityFlag.OnGround) !== 0;
+    } else if (e.kind === 'aircraft' && e.team === 1 && e.alive) {
+      scriptHostiles.push({ id: e.id, x: e.pos.x, y: e.pos.y, z: e.pos.z, vx: e.vel.x, vy: e.vel.y, vz: e.vel.z });
+    }
+  }
+  pl.headingRad = hudv(SnapshotHud.HEADING_RAD);
+  pl.aglM = hudv(SnapshotHud.ALT_AGL_M);
+  f.targetId = hudv(SnapshotHud.TARGET_ID);
+  f.lockState = hudv(SnapshotHud.LOCK_STATE);
+  f.warningBits = hudv(SnapshotHud.WARNING_BITS);
+  f.rwrCount = hudv(SnapshotHud.RWR_COUNT);
+  f.spiValid = hudv(SnapshotHud.SPI_VALID) > 0.5;
+  f.spiX = hudv(SnapshotHud.SPI_X);
+  f.spiZ = hudv(SnapshotHud.SPI_Z);
+  f.dlz = hudv(SnapshotHud.DLZ);
+  script.update(f);
+  const marks = script.markers();
+  hud.setSteerpoints(marks.length ? [...baseSteerpoints, ...marks] : baseSteerpoints);
+  radioPlayer.say(script.drain());
+}
+
 /** Objective tracker, warnings-as-messages and hints, from the latest snapshot's HUD block. */
 function updateFlightOverlay(view: Float64Array): void {
   lastPodFlags = view[HUD_BLOCK_START + SnapshotHud.POD_FLAGS] ?? 0;
   const o = flightOverlay;
   const flight = currentFlight;
-  if (!o || !flight || !currentMission || (appState !== 'gameplay' && appState !== 'paused')) return;
+  if (!o || !currentMission || (appState !== 'gameplay' && appState !== 'paused')) return;
   const hudv = (f: number): number => view[HUD_BLOCK_START + f] ?? 0;
 
   // Objective, or the nearest friendly base in Free Flight.
-  if (flight.kind === 'mission') {
+  const scripted = missionScript?.objective();
+  if (scripted) o.setMissionObjective(scripted);
+  if (!flight) return;
+  if (scripted) {
+    /* the script keeps the tracker */
+  } else if (flight.kind === 'mission') {
     const entry = missionEntry(flight.id);
     o.setObjective('Objective', entry?.objective ?? '', entry?.targets !== undefined ? `Destroyed ${statGroundKills} / ${entry.targets}` : `Destroyed ${statKills} / ${banditsTotal}`);
   } else if (lastPlayer.valid) {
@@ -1419,7 +1526,11 @@ function launchMission(missionIn: Mission, opts: { title: string; airStart: bool
   latestSimTimeSec = 0;
   sessionStartSimTimeSec = 0;
 
-  setupWorldView(mission, currentQualityTier);
+  if (debriefTimer) clearTimeout(debriefTimer);
+  debriefTimer = undefined;
+  radioPlayer.silence();
+  missionScript = createMissionScript(mission);
+  setupWorldView(mission, currentQualityTier, !!missionScript);
 
   hud.setTaxiGuide(null);
   hud.setAirbases(buildHudAirbases(mission.world.airports as readonly AirportLayout[]));
@@ -1495,6 +1606,7 @@ async function boot(): Promise<void> {
   const unlockAudio = (): void => {
     audioBus.resume();
     voicePlayer.preload();
+    radioPlayer.preload();
   };
   window.addEventListener('keydown', unlockAudio, { capture: true });
   window.addEventListener('pointerdown', unlockAudio, { capture: true });
@@ -1592,10 +1704,12 @@ function frame(nowMs: number): void {
     releaseTone.silence();
     rwrTones.silence();
     voicePlayer.silence();
+    radioPlayer.silence();
     ambience.silence();
     lastAudioSimSec = -1;
   }
   voicePlayer.update();
+  radioPlayer.update();
   tickPendingStart(nowMs);
   tickShowcase(dtSec);
   tickLookKeys(dtSec);
@@ -1919,6 +2033,7 @@ function applyAudioVolumes(v: AudioVolumes): void {
   audioBus.setVolumes(v);
   voicePlayer.setSpeechVolume(v.master * v.voice);
   voicePlayer.setEnabled(v.voice > 0);
+  radioPlayer.setEnabled(v.voice > 0);
 }
 /** In flight, from each snapshot: the RWR tones, the voice warnings, and the engine and wind. */
 function updateFlightAudio(view: Float64Array, player: SnapshotEntityView | null, simSec: number): void {

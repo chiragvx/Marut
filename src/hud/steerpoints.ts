@@ -14,6 +14,10 @@ import { HEADING_TAPE_PX_PER_DEG } from './tapes';
 import { createScreenProjection, projectWorldToScreen } from './targetBox';
 
 const AMBER = '#ffc040';
+/** Scripted objectives (src/script): apart from the amber steerpoints and red threats. */
+const OBJECTIVE = '#6fe3ff';
+/** Objective markers out of view are held this far inside the screen's edge, px. */
+const EDGE_PX = 48;
 const THREAT = '#ff5a4a';
 /** Threat markers are named only within this distance. */
 const THREAT_LABEL_M = 25000;
@@ -98,6 +102,7 @@ export function drawSteerpointTape(ctx: CanvasRenderingContext2D, points: readon
   let lastX = -1e9;
   for (const p of points) {
     if (p.threat) continue;
+    ctx.fillStyle = ctx.strokeStyle = p.objective ? OBJECTIVE : AMBER;
     const d = Math.hypot(p.x - px, p.z - pz);
     if (d < AT_TARGET_M) continue;
     const rel = wrapDeg((Math.atan2(p.x - px, -(p.z - pz)) * 180) / Math.PI - headingDeg);
@@ -141,6 +146,10 @@ export function drawSteerpointMarkers(ctx: CanvasRenderingContext2D, points: rea
     return true;
   };
   for (const p of points) {
+    if (p.objective) {
+      drawObjectiveMarker(ctx, p, camera, Math.hypot(p.x - px, p.y - py, p.z - pz), widthPx, heightPx, free);
+      continue;
+    }
     projectWorldToScreen(camera, p, widthPx, heightPx, scratch);
     if (!scratch.visible) continue;
     const d = Math.hypot(p.x - px, p.y - py, p.z - pz);
@@ -179,5 +188,87 @@ export function drawSteerpointMarkers(ctx: CanvasRenderingContext2D, points: rea
     ctx.fillText(`${km(d)} KM`, x, y + 20);
     ctx.textAlign = 'start';
   }
+  ctx.restore();
+}
+
+/**
+ * A scripted objective: a diamond over it with its name and distance; out of view (or behind), a
+ * diamond and an arrow at the screen's edge, on the side to turn to.
+ */
+function drawObjectiveMarker(ctx: CanvasRenderingContext2D, p: HudSteerpoint, camera: CameraState, distM: number, widthPx: number, heightPx: number, free: (x: number, y: number) => boolean): void {
+  const m = camera.viewProjectionMatrix;
+  const lx = p.x - camera.originWorld.x;
+  const ly = p.y - camera.originWorld.y;
+  const lz = p.z - camera.originWorld.z;
+  const cx = m[0]! * lx + m[4]! * ly + m[8]! * lz + m[12]!;
+  const cy = m[1]! * lx + m[5]! * ly + m[9]! * lz + m[13]!;
+  const cw = m[3]! * lx + m[7]! * ly + m[11]! * lz + m[15]!;
+  const behind = cw <= 1e-6;
+  // Behind the camera the projection mirrors: flip it so the arrow points the way to turn.
+  let nx = behind ? -cx : cx / cw;
+  let ny = behind ? -cy : cy / cw;
+  const onScreen = !behind && Math.abs(nx) <= 1 && Math.abs(ny) <= 1;
+  const hw = widthPx / 2;
+  const hh = heightPx / 2;
+  let x: number;
+  let y: number;
+  let ax = 0;
+  let ay = 0;
+  if (onScreen) {
+    x = (nx * 0.5 + 0.5) * widthPx;
+    y = (1 - (ny * 0.5 + 0.5)) * heightPx;
+  } else {
+    if (behind && Math.abs(nx) < 1e-6 && Math.abs(ny) < 1e-6) nx = 1;
+    // Scale the direction from the centre out to the inset edge rectangle.
+    const ex = (hw - EDGE_PX) / hw;
+    const ey = (hh - EDGE_PX) / hh;
+    const k = Math.min(ex / Math.max(1e-6, Math.abs(nx)), ey / Math.max(1e-6, Math.abs(ny)));
+    nx *= k;
+    ny *= k;
+    x = hw + nx * hw;
+    y = hh - ny * hh;
+    const len = Math.hypot(x - hw, y - hh) || 1;
+    ax = (x - hw) / len;
+    ay = (y - hh) / len;
+  }
+  ctx.save();
+  ctx.strokeStyle = OBJECTIVE;
+  ctx.fillStyle = OBJECTIVE;
+  ctx.lineWidth = 2;
+  ctx.shadowColor = 'rgba(0,0,0,0.6)';
+  ctx.shadowBlur = 3;
+  const r = onScreen ? 9 : 7;
+  ctx.beginPath();
+  ctx.moveTo(x, y - r);
+  ctx.lineTo(x + r, y);
+  ctx.lineTo(x, y + r);
+  ctx.lineTo(x - r, y);
+  ctx.closePath();
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.arc(x, y, 2, 0, Math.PI * 2);
+  ctx.fill();
+  if (!onScreen) {
+    // The arrow, outside the diamond, pointing off-screen.
+    const tx = x + ax * (r + 12);
+    const ty = y + ay * (r + 12);
+    ctx.beginPath();
+    ctx.moveTo(tx, ty);
+    ctx.lineTo(tx - ax * 9 - ay * 6, ty - ay * 9 + ax * 6);
+    ctx.lineTo(tx - ax * 9 + ay * 6, ty - ay * 9 - ax * 6);
+    ctx.closePath();
+    ctx.fill();
+  }
+  // Labels only where they do not overlap another's (the first listed, the current step, wins).
+  if (!free(x, y)) {
+    ctx.restore();
+    return;
+  }
+  ctx.font = 'bold 11px monospace';
+  ctx.textAlign = 'center';
+  const below = y < 40;
+  ctx.fillText(p.name.toUpperCase(), x, below ? y + r + 14 : y - r - 6);
+  ctx.font = '10px monospace';
+  ctx.fillText(`${km(distM)} KM`, x, below ? y + r + 26 : y + r + 14);
   ctx.restore();
 }

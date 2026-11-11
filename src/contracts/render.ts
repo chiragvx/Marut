@@ -594,6 +594,8 @@ export interface HudSteerpoint {
   z: number;
   /** A known air-defence site (drawn as a red threat marker, not a steerpoint). */
   threat?: boolean;
+  /** A scripted mission's current objective (src/script): a diamond, held at the screen's edge when out of view. */
+  objective?: boolean;
 }
 
 export interface HudAirbase {

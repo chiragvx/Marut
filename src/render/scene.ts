@@ -687,6 +687,10 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
         const f = fInterp;
 
         interpolateEntity(snapshotBuf, playerSlot, f, interpEntity);
+        // The subject's pose (the engine sound's emitter) is taken now: interpEntity is reused below
+        // for every missile, dropped store and aircraft, and then holds the last one drawn.
+        Object.assign(subjectPos, interpEntity.pos);
+        Object.assign(subjectRot, interpEntity.rot);
         shadowFocus.set(interpEntity.pos.x, interpEntity.pos.y, interpEntity.pos.z);
         const cf = cockpitFlight;
         cf.valid = true;
@@ -846,10 +850,6 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
       cameraState.renderSimSec = snapshotBuf.hasData && !showcase ? snapshotBuf.renderSimSec : undefined;
       Object.assign(cameraWorldRot, { x: camera.quaternion.x, y: camera.quaternion.y, z: camera.quaternion.z, w: camera.quaternion.w });
       cameraState.worldRot = cameraWorldRot;
-      if (subjectDrawn) {
-        Object.assign(subjectPos, interpEntity.pos);
-        Object.assign(subjectRot, interpEntity.rot);
-      }
       cameraState.subjectPos = subjectDrawn ? subjectPos : undefined;
       cameraState.subjectRot = subjectDrawn ? subjectRot : undefined;
 

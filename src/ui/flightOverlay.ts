@@ -90,6 +90,10 @@ export interface FlightOverlay {
   /** null hides the tracker. */
   setObjective(label: string, text: string, detail?: string): void;
   clearObjective(): void;
+  /** A scripted mission's objective (src/script): its step, title and live detail; flashes when `serial` changes. */
+  setMissionObjective(o: { step: number; steps: number; title: string; detail: string; serial: number }): void;
+  /** A radio call's subtitle, held for `holdMs` (the player's own calls in their colour). */
+  showRadio(from: string, text: string, own: boolean, holdMs: number): void;
   message(text: string, warn?: boolean): void;
   /** Hint text with {key} markers, or undefined for none. */
   setHint(text: string | undefined): void;
@@ -106,10 +110,13 @@ export function createFlightOverlay(container: HTMLElement): FlightOverlay {
   const objective = h('div', { className: 'tj-objective tj-hidden', attrs: { 'data-role': 'objective' } }, objLabel, objText, objDetail);
   const toasts = h('div', { className: 'tj-toasts', attrs: { 'aria-live': 'polite' } });
   const hint = h('div', { className: 'tj-hint tj-hidden', attrs: { 'data-role': 'hint' } });
-  const root = h('div', { className: 'tj-flight tj-passive tj-hidden' }, objective, toasts, hint);
+  const radio = h('div', { className: 'tj-radio', attrs: { 'aria-live': 'polite', 'data-role': 'radio' } });
+  const root = h('div', { className: 'tj-flight tj-passive tj-hidden' }, objective, toasts, hint, radio);
   container.appendChild(root);
   let hintNow: string | undefined;
   let objNow = '';
+  let objSerial = -1;
+  let flashTimer: ReturnType<typeof setTimeout> | undefined;
 
   return {
     root,
@@ -127,7 +134,33 @@ export function createFlightOverlay(container: HTMLElement): FlightOverlay {
     },
     clearObjective() {
       objNow = '';
+      objSerial = -1;
       objective.classList.add('tj-hidden');
+      objective.classList.remove('tj-objective--mission', 'tj-objective--new');
+    },
+    setMissionObjective(o) {
+      objective.classList.add('tj-objective--mission');
+      this.setObjective(`Objective ${o.step}/${o.steps}`, o.title, o.detail);
+      if (o.serial !== objSerial) {
+        const first = objSerial < 0;
+        objSerial = o.serial;
+        if (!first) {
+          objective.classList.remove('tj-objective--new');
+          void objective.offsetWidth; // restart the animation
+          objective.classList.add('tj-objective--new');
+          if (flashTimer) clearTimeout(flashTimer);
+          flashTimer = setTimeout(() => objective.classList.remove('tj-objective--new'), 1600);
+        }
+      }
+    },
+    showRadio(from, text, own, holdMs) {
+      const row = h('div', { className: `tj-radio-line${own ? ' tj-radio-line--own' : ''}` }, h('span', { className: 'tj-radio-from', text: from }), h('span', { text }));
+      radio.append(row);
+      while (radio.childElementCount > 2) radio.firstElementChild?.remove();
+      setTimeout(() => {
+        row.classList.add('tj-radio-line--out');
+        setTimeout(() => row.remove(), 400);
+      }, holdMs);
     },
     message(text, warn = false) {
       const t = h('div', { className: `tj-toast${warn ? ' tj-toast--warn' : ''}`, text });
@@ -149,6 +182,7 @@ export function createFlightOverlay(container: HTMLElement): FlightOverlay {
     },
     clear() {
       toasts.replaceChildren();
+      radio.replaceChildren();
       this.setHint(undefined);
       this.clearObjective();
     },
