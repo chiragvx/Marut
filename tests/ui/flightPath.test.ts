@@ -40,6 +40,17 @@ describe('reel flight model', () => {
     expect(off).toBeGreaterThan(5 * deg);
   });
 
+  test('with turbulence the nose still points along the flight path (within a couple of degrees)', () => {
+    const jet = makeAircraft();
+    const tr = flyPath({ start: { x: 0, y: 1000, z: 0 }, headingRad: 1.1, speed: 200, durationSec: 4, holdSpeed: true, turbulence: 1.5, seed: 3 });
+    for (const t of [0.5, 1.7, 3.2]) {
+      tr.sample(t, jet);
+      const n = nose(jet.rot);
+      const v = Math.hypot(jet.vel.x, jet.vel.y, jet.vel.z);
+      expect((n.x * jet.vel.x + n.y * jet.vel.y + n.z * jet.vel.z) / v).toBeGreaterThan(Math.cos(5 * deg));
+    }
+  });
+
   test('a full aileron roll comes back wings level', () => {
     const tr = flyPath({ start: { x: 0, y: 1000, z: 0 }, headingRad: 0, speed: 210, durationSec: 3, holdSpeed: true, roll: (t) => bellRate(t, 0.5, 2.1, 2 * Math.PI), turbulence: 0 });
     expect(Math.abs(tr.state(3).bank)).toBeLessThan(3 * deg);

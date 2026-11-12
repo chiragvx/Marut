@@ -274,9 +274,9 @@ export function formationScene(layout: AirportLayout, runway: RunwayDef): Showca
     leadTrack.sample(t, probe);
     const lx = probe.pos.x, ly = probe.pos.y, lz = probe.pos.z;
     wingTrack.sample(t, probe);
-    o.x = lerp(lx, probe.pos.x, 0.25);
+    o.x = lerp(lx, probe.pos.x, 0.32);
     o.y = ly;
-    o.z = lerp(lz, probe.pos.z, 0.25);
+    o.z = lerp(lz, probe.pos.z, 0.32);
     return o;
   });
   const frame: ShowcaseFrame = { camPos: { x: 0, y: 0, z: 0 }, lookAt: { x: 0, y: 0, z: 0 }, fovDeg: 46, aircraft: [lead, wing] };

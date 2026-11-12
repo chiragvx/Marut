@@ -197,7 +197,13 @@ export function flyPath(plan: FlightPlan): Track {
     up.x = lift.x * ca - u.x * sa; up.y = lift.y * ca - u.y * sa; up.z = lift.z * ca - u.z * sa;
     fromBasis(fwd, up, right, q);
     const k = turb * Math.min(1, speed / 150);
-    Quat.fromYawPitchRoll(0.15 * deg * k * wobble(t, seed + 7), 0.25 * deg * k * wobble(t * 1.3, seed + 11), 0.7 * deg * k * wobble(t * 1.1, seed + 5), dq);
+    // A small body-frame rotation (roll about x, yaw about y, pitch about z). Not fromYawPitchRoll:
+    // its zero heading faces north, so it is a 90 deg turn from the body frame, never identity.
+    dq.x = 0.5 * 0.7 * deg * k * wobble(t * 1.1, seed + 5);
+    dq.y = 0.5 * 0.15 * deg * k * wobble(t, seed + 7);
+    dq.z = 0.5 * 0.25 * deg * k * wobble(t * 1.3, seed + 11);
+    dq.w = 1;
+    Quat.normalize(dq, dq);
     Quat.multiply(q, dq, q);
     P[i * 3] = pos.x; P[i * 3 + 1] = pos.y; P[i * 3 + 2] = pos.z;
     V[i * 3] = u.x * speed; V[i * 3 + 1] = u.y * speed; V[i * 3 + 2] = u.z * speed;
