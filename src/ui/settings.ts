@@ -164,6 +164,16 @@ export const createSettingsScreen: CreateSettingsScreen = (container, initial, c
     current.camera = { ...cam };
     fireChange();
   });
+  const blurText = (v: number): string => (v <= 0 ? 'Off' : `${Math.round(v * 100)}%`);
+  const blurValue = h('span', { className: 'tj-value', text: blurText(cam.motionBlur ?? 0.6) });
+  const blurInput = h('input', { className: 'tj-range', attrs: { 'data-role': 'camera-motion-blur', type: 'range', min: '0', max: '1', step: '0.05', 'aria-label': 'Motion blur on fast turns' } });
+  blurInput.value = String(cam.motionBlur ?? 0.6);
+  blurInput.addEventListener('input', () => (blurValue.textContent = blurText(Number(blurInput.value))));
+  blurInput.addEventListener('change', () => {
+    cam.motionBlur = Number(blurInput.value);
+    current.camera = { ...cam };
+    fireChange();
+  });
   const bindingRows = new Map<BindableAction, { row: HTMLElement; codeLabel: HTMLElement; button: HTMLButtonElement }>();
   const bindingsList = h('div', { className: 'tj-settings-bindings' });
   for (const action of Object.values(BindableActionEnum)) {
@@ -191,6 +201,7 @@ export const createSettingsScreen: CreateSettingsScreen = (container, initial, c
     camSlider('zoomSpeed', 'Camera zoom speed (scroll)'),
     row('Invert camera drag up / down', checkbox('On', cam.invertY, (v) => { cam.invertY = v; current.camera = { ...cam }; fireChange(); }, { 'data-role': 'camera-invert' })),
     row('Chase view swings back behind after', h('span', { className: 'tj-row' }, recenterInput, recenterValue)),
+    row('Motion blur on fast turns', h('span', { className: 'tj-row' }, blurInput, blurValue)),
     h('p', { className: 'tj-note', text: 'Drag (right button when flying with the mouse) or the arrow keys look around; scroll zooms. Chase: look round the jet. Cockpit: turn your head. HUD only: a glance that springs back. Orbit: swing the camera round the jet; it stays there. Fly-by: scroll for a tighter or wider shot. Zoom stays where you leave it.' }),
     h('div', { className: 'tj-row', attrs: { style: 'justify-content: space-between' } }, h('span', { className: 'tj-label', text: 'Keys' }), button('Reset keys to defaults', () => callbacks.onResetDefaults(), 'default', { 'data-action': 'reset-defaults' })),
     bindingsList

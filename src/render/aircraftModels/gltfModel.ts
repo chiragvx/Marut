@@ -35,7 +35,7 @@ interface SceneExtras {
   credit?: string;
 }
 
-const DRIVERS: readonly PartDriver[] = ['elevonL', 'elevonR', 'rudder', 'gear', 'slat', 'airbrake', 'wheel'];
+const DRIVERS: readonly PartDriver[] = ['elevonL', 'elevonR', 'rudder', 'gear', 'slat', 'airbrake', 'wheel', 'oleo', 'brace'];
 
 /** A mesh's geometry in its node's frame baked out, with the attributes the aircraft shader reads. */
 function prepare(mesh: THREE.Mesh, part: number): THREE.BufferGeometry {
@@ -54,6 +54,43 @@ function prepare(mesh: THREE.Mesh, part: number): THREE.BufferGeometry {
   g.setAttribute('aPart', new THREE.Float32BufferAttribute(new Float32Array(n).fill(part), 1));
   g.setAttribute('aNoz', new THREE.Float32BufferAttribute(new Float32Array(n), 1));
   return g.index ? g : g.setIndex([...Array(n).keys()]);
+}
+
+/** A lamp lens: a small ellipsoid (radii, m) at c, as part `part` (the shader lights it). */
+function lens(c: readonly number[], r: V3, part: number): THREE.BufferGeometry {
+  const g = new THREE.SphereGeometry(1, 14, 10);
+  g.scale(r[0], r[1], r[2]);
+  g.translate(c[0]!, c[1]!, c[2]!);
+  const n = g.getAttribute('position').count;
+  g.setAttribute('aTangent', new THREE.Float32BufferAttribute(new Float32Array(n * 4), 4));
+  g.setAttribute('aPart', new THREE.Float32BufferAttribute(new Float32Array(n).fill(part), 1));
+  g.setAttribute('aNoz', new THREE.Float32BufferAttribute(new Float32Array(n), 1));
+  return g;
+}
+
+/**
+ * The lamps' lenses (the source model has none: its lights were painted on): navigation lights and
+ * strobes on the wingtips, the tail light on the fin's trailing edge. Each sits just inboard of the
+ * light's point so it is half buried in the tip.
+ */
+function lampLenses(L: SceneExtras['lights']): THREE.BufferGeometry[] {
+  const inboard = (p: readonly number[], dz: number): number[] => [p[0]!, p[1]!, p[2]! - Math.sign(p[2]!) * dz];
+  return [
+    lens(inboard(L.navLeft, 0.012), [0.06, 0.02, 0.026], PART.lightRed),
+    lens(inboard(L.navRight, 0.012), [0.06, 0.02, 0.026], PART.lightGreen),
+    lens(inboard(L.strobeLeft, 0.012), [0.04, 0.017, 0.022], PART.lightStrobe),
+    lens(inboard(L.strobeRight, 0.012), [0.04, 0.017, 0.022], PART.lightStrobe),
+    lens([L.navTail[0]! + 0.008, L.navTail[1]!, 0], [0.02, 0.03, 0.022], PART.lightWhite),
+  ];
+}
+
+/** The nose leg with the landing/taxi lamp's lens on it, facing along the light. */
+function withLandingLens(leg: THREE.BufferGeometry, L: SceneExtras['lights']): THREE.BufferGeometry {
+  const l = lens(L.landing, [0.022, 0.045, 0.045], PART.lightLanding);
+  const merged = mergeGeometries([leg.index ? leg.toNonIndexed() : leg, l.toNonIndexed()]);
+  if (!merged) return leg;
+  const n = merged.getAttribute('position').count;
+  return merged.setIndex([...Array(n).keys()]);
 }
 
 /**
@@ -104,17 +141,18 @@ export function templateFromGltf(scene: THREE.Object3D): AircraftModelTemplate {
   if (meshes.has('glass')) fixed.push(prepare(meshes.get('glass')!, PART.canopy));
   const nz = extras.nozzle;
   if (nz.hingeX !== undefined && nz.hingeR !== undefined && nz.exitR !== undefined) fixed.push(buildNozzle(nz as Required<SceneExtras['nozzle']>));
+  fixed.push(...lampLenses(extras.lights));
   const body = mergeGeometries(fixed);
   if (!body) throw new Error('aircraft GLB: body geometries do not merge');
 
   const parts: ArticulatedPart[] = [];
   for (const [name, mesh] of meshes) {
-    const ud = mesh.userData as { driver?: string; pivot?: unknown; axis?: unknown; travelRad?: number; keepVisible?: boolean; travelWindow?: unknown; parent?: string; radiusM?: number };
+    const ud = mesh.userData as { driver?: string; pivot?: unknown; axis?: unknown; travelRad?: number; keepVisible?: boolean; travelWindow?: unknown; parent?: string; radiusM?: number; leg?: string; steer?: boolean; follows?: string; target?: unknown };
     if (!ud.driver) continue;
     if (!DRIVERS.includes(ud.driver as PartDriver)) throw new Error(`aircraft GLB: part "${name}" has unknown driver ${ud.driver}`);
     parts.push({
       name,
-      geometry: prepare(mesh, PART.textured),
+      geometry: name === 'noseGear' ? withLandingLens(prepare(mesh, PART.textured), extras.lights) : prepare(mesh, PART.textured),
       pivot: v3(ud.pivot),
       axis: v3(ud.axis),
       driver: ud.driver as PartDriver,
@@ -122,6 +160,9 @@ export function templateFromGltf(scene: THREE.Object3D): AircraftModelTemplate {
       ...(ud.keepVisible ? { keepVisible: true } : {}),
       ...(ud.parent ? { parent: ud.parent } : {}),
       ...(ud.radiusM ? { radiusM: Number(ud.radiusM) } : {}),
+      ...(ud.leg === 'nose' || ud.leg === 'mainLeft' || ud.leg === 'mainRight' ? { leg: ud.leg } : {}),
+      ...(ud.steer ? { steer: true } : {}),
+      ...(ud.follows ? { follows: ud.follows, target: v3(ud.target) } : {}),
       ...(Array.isArray(ud.travelWindow) ? { travelWindow: [Number(ud.travelWindow[0]), Number(ud.travelWindow[1])] as [number, number] } : {}),
     });
   }

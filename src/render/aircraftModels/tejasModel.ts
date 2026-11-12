@@ -909,7 +909,7 @@ export function buildFlame(): THREE.BufferGeometry {
 // -----------------------------------------------------------------------------
 
 /** How a moving part is driven (see meshAircraftRenderer.ts). */
-export type PartDriver = 'elevonL' | 'elevonR' | 'rudder' | 'gear' | 'slat' | 'airbrake' | 'wheel';
+export type PartDriver = 'elevonL' | 'elevonR' | 'rudder' | 'gear' | 'slat' | 'airbrake' | 'wheel' | 'oleo' | 'brace';
 
 export interface ArticulatedPart {
   name: string;
@@ -929,6 +929,15 @@ export interface ArticulatedPart {
   parent?: string;
   /** Wheels: rolling radius, m (the part spins about its axle with the ground speed). */
   radiusM?: number;
+  /** Oleo (lower leg): slides along `axis` (up the leg) as the shock strut compresses; `steer`: also
+   *  turns about it with the nosewheel steering. `leg` names the gear leg it belongs to. */
+  leg?: 'nose' | 'mainLeft' | 'mainRight';
+  steer?: boolean;
+  /** Brace (retraction jack, drag struts): pinned at `pivot` on the airframe and aimed at `target`
+   *  (body frame, gear down), a point carried by the part named `follows`; it lengthens or shortens
+   *  along its line as that point moves (a hydraulic jack extending). */
+  follows?: string;
+  target?: V3;
 }
 
 export interface AircraftModelTemplate {

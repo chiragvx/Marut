@@ -255,6 +255,31 @@ for gl, wl in WHEEL_LABEL.items():
                 c['label'] = wl
                 for fi in c['faces']:
                     labels[c['obj'].name][fi] = wl
+# Nose leg, split three ways (it used to fold as one rigid block, so the retraction jack's fuselage
+# anchor swung down out of the airframe with the leg):
+# - the jack's anchor bracket, aft of the leg at the top, belongs to the airframe (joined into the
+#   body at export: kept apart until then so the hinge fits against the fuselage are unchanged);
+# - the jack and drag struts (aft of the leg) become 'noseBrace': pinned at the anchor, pointing at
+#   their attachment on the leg, extending as the leg swings forward (renderer driver 'brace');
+# - the lower leg (piston, torque links, fork, axle) becomes 'noseLower': it slides up the leg as
+#   the oleo compresses and turns with the nosewheel steering (driver 'oleo'); the wheels ride on it.
+NOSE_LEG_AFT_X = 2.99
+NOSE_LOWER_BELOW_Y = -0.95
+nose_anchor = None
+for c in comps:
+    if c['label'] != 'noseGear':
+        continue
+    if c['mx'].x < NOSE_LEG_AFT_X:
+        lab = 'noseAnchor' if c['mx'].y > -0.37 else 'noseBrace'
+        if lab == 'noseAnchor':
+            nose_anchor = c
+    elif (c['mn'].y + c['mx'].y) / 2 < NOSE_LOWER_BELOW_Y:
+        lab = 'noseLower'
+    else:
+        continue
+    c['label'] = lab
+    for fi in c['faces']:
+        labels[c['obj'].name][fi] = lab
 for lab in sorted({c['label'] for c in comps}):
     sel = [c for c in comps if c['label'] == lab]
     print('GROUP', lab, len(sel), sum(c['n'] for c in sel))
@@ -441,7 +466,8 @@ for side, sgn in (('R', 1), ('L', -1)):
     a0, a1 = max(((p, q) for p in low for q in low), key=lambda pq: (pq[0] - pq[1]).length)
     pivot = (a0 + a1) / 2
     axis = (a1 - a0).normalized()
-    far = sorted(vs, key=lambda v: -(v - pivot).cross(axis).length)[: max(4, len(vs) // 4)]
+    # (Ties broken by position: the probe set must not depend on the order the vertices come in.)
+    far = sorted(vs, key=lambda v: (-round((v - pivot).cross(axis).length, 5), round(v.x, 5), round(v.y, 5), round(v.z, 5)))[: max(4, len(vs) // 4)]
     close_deg, err = fit_angle(['airbrake' + side], pivot, axis, far, -100, 100)
     print('AIRBRAKE', side, 'close', close_deg, 'err', round(err, 3))
     transform_group(['airbrake' + side, 'airbrakeAct' + side], hinge_rotation(pivot, axis, close_deg))
@@ -516,7 +542,7 @@ parts['rudder'] = dict(driver='rudder', pivot=botv, axis=-d if d.y > 0 else d, t
 
 # Wheel hubs: axle through the tyres' centre, along the principal direction nearest the lateral (z)
 # axis (a twin-wheel pair is wider than it is round); rolling radius.
-for wl, gl in (('noseWheels', 'noseGear'), ('mainWheelR', 'mainGearR'), ('mainWheelL', 'mainGearL')):
+for wl, gl in (('noseWheels', 'noseLower'), ('mainWheelR', 'mainGearR'), ('mainWheelL', 'mainGearL')):
     vs = all_verts([wl])
     if not vs:
         continue
@@ -528,6 +554,20 @@ for wl, gl in (('noseWheels', 'noseGear'), ('mainWheelR', 'mainGearR'), ('mainWh
     rad = float(np.max(np.linalg.norm(np.cross(pts - c, ax), axis=1)))
     parts[wl] = dict(driver='wheel', pivot=Vector(tuple(c)), axis=Vector(tuple(ax)), travelRad=0, parent=gl, radius=rad)
     print('WHEEL', wl, 'centre', tuple(round(float(x), 3) for x in c), 'axis', tuple(round(float(x), 3) for x in ax), 'r', round(rad, 3))
+
+# Lower nose leg: slides along the leg (from the axle up to the leg's hinge) and steers about it.
+axle = parts['noseWheels']['pivot']
+leg_axis = (parts['noseGear']['pivot'] - axle).normalized()
+parts['noseLower'] = dict(driver='oleo', pivot=axle.copy(), axis=leg_axis, travelRad=0, parent='noseGear', leg='nose', steer=True)
+# Retraction jack and drag struts: pinned at their anchor on the airframe, aimed at their end on the leg.
+bv = all_verts(['noseBrace'])
+far = max(v.x for v in bv)
+end = [v for v in bv if v.x > far - 0.05]
+target = Vector((sum(v.x for v in end) / len(end), sum(v.y for v in end) / len(end), 0))
+amn, amx = nose_anchor['mn'], nose_anchor['mx']
+anchor = Vector(((amn.x + amx.x) / 2, (amn.y + amx.y) / 2, 0))
+parts['noseBrace'] = dict(driver='brace', pivot=anchor, axis=Vector((0, 0, 1)), travelRad=0, follows='noseGear', target=target)
+print('NOSE BRACE anchor', tuple(round(c, 3) for c in anchor), 'target', tuple(round(c, 3) for c in target), 'leg axis', tuple(round(c, 4) for c in leg_axis))
 
 # --- 5b. Bay lids. The source leaves parts of the wheel wells open with the gear up (inboard of the
 # main bay doors; the nose leg's drag-brace slot): find them by ray-casting the belly from below
@@ -954,7 +994,7 @@ def join(name, names):
 
 keep = set()
 for name in ['body', 'cockpit']:
-    o = join(name, [name, 'canopyFrame'] if name == 'cockpit' else [name])
+    o = join(name, [name, 'canopyFrame'] if name == 'cockpit' else [name, 'noseAnchor'])
     keep.add(o)
 glass = join('glass', ['canopyGlass', 'windscreen'])
 keep.add(glass)
@@ -973,7 +1013,13 @@ for name, p in parts.items():
     # the way down: doors open, then the legs come down).
     if p.get('parent'):
         o['parent'] = p['parent']
+    if p.get('radius'):
         o['radiusM'] = round(p['radius'], 4)
+    for key in ('leg', 'steer', 'follows'):
+        if p.get(key):
+            o[key] = p[key]
+    if p.get('target') is not None:
+        o['target'] = [round(c, 4) for c in p['target']]
     if p['driver'] == 'gear':
         o['travelWindow'] = [0.7, 1.0] if 'Door' in name else [0.0, 0.75]
     keep.add(o)

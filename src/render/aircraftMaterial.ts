@@ -108,7 +108,22 @@ const FS = /* glsl */ `
   uniform sampler2D uMrMap;
   uniform sampler2D uNormalMap;
   uniform float uHotX;
+  /** Exterior lamps, body frame: left (red) and right (green) navigation, tail (white), left and
+   *  right strobes. They light the airframe round them (uLightState: x nav, y strobe flash). */
+  uniform vec3 uLampNavL;
+  uniform vec3 uLampNavR;
+  uniform vec3 uLampTail;
+  uniform vec3 uLampStrobeL;
+  uniform vec3 uLampStrobeR;
   varying vec2 vUv;
+  // Light from a small lamp at body point lp on the surface at body point p with body normal nb:
+  // inverse-square past radius r0 (soft inside it), half-Lambert so the lens's own mounting glows.
+  vec3 lampLight(vec3 lp, vec3 p, vec3 nb, vec3 c, float r0) {
+    vec3 d = lp - p;
+    float d2 = dot(d, d);
+    float ndl = dot(nb, d * inversesqrt(max(d2, 1e-6)));
+    return c * clamp(ndl * 0.75 + 0.25, 0.0, 1.0) / (1.0 + d2 / (r0 * r0));
+  }
   varying vec4 vTangentW;
   vec4 livery(vec3 p, vec3 nl) {
     float u = (p.x - uLiveryMap.x) / (uLiveryMap.y - uLiveryMap.x);
@@ -301,13 +316,35 @@ const FS = /* glsl */ `
     float spec = ndl > 0.0 ? pow(max(dot(n, normalize(L + V)), 0.0), shin) * ks * sh : 0.0;
     float fres = pow(1.0 - max(dot(n, V), 0.0), 5.0);
     vec3 env = atmSky(reflect(-V, n));
-    col = col * (amb + uAtmSunCol * diff) + uAtmSunCol * spec + env * refl * (0.4 + 3.0 * fres) + glow;
+    // The aircraft's own lamps on its skin: the navigation lights tint the wingtips and fin at night,
+    // a strobe flash lights up the wing round it (a little even by day).
+    vec3 lamps = vec3(0.0);
+    if (uLightState.x + uLightState.y > 0.0) {
+      vec3 nb = normalize(vNormalL);
+      float navK = uLightState.x * (0.05 + 1.4 * uAtmLights);
+      lamps += lampLight(uLampNavL, vPos, nb, vec3(1.0, 0.1, 0.06) * navK, 0.45);
+      lamps += lampLight(uLampNavR, vPos, nb, vec3(0.08, 1.0, 0.3) * navK, 0.45);
+      lamps += lampLight(uLampTail, vPos, nb, vec3(1.0, 0.97, 0.9) * navK * 0.7, 0.35);
+      float strobeK = uLightState.y * (1.2 + 5.0 * uAtmLights);
+      lamps += lampLight(uLampStrobeL, vPos, nb, vec3(1.0, 0.98, 0.95) * strobeK, 1.1);
+      lamps += lampLight(uLampStrobeR, vPos, nb, vec3(1.0, 0.98, 0.95) * strobeK, 1.1);
+    }
+    col = col * (amb + uAtmSunCol * diff + lamps) + uAtmSunCol * spec + env * refl * (0.4 + 3.0 * fres) + glow;
     // FLIR: a warm airframe; the nozzle and engine white-hot, more so with power.
     bool hot = part == 6 || part == 7 || (textured && vPos.x < uHotX);
     if (uAtmThermal > 0.5) col = vec3(hot ? 1.6 : 0.8 + 0.3 * uThrottle);
     gl_FragColor = vec4(atmApply(col, vWorld), 1.0);
   }
 `;
+
+/** Lamp positions in the model's body frame (the template's LIGHTS). */
+export interface AircraftLampPositions {
+  navLeft: readonly number[];
+  navRight: readonly number[];
+  navTail: readonly number[];
+  strobeLeft: readonly number[];
+  strobeRight: readonly number[];
+}
 
 export interface AircraftBodyUniforms {
   uInterior: { value: number };
@@ -338,7 +375,10 @@ export function createAircraftBodyMaterial(
   livery?: AircraftLivery,
   textures?: AircraftTextures,
   hotX = -1e9,
+  lamps?: AircraftLampPositions,
 ): THREE.ShaderMaterial & { uniforms: AircraftBodyUniforms } {
+  const far = new THREE.Vector3(0, -1e4, 0);
+  const lamp = (p: readonly number[] | undefined): THREE.Vector3 => (p ? new THREE.Vector3(p[0]!, p[1]!, p[2]!) : far.clone());
   return new THREE.ShaderMaterial({
     uniforms: {
       ...getAtmosphereUniforms(),
@@ -355,6 +395,11 @@ export function createAircraftBodyMaterial(
       uMrMap: { value: textures?.metalRough ?? null },
       uNormalMap: { value: textures?.normal ?? null },
       uHotX: { value: hotX },
+      uLampNavL: { value: lamp(lamps?.navLeft) },
+      uLampNavR: { value: lamp(lamps?.navRight) },
+      uLampTail: { value: lamp(lamps?.navTail) },
+      uLampStrobeL: { value: lamp(lamps?.strobeLeft) },
+      uLampStrobeR: { value: lamp(lamps?.strobeRight) },
       uTeam: { value: 0 },
       uLightState: { value: new THREE.Vector4(0, 0, 0, 0) },
       uThrottle: { value: 0 },

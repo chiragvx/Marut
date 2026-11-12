@@ -204,7 +204,12 @@ let currentMission: Mission | undefined;
 /** Settings "Weather" choice; 'off' = clear sky and calm air. */
 let weatherMode: WeatherMode = 'clear';
 /** Settings "Time of day", hours. */
-let timeOfDayH = 10.5;
+// Dev aid: ?tod=21.5 starts a ?mission= flight at that hour (checking night lighting).
+const DEV_TOD_H = ((): number | undefined => {
+  const v = Number(new URLSearchParams(location.search).get('tod') ?? 'NaN');
+  return Number.isFinite(v) && v >= 0 && v <= 24 ? v : undefined;
+})();
+let timeOfDayH = DEV_TOD_H ?? 10.5;
 /** The on-screen buttons in flight (src/ui/actionBar.ts), and whether they are on (Settings -> Gameplay). */
 let actionBar: ActionBar | undefined;
 let actionBarEnabled = true;
@@ -628,7 +633,7 @@ function launchFlight(flight: Flight): void {
   const base = resolveBuiltinMission(flight.id);
   const lesson = trainingEntry(flight.id);
   weatherMode = lesson?.weather ?? 'clear';
-  timeOfDayH = lesson?.timeOfDayH ?? 10.5;
+  timeOfDayH = DEV_TOD_H ?? lesson?.timeOfDayH ?? 10.5;
   renderer.setTimeOfDay(timeOfDayH);
   if (lesson) {
     // Flight School flies the lesson's own jet and drones as written.
@@ -1740,7 +1745,7 @@ async function boot(): Promise<void> {
   inputSystem.setAlphaLimiterDisabled((persisted?.alphaLimiterEnabled ?? true) === false);
   if (persisted?.controlRates) inputSystem.setControlRates(persisted.controlRates);
   weatherMode = persisted?.weatherMode ?? (persisted?.weatherEnabled === false ? 'off' : 'clear');
-  timeOfDayH = persisted?.timeOfDayH ?? 10.5;
+  timeOfDayH = DEV_TOD_H ?? persisted?.timeOfDayH ?? 10.5;
   renderer.setTimeOfDay(timeOfDayH);
   renderer.setWeather(weatherMode, newWeatherSeed());
   // Size renderer/HUD from the current window/DPR once, synchronously, right
@@ -1940,7 +1945,7 @@ const COCKPIT_ZOOM_DEG_PER_STEP = 4;
 let cameraSettings: CameraSettings = { ...DEFAULT_CAMERA_SETTINGS };
 function applyCameraSettings(c: CameraSettings): void {
   cameraSettings = { ...DEFAULT_CAMERA_SETTINGS, ...c };
-  renderer?.setCameraOptions?.({ recenterSec: cameraSettings.recenterSec });
+  renderer?.setCameraOptions?.({ recenterSec: cameraSettings.recenterSec, motionBlur: cameraSettings.motionBlur ?? 0.6 });
 }
 /** Wheel delta to zoom steps (+ = out), by the zoom speed; lines and pages count as notches. */
 function wheelZoomSteps(e: WheelEvent): number {

@@ -85,6 +85,7 @@ import { LIVERY_MAP, tejasLiveryTexture } from './aircraftModels/tejasLivery';
 const withLivery = <T extends { livery?: unknown }>(m: T): T => ({ ...m, livery: { texture: tejasLiveryTexture(), map: LIVERY_MAP } });
 import { createCockpitSystem, type CockpitSystem } from './cockpit';
 import { CockpitPass } from './cockpit/pass';
+import { MotionBlurPass } from './motionBlur';
 import { TEJAS_COCKPIT } from './cockpit/layouts/tejas';
 import type { CockpitFlight } from './cockpit/types';
 
@@ -108,6 +109,10 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
   let grade = createGrade();
   // The 3D cockpit, drawn over the world in its own pass (src/render/cockpit); built on first use.
   const cockpitPass = new CockpitPass();
+  // Camera-turn motion blur, between the world and the cockpit (so the cockpit stays sharp).
+  const blurPass = new MotionBlurPass();
+  let blurSetting = 0.6;
+  const blurJetRel = new THREE.Vector3();
   let cockpit: CockpitSystem | null = null;
   let sizeW = 1;
   let sizeH = 1;
@@ -121,7 +126,13 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
     // replaces it on tiers without anti-aliasing.
     grade = createGrade();
     grade.setSize(sizeW, sizeH);
+    // The world's depth, readable by the blur pass (it keeps the player's own jet sharp).
+    for (const rt of [composer.renderTarget1, composer.renderTarget2]) {
+      rt.depthTexture = new THREE.DepthTexture(1, 1);
+      rt.depthTexture.type = THREE.UnsignedIntType;
+    }
     composer.addPass(renderPass);
+    composer.addPass(blurPass);
     composer.addPass(cockpitPass);
     composer.addPass(grade.fxaaPass);
     composer.addPass(grade.gradePass);
@@ -512,6 +523,7 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
 
     setCameraOptions(o) {
       cameraModeState.chase.returnDelaySec = o.recenterSec > 0 ? o.recenterSec : Infinity;
+      if (o.motionBlur !== undefined) blurSetting = Math.min(1, Math.max(0, o.motionBlur));
     },
 
     glanceRad() {
@@ -904,6 +916,16 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
       if (!contextLost) {
         urbanCache.update(renderer, cameraPose.pos.x, cameraPose.pos.z);
         sunShadows.render(renderer, scene, shadowFocus, floatingOrigin.originWorld, getAtmosphereUniforms().uAtmSunDir.value, shadowsOn);
+        // Off on the low tier, in the showcase reel and in the targeting pod.
+        blurPass.strength = tier === 'low' || showcase || mode === CameraMode.Tgp ? 0 : blurSetting;
+        if (subjectDrawn) blurJetRel.set(subjectPos.x - cameraPose.pos.x, subjectPos.y - cameraPose.pos.y, subjectPos.z - cameraPose.pos.z);
+        blurPass.frame({
+          rot: camera.quaternion,
+          camera,
+          dtSec: frameDtSec,
+          jetRel: subjectDrawn ? blurJetRel : undefined,
+          jetRadiusM: 8,
+        });
         composer.render();
       }
 

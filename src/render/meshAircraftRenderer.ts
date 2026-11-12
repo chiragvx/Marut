@@ -67,13 +67,61 @@ export function nozzleTarget(throttle: number, afterburner: boolean): number {
   return 0.5 * Math.min(1, Math.max(0, (0.8 - throttle) / 0.6));
 }
 
+/** Nosewheel steering limit, rad, and the rudder's full deflection, rad (aircraft/tejasGeometry.ts
+ *  gear 'nose' maxSteerAngleRad and controls maxRudderRad: the pedals drive both). */
+const NOSE_STEER_MAX_RAD = 0.5236;
+const RUDDER_MAX_RAD = 0.349066;
+/** Steering authority fades with ground speed as in physics/landingGear.ts nwsAuthority (contracts/flight.ts NWS_*). */
+const NWS_FULL_BELOW_MPS = 8;
+const NWS_MIN_ABOVE_MPS = 45;
+const NWS_MIN_FRAC = 0.2;
+/** Oleo travel drawn: extension below the modelled (static) pose with no weight on the wheel, and compression above it, m. */
+export const OLEO_EXTEND_M = 0.06;
+export const OLEO_COMPRESS_M = 0.2;
+
+/**
+ * Nosewheel angle, rad (+ = wheel turned left, about the leg's upward axis), from the rudder's
+ * deflection (pedals) on the ground; centred in the air. Same authority taper as the physics.
+ */
+export function noseSteerTarget(rudderRad: number, groundSpeedMps: number, onGround: boolean, gearPos: number): number {
+  if (!onGround || gearPos < 0.99) return 0;
+  const t = Math.min(1, Math.max(0, (groundSpeedMps - NWS_FULL_BELOW_MPS) / (NWS_MIN_ABOVE_MPS - NWS_FULL_BELOW_MPS)));
+  const authority = 1 - t * (1 - NWS_MIN_FRAC);
+  const cmd = Math.max(-1, Math.min(1, rudderRad / RUDDER_MAX_RAD));
+  return cmd * NOSE_STEER_MAX_RAD * authority;
+}
+
+/**
+ * Oleo slide up the leg, m (+ = compressed above the modelled pose), so the tyre sits on the ground:
+ * how far the uncompressed tyre's bottom would be below the ground. With the gear moving or no
+ * ground known, fully extended in the air and the modelled pose on the ground.
+ */
+export function oleoTarget(tyreBottomY: number, groundY: number | undefined, onGround: boolean, gearPos: number): number {
+  if (gearPos < 0.99) return -OLEO_EXTEND_M;
+  if (groundY === undefined) return onGround ? 0 : -OLEO_EXTEND_M;
+  return Math.max(-OLEO_EXTEND_M, Math.min(OLEO_COMPRESS_M, groundY - tyreBottomY));
+}
+
 const scratchQ = new THREE.Quaternion();
 const scratchV = new THREE.Vector3();
+const scratchV2 = new THREE.Vector3();
+const scratchV3 = new THREE.Vector3();
+const scratchM = new THREE.Matrix4();
+const scratchM2 = new THREE.Matrix4();
 
 interface PartNode {
   node: THREE.Group;
   part: ArticulatedPart;
   axis: THREE.Vector3;
+  /** Oleo: the node's position in its parent with the strut at the modelled pose. */
+  base?: THREE.Vector3;
+  /** Brace: the part carrying its far end, the anchor, the line to the end (gear down) and its length. */
+  follows?: PartNode;
+  anchor?: THREE.Vector3;
+  dir0?: THREE.Vector3;
+  len0?: number;
+  /** Oleo: the tyre's bottom (body frame, modelled pose), from the wheel riding on it. */
+  tyreBottom?: THREE.Vector3;
 }
 
 interface Instance {
@@ -91,6 +139,9 @@ interface Instance {
   /** Wheels: ground distance rolled (m) and the current rolling speed (m/s; spins down in the air). */
   rolled: number;
   rollSpeed: number;
+  /** Nosewheel angle (rad) and oleo slide per leg (m), smoothed. */
+  steer: number;
+  oleo: Record<string, number>;
 }
 
 const NO_ID = -1;
@@ -144,6 +195,8 @@ export function createMeshAircraftRenderer(root: THREE.Object3D, template: Aircr
   const balluteBatches = storeModels.byCode.map((m) => (m?.ballute ? batch(m.ballute, 48) : undefined));
   const allBatches = [...storeBatches.filter((b): b is StoreBatch => !!b), ...balluteBatches.filter((b): b is StoreBatch => !!b), railBatch, twinBatch];
   const lights = createAircraftLights(root, template.lights, shared);
+  // Lamps light the skin round them (the shader works in the model's own frame, as LIGHTS are).
+  const lampPositions = template.lights;
   const landingPivot = template.parts.find((p) => p.name === template.landingPart)?.pivot ?? [0, 0, 0];
 
   /** Each pylon's attach frame in the aircraft's body frame. */
@@ -218,7 +271,7 @@ export function createMeshAircraftRenderer(root: THREE.Object3D, template: Aircr
     const airframe = new THREE.Group();
     airframe.position.x = template.offsetX;
     group.add(airframe);
-    const body = createAircraftBodyMaterial(shared, template.nozzleAxisY, template.livery, template.textures, template.textures ? template.nozzleExitX + 0.7 : undefined);
+    const body = createAircraftBodyMaterial(shared, template.nozzleAxisY, template.livery, template.textures, template.textures ? template.nozzleExitX + 0.7 : -1e9, lampPositions);
     const bodyMesh = new THREE.Mesh(template.body, body);
     bodyMesh.layers.enable(AIRCRAFT_SHADOW_LAYER);
     airframe.add(bodyMesh);
@@ -242,6 +295,23 @@ export function createMeshAircraftRenderer(root: THREE.Object3D, template: Aircr
       pn.node.position.set(pn.part.pivot[0] - pp[0], pn.part.pivot[1] - pp[1], pn.part.pivot[2] - pp[2]);
       parent.node.add(pn.node);
     }
+    for (const pn of parts) {
+      if (pn.part.driver === 'oleo') {
+        pn.base = pn.node.position.clone();
+        // The tyre bottom: the lowest point of the wheel riding on this leg (axle centre less its radius).
+        const wheel = parts.find((q) => q.part.parent === pn.part.name && q.part.driver === 'wheel');
+        const wp = wheel?.part.pivot ?? pn.part.pivot;
+        pn.tyreBottom = new THREE.Vector3(wp[0] + template.offsetX, wp[1] - (wheel?.part.radiusM ?? 0), wp[2]);
+      }
+      if (pn.part.driver === 'brace' && pn.part.follows && pn.part.target) {
+        pn.follows = parts.find((q) => q.part.name === pn.part.follows);
+        pn.anchor = new THREE.Vector3(...pn.part.pivot);
+        pn.dir0 = new THREE.Vector3(...pn.part.target).sub(pn.anchor);
+        pn.len0 = pn.dir0.length();
+        pn.dir0.normalize();
+        pn.node.matrixAutoUpdate = false;
+      }
+    }
     const flameMat = createAircraftFlameMaterial(shared, template.nozzleAxisY, template.nozzleExitX);
     flameMat.uniforms.uSeed.value = instances.length * 1.7;
     const flame = new THREE.Mesh(template.flame, flameMat);
@@ -250,7 +320,7 @@ export function createMeshAircraftRenderer(root: THREE.Object3D, template: Aircr
     airframe.add(flame);
     root.add(group);
     const landingNode = parts.find((p) => p.part.name === template.landingPart)?.node;
-    return { root: group, parts, body, flameMat, flame, airframe, landingNode, assignedId: NO_ID, airbrake: 0, slat: 0, nozzle: 0, rolled: 0, rollSpeed: 0 };
+    return { root: group, parts, body, flameMat, flame, airframe, landingNode, assignedId: NO_ID, airbrake: 0, slat: 0, nozzle: 0, rolled: 0, rollSpeed: 0, steer: 0, oleo: {} };
   }
 
   const camWorld = { x: 0, y: 0, z: 0 };
@@ -299,6 +369,9 @@ export function createMeshAircraftRenderer(root: THREE.Object3D, template: Aircr
       const groundSpeed = Math.hypot(s.vel.x, s.vel.y, s.vel.z);
       inst.rollSpeed = s.onGround ? groundSpeed : Math.max(0, inst.rollSpeed - Math.max(15, inst.rollSpeed * 0.8) * dt);
       inst.rolled = (inst.rolled + inst.rollSpeed * dt) % 10000;
+      // Nosewheel steering follows the pedals; the oleos follow the ground (smoothed: ~60 ms).
+      const kSmooth = fresh ? 1 : 1 - Math.exp(-dt / 0.06);
+      inst.steer += (noseSteerTarget(s.rudder, Math.hypot(s.vel.x, s.vel.z), s.onGround, s.gearPos) - inst.steer) * kSmooth;
 
       inst.root.visible = true;
       // From inside this aircraft's canopy (the 3D cockpit), its exterior canopy frame isn't drawn.
@@ -339,8 +412,44 @@ export function createMeshAircraftRenderer(root: THREE.Object3D, template: Aircr
           case 'airbrake':
             angle = inst.airbrake * p.travelRad;
             break;
+          case 'oleo': {
+            // Slides up the leg as the strut takes the weight; the nose leg also steers about it.
+            const tb = pn.tyreBottom!;
+            scratchQ.set(rot.x, rot.y, rot.z, rot.w);
+            const tyreY = pos.y + scratchV.copy(tb).applyQuaternion(scratchQ).y;
+            const key = p.leg ?? p.name;
+            const prev = inst.oleo[key] ?? 0;
+            const target = oleoTarget(tyreY, s.groundY, s.onGround, s.gearPos);
+            const slide = fresh ? target : prev + (target - prev) * kSmooth;
+            inst.oleo[key] = slide;
+            pn.node.position.copy(pn.base!).addScaledVector(pn.axis, slide);
+            angle = p.steer ? inst.steer : 0;
+            break;
+          }
+          case 'brace':
+            continue;
         }
         pn.node.quaternion.setFromAxisAngle(pn.axis, angle);
+      }
+      // Braces (the nose leg's retraction jack and drag struts): pinned at the anchor, aimed at their
+      // end on the leg, stretched along their line as the leg swings (the jack extending).
+      for (const pn of inst.parts) {
+        if (pn.part.driver !== 'brace' || !pn.follows) continue;
+        const fp = pn.follows.part;
+        scratchV.set(...fp.pivot);
+        // The end, carried round the followed part's hinge (its node is in the airframe frame, as is this one).
+        scratchV2.set(...pn.part.target!).sub(scratchV).applyQuaternion(pn.follows.node.quaternion).add(scratchV).sub(pn.anchor!);
+        const len = scratchV2.length();
+        scratchV2.divideScalar(len || 1);
+        scratchQ.setFromUnitVectors(pn.dir0!, scratchV2);
+        // M = T(anchor) R S(dir0, len/len0); the mesh inside already carries T(-anchor).
+        const k = len / pn.len0! - 1;
+        const d = pn.dir0!;
+        scratchM.set(1 + k * d.x * d.x, k * d.x * d.y, k * d.x * d.z, 0, k * d.y * d.x, 1 + k * d.y * d.y, k * d.y * d.z, 0, k * d.z * d.x, k * d.z * d.y, 1 + k * d.z * d.z, 0, 0, 0, 0, 1);
+        scratchM2.makeRotationFromQuaternion(scratchQ).multiply(scratchM);
+        scratchM2.setPosition(pn.anchor!);
+        pn.node.matrix.copy(scratchM2);
+        pn.node.visible = pn.follows.node.visible;
       }
       const u = inst.body.uniforms;
       u.uTeam.value = s.team;
