@@ -181,3 +181,39 @@ describe('HUD-only cockpit camera', () => {
     expect(Math.abs(look.z)).toBeLessThan(1e-6);
   });
 });
+
+describe('cockpit seat inside the canopy', () => {
+  it('no part of the seat pokes up through the canopy (it showed as black slabs looking back)', async () => {
+    const { Batcher } = await import('../../src/render/cockpit/build');
+    const { createSeat } = await import('../../src/render/cockpit/components/seat');
+    const { canopyHalfWidthAt } = await import('../../src/render/cockpit/components/structure');
+    const { TEJAS_SEAT, TEJAS_SHELL } = await import('../../src/render/cockpit/layouts/tejas');
+    const mat = new THREE.MeshBasicMaterial();
+    const mats = new Proxy({}, { get: () => mat });
+    const atlas = { paint: (wMm: number, hMm: number) => ({ wMm, hMm, u0: 0, u1: 1, v0: 0, v1: 1 }) };
+    const batch = new Batcher();
+    createSeat({ mats, atlas, batch } as never, TEJAS_SEAT);
+    const root = new THREE.Group();
+    batch.flush(root);
+    const p = new THREE.Vector3();
+    let worst = Infinity;
+    let at = '';
+    root.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (!m.isMesh) return;
+      const pos = m.geometry.getAttribute('position');
+      for (let i = 0; i < pos.count; i++) {
+        p.fromBufferAttribute(pos, i);
+        if (p.y <= TEJAS_SHELL.railY) continue;
+        const s = TEJAS_SHELL.canopy(p.x);
+        // Clearance to the glass: across (at this height) and above.
+        const clear = Math.min(canopyHalfWidthAt(s, p.y) - Math.abs(p.z), s.topY - p.y);
+        if (clear < worst) {
+          worst = clear;
+          at = `${p.x.toFixed(3)},${p.y.toFixed(3)},${p.z.toFixed(3)}`;
+        }
+      }
+    });
+    expect(worst, `closest seat point to the canopy at ${at}`).toBeGreaterThan(0.015);
+  });
+});

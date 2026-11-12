@@ -37,9 +37,9 @@ import { createHud } from '../components/hud';
 import { createMfd } from '../components/mfd';
 import type { MfdConfig } from '../components/mfdPages';
 import { addPanel, rectOutline } from '../components/panel';
-import { createSeat, createStandbyCompass } from '../components/seat';
+import { createSeat, createStandbyCompass, type SeatOptions } from '../components/seat';
 import { createSsdu } from '../components/ssdu';
-import { buildShell, type CanopySection } from '../components/structure';
+import { buildShell, type CanopySection, type ShellSpec } from '../components/structure';
 import { createUfcp } from '../components/ufcp';
 
 /** Design eye point, exterior layout frame. */
@@ -95,6 +95,32 @@ const MFD_CONFIG: MfdConfig = {
 const lightIndex = (c: CockpitContext): number => Math.max(0, LIGHT_MODES.findIndex((m) => m.name === c.aux.lightMode));
 const blink = (c: CockpitContext, hz = 2): number => (Math.floor(c.timeSec * hz * 2) % 2 === 0 ? 1 : 0.15);
 
+/** The cockpit shell and canopy (cockpit frame, origin at the design eye point). */
+export const TEJAS_SHELL: ShellSpec = {
+  canopy: canopyAt,
+  railY: -0.3,
+  floorY: -1.1,
+  rearX: -0.62,
+  frontX: 1.15,
+  consoleTopY: -0.62,
+  consoleInnerZ: 0.27,
+  consoleFrontX: 0.36,
+  consoleRearX: -0.55,
+  panelX: 0.66,
+  panelTopY: -0.2,
+  panelBottomY: -0.64,
+  coamingEndX: 1.75,
+  coamingEndY: -0.43,
+  coamingLipHalfWidth: 0.11,
+  canopyRearX: -0.86,
+  archX: 0.62,
+  windscreenEndX: CANOPY_FRONT_X - DEP_X - 0.01,
+  fairingEndX: -1.6,
+};
+
+/** The ejection seat (it must stay inside the canopy: tests/render/cockpit.test.ts). */
+export const TEJAS_SEAT: SeatOptions = { panFront: new THREE.Vector3(0.12, -0.8, 0), backAngle: 17 * DEG, width: 0.46 };
+
 export const TEJAS_COCKPIT: CockpitLayout = {
   name: 'Tejas Mk1A',
   eyeBody: new THREE.Vector3(DEP_X, DEP_Y, 0),
@@ -105,27 +131,7 @@ export const TEJAS_COCKPIT: CockpitLayout = {
     const add = (c: CockpitComponent): void => void out.push(c);
 
     // --- Shell and canopy. ---
-    const shell = {
-      canopy: canopyAt,
-      railY: -0.3,
-      floorY: -1.1,
-      rearX: -0.62,
-      frontX: 1.15,
-      consoleTopY: -0.62,
-      consoleInnerZ: 0.27,
-      consoleFrontX: 0.36,
-      consoleRearX: -0.55,
-      panelX: 0.66,
-      panelTopY: -0.2,
-      panelBottomY: -0.64,
-      coamingEndX: 1.75,
-      coamingEndY: -0.43,
-      coamingLipHalfWidth: 0.11,
-      canopyRearX: -0.86,
-      archX: 0.62,
-      windscreenEndX: CANOPY_FRONT_X - DEP_X - 0.01,
-      fairingEndX: -1.6,
-    };
+    const shell = TEJAS_SHELL;
     add(buildShell(shell, mats, batch, glassU));
 
     // --- Head-up display and the UFCP on its face. ---
@@ -583,7 +589,7 @@ export const TEJAS_COCKPIT: CockpitLayout = {
     // --- Stick, pedals, seat. ---
     add(createStick(kit, { pivot: new THREE.Vector3(0.36, -1.02, 0), length: 0.58, maxPitchRad: 13 * DEG, maxRollRad: 11 * DEG }));
     add(createPedals(kit, { centre: new THREE.Vector3(0.98, -0.95, 0), spacing: 0.135, travel: 0.035 }));
-    add(createSeat(kit, { panFront: new THREE.Vector3(0.12, -0.8, 0), backAngle: 17 * DEG, width: 0.46 }));
+    add(createSeat(kit, TEJAS_SEAT));
 
     // --- Standby compass on the windscreen arch, right of the HUD. ---
     add(createStandbyCompass(kit, facing(new THREE.Vector3(0.84, 0.035, 0.2), EYE)));

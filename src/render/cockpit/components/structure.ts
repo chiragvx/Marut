@@ -129,6 +129,8 @@ function quad(a: number[], b: number[], c: number[], d: number[]): THREE.BufferG
 }
 
 const I = new THREE.Matrix4();
+/** The rear deck (behind the seat, under the back of the canopy) above the canopy rail, m. */
+const REAR_DECK_ABOVE_RAIL_M = 0.06;
 
 export function buildShell(spec: ShellSpec, mats: CockpitMaterials, batch: Batcher, glassU: GlassUniforms): CockpitComponent {
   const object = new THREE.Group();
@@ -158,6 +160,8 @@ export function buildShell(spec: ShellSpec, mats: CockpitMaterials, batch: Batch
       railPts.push(new THREE.Vector3(x, ry + 0.012, side * (wallZ(x) - 0.006)));
     }
     batch.add(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(railPts), 20, 0.02, 8, false), mats.frame, I);
+    // Rounded ends (the rear one is close to the head looking back; an open tube showed its inside).
+    for (const e of [railPts[0]!, railPts[railPts.length - 1]!]) batch.add(new THREE.SphereGeometry(0.02, 10, 8).translate(e.x, e.y, e.z), mats.frame, I);
     // Rail inner lip (a flat ledge the canopy seals against).
     for (let i = 0; i < 10; i++) {
       const xa = spec.canopyRearX + ((spec.archX - spec.canopyRearX) * i) / 10;
@@ -174,9 +178,30 @@ export function buildShell(spec: ShellSpec, mats: CockpitMaterials, batch: Batch
   }
 
   const zf = wallZ(0);
-  // Rear bulkhead (behind the seat), up to a little above the rail.
+  // Rear bulkhead (behind the seat), up to the rear deck.
+  const deckY = ry + REAR_DECK_ABOVE_RAIL_M;
   const zr = wallZ(rearX) + 0.02;
-  batch.add(quad([rearX, fy, -zr], [rearX, fy, zr], [rearX, ry + 0.06, zr], [rearX, ry + 0.06, -zr]), mats.wall, I);
+  batch.add(quad([rearX, fy, -zr], [rearX, fy, zr], [rearX, deckY, zr], [rearX, deckY, -zr]), mats.wall, I);
+  // Rear deck: the floor under the back of the canopy and its fairing, from the bulkhead back to
+  // the fairing's end, out to the glass at each side. Without it, looking back over the shoulder
+  // showed straight down into the exterior model through the gap behind the seat.
+  {
+    const n = 12;
+    const halfAt = (x: number): number => canopyHalfWidthAt(spec.canopy(x), deckY) + 0.004;
+    for (let i = 0; i < n; i++) {
+      const xa = rearX + ((spec.fairingEndX - rearX) * i) / n;
+      const xb = rearX + ((spec.fairingEndX - rearX) * (i + 1)) / n;
+      const za = halfAt(xa);
+      const zb = halfAt(xb);
+      batch.add(quad([xa, deckY, -za], [xa, deckY, za], [xb, deckY, zb], [xb, deckY, -zb]), mats.console, I);
+    }
+    // Equipment on the deck behind the headbox: two low boxes and a cross frame.
+    const x0 = (rearX + spec.canopyRearX) / 2 - 0.12;
+    const hw = Math.min(halfAt(x0), halfAt(x0 - 0.3)) - 0.05;
+    batch.add(new THREE.BoxGeometry(0.22, 0.07, hw * 0.8).translate(x0 - 0.1, deckY + 0.035, -hw * 0.5), mats.wall, I);
+    batch.add(new THREE.BoxGeometry(0.18, 0.05, hw * 0.7).translate(x0 - 0.12, deckY + 0.025, hw * 0.52), mats.wall, I);
+    batch.add(new THREE.BoxGeometry(0.03, 0.025, hw * 2).translate(x0 + 0.08, deckY + 0.0125, 0), mats.darkMetal, I);
+  }
   // Footwell front.
   batch.add(quad([frontX, fy, zf * 0.65], [frontX, fy - 0.0, -zf * 0.65], [frontX, spec.panelBottomY, -zf * 0.65], [frontX, spec.panelBottomY, zf * 0.65]), mats.wall, I);
   // Underside of the panel (the knee area ceiling): panel bottom back to the footwell front.

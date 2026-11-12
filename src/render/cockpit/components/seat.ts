@@ -13,6 +13,8 @@ import type { CockpitKit } from '../index';
 import type { CockpitComponent } from '../types';
 
 const DEG = Math.PI / 180;
+/** Headbox width, m (Mk16: narrower than the seat bucket). */
+const HEADBOX_WIDTH_M = 0.38;
 
 export interface SeatOptions {
   /** Seat reference point: the front of the seat pan's top, cockpit frame. */
@@ -35,20 +37,23 @@ export function createSeat(kit: CockpitKit, o: SeatOptions): CockpitComponent {
   batch.add(box(0.44, 0.05, w - 0.05), mats.cushion, mul(F, local(-0.23, -0.005, 0)));
   // Survival pack under the pan, and the front of the pan.
   batch.add(box(0.06, 0.16, w - 0.04), mats.console, mul(F, local(-0.02, -0.14, 0)));
-  // Side beams, rising up the back.
+  // Side beams, rising up the back (to below the shoulders: the canopy narrows above them).
   for (const s of [-1, 1]) {
     batch.add(box(0.46, 0.2, 0.025), mats.console, mul(F, local(-0.23, 0.02, s * (w / 2 + 0.012))));
-    batch.add(box(0.06, 0.95, 0.03), mats.darkMetal, mul(back(0.47), local(-0.03, 0, s * (w / 2 - 0.01))));
-    // Guide rails above the headbox (visible looking back and up).
-    batch.add(rod({ x: 0, y: 0, z: 0 }, { x: 0, y: 0.25, z: 0 }, 0.012), mats.metal, mul(back(0.9), local(-0.05, 0, s * (w / 2 - 0.03))));
+    batch.add(box(0.06, 0.8, 0.03), mats.darkMetal, mul(back(0.4), local(-0.03, 0, s * (w / 2 - 0.01))));
   }
   // Back cushion.
   batch.add(box(0.06, 0.62, w - 0.06), mats.cushion, back(0.38, 0.04));
-  // Headbox and drogue container: behind the head, a black box with a rounded top.
-  batch.add(box(0.13, 0.3, w - 0.02), mats.bezel, back(0.93, -0.03));
-  batch.add(new THREE.CylinderGeometry(0.065, 0.065, w - 0.02, 18, 1, false, 0, Math.PI).rotateX(Math.PI / 2).rotateZ(-Math.PI / 2), mats.bezel, mul(back(1.08, -0.03), local(0, 0, 0)));
+  // Headbox and drogue container behind the head: a box with a low rounded top, narrower than the
+  // seat, kept inside the canopy (it used to stand up through the glass behind the pilot).
+  const hbW = Math.min(w - 0.06, HEADBOX_WIDTH_M);
+  batch.add(box(0.13, 0.23, hbW), mats.console, back(0.745, -0.03));
+  const dome = new THREE.Shape();
+  dome.absellipse(0, 0, hbW / 2, 0.09, 0, Math.PI, false, 0);
+  const domeGeom = new THREE.ExtrudeGeometry(dome, { depth: 0.13, bevelEnabled: false, curveSegments: 20 }).translate(0, 0, -0.065).rotateY(Math.PI / 2);
+  batch.add(domeGeom, mats.console, back(0.86, -0.03));
   // Head pad.
-  batch.add(box(0.05, 0.17, 0.2), mats.cushion, back(0.93, 0.07));
+  batch.add(box(0.05, 0.17, 0.16), mats.cushion, back(0.72, 0.07));
   // Headbox placard: "DANGER - EJECTION SEAT" triangle.
   const warn = kit.atlas.paint(90, 60, (pt) => {
     pt.fill('#141414');
@@ -58,7 +63,7 @@ export function createSeat(kit: CockpitKit, o: SeatOptions): CockpitComponent {
     pt.text('EJECTION SEAT', 45, 34, 7, { color: '#e8e8e2', glow: false });
     pt.text('MARTIN-BAKER', 45, 46, 6, { color: '#bdbdb5', glow: false });
   });
-  batch.add(decalGeometry(warn).rotateY(Math.PI / 2), mats.painted, mul(back(1.02, 0.036), local(0, 0, 0.08)));
+  batch.add(decalGeometry(warn).rotateY(Math.PI / 2), mats.painted, mul(back(0.8, 0.036), local(0, 0, 0.13)));
   // Seat firing handle: a yellow/black loop on the front of the pan.
   const handle = new THREE.TorusGeometry(0.045, 0.009, 8, 20, Math.PI);
   handle.rotateY(Math.PI / 2);
