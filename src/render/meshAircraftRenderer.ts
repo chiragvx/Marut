@@ -15,6 +15,8 @@
  * attached. Missiles in flight are drawn along their velocity. One instanced mesh per store type
  * for every aircraft, so they cost a few draw calls in all.
  * Every mesh also draws into the aircraft sun-shadow cascade (AIRCRAFT_SHADOW_LAYER).
+ * Condensation in humid air (vapour.ts): the wing vapour sheet and tip trails in hard pulls, the
+ * vapour cone near Mach 1, from each jet's own speed, height and angle of attack.
  */
 import * as THREE from 'three';
 import { StoreRack, storeSlotAt, storeSlotCode, storeSlotCount, storeSlotRack, storeSlotTwin, type QuatLike, type Vec3Like } from '../contracts/core';
@@ -22,6 +24,7 @@ import { AIRCRAFT_SHADOW_LAYER } from './sunShadows';
 import type { AircraftModelTemplate, ArticulatedPart } from './aircraftModels/tejasModel';
 import { buildStoreModels, BOMB_RACK_Z, TWIN_RAIL_FRAMES, type StoreModel } from './aircraftModels/stores';
 import { createAircraftLights } from './aircraftLights';
+import { buildVapourConeGeometry, buildVapourWingGeometry, createVapourDrive, DEV_VAPOUR_FORCE, createVapourMeshes, createVapourTrails, vapourDrive, type VapourMeshes } from './vapour';
 import { EntityFlag } from '../contracts/core';
 import { createAircraftBodyMaterial, createAircraftFlameMaterial, createAircraftSharedUniforms, type AircraftBodyUniforms, type AircraftFlameUniforms } from './aircraftMaterial';
 
@@ -142,6 +145,11 @@ interface Instance {
   /** Nosewheel angle (rad) and oleo slide per leg (m), smoothed. */
   steer: number;
   oleo: Record<string, number>;
+  /** Condensation: the wing veil and cone, and the smoothed strength of each form. */
+  vapour: VapourMeshes;
+  vapWing: number;
+  vapTip: number;
+  vapCone: number;
 }
 
 const NO_ID = -1;
@@ -156,6 +164,8 @@ export interface MeshAircraftRenderer {
   updateStore(code: number, pos: Readonly<Vec3Like>, rot: Readonly<QuatLike>, originWorld: Readonly<Vec3Like>): void;
   /** The drawing-buffer height (px) and the projection's [1][1] term, for sizing light glows. */
   setViewport(heightPx: number, projection11: number): void;
+  /** How humid the air is, 0..1 (vapour.ts airHumidity). */
+  setHumidity(h: number): void;
   /** Hides instances not updated this frame and uploads the stores. */
   endFrame(): void;
   dispose(): void;
@@ -198,6 +208,15 @@ export function createMeshAircraftRenderer(root: THREE.Object3D, template: Aircr
   // Lamps light the skin round them (the shader works in the model's own frame, as LIGHTS are).
   const lampPositions = template.lights;
   const landingPivot = template.parts.find((p) => p.name === template.landingPart)?.pivot ?? [0, 0, 0];
+  const vapourWingGeom = template.vapourWing ? buildVapourWingGeometry(template.vapourWing) : undefined;
+  const vapourConeGeom = template.vapourCone ? buildVapourConeGeometry(template.vapourCone) : undefined;
+  const vapourTrails = createVapourTrails(root, shared);
+  const vapourTip = template.vapourWing?.tipTe;
+  const drive = createVapourDrive();
+  const vapourNow = { wing: 0, tip: 0, cone: 0, loadFactor: 0, mach: 0 };
+  const tipW = new THREE.Vector3();
+  const tipQ = new THREE.Quaternion();
+  let humidity = 0.45;
 
   /** Each pylon's attach frame in the aircraft's body frame. */
   const pylonFrames = [
@@ -320,7 +339,8 @@ export function createMeshAircraftRenderer(root: THREE.Object3D, template: Aircr
     airframe.add(flame);
     root.add(group);
     const landingNode = parts.find((p) => p.part.name === template.landingPart)?.node;
-    return { root: group, parts, body, flameMat, flame, airframe, landingNode, assignedId: NO_ID, airbrake: 0, slat: 0, nozzle: 0, rolled: 0, rollSpeed: 0, steer: 0, oleo: {} };
+    const vapour = createVapourMeshes(airframe, vapourWingGeom, vapourConeGeom, shared);
+    return { root: group, parts, body, flameMat, flame, airframe, landingNode, assignedId: NO_ID, airbrake: 0, slat: 0, nozzle: 0, rolled: 0, rollSpeed: 0, steer: 0, oleo: {}, vapour, vapWing: 0, vapTip: 0, vapCone: 0 };
   }
 
   const camWorld = { x: 0, y: 0, z: 0 };
@@ -331,6 +351,7 @@ export function createMeshAircraftRenderer(root: THREE.Object3D, template: Aircr
       touched.fill(0);
       for (const b of allBatches) b.n = 0;
       lights.begin(timeSec);
+      vapourTrails.begin(timeSec, origin, cam);
       dt = dtSec;
       shared.uOrigin.value.set(origin.x, origin.y, origin.z);
       shared.uCamRel.value.set(cam.x - origin.x, cam.y - origin.y, cam.z - origin.z);
@@ -486,6 +507,37 @@ export function createMeshAircraftRenderer(root: THREE.Object3D, template: Aircr
         lightBits & EntityFlag.LightsLanding && s.gearPos > 0.9 ? 1 : 0,
         lightBits & EntityFlag.LightsFormation ? 1 : 0
       );
+
+      // Condensation (vapour.ts): builds quickly as the pull comes on, clears a little slower.
+      vapourDrive(pos.y, s.vel, rot, humidity, s.onGround, drive);
+      if (DEV_VAPOUR_FORCE) {
+        drive.wing = DEV_VAPOUR_FORCE[0] ?? 0;
+        drive.tip = DEV_VAPOUR_FORCE[1] ?? 0;
+        drive.cone = DEV_VAPOUR_FORCE[2] ?? 0;
+      }
+      if (fresh) {
+        inst.vapWing = drive.wing;
+        inst.vapTip = drive.tip;
+        inst.vapCone = drive.cone;
+      } else {
+        inst.vapWing = approach(inst.vapWing, drive.wing, 5, 2.5, dt);
+        inst.vapTip = approach(inst.vapTip, drive.tip, 6, 3, dt);
+        inst.vapCone = approach(inst.vapCone, drive.cone, 4, 3, dt);
+      }
+      vapourNow.wing = inst.vapWing;
+      vapourNow.tip = inst.vapTip;
+      vapourNow.cone = inst.vapCone;
+      inst.vapour.set(vapourNow, Math.hypot(s.vel.x, s.vel.y, s.vel.z));
+      if (vapourTip) {
+        tipQ.set(rot.x, rot.y, rot.z, rot.w);
+        for (const side of [1, -1]) {
+          tipW.set(vapourTip[0] + template.offsetX, vapourTip[1], side * vapourTip[2]).applyQuaternion(tipQ);
+          tipW.x += pos.x;
+          tipW.y += pos.y;
+          tipW.z += pos.z;
+          vapourTrails.emit(entityId * 2 + (side > 0 ? 1 : 0), tipW, inst.vapTip);
+        }
+      }
     },
 
     setViewport(heightPx, projection11) {
@@ -516,8 +568,13 @@ export function createMeshAircraftRenderer(root: THREE.Object3D, template: Aircr
       put(storeBatches[code], mA);
     },
 
+    setHumidity(h) {
+      humidity = h;
+    },
+
     endFrame() {
       lights.end();
+      vapourTrails.end();
       for (const b of allBatches) {
         b.mesh.count = b.n;
         b.mesh.instanceMatrix.needsUpdate = true;
@@ -534,6 +591,7 @@ export function createMeshAircraftRenderer(root: THREE.Object3D, template: Aircr
         root.remove(inst.root);
         inst.body.dispose();
         inst.flameMat.dispose();
+        inst.vapour.dispose();
       }
       instances.length = 0;
       for (const b of allBatches) {
@@ -543,6 +601,9 @@ export function createMeshAircraftRenderer(root: THREE.Object3D, template: Aircr
       }
       storeMat.dispose();
       lights.dispose();
+      vapourTrails.dispose();
+      vapourWingGeom?.dispose();
+      vapourConeGeom?.dispose();
       template.body.dispose();
       template.flame.dispose();
       for (const p of template.parts) p.geometry.dispose();

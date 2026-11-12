@@ -1945,7 +1945,7 @@ const COCKPIT_ZOOM_DEG_PER_STEP = 4;
 let cameraSettings: CameraSettings = { ...DEFAULT_CAMERA_SETTINGS };
 function applyCameraSettings(c: CameraSettings): void {
   cameraSettings = { ...DEFAULT_CAMERA_SETTINGS, ...c };
-  renderer?.setCameraOptions?.({ recenterSec: cameraSettings.recenterSec, motionBlur: cameraSettings.motionBlur ?? 0.6 });
+  renderer?.setCameraOptions?.({ recenterSec: cameraSettings.recenterSec });
 }
 /** Wheel delta to zoom steps (+ = out), by the zoom speed; lines and pages count as notches. */
 function wheelZoomSteps(e: WheelEvent): number {

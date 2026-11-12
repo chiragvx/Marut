@@ -689,6 +689,29 @@ export const LIGHTS = {
   landingDir: [Math.cos(0.07), -Math.sin(0.07), 0] as V3,
 };
 
+/**
+ * The starboard wing's upper surface as a grid for the vapour sheet: nu chordwise (u = 0 at the
+ * leading edge, 1 at the trailing edge, past 1 behind it) by nv spanwise (v = 0 at the root, 1 at
+ * the tip), surface points in the body frame, row by row (v outer, u inner).
+ */
+export interface VapourWing {
+  nu: number;
+  nv: number;
+  uMax: number;
+  surf: Float32Array;
+  /** The starboard wingtip's trailing edge, where the tip vortex leaves it. */
+  tipTe: V3;
+}
+
+/** The vapour cone: a bell round the airframe from x0 aft over `length`, radius r0 -> r1, about y = axisY. */
+export interface VapourCone {
+  x0: number;
+  length: number;
+  r0: number;
+  r1: number;
+  axisY: number;
+}
+
 /** A formation (covert) light strip: its centre on the skin and the skin's outward normal, body frame. */
 export interface FormationLamp {
   p: V3;
@@ -971,10 +994,14 @@ export interface AircraftModelTemplate {
   /** Flush pod mounts after the pylons in store-slot order (station L under the intake): attach points, body frame. */
   podMounts?: readonly V3[];
   /** Exterior light positions (LIGHTS); `landing` is carried by the part named by `landingPart`. */
-  lights: typeof LIGHTS & { formation?: readonly FormationLamp[] };
+  lights: typeof LIGHTS & { formation?: readonly FormationLamp[]; navLens?: readonly (readonly number[])[] };
   landingPart: string;
   /** Inside the canopy (body frame): with the camera here, the exterior canopy frame isn't drawn (the cockpit has its own). */
   canopyInterior: { min: V3; max: V3 };
+  /** Where condensation forms over the starboard wing (render/vapour.ts; mirrored for port); absent = none. */
+  vapourWing?: VapourWing;
+  /** The transonic vapour cone round the airframe; absent = none. */
+  vapourCone?: VapourCone;
   /** Markings and panel lines (a texture needs a DOM, so the renderer's owner attaches it). */
   livery?: import('../aircraftMaterial').AircraftLivery;
   /** Imported models: their texture set (parts drawn as PART.textured sample it). */

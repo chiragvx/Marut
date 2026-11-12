@@ -545,8 +545,8 @@ export interface SceneRenderer {
    */
   orbitCamera(deltaYawRad: number, deltaPitchRad: number, deltaZoomSteps: number): void;
   /** Camera preferences (Settings -> Controls): chase view re-centres after this many s of no looking (0 = never). */
-  /** recenterSec: chase view's swing back (0 = never); motionBlur: camera-turn blur strength 0..1 (0 = off; never on the low tier). */
-  setCameraOptions?(o: { recenterSec: number; motionBlur?: number }): void;
+  /** recenterSec: chase view's swing back (0 = never). */
+  setCameraOptions?(o: { recenterSec: number }): void;
   /** How far the HUD-only glance is turned from straight ahead, rad (0 in other views). */
   glanceRad?(): number;
   /** CameraMode.Cockpit3d: turns the head (rad, yaw left +, pitch up +) and zooms (+ = wider field of view, degrees). */

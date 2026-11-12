@@ -200,11 +200,9 @@ export interface CameraSettings {
   zoomSpeed: number;
   invertY: boolean;
   recenterSec: number;
-  /** Motion blur when the view turns fast (hard rolls, snapping the head round), 0 (off) .. 1. Absent = the default. */
-  motionBlur?: number;
 }
 
-export const DEFAULT_CAMERA_SETTINGS: CameraSettings = { lookSpeed: 1, zoomSpeed: 1, invertY: false, recenterSec: 6, motionBlur: 0.6 };
+export const DEFAULT_CAMERA_SETTINGS: CameraSettings = { lookSpeed: 1, zoomSpeed: 1, invertY: false, recenterSec: 6 };
 
 export interface SettingsState {
   /** 'auto' = use the last QualityTierReport.tier from DetectQualityTier; any explicit QualityTier overrides it. */

@@ -18,7 +18,7 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import { cap, circle, loft, PART, range } from './meshBuild';
 import type { V3 } from './meshBuild';
 import { TEJAS_GLB_HASH } from './tejasGlbVersion';
-import { buildFlame, INTAKE_STATION, NOZZLE_AXIS_Y, NOZZLE_EXIT_X, type AircraftModelTemplate, type ArticulatedPart, type FormationLamp, type LIGHTS, type PartDriver, type Pylon } from './tejasModel';
+import { buildFlame, INTAKE_STATION, NOZZLE_AXIS_Y, NOZZLE_EXIT_X, type AircraftModelTemplate, type ArticulatedPart, type FormationLamp, type LIGHTS, type PartDriver, type Pylon, type VapourCone, type VapourWing } from './tejasModel';
 
 /** The imported Tejas (relative to the page, so it works under /play/ and in the Android build);
  *  versioned by content so a rebuilt model is never served from a stale cache. */
@@ -69,15 +69,27 @@ function lens(c: readonly number[], r: V3, part: number): THREE.BufferGeometry {
 }
 
 /**
- * The lamps' lenses (the source model has none: its lights were painted on): navigation lights and
- * strobes on the wingtips, the tail light on the fin's trailing edge. Each sits just inboard of the
- * light's point so it is half buried in the tip.
+ * The navigation lights' lens: the model's own wingtip leading-edge fairing (the triangular facet the
+ * source painted red on the port tip), as a triangle of body (x, z) on the starboard tip; the body
+ * shader lights it red to port, green to starboard. Found from the painted texels.
+ */
+// (Its outer edge pushed ~3 cm outboard so the fairing's rounded leading edge is inside it too.)
+const NAV_LENS_TRI: readonly (readonly number[])[] = [
+  [-2.385, 3.835],
+  [-2.83, 4.04],
+  [-2.83, 3.81],
+];
+/** Where the navigation lights' glow sits: mid-way along the fairing's outer (leading) edge. */
+const NAV_LIGHT_POINT: V3 = [-2.61, -0.01, 3.915];
+
+/**
+ * The lamps' lenses the source model lacks: strobes on the wingtips, the tail light on the fin's
+ * trailing edge (the navigation lights use the model's own wingtip fairings, NAV_LENS_TRI). Each sits
+ * just inboard of the light's point so it is half buried in the tip.
  */
 function lampLenses(L: SceneExtras['lights']): THREE.BufferGeometry[] {
   const inboard = (p: readonly number[], dz: number): number[] => [p[0]!, p[1]!, p[2]! - Math.sign(p[2]!) * dz];
   return [
-    lens(inboard(L.navLeft, 0.012), [0.06, 0.02, 0.026], PART.lightRed),
-    lens(inboard(L.navRight, 0.012), [0.06, 0.02, 0.026], PART.lightGreen),
     lens(inboard(L.strobeLeft, 0.012), [0.04, 0.017, 0.022], PART.lightStrobe),
     lens(inboard(L.strobeRight, 0.012), [0.04, 0.017, 0.022], PART.lightStrobe),
     lens([L.navTail[0]! + 0.008, L.navTail[1]!, 0], [0.02, 0.03, 0.022], PART.lightWhite),
@@ -223,6 +235,89 @@ function formationStrips(body: THREE.BufferGeometry): { geometry: THREE.BufferGe
   return { geometry, lamps };
 }
 
+/**
+ * The starboard wing's planform for the vapour sheet (body frame of the imported model): the leading
+ * edge as (z, x) points with the slats (the compound delta: steep inboard, then the main sweep), the
+ * trailing edge at a constant x, root and tip stations.
+ */
+const WING_LE: readonly [number, number][] = [
+  [0.9, 2.35],
+  [1.2, 2.0],
+  [1.7, 1.6],
+  [3.95, -2.7],
+];
+const WING_TE_X = -2.95;
+const WING_ROOT_Z = 0.9;
+const WING_TIP_Z = 3.95;
+const VAPOUR_NU = 20;
+const VAPOUR_NV = 12;
+/** The sheet runs on past the trailing edge (over the elevons and a little behind): u up to this. */
+const VAPOUR_U_MAX = 1.3;
+
+function leX(z: number): number {
+  for (let i = 1; i < WING_LE.length; i++) {
+    const [z0, x0] = WING_LE[i - 1]!;
+    const [z1, x1] = WING_LE[i]!;
+    if (z <= z1 || i === WING_LE.length - 1) return x0 + ((x1 - x0) * (z - z0)) / (z1 - z0);
+  }
+  return WING_LE[0]![1];
+}
+
+/**
+ * The wing's upper surface under the vapour grid, by casting rays straight down onto the airframe.
+ * Triangles are binned on a coarse x-z grid first, so each ray tests only a handful. Where the
+ * fixed airframe has nothing (slats and elevons are moving parts; behind the trailing edge), the
+ * height carries on from the nearest hit along the chord.
+ */
+function vapourWing(body: THREE.BufferGeometry, tipTe: V3): VapourWing {
+  const pos = body.getAttribute('position');
+  const index = body.getIndex();
+  const vertCount = index ? index.count : pos.count;
+  const vi = (t: number): number => (index ? index.getX(t) : t);
+  const CELL = 0.3;
+  const x0 = -4.5, z0 = 0.5, nx = Math.ceil(8 / CELL), nz = Math.ceil(4 / CELL);
+  const bins: number[][] = Array.from({ length: nx * nz }, () => []);
+  for (let t = 0; t + 2 < vertCount; t += 3) {
+    const i0 = vi(t), i1 = vi(t + 1), i2 = vi(t + 2);
+    const xs = [pos.getX(i0), pos.getX(i1), pos.getX(i2)];
+    const zs = [pos.getZ(i0), pos.getZ(i1), pos.getZ(i2)];
+    const ax = Math.floor((Math.min(...xs) - x0) / CELL), bx = Math.floor((Math.max(...xs) - x0) / CELL);
+    const az = Math.floor((Math.min(...zs) - z0) / CELL), bz = Math.floor((Math.max(...zs) - z0) / CELL);
+    if (bx < 0 || ax >= nx || bz < 0 || az >= nz) continue;
+    for (let cx = Math.max(0, ax); cx <= Math.min(nx - 1, bx); cx++) {
+      for (let cz = Math.max(0, az); cz <= Math.min(nz - 1, bz); cz++) bins[cz * nx + cx]!.push(i0, i1, i2);
+    }
+  }
+  const down = new THREE.Vector3(0, -1, 0);
+  const o = new THREE.Vector3();
+  const surf = new Float32Array(VAPOUR_NU * VAPOUR_NV * 3);
+  for (let j = 0; j < VAPOUR_NV; j++) {
+    const z = WING_ROOT_Z + ((WING_TIP_Z - WING_ROOT_Z) * j) / (VAPOUR_NV - 1);
+    const xl = leX(z);
+    const ys: (number | undefined)[] = [];
+    for (let i = 0; i < VAPOUR_NU; i++) {
+      const u = (VAPOUR_U_MAX * i) / (VAPOUR_NU - 1);
+      const x = xl + u * (WING_TE_X - xl);
+      surf[(j * VAPOUR_NU + i) * 3] = x;
+      surf[(j * VAPOUR_NU + i) * 3 + 2] = z;
+      const cx = Math.floor((x - x0) / CELL), cz = Math.floor((z - z0) / CELL);
+      const bin = cx >= 0 && cx < nx && cz >= 0 && cz < nz ? bins[cz * nx + cx]! : [];
+      const h = u <= 1 ? castOnto(pos, new Uint32Array(bin), o.set(x, 2, z), down) : undefined;
+      // Only the wing (and its blend into the fuselage), not a store or the spine.
+      ys.push(h && h.p.y > -0.1 && h.p.y < 0.45 ? h.p.y : undefined);
+    }
+    for (let i = 0; i < VAPOUR_NU; i++) {
+      let y = ys[i];
+      for (let d = 1; y === undefined && d < VAPOUR_NU; d++) y = ys[i - d] ?? ys[i + d];
+      surf[(j * VAPOUR_NU + i) * 3 + 1] = y ?? 0.25 - 0.065 * (z - WING_ROOT_Z);
+    }
+  }
+  return { nu: VAPOUR_NU, nv: VAPOUR_NV, uMax: VAPOUR_U_MAX, surf, tipTe };
+}
+
+/** The vapour cone round the imported Tejas: from the cockpit, flaring to its shock at about mid-wing. */
+const VAPOUR_CONE: VapourCone = { x0: 2.6, length: 3.5, r0: 0.9, r1: 4.6, axisY: 0.35 };
+
 /** The nose leg with the landing/taxi lamp's lens on it, facing along the light. */
 function withLandingLens(leg: THREE.BufferGeometry, L: SceneExtras['lights']): THREE.BufferGeometry {
   const l = lens(L.landing, [0.022, 0.045, 0.045], PART.lightLanding);
@@ -330,8 +425,9 @@ export function templateFromGltf(scene: THREE.Object3D): AircraftModelTemplate {
     pylons: extras.pylons,
     podMounts: [extras.podMount ? v3(extras.podMount) : INTAKE_STATION],
     lights: {
-      navLeft: v3(L.navLeft),
-      navRight: v3(L.navRight),
+      navLeft: [NAV_LIGHT_POINT[0], NAV_LIGHT_POINT[1], -NAV_LIGHT_POINT[2]],
+      navRight: NAV_LIGHT_POINT,
+      navLens: NAV_LENS_TRI,
       navTail: v3(L.navTail),
       strobeLeft: v3(L.strobeLeft),
       strobeRight: v3(L.strobeRight),
@@ -340,6 +436,9 @@ export function templateFromGltf(scene: THREE.Object3D): AircraftModelTemplate {
       formation: formation.lamps,
     },
     landingPart: 'noseGear',
+    // The tip vortex leaves the wingtip's trailing edge (just aft of the nav light).
+    vapourWing: vapourWing(fixed[0]!, [Number(L.navRight[0]) - 0.05, Number(L.navRight[1]), Number(L.navRight[2])]),
+    vapourCone: VAPOUR_CONE,
     canopyInterior: { min: v3(extras.canopyInterior.min), max: v3(extras.canopyInterior.max) },
     textures: { base: mat.map, metalRough: mat.metalnessMap, normal: mat.normalMap },
   };

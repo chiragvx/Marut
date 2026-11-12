@@ -119,7 +119,34 @@ const FS = /* glsl */ `
   uniform vec3 uLampTail;
   uniform vec3 uLampStrobeL;
   uniform vec3 uLampStrobeR;
+  /** Imported models: the navigation lights' lens, the wingtip's own leading-edge fairing, as a
+   *  triangle in the wing's plane (body x, |z|) on the starboard tip (mirrored to port); w: on. */
+  uniform vec2 uNavLensA;
+  uniform vec2 uNavLensB;
+  uniform vec2 uNavLensC;
+  uniform float uNavLensOn;
   varying vec2 vUv;
+  // A navigation light seen from the eye: 1 inside its sector (axis, cos of the half-angle), which
+  // is horizontal (in the wing's plane): from above or below, every lamp shows.
+  float navArc(vec3 axis, float cosHalf) {
+    vec3 vh = vec3(vViewL.x, 0.0, vViewL.z);
+    float h = length(vh);
+    float inArc = h < 1e-4 * length(vViewL) ? 1.0 : smoothstep(cosHalf - 0.06, cosHalf + 0.04, dot(vh / h, axis));
+    return max(inArc, smoothstep(0.85, 0.97, abs(normalize(vViewL).y)));
+  }
+  // Inside the triangle abc (soft-edged over a few mm): 0..1.
+  float triMask(vec2 p, vec2 a, vec2 b, vec2 c) {
+    float s = sign((b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x));
+    float d = 1e9;
+    vec2 v[3];
+    v[0] = a; v[1] = b; v[2] = c;
+    for (int i = 0; i < 3; i++) {
+      vec2 e = v[(i + 1) % 3] - v[i];
+      vec2 q = p - v[i];
+      d = min(d, s * (e.x * q.y - e.y * q.x) / max(length(e), 1e-6));
+    }
+    return smoothstep(-0.002, 0.004, d);
+  }
   // Light from a small lamp at body point lp on the surface at body point p with body normal nb:
   // inverse-square past radius r0 (soft inside it), half-Lambert so the lens's own mounting glows.
   vec3 lampLight(vec3 lp, vec3 p, vec3 nb, vec3 c, float r0) {
@@ -181,6 +208,20 @@ const FS = /* glsl */ `
       ks = mix(0.4, 0.04, mr.g);
       shin = mix(90.0, 10.0, mr.g);
       refl = mix(0.03, 0.3, mr.b) * (1.0 - 0.7 * mr.g);
+      // The wingtips' leading-edge fairings are the navigation lights' lenses: red port, green
+      // starboard, glossy coloured glass when off, lit inside their sectors.
+      if (uNavLensOn > 0.5 && part == 27 && abs(vPos.z) > 2.5) {
+        float m = triMask(vec2(vPos.x, abs(vPos.z)), uNavLensA, uNavLensB, uNavLensC);
+        if (m > 0.0) {
+          bool port = vPos.z < 0.0;
+          vec3 lc = port ? vec3(1.0, 0.12, 0.08) : vec3(0.1, 1.0, 0.3);
+          col = mix(col, lc * 0.35, m);
+          ks = mix(ks, 1.0, m);
+          shin = mix(shin, 120.0, m);
+          refl = mix(refl, 0.3, m);
+          glow = lc * uLightState.x * (0.6 + 2.5 * uAtmLights) * navArc(vec3(0.574, 0.0, port ? -0.819 : 0.819), 0.5) * m;
+        }
+      }
     } else if (part == 22) {
       // Radome: lighter grey dielectric.
       col = friendly ? vec3(0.74, 0.76, 0.76) : vec3(0.5, 0.52, 0.53);
@@ -294,13 +335,7 @@ const FS = /* glsl */ `
       // out to their side; white: 140 deg astern), as the glow (aircraftLights.ts NAV_ARC_*): outside
       // it the lamp is behind its shield.
       vec3 arcAxis = part == 10 ? vec3(0.574, 0.0, -0.819) : part == 11 ? vec3(0.574, 0.0, 0.819) : vec3(-1.0, 0.0, 0.0);
-      float arcCos = part == 12 ? 0.309 : 0.5;
-      // The sectors are horizontal (in the wing's plane): from above or below, every lamp shows.
-      vec3 vh = vec3(vViewL.x, 0.0, vViewL.z);
-      float h = length(vh);
-      float inArc = h < 1e-4 * length(vViewL) ? 1.0 : smoothstep(arcCos - 0.06, arcCos + 0.04, dot(vh / h, arcAxis));
-      inArc = max(inArc, smoothstep(0.85, 0.97, abs(normalize(vViewL).y)));
-      glow = lc * uLightState.x * (0.6 + 2.5 * uAtmLights) * inArc;
+      glow = lc * uLightState.x * (0.6 + 2.5 * uAtmLights) * navArc(arcAxis, part == 12 ? 0.309 : 0.5);
     } else if (part == 19) {
       // Formation strips (uLightState.w): electroluminescent panels, pale yellow-green when off; lit,
       // a soft green that is barely noticeable by day and plain at night (kept dim for night vision
@@ -361,6 +396,8 @@ export interface AircraftLampPositions {
   navTail: readonly number[];
   strobeLeft: readonly number[];
   strobeRight: readonly number[];
+  /** Imported models: the navigation lights' lens (starboard wingtip fairing) as a triangle of body (x, z) points. */
+  navLens?: readonly (readonly number[])[];
 }
 
 export interface AircraftBodyUniforms {
@@ -417,6 +454,10 @@ export function createAircraftBodyMaterial(
       uLampTail: { value: lamp(lamps?.navTail) },
       uLampStrobeL: { value: lamp(lamps?.strobeLeft) },
       uLampStrobeR: { value: lamp(lamps?.strobeRight) },
+      uNavLensA: { value: new THREE.Vector2(lamps?.navLens?.[0]?.[0] ?? 0, lamps?.navLens?.[0]?.[1] ?? 0) },
+      uNavLensB: { value: new THREE.Vector2(lamps?.navLens?.[1]?.[0] ?? 0, lamps?.navLens?.[1]?.[1] ?? 0) },
+      uNavLensC: { value: new THREE.Vector2(lamps?.navLens?.[2]?.[0] ?? 0, lamps?.navLens?.[2]?.[1] ?? 0) },
+      uNavLensOn: { value: lamps?.navLens ? 1 : 0 },
       uTeam: { value: 0 },
       uLightState: { value: new THREE.Vector4(0, 0, 0, 0) },
       uThrottle: { value: 0 },

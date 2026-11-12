@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import { noseSteerTarget, oleoTarget, OLEO_COMPRESS_M, OLEO_EXTEND_M } from '../../src/render/meshAircraftRenderer';
-import { blurScale } from '../../src/render/motionBlur';
 
 describe('nose wheel steering', () => {
   it('follows the rudder on the ground with the gear down, full authority at taxi speed', () => {
@@ -30,22 +29,6 @@ describe('oleo', () => {
   });
   it('sits in the modelled pose on the ground when no ground height is known', () => {
     expect(oleoTarget(0, undefined, true, 1)).toBe(0);
-  });
-});
-
-describe('camera-turn motion blur', () => {
-  it('is off for gentle turns, view cuts and strength 0', () => {
-    expect(blurScale((8 * Math.PI) / 180 / 60, 1 / 60, 1)).toBe(0); // 8 deg/s
-    expect(blurScale(1.0, 1 / 60, 1)).toBe(0); // a cut
-    expect(blurScale(0.05, 1 / 60, 0)).toBe(0);
-  });
-  it('grows with the turn rate and does not depend on the frame rate', () => {
-    const rate = 3; // rad/s
-    const at60 = blurScale(rate / 60, 1 / 60, 1) * (rate / 60);
-    const at30 = blurScale(rate / 30, 1 / 30, 1) * (rate / 30);
-    expect(at60).toBeGreaterThan(0);
-    expect(at30).toBeCloseTo(at60, 9);
-    expect(blurScale(5 / 60, 1 / 60, 1) * (5 / 60)).toBeGreaterThan(at60);
   });
 });
 
