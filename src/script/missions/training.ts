@@ -262,7 +262,7 @@ export class TakeoffLesson extends AirLesson {
         prompt: 'Let go of {afterburner}. Hold about 10° nose up ({noseUp} / {noseDown}) to 1,500 m',
         highlight: ['afterburner'],
         detail: (f) => `${metres(f.altMslM)} of 1,500 m · ${kmh(f.iasMps)}`,
-        done: (f) => f.altMslM >= 1450,
+        done: (f) => f.altMslM >= 1100, // lenient: "about" 1,500 m
       },
       {
         title: 'Level off',
@@ -271,10 +271,12 @@ export class TakeoffLesson extends AirLesson {
         highlight: ['noseDown', 'throttleDown'],
         detail: (f) => `Climbing ${f.vsMps.toFixed(0)} m/s · throttle ${Math.round(f.throttle * 100)}%`,
         done: (f) => {
-          const level = Math.abs(f.vsMps) < 5 && Math.abs(f.pitchRad) < 6 * DEG;
+          // Lenient: the climb has mostly stopped (either way), held briefly. No pitch check, a
+          // slow Tejas flies level well nose-up.
+          const level = Math.abs(f.vsMps) < 15;
           if (!level) this.levelSince = -1;
           else if (this.levelSince < 0) this.levelSince = f.t;
-          return level && f.t - this.levelSince > 2;
+          return level && f.t - this.levelSince > 0.75;
         },
       },
       {
@@ -292,10 +294,10 @@ export class TakeoffLesson extends AirLesson {
         highlight: ['rollLeft', 'rollRight'],
         detail: (f) => `Bank ${Math.round(Math.abs(f.rollRad) / DEG)}°`,
         done: (f) => {
-          const lvl = Math.abs(f.rollRad) < 8 * DEG;
+          const lvl = Math.abs(f.rollRad) < 15 * DEG;
           if (!lvl) this.wingsLevelSince = -1;
           else if (this.wingsLevelSince < 0) this.wingsLevelSince = f.t;
-          return lvl && f.t - this.wingsLevelSince > 1;
+          return lvl && f.t - this.wingsLevelSince > 0.5;
         },
       },
       {
