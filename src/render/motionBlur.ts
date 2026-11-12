@@ -19,10 +19,10 @@
 import * as THREE from 'three';
 import { Pass, FullScreenQuad } from 'three/examples/jsm/postprocessing/Pass.js';
 
-/** Exposure the blur imitates, s (strength 1). */
-const SHUTTER_SEC = 1 / 45;
-/** Turn rates below this don't blur, rad/s (~25 deg/s); the blur grows from it. */
-export const BLUR_DEADZONE_RAD_S = 0.44;
+/** Exposure the blur imitates, s (strength 1; the default 0.6 is ~1/25 s). */
+const SHUTTER_SEC = 1 / 15;
+/** Turn rates below this don't blur, rad/s (~10 deg/s: tracking and gentle corrections stay sharp); the blur grows from it. */
+export const BLUR_DEADZONE_RAD_S = 0.17;
 /** Longest blur, as a fraction of the screen height. */
 const MAX_BLUR_FRAC = 0.07;
 /** A turn bigger than this in one frame is a camera cut (view change), not motion, rad. */
@@ -111,6 +111,8 @@ export function blurScale(turnRad: number, dtSec: number, strength: number): num
 
 export class MotionBlurPass extends Pass {
   strength = 0.6;
+  /** Last frame's camera turn rate and blur scale (dev diagnostics). */
+  readonly stats = { turnRateRadS: 0, scale: 0, strength: 0 };
   private readonly mat: THREE.ShaderMaterial;
   private readonly quad: FullScreenQuad;
   private readonly prev = new THREE.Quaternion();
@@ -154,6 +156,9 @@ export class MotionBlurPass extends Pass {
     const turn = 2 * Math.acos(w);
     const scale = had ? blurScale(turn, f.dtSec, this.strength) : 0;
     this.enabled = scale > 0;
+    this.stats.turnRateRadS = f.dtSec > 0 ? turn / f.dtSec : 0;
+    this.stats.scale = scale;
+    this.stats.strength = this.strength;
     if (!this.enabled) return;
     const u = this.mat.uniforms;
     (u['uDelta']!.value as THREE.Matrix3).setFromMatrix4(this.tmpM.makeRotationFromQuaternion(this.tmpQ));

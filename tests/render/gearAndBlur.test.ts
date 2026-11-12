@@ -35,7 +35,7 @@ describe('oleo', () => {
 
 describe('camera-turn motion blur', () => {
   it('is off for gentle turns, view cuts and strength 0', () => {
-    expect(blurScale((10 * Math.PI) / 180 / 60, 1 / 60, 1)).toBe(0); // 10 deg/s
+    expect(blurScale((8 * Math.PI) / 180 / 60, 1 / 60, 1)).toBe(0); // 8 deg/s
     expect(blurScale(1.0, 1 / 60, 1)).toBe(0); // a cut
     expect(blurScale(0.05, 1 / 60, 0)).toBe(0);
   });

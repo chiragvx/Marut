@@ -926,6 +926,7 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
           jetRel: subjectDrawn ? blurJetRel : undefined,
           jetRadiusM: 8,
         });
+        if (import.meta.env.DEV) (window as unknown as { __blur?: unknown }).__blur = blurPass.stats;
         composer.render();
       }
 
