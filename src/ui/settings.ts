@@ -11,7 +11,7 @@
  */
 import type { AimingHelp, QualityTier, SpeedUnit } from '../contracts/core';
 import type { BindableAction, CreateSettingsScreen, KeyBinding, SettingsScreenHandle, SettingsState } from '../contracts/ui';
-import { BindableAction as BindableActionEnum } from '../contracts/ui';
+import { BindableAction as BindableActionEnum, DEFAULT_CAMERA_SETTINGS } from '../contracts/ui';
 import { DEFAULT_AUDIO_VOLUMES } from './audio/audioBus';
 import { mountScreen } from './screenHandle';
 import { button, checkbox, h, keyLabel, menuKeys, row, select, shell } from './kit';
@@ -139,6 +139,31 @@ export const createSettingsScreen: CreateSettingsScreen = (container, initial, c
     });
     return row(label, h('span', { className: 'tj-row' }, input, value));
   };
+  // Camera: look and zoom speed, invert, and when the chase view swings back behind.
+  const cam = { ...DEFAULT_CAMERA_SETTINGS, ...current.camera };
+  const camSlider = (key: 'lookSpeed' | 'zoomSpeed', label: string): HTMLElement => {
+    const fmt = (v: number): string => `${v.toFixed(1)}×`;
+    const value = h('span', { className: 'tj-value', text: fmt(cam[key]) });
+    const input = h('input', { className: 'tj-range', attrs: { 'data-role': `camera-${key}`, type: 'range', min: '0.3', max: '3', step: '0.1', 'aria-label': label } });
+    input.value = String(cam[key]);
+    input.addEventListener('input', () => (value.textContent = fmt(Number(input.value))));
+    input.addEventListener('change', () => {
+      cam[key] = Number(input.value);
+      current.camera = { ...cam };
+      fireChange();
+    });
+    return row(label, h('span', { className: 'tj-row' }, input, value));
+  };
+  const recenterText = (v: number): string => (v <= 0 ? 'Never' : `${v} s`);
+  const recenterValue = h('span', { className: 'tj-value', text: recenterText(cam.recenterSec) });
+  const recenterInput = h('input', { className: 'tj-range', attrs: { 'data-role': 'camera-recenter', type: 'range', min: '0', max: '20', step: '1', 'aria-label': 'Chase view swings back behind after' } });
+  recenterInput.value = String(cam.recenterSec);
+  recenterInput.addEventListener('input', () => (recenterValue.textContent = recenterText(Number(recenterInput.value))));
+  recenterInput.addEventListener('change', () => {
+    cam.recenterSec = Number(recenterInput.value);
+    current.camera = { ...cam };
+    fireChange();
+  });
   const bindingRows = new Map<BindableAction, { row: HTMLElement; codeLabel: HTMLElement; button: HTMLButtonElement }>();
   const bindingsList = h('div', { className: 'tj-settings-bindings' });
   for (const action of Object.values(BindableActionEnum)) {
@@ -162,6 +187,11 @@ export const createSettingsScreen: CreateSettingsScreen = (container, initial, c
     rateSlider('pitch', 'Pitch rate'),
     rateSlider('yaw', 'Yaw rate'),
     h('p', { className: 'tj-note', text: 'How lively the jet is on each axis, for every control (keys, mouse, gamepad, touch). 100% is the Tejas as standard. Pitch changes how much g a partial pull asks for; a full pull is the same at every setting.' }),
+    camSlider('lookSpeed', 'Camera look speed (drag, arrow keys)'),
+    camSlider('zoomSpeed', 'Camera zoom speed (scroll)'),
+    row('Invert camera drag up / down', checkbox('On', cam.invertY, (v) => { cam.invertY = v; current.camera = { ...cam }; fireChange(); }, { 'data-role': 'camera-invert' })),
+    row('Chase view swings back behind after', h('span', { className: 'tj-row' }, recenterInput, recenterValue)),
+    h('p', { className: 'tj-note', text: 'Drag (right button when flying with the mouse) or the arrow keys look around; scroll zooms. Chase: look round the jet. Cockpit: turn your head. HUD only: a glance that springs back. Orbit: swing the camera round the jet; it stays there. Fly-by: scroll for a tighter or wider shot. Zoom stays where you leave it.' }),
     h('div', { className: 'tj-row', attrs: { style: 'justify-content: space-between' } }, h('span', { className: 'tj-label', text: 'Keys' }), button('Reset keys to defaults', () => callbacks.onResetDefaults(), 'default', { 'data-action': 'reset-defaults' })),
     bindingsList
   );

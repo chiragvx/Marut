@@ -31,7 +31,7 @@ import {
   type SceneRenderer,
 } from '../contracts/render';
 
-import { chaseLook, computeCameraPose, createCameraModeState, createCameraPose, keepAboveGround, orbitCamera as applyOrbitDelta } from './cameraModes';
+import { computeCameraPose, createCameraModeState, createCameraPose, keepAboveGround, lookCamera } from './cameraModes';
 import { rotateVecByQuat } from './mathInternal';
 import { createEffectsSystem } from './effects';
 import { createFloatingOriginState, updateFloatingOrigin } from './floatingOrigin';
@@ -276,6 +276,7 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
   const floatingOrigin = createFloatingOriginState();
   const cameraModeState = createCameraModeState();
   const cameraPose = createCameraPose();
+  const WORLD_UP = { x: 0, y: 1, z: 0 } as const;
   const interpEntity = createInterpolatedEntity();
   const interpTarget = createInterpolatedEntity();
 
@@ -505,9 +506,18 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
       showcase = frame;
     },
 
-    orbitCamera(deltaYawRad, deltaPitchRad, deltaZoomM) {
-      if (mode === CameraMode.Chase) chaseLook(cameraModeState.chase, deltaYawRad, deltaPitchRad, deltaZoomM);
-      else if (mode === CameraMode.External) applyOrbitDelta(cameraModeState.external, deltaYawRad, deltaPitchRad, deltaZoomM);
+    orbitCamera(deltaYawRad, deltaPitchRad, deltaZoomSteps) {
+      lookCamera(mode, cameraModeState, deltaYawRad, deltaPitchRad, deltaZoomSteps);
+    },
+
+    setCameraOptions(o) {
+      cameraModeState.chase.returnDelaySec = o.recenterSec > 0 ? o.recenterSec : Infinity;
+    },
+
+    glanceRad() {
+      if (mode !== CameraMode.Cockpit) return 0;
+      const c = cameraModeState.cockpit;
+      return Math.hypot(c.yawRad, c.pitchRad);
     },
 
     registerAircraftModel() {
@@ -632,9 +642,8 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
         skyFog.followCamera(camera.position);
         farGround.update(origin);
         if (cameraPose.useLookAt) {
-          const up = showcase?.up;
-          if (up) camera.up.set(up.x, up.y, up.z);
-          else camera.up.set(0, 1, 0);
+          const up = showcase ? (showcase.up ?? WORLD_UP) : cameraPose.up;
+          camera.up.set(up.x, up.y, up.z);
           camera.lookAt(cameraPose.lookAt.x - origin.x, cameraPose.lookAt.y - origin.y, cameraPose.lookAt.z - origin.z);
         } else {
           camera.quaternion.set(cameraPose.rot.x, cameraPose.rot.y, cameraPose.rot.z, cameraPose.rot.w);
@@ -718,6 +727,9 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
         // lower than the ground under it, then the camera is kept clear of the ground under itself.
         const minOffsetY = groundHeightAt ? groundHeightAt(interpEntity.pos.x, interpEntity.pos.z) + CAMERA_MIN_GROUND_CLEARANCE_M - interpEntity.pos.y : -Infinity;
         let fovDeg = FOV_BY_MODE[mode];
+        cameraPose.up.x = 0;
+        cameraPose.up.y = 1;
+        cameraPose.up.z = 0;
         if (mode === CameraMode.Cockpit3d) {
           // The pilot's head: eye and view direction relative to the body, turned into the world.
           const hp = ensureCockpit().head(frameDtSec);
@@ -745,6 +757,7 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
           fovDeg = Math.max(0.3, curr.hud[SnapshotHud.POD_FOV_DEG] || 18);
         } else {
           computeCameraPose(mode, interpEntity.pos, interpEntity.rot, interpEntity.vel, cameraModeState, frameDtSec, cameraPose, minOffsetY);
+          if (cameraPose.fovDeg > 0) fovDeg = cameraPose.fovDeg;
         }
         if (mode !== CameraMode.Cockpit && mode !== CameraMode.Cockpit3d && mode !== CameraMode.Tgp && groundHeightAt) keepAboveGround(cameraPose, groundHeightAt, CAMERA_MIN_GROUND_CLEARANCE_M);
         if (debugCam) {

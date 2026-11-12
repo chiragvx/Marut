@@ -195,6 +195,15 @@ export interface KeyBinding {
   code: string;
 }
 
+export interface CameraSettings {
+  lookSpeed: number;
+  zoomSpeed: number;
+  invertY: boolean;
+  recenterSec: number;
+}
+
+export const DEFAULT_CAMERA_SETTINGS: CameraSettings = { lookSpeed: 1, zoomSpeed: 1, invertY: false, recenterSec: 6 };
+
 export interface SettingsState {
   /** 'auto' = use the last QualityTierReport.tier from DetectQualityTier; any explicit QualityTier overrides it. */
   qualityOverride: QualityTier | 'auto';
@@ -230,6 +239,8 @@ export interface SettingsState {
   aimingHelp?: AimingHelp;
   /** Control rates (multipliers 0.5..1.5). Absent = 1 each. */
   controlRates?: { pitch: number; roll: number; yaw: number };
+  /** Camera (Settings -> Controls): look speed and zoom speed multipliers (0.3..3), invert the drag's up/down, chase view re-centre delay s (0 = never). Absent = the defaults. */
+  camera?: CameraSettings;
   /** Sound volumes, 0..1 (Settings -> Audio): everything, the voice warnings, the warning and RWR tones, the engine and effects. Absent = the defaults. */
   audio?: { master: number; voice: number; tones: number; ambience: number };
 }

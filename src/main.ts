@@ -32,8 +32,8 @@ import { createMissionScript, type MissionScript, type ScriptFrame } from './scr
 import { createRadioPlayer } from './script/radioPlayer';
 import type { PlayerInputSystem } from './contracts/input';
 import { RebindDeviceKind } from './contracts/input';
-import type { BindableAction, DebriefStats, LoadingScreenHandle, OrientationPromptHandle, ScreenHandle, SettingsScreenHandle, SettingsState } from './contracts/ui';
-import { MissionOutcome } from './contracts/ui';
+import type { BindableAction, DebriefStats, LoadingScreenHandle, OrientationPromptHandle, ScreenHandle, SettingsScreenHandle, SettingsState, CameraSettings } from './contracts/ui';
+import { MissionOutcome, DEFAULT_CAMERA_SETTINGS } from './contracts/ui';
 import type { ChunkManager } from './contracts/terrain';
 import type { SnapshotEntityView } from './contracts/sim';
 
@@ -132,6 +132,8 @@ interface PersistedSettings {
   aimingHelp?: AimingHelp;
   /** Control rates, multipliers 0.5..1.5 (Settings -> Controls); missing = 1 each. */
   controlRates?: { pitch: number; roll: number; yaw: number };
+  /** Camera look / zoom (Settings -> Controls); missing = DEFAULT_CAMERA_SETTINGS. */
+  camera?: CameraSettings;
   /** Sound volumes, 0..1 (Settings -> Audio); missing = DEFAULT_AUDIO_VOLUMES. */
   audio?: AudioVolumes;
 }
@@ -564,8 +566,8 @@ function controlGroups(): ControlGroup[] {
     {
       title: 'View',
       rows: [
-        { keys: [L(m.cameraCycle)], label: 'Change camera: chase, cockpit, HUD only, external, fly-by' },
-        { keys: ['Drag', 'Scroll'], label: 'Look around, zoom (the chase view returns behind the jet after 6 s)' },
+        { keys: [L(m.cameraCycle)], label: 'Change camera: chase, cockpit, HUD only, orbit, fly-by' },
+        { keys: ['Drag', 'Scroll'], label: 'Look around, zoom (speeds, invert and the chase re-centre: Settings -> Controls)' },
         { keys: ['←', '↑', '↓', '→'], label: 'Look around' },
       ],
     },
@@ -688,6 +690,7 @@ function showSettingsOverlay(): void {
     aimingHelp: persisted?.aimingHelp ?? AimingHelp.Cues,
     controlRates: inputSystem ? inputSystem.getControlRates() : { pitch: 1, roll: 1, yaw: 1 },
     audio: persisted?.audio ?? { ...DEFAULT_AUDIO_VOLUMES },
+    camera: { ...cameraSettings },
   };
   const handle: SettingsScreenHandle = createSettingsScreen(uiRoot, initial, {
     onChange: (next) => {
@@ -702,6 +705,7 @@ function showSettingsOverlay(): void {
         aimingHelp: next.aimingHelp ?? AimingHelp.Cues,
         ...(next.controlRates ? { controlRates: next.controlRates } : {}),
         ...(next.audio ? { audio: next.audio } : {}),
+        ...(next.camera ? { camera: next.camera } : {}),
       });
       const tier = next.qualityOverride === 'auto' ? (loadPersistedSettings()?.cachedAutoTier ?? currentQualityTier) : next.qualityOverride;
       if (tier !== currentQualityTier) {
@@ -719,6 +723,7 @@ function showSettingsOverlay(): void {
       actionBarEnabled = next.actionBar ?? true;
       applyAimingHelp(next.aimingHelp ?? AimingHelp.Cues);
       applyAudioVolumes(next.audio ?? DEFAULT_AUDIO_VOLUMES);
+      applyCameraSettings(next.camera ?? DEFAULT_CAMERA_SETTINGS);
       if (next.controlRates) inputSystem?.setControlRates(next.controlRates);
     },
     onRebindStart: (action) => {
@@ -1749,6 +1754,7 @@ async function boot(): Promise<void> {
   hintsEnabled = persisted?.hintsEnabled ?? true;
   applyAimingHelp(persisted?.aimingHelp ?? AimingHelp.Cues);
   applyAudioVolumes(persisted?.audio ?? DEFAULT_AUDIO_VOLUMES);
+  applyCameraSettings(persisted?.camera ?? DEFAULT_CAMERA_SETTINGS);
   // Browsers let audio start only after a key press or click.
   const unlockAudio = (): void => {
     audioBus.resume();
@@ -1869,6 +1875,14 @@ function frame(nowMs: number): void {
     actionBar.setVisible(appState === 'gameplay' && show);
     hud?.setLeftInset?.(show ? actionBar.widthPx() : 0);
   }
+  if (renderer && hud && appState === 'gameplay' && !podView && CAMERA_MODE_CYCLE[cameraModeIndex] === 'cockpit') {
+    // HUD only: the HUD is fixed to the nose, so it goes while you glance away and back after.
+    const glancing = (renderer.glanceRad?.() ?? 0) > 0.12;
+    if (glancing !== hudGlanceHidden) {
+      hudGlanceHidden = glancing;
+      hud.setOverlayMode(glancing ? 'helmet' : 'full');
+    }
+  } else hudGlanceHidden = false;
   if (renderer && hud) {
     const camera: CameraState = renderer.renderFrame(nowMs);
     if (appState === 'gameplay') ambience.listen(camera, podView);
@@ -1917,10 +1931,23 @@ void orientationPrompt;
 const LOOK_RAD_PER_PX = 0.006;
 const MAX_LOOK_PX_PER_EVENT = 120;
 const LOOK_KEY_RAD_PER_SEC = 1.6;
-const ZOOM_M_PER_WHEEL_UNIT = 0.02;
-/** 3D cockpit: head turn per pixel dragged, and field of view per wheel unit (deg). */
+/** One mouse-wheel notch (deltaY 100 px) = one zoom step (renderer.orbitCamera). */
+const ZOOM_STEPS_PER_WHEEL_PX = 0.01;
+/** 3D cockpit: head turn per pixel dragged, and field of view per zoom step (deg). */
 const COCKPIT_LOOK_RAD_PER_PX = 0.0045;
-const COCKPIT_ZOOM_DEG_PER_WHEEL_UNIT = 0.03;
+const COCKPIT_ZOOM_DEG_PER_STEP = 4;
+/** Settings -> Controls: camera look and zoom. */
+let cameraSettings: CameraSettings = { ...DEFAULT_CAMERA_SETTINGS };
+function applyCameraSettings(c: CameraSettings): void {
+  cameraSettings = { ...DEFAULT_CAMERA_SETTINGS, ...c };
+  renderer?.setCameraOptions?.({ recenterSec: cameraSettings.recenterSec });
+}
+/** Wheel delta to zoom steps (+ = out), by the zoom speed; lines and pages count as notches. */
+function wheelZoomSteps(e: WheelEvent): number {
+  const px = e.deltaMode === 1 ? e.deltaY * 33 : e.deltaMode === 2 ? e.deltaY * 100 : e.deltaY;
+  // Trackpads send many small deltas, a wheel ~100 a notch; cap a single event at 3 notches.
+  return Math.max(-3, Math.min(3, px * ZOOM_STEPS_PER_WHEEL_PX)) * cameraSettings.zoomSpeed;
+}
 const lookKeys = new Set<string>();
 
 /** True if the key map uses this key for anything (then it is not a look key). */
@@ -1969,8 +1996,9 @@ function wireFreeLook(): void {
       return;
     }
     // Capped per event: browsers occasionally report a spurious huge jump in movementX/Y.
-    const mx = Math.max(-MAX_LOOK_PX_PER_EVENT, Math.min(MAX_LOOK_PX_PER_EVENT, e.movementX));
-    const my = Math.max(-MAX_LOOK_PX_PER_EVENT, Math.min(MAX_LOOK_PX_PER_EVENT, e.movementY));
+    const k = cameraSettings.lookSpeed;
+    const mx = Math.max(-MAX_LOOK_PX_PER_EVENT, Math.min(MAX_LOOK_PX_PER_EVENT, e.movementX)) * k;
+    const my = Math.max(-MAX_LOOK_PX_PER_EVENT, Math.min(MAX_LOOK_PX_PER_EVENT, e.movementY)) * k * (cameraSettings.invertY ? -1 : 1);
     if (inCockpit3d()) {
       // Head look: drag right looks right, drag down looks down (finer when zoomed in).
       if (!pressMoved) return;
@@ -2023,8 +2051,10 @@ function wireFreeLook(): void {
     'wheel',
     (e: WheelEvent) => {
       if (appState !== 'gameplay') return;
-      if (inCockpit3d()) renderer.lookCockpit(0, 0, e.deltaY * COCKPIT_ZOOM_DEG_PER_WHEEL_UNIT);
-      else renderer.orbitCamera(0, 0, e.deltaY * ZOOM_M_PER_WHEEL_UNIT);
+      if (podView) return;
+      const steps = wheelZoomSteps(e);
+      if (inCockpit3d()) renderer.lookCockpit(0, 0, steps * COCKPIT_ZOOM_DEG_PER_STEP);
+      else renderer.orbitCamera(0, 0, steps);
     },
     { passive: true }
   );
@@ -2040,9 +2070,9 @@ function wireFreeLook(): void {
 /** Arrow keys held: keep looking round. */
 function tickLookKeys(dtSec: number): void {
   if (lookKeys.size === 0 || appState !== 'gameplay' || !renderer || podView) return;
-  const r = LOOK_KEY_RAD_PER_SEC * dtSec;
+  const r = LOOK_KEY_RAD_PER_SEC * dtSec * cameraSettings.lookSpeed;
   const yaw = (lookKeys.has('ArrowLeft') ? r : 0) - (lookKeys.has('ArrowRight') ? r : 0);
-  const pitch = (lookKeys.has('ArrowUp') ? -r : 0) + (lookKeys.has('ArrowDown') ? r : 0);
+  const pitch = ((lookKeys.has('ArrowUp') ? -r : 0) + (lookKeys.has('ArrowDown') ? r : 0)) * (cameraSettings.invertY ? -1 : 1);
   if (inCockpit3d()) {
     if (yaw !== 0 || pitch !== 0) renderer.lookCockpit(yaw, -pitch, 0);
     return;
@@ -2175,10 +2205,12 @@ const CAMERA_MODE_NAMES: Record<(typeof CAMERA_MODE_CYCLE)[number], string> = {
   chase: 'Chase',
   cockpit3d: 'Cockpit',
   cockpit: 'HUD only',
-  external: 'External',
+  external: 'Orbit',
   flyby: 'Fly-by',
 };
 let cameraModeIndex = 0;
+/** HUD only: the HUD is swapped for the helmet cues while glancing away (see frame()). */
+let hudGlanceHidden = false;
 /** Targeting pod picture showing (a camera mode outside the V cycle); the arrow keys slew the pod then. */
 let podView = false;
 let podPolarity: 1 | 2 = 1;

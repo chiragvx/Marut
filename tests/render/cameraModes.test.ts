@@ -53,12 +53,32 @@ describe('chase free look', () => {
 
   it('holds where you looked, then eases back behind after the delay', () => {
     const s = createChaseCameraState();
-    chaseLook(s, 2, 0.5, 10);
+    chaseLook(s, 2, 0.5, 0);
     const held = settle(s, FREE_LOOK_RETURN_DELAY_SEC - 1);
     expect(held.pos.x).toBeGreaterThan(0); // in front of the wing line
     const back = settle(s, 6);
     expect(back.pos.x).toBeCloseTo(-15, 0);
     expect(back.pos.y).toBeCloseTo(1004, 0);
+  });
+
+  it('zoom is proportional and stays; re-centre can be turned off', () => {
+    const s = createChaseCameraState();
+    chaseLook(s, 0, 0, 2); // two notches out: x 1.15^2
+    let out = settle(s, FREE_LOOK_RETURN_DELAY_SEC + 6);
+    expect(Math.hypot(out.pos.x, out.pos.y - 1000, out.pos.z)).toBeCloseTo(Math.hypot(15, 4) * 1.15 ** 2, 1);
+    s.returnDelaySec = Infinity;
+    chaseLook(s, 1.5, 0, 0);
+    out = settle(s, 20);
+    expect(out.pos.x).toBeGreaterThan(-10); // still off to the side
+  });
+
+  it('leans a little with the bank', () => {
+    const s = createChaseCameraState();
+    const bank = { x: Math.sin(0.4), y: 0, z: 0, w: Math.cos(0.4) }; // 46 deg about the nose (+x)
+    const out = createCameraPose();
+    for (let t = 0; t < 2; t += 1 / 60) computeChasePose(pos, bank, s, 1 / 60, out);
+    expect(Math.abs(out.up.z)).toBeGreaterThan(0.1);
+    expect(out.up.y).toBeGreaterThan(0.85);
   });
 });
 
@@ -127,5 +147,61 @@ describe('outside views stay above the ground', () => {
     orbitCamera(st, 0, 0.2, 0);
     computeExternalPose(jet, st, pose, minOffsetY);
     expect(pose.pos.y).toBeGreaterThan(190 + CAMERA_MIN_GROUND_CLEARANCE_M + 2);
+  });
+});
+
+import { cockpitGlance, computeFlybyPose, createCockpitLookState, createFlybyState, lookCamera, createCameraModeState } from '../../src/render/cameraModes';
+import { CameraMode, COCKPIT_VERTICAL_FOV_DEG, EXTERNAL_ORBIT_DEFAULT_RADIUS_M } from '../../src/contracts/render';
+
+describe('the views are distinct', () => {
+  const level = { x: 0, y: 0, z: 0, w: 1 }; // nose east (+x)
+  const jet = { x: 0, y: 1000, z: 0 };
+
+  it('orbit: starts ahead of the nose on the front quarter, and turns with the heading', () => {
+    const st = createExternalOrbitState();
+    const pose = createCameraPose();
+    computeExternalPose(jet, st, pose, -Infinity, level, 1 / 60);
+    expect(pose.pos.x).toBeGreaterThan(10); // ahead of the nose (east)
+    expect(Math.abs(pose.pos.z)).toBeGreaterThan(10); // off to one side
+    expect(Math.hypot(pose.pos.x, pose.pos.y - 1000, pose.pos.z)).toBeCloseTo(EXTERNAL_ORBIT_DEFAULT_RADIUS_M, 3);
+    // Jet turned to face north (-z): after a few seconds the camera is ahead of it again (north).
+    const north = { x: 0, y: Math.sin(Math.PI / 4), z: 0, w: Math.cos(Math.PI / 4) }; // +90 deg about +y: +x -> -z
+    for (let t = 0; t < 6; t += 1 / 60) computeExternalPose(jet, st, pose, -Infinity, north, 1 / 60);
+    expect(pose.pos.z).toBeLessThan(-10);
+    // Zoom out by steps, proportionally.
+    orbitCamera(st, 0, 0, 3);
+    expect(st.radiusM).toBeCloseTo(EXTERNAL_ORBIT_DEFAULT_RADIUS_M * 1.15 ** 3, 6);
+  });
+
+  it('fly-by: stands beside the flight path ahead, and its telephoto tightens as the jet nears', () => {
+    const st = createFlybyState();
+    const pose = createCameraPose();
+    const vel = { x: 200, y: 0, z: 0 };
+    const p = { ...jet };
+    computeFlybyPose(p, level, vel, st, pose, 1 / 60);
+    expect(st.fixedPos.x).toBeGreaterThan(300);
+    expect(Math.abs(st.fixedPos.z)).toBeGreaterThan(40); // not on the path
+    const far = pose.fovDeg;
+    p.x = st.fixedPos.x - 150;
+    for (let t = 0; t < 1; t += 1 / 60) computeFlybyPose(p, level, vel, st, pose, 1 / 60);
+    expect(pose.fovDeg).toBeGreaterThan(far); // wider when close (the jet stays framed)
+    const firstSide = Math.sign(st.fixedPos.z);
+    p.x = st.fixedPos.x + 700; // long gone past
+    computeFlybyPose(p, level, vel, st, pose, 1 / 60);
+    expect(Math.sign(st.fixedPos.z)).toBe(-firstSide); // the next one on the other side
+  });
+
+  it('HUD only: a glance springs back when let go; zoom changes the field of view and stays', () => {
+    const state = createCameraModeState();
+    lookCamera(CameraMode.Cockpit, state, 0.8, 0, 0);
+    expect(state.cockpit.yawRad).toBeCloseTo(0.8, 6);
+    const pose = createCameraPose();
+    for (let t = 0; t < 2; t += 1 / 60) computeCockpitPose(jet, level, pose, state.cockpit, 1 / 60);
+    expect(Math.abs(state.cockpit.yawRad)).toBeLessThan(0.01);
+    const look = createCockpitLookState();
+    cockpitGlance(look, 0, 0, -3);
+    expect(look.fovDeg).toBeCloseTo(COCKPIT_VERTICAL_FOV_DEG / 1.15 ** 3, 6);
+    computeCockpitPose(jet, level, pose, look, 1);
+    expect(pose.fovDeg).toBeCloseTo(look.fovDeg, 6);
   });
 });

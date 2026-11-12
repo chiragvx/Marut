@@ -170,7 +170,9 @@ export const CHASE_CAM_DISTANCE_M = 15;
 export const CHASE_CAM_HEIGHT_M = 4;
 /** Exponential-smoothing time constant, seconds, for the chase camera easing toward its target pose (see 08-render.md 4.2). */
 export const CHASE_CAM_SMOOTHING_TAU_SEC = 0.15;
-export const CHASE_VERTICAL_FOV_DEG = 60;
+export const CHASE_VERTICAL_FOV_DEG = 66;
+/** How much the chase camera leans with the jet's bank (0 = horizon always level, 1 = rolls with it). */
+export const CHASE_BANK_FOLLOW = 0.35;
 
 /**
  * Chase-camera free look: the player drags the view around the aircraft (orbitCamera). After
@@ -180,21 +182,42 @@ export const CHASE_VERTICAL_FOV_DEG = 60;
 export const FREE_LOOK_RETURN_DELAY_SEC = 6;
 export const FREE_LOOK_RETURN_TAU_SEC = 0.7;
 export const FREE_LOOK_MIN_DISTANCE_M = 8;
-export const FREE_LOOK_MAX_DISTANCE_M = 80;
+export const FREE_LOOK_MAX_DISTANCE_M = 120;
+/** Zoom: each step (one mouse-wheel notch) scales the distance (or field of view) by this. */
+export const CAMERA_ZOOM_STEP_FACTOR = 1.15;
 /** The outside views (chase with free look, orbit, fly-by) never go lower than this above the ground or water under the camera. */
 export const CAMERA_MIN_GROUND_CLEARANCE_M = 1.5;
 
-export const EXTERNAL_ORBIT_DEFAULT_RADIUS_M = 25;
-export const EXTERNAL_ORBIT_MIN_RADIUS_M = 8;
-export const EXTERNAL_ORBIT_MAX_RADIUS_M = 150;
-export const EXTERNAL_ORBIT_DEFAULT_PITCH_RAD = 0.35;
-export const EXTERNAL_VERTICAL_FOV_DEG = 60;
+/**
+ * Orbit (CameraMode.External): a showcase camera that turns with the jet's heading (not its pitch or
+ * roll), from the front quarter by default, wherever you drag it. Yaw is measured from straight
+ * behind (+ = round the jet's left side), so the default ~140 deg looks back at the nose from ahead
+ * and to the left.
+ */
+export const EXTERNAL_ORBIT_DEFAULT_YAW_RAD = 2.45;
+export const EXTERNAL_ORBIT_DEFAULT_RADIUS_M = 38;
+export const EXTERNAL_ORBIT_MIN_RADIUS_M = 10;
+export const EXTERNAL_ORBIT_MAX_RADIUS_M = 400;
+export const EXTERNAL_ORBIT_DEFAULT_PITCH_RAD = 0.12;
+/** How quickly the orbit swings round after the jet's heading, s. */
+export const EXTERNAL_ORBIT_HEADING_TAU_SEC = 0.8;
+export const EXTERNAL_VERTICAL_FOV_DEG = 50;
+
+/** HUD-only view: glance (drag / arrows) springs back this long after you stop; zoom range, deg. */
+export const COCKPIT_GLANCE_RETURN_DELAY_SEC = 0.5;
+export const COCKPIT_GLANCE_RETURN_TAU_SEC = 0.22;
+export const COCKPIT_MIN_FOV_DEG = 30;
+export const COCKPIT_MAX_FOV_DEG = 95;
 
 /** World-fixed flyby camera: distance ahead of the aircraft's velocity vector at which the camera is (re)placed, m. */
-export const FLYBY_PLACEMENT_DISTANCE_M = 300;
-export const FLYBY_HEIGHT_OFFSET_M = 15;
+export const FLYBY_PLACEMENT_DISTANCE_M = 650;
+export const FLYBY_HEIGHT_OFFSET_M = 6;
+/** The fly-by camera stands this far to the side of the flight path (alternating sides), m. */
+export const FLYBY_SIDE_OFFSET_M = 55;
+/** The fly-by's telephoto keeps about this much of the scene across the frame height round the jet, m (x the zoom). */
+export const FLYBY_FRAME_M = 42;
 /** Once the aircraft has passed more than this far behind the fixed camera, the camera is replaced ahead again. */
-export const FLYBY_RESET_DISTANCE_M = 400;
+export const FLYBY_RESET_DISTANCE_M = 500;
 export const FLYBY_VERTICAL_FOV_DEG = 45;
 
 /**
@@ -508,11 +531,23 @@ export interface SceneRenderer {
   /** Ground (or water) height under a point, world metres, for keeping the outside views above it; null = no ground. Call on each world load. */
   setGroundHeight(heightAt: ((x: number, z: number) => number) | null): void;
   /**
-   * Looks around: in CameraMode.Chase, free look around the aircraft (it eases back behind after
-   * FREE_LOOK_RETURN_DELAY_SEC); in CameraMode.External, the orbit. Deltas are radians (yaw right,
-   * pitch up) and metres (further away). No effect in the other modes.
+   * Looks around and zooms, in every view but the 3D cockpit (lookCockpit) and the pod:
+   * - Chase: free look round the aircraft (eases back behind after setCameraOptions' recenterSec;
+   *   the zoom stays); zoom = distance.
+   * - External (orbit): swings round the aircraft (stays where you leave it, relative to the
+   *   heading); zoom = distance.
+   * - Cockpit (HUD only): a glance that springs back when you let go (pitch + = look down, as a
+   *   drag down); zoom = field of view.
+   * - Flyby: zoom = how tight the telephoto frames the jet; look is ignored.
+   * Deltas are radians (yaw: the camera swings round the aircraft's left / the view turns left;
+   * pitch: from higher up / look up) and zoom steps (+ = out; one wheel notch ~ 1, each step x
+   * CAMERA_ZOOM_STEP_FACTOR).
    */
-  orbitCamera(deltaYawRad: number, deltaPitchRad: number, deltaZoomM: number): void;
+  orbitCamera(deltaYawRad: number, deltaPitchRad: number, deltaZoomSteps: number): void;
+  /** Camera preferences (Settings -> Controls): chase view re-centres after this many s of no looking (0 = never). */
+  setCameraOptions?(o: { recenterSec: number }): void;
+  /** How far the HUD-only glance is turned from straight ahead, rad (0 in other views). */
+  glanceRad?(): number;
   /** CameraMode.Cockpit3d: turns the head (rad, yaw left +, pitch up +) and zooms (+ = wider field of view, degrees). */
   lookCockpit(deltaYawRad: number, deltaPitchRad: number, deltaFovDeg: number): void;
   /** Looks straight ahead again at the default zoom (3D cockpit). */

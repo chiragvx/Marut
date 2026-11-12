@@ -5,10 +5,29 @@
  * section 4.2. Each mode is a pure function of (player pose, mode-owned
  * state); `computeCameraPose` is the dispatcher `SceneRenderer.renderFrame`
  * calls once per frame.
+ *
+ * Each view has its own job:
+ * - HUD only (Cockpit): the pilot's eye, straight ahead; glance round (springs back), zoom the view.
+ * - Chase: close behind, lagging a touch and leaning with the bank; free look eases back behind.
+ * - Orbit (External): a showcase camera from the front quarter that turns with the heading; drag
+ *   it anywhere round the jet and it stays there.
+ * - Fly-by: a camera standing beside the flight path ahead, telephoto-tracking the jet past.
+ * Zoom is proportional (CAMERA_ZOOM_STEP_FACTOR a step) and stays where you leave it.
  */
 
 import type { QuatLike, Vec3Like } from '../contracts/core';
 import {
+  CAMERA_ZOOM_STEP_FACTOR,
+  CHASE_BANK_FOLLOW,
+  COCKPIT_GLANCE_RETURN_DELAY_SEC,
+  COCKPIT_GLANCE_RETURN_TAU_SEC,
+  COCKPIT_MAX_FOV_DEG,
+  COCKPIT_MIN_FOV_DEG,
+  COCKPIT_VERTICAL_FOV_DEG,
+  EXTERNAL_ORBIT_DEFAULT_YAW_RAD,
+  EXTERNAL_ORBIT_HEADING_TAU_SEC,
+  FLYBY_FRAME_M,
+  FLYBY_SIDE_OFFSET_M,
   CHASE_CAM_DISTANCE_M,
   CHASE_CAM_HEIGHT_M,
   CHASE_CAM_SMOOTHING_TAU_SEC,
@@ -46,6 +65,10 @@ export interface CameraPose {
   rot: QuatLike;
   lookAt: Vec3Like;
   useLookAt: boolean;
+  /** With useLookAt: the camera's up direction (world). */
+  up: Vec3Like;
+  /** Field of view this frame, deg; 0 = the mode's default. */
+  fovDeg: number;
 }
 
 export function createCameraPose(): CameraPose {
@@ -54,8 +77,13 @@ export function createCameraPose(): CameraPose {
     rot: { x: 0, y: 0, z: 0, w: 1 },
     lookAt: { x: 0, y: 0, z: 0 },
     useLookAt: false,
+    up: { x: 0, y: 1, z: 0 },
+    fovDeg: 0,
   };
 }
+
+/** Zoom steps to a scale factor (+ = out). */
+export const zoomFactor = (steps: number): number => Math.pow(CAMERA_ZOOM_STEP_FACTOR, steps);
 
 // -----------------------------------------------------------------------------
 // Cockpit.
@@ -64,19 +92,74 @@ export function createCameraPose(): CameraPose {
 /** A camera looks down its -Z; this turns that onto body +X (the nose): -90 deg about body Y. */
 const CAMERA_TO_BODY: Readonly<QuatLike> = { x: 0, y: -Math.SQRT1_2, z: 0, w: Math.SQRT1_2 };
 
-export function computeCockpitPose(playerPos: Readonly<Vec3Like>, playerRot: Readonly<QuatLike>, out: CameraPose): CameraPose {
+export interface CockpitLookState {
+  /** Glance, rad: yaw + = look left, pitch + = look up. Springs back when idle. */
+  yawRad: number;
+  pitchRad: number;
+  fovDeg: number;
+  idleSec: number;
+}
+
+export function createCockpitLookState(): CockpitLookState {
+  return { yawRad: 0, pitchRad: 0, fovDeg: COCKPIT_VERTICAL_FOV_DEG, idleSec: Infinity };
+}
+
+/** HUD-only glance and zoom (yaw + = view turns left, pitch + = look up; zoom steps + = wider). */
+export function cockpitGlance(state: CockpitLookState, deltaYawRad: number, deltaPitchRad: number, zoomSteps: number): void {
+  if (deltaYawRad !== 0 || deltaPitchRad !== 0) {
+    state.yawRad = clamp(state.yawRad + deltaYawRad, -2.4, 2.4);
+    state.pitchRad = clamp(state.pitchRad + deltaPitchRad, -1.1, 1.3);
+    state.idleSec = 0;
+  }
+  if (zoomSteps !== 0) state.fovDeg = clamp(state.fovDeg * zoomFactor(zoomSteps), COCKPIT_MIN_FOV_DEG, COCKPIT_MAX_FOV_DEG);
+}
+
+const scratchQ: QuatLike = { x: 0, y: 0, z: 0, w: 1 };
+function quatMulInto(a: Readonly<QuatLike>, b: Readonly<QuatLike>, out: QuatLike): QuatLike {
+  const x = a.w * b.x + a.x * b.w + a.y * b.z - a.z * b.y;
+  const y = a.w * b.y - a.x * b.z + a.y * b.w + a.z * b.x;
+  const z = a.w * b.z + a.x * b.y - a.y * b.x + a.z * b.w;
+  const w = a.w * b.w - a.x * b.x - a.y * b.y - a.z * b.z;
+  out.x = x;
+  out.y = y;
+  out.z = z;
+  out.w = w;
+  return out;
+}
+
+export function computeCockpitPose(playerPos: Readonly<Vec3Like>, playerRot: Readonly<QuatLike>, out: CameraPose, look?: CockpitLookState, frameDtSec = 0): CameraPose {
   rotateVecByQuat(playerRot, COCKPIT_EYE_OFFSET_BODY_M, out.pos);
   out.pos.x += playerPos.x;
   out.pos.y += playerPos.y;
   out.pos.z += playerPos.z;
-  // out.rot = playerRot * CAMERA_TO_BODY (the camera was set to playerRot alone, which looked
-  // out along body -Z: the left wing).
-  const a = playerRot;
-  const b = CAMERA_TO_BODY;
-  out.rot.x = a.w * b.x + a.x * b.w + a.y * b.z - a.z * b.y;
-  out.rot.y = a.w * b.y - a.x * b.z + a.y * b.w + a.z * b.x;
-  out.rot.z = a.w * b.z + a.x * b.y - a.y * b.x + a.z * b.w;
-  out.rot.w = a.w * b.w - a.x * b.x - a.y * b.y - a.z * b.z;
+  // out.rot = playerRot * CAMERA_TO_BODY (playerRot alone looked out along body -Z: the left
+  // wing), then the glance in camera space (yaw about its up, pitch about its right).
+  quatMulInto(playerRot, CAMERA_TO_BODY, out.rot);
+  out.fovDeg = 0;
+  if (look) {
+    look.idleSec += frameDtSec;
+    if (look.idleSec > COCKPIT_GLANCE_RETURN_DELAY_SEC) {
+      look.yawRad = expSmooth(look.yawRad, 0, COCKPIT_GLANCE_RETURN_TAU_SEC, frameDtSec);
+      look.pitchRad = expSmooth(look.pitchRad, 0, COCKPIT_GLANCE_RETURN_TAU_SEC, frameDtSec);
+      if (Math.abs(look.yawRad) < 1e-4) look.yawRad = 0;
+      if (Math.abs(look.pitchRad) < 1e-4) look.pitchRad = 0;
+    }
+    if (look.yawRad !== 0) {
+      scratchQ.x = 0;
+      scratchQ.y = Math.sin(look.yawRad / 2);
+      scratchQ.z = 0;
+      scratchQ.w = Math.cos(look.yawRad / 2);
+      quatMulInto(out.rot, scratchQ, out.rot);
+    }
+    if (look.pitchRad !== 0) {
+      scratchQ.x = Math.sin(look.pitchRad / 2);
+      scratchQ.y = 0;
+      scratchQ.z = 0;
+      scratchQ.w = Math.cos(look.pitchRad / 2);
+      quatMulInto(out.rot, scratchQ, out.rot);
+    }
+    out.fovDeg = look.fovDeg;
+  }
   out.useLookAt = false;
   return out;
 }
@@ -102,10 +185,14 @@ export interface ChaseCameraState {
   lookZoomM: number;
   /** Seconds since the player last looked around. */
   lookIdleSec: number;
+  /** Ease back behind after this many s without looking (Infinity = never). The zoom stays. */
+  returnDelaySec: number;
+  /** The camera's up, smoothed (leans with the bank by CHASE_BANK_FOLLOW). */
+  up: Vec3Like;
 }
 
 export function createChaseCameraState(): ChaseCameraState {
-  return { smoothedOffset: { x: 0, y: 0, z: 0 }, smoothedRangeM: 0, initialized: false, lookYawRad: 0, lookPitchRad: 0, lookZoomM: 0, lookIdleSec: Infinity };
+  return { smoothedOffset: { x: 0, y: 0, z: 0 }, smoothedRangeM: 0, initialized: false, lookYawRad: 0, lookPitchRad: 0, lookZoomM: 0, lookIdleSec: Infinity, returnDelaySec: FREE_LOOK_RETURN_DELAY_SEC, up: { x: 0, y: 1, z: 0 } };
 }
 
 /** Default chase offset as a distance and an elevation angle (15 m back, 4 m up). */
@@ -114,12 +201,20 @@ const CHASE_ELEVATION_RAD = Math.atan2(CHASE_CAM_HEIGHT_M, CHASE_CAM_DISTANCE_M)
 /** Free look never goes past looking straight down or up at the aircraft. */
 const CHASE_LOOK_ELEVATION_LIMIT_RAD = 1.45;
 
-/** Applies a free-look input (drag/scroll) and restarts the return-to-behind delay. */
-export function chaseLook(state: ChaseCameraState, deltaYawRad: number, deltaPitchRad: number, deltaZoomM: number): void {
-  state.lookYawRad = Math.atan2(Math.sin(state.lookYawRad + deltaYawRad), Math.cos(state.lookYawRad + deltaYawRad));
-  state.lookPitchRad = clamp(state.lookPitchRad + deltaPitchRad, -CHASE_LOOK_ELEVATION_LIMIT_RAD - CHASE_ELEVATION_RAD, CHASE_LOOK_ELEVATION_LIMIT_RAD - CHASE_ELEVATION_RAD);
-  state.lookZoomM = clamp(state.lookZoomM + deltaZoomM, FREE_LOOK_MIN_DISTANCE_M - CHASE_RANGE_M, FREE_LOOK_MAX_DISTANCE_M - CHASE_RANGE_M);
-  state.lookIdleSec = 0;
+/**
+ * Applies a free-look input (drag / arrows) and restarts the return-to-behind delay; zoom steps
+ * (+ = out) scale the distance and stay (a zoom alone does not hold the view off-centre).
+ */
+export function chaseLook(state: ChaseCameraState, deltaYawRad: number, deltaPitchRad: number, zoomSteps: number): void {
+  if (deltaYawRad !== 0 || deltaPitchRad !== 0) {
+    state.lookYawRad = Math.atan2(Math.sin(state.lookYawRad + deltaYawRad), Math.cos(state.lookYawRad + deltaYawRad));
+    state.lookPitchRad = clamp(state.lookPitchRad + deltaPitchRad, -CHASE_LOOK_ELEVATION_LIMIT_RAD - CHASE_ELEVATION_RAD, CHASE_LOOK_ELEVATION_LIMIT_RAD - CHASE_ELEVATION_RAD);
+    state.lookIdleSec = 0;
+  }
+  if (zoomSteps !== 0) {
+    const r = clamp((CHASE_RANGE_M + state.lookZoomM) * zoomFactor(zoomSteps), FREE_LOOK_MIN_DISTANCE_M, FREE_LOOK_MAX_DISTANCE_M);
+    state.lookZoomM = r - CHASE_RANGE_M;
+  }
 }
 
 const scratchChaseForward: Vec3Like = { x: 0, y: 0, z: 0 };
@@ -157,10 +252,11 @@ export function computeChasePose(
 ): CameraPose {
   // After a while without looking around, ease the view back behind the aircraft.
   state.lookIdleSec += frameDtSec;
-  if (state.lookIdleSec > FREE_LOOK_RETURN_DELAY_SEC) {
+  if (state.lookIdleSec > state.returnDelaySec) {
     state.lookYawRad = expSmooth(state.lookYawRad, 0, FREE_LOOK_RETURN_TAU_SEC, frameDtSec);
     state.lookPitchRad = expSmooth(state.lookPitchRad, 0, FREE_LOOK_RETURN_TAU_SEC, frameDtSec);
-    state.lookZoomM = expSmooth(state.lookZoomM, 0, FREE_LOOK_RETURN_TAU_SEC, frameDtSec);
+    if (Math.abs(state.lookYawRad) < 1e-5) state.lookYawRad = 0;
+    if (Math.abs(state.lookPitchRad) < 1e-5) state.lookPitchRad = 0;
   }
 
   rotateVecByQuat(playerRot, BODY_FORWARD, scratchChaseForward);
@@ -237,9 +333,25 @@ export function computeChasePose(
   out.lookAt.x = playerPos.x;
   out.lookAt.y = playerPos.y + 1;
   out.lookAt.z = playerPos.z;
+  // Lean with the bank a little (the horizon tilts as the jet rolls), smoothed; upright when
+  // inverted rather than flipping.
+  rotateVecByQuat(playerRot, BODY_UP, scratchUp);
+  const k = scratchUp.y > 0 ? CHASE_BANK_FOLLOW : 0;
+  const u = state.up;
+  u.x = expSmooth(u.x, scratchUp.x * k, 0.25, frameDtSec);
+  u.y = expSmooth(u.y, 1 - k + scratchUp.y * k, 0.25, frameDtSec);
+  u.z = expSmooth(u.z, scratchUp.z * k, 0.25, frameDtSec);
+  const ul = Math.hypot(u.x, u.y, u.z) || 1;
+  out.up.x = u.x / ul;
+  out.up.y = u.y / ul;
+  out.up.z = u.z / ul;
+  out.fovDeg = 0;
   out.useLookAt = true;
   return out;
 }
+
+const BODY_UP: Readonly<Vec3Like> = { x: 0, y: 1, z: 0 };
+const scratchUp: Vec3Like = { x: 0, y: 0, z: 0 };
 
 /**
  * Lifts an outside camera to at least `clearanceM` above the ground or water under it. The chase
@@ -258,39 +370,71 @@ export function keepAboveGround(pose: CameraPose, groundAt: (x: number, z: numbe
 // -----------------------------------------------------------------------------
 
 export interface ExternalOrbitState {
+  /** Round the jet from straight behind, rad (+ = round its left side). */
   yawRad: number;
   pitchRad: number;
   radiusM: number;
+  /** The jet's heading, smoothed, rad (the orbit turns with it). NaN until the first frame. */
+  headingRad: number;
 }
 
 export function createExternalOrbitState(): ExternalOrbitState {
   return {
-    yawRad: 0,
+    yawRad: EXTERNAL_ORBIT_DEFAULT_YAW_RAD,
     pitchRad: EXTERNAL_ORBIT_DEFAULT_PITCH_RAD,
     radiusM: EXTERNAL_ORBIT_DEFAULT_RADIUS_M,
+    headingRad: NaN,
   };
 }
 
-/** Mutates `state` per `SceneRenderer.orbitCamera`'s contract. */
-export function orbitCamera(state: ExternalOrbitState, deltaYawRad: number, deltaPitchRad: number, deltaZoomM: number): void {
-  state.yawRad += deltaYawRad;
+/** Mutates `state` per `SceneRenderer.orbitCamera`'s contract (zoom in steps, + = out). */
+export function orbitCamera(state: ExternalOrbitState, deltaYawRad: number, deltaPitchRad: number, zoomSteps: number): void {
+  state.yawRad = Math.atan2(Math.sin(state.yawRad + deltaYawRad), Math.cos(state.yawRad + deltaYawRad));
   state.pitchRad = clamp(state.pitchRad + deltaPitchRad, -EXTERNAL_ORBIT_PITCH_CLAMP_RAD, EXTERNAL_ORBIT_PITCH_CLAMP_RAD);
-  state.radiusM = clamp(state.radiusM + deltaZoomM, EXTERNAL_ORBIT_MIN_RADIUS_M, EXTERNAL_ORBIT_MAX_RADIUS_M);
+  state.radiusM = clamp(state.radiusM * zoomFactor(zoomSteps), EXTERNAL_ORBIT_MIN_RADIUS_M, EXTERNAL_ORBIT_MAX_RADIUS_M);
 }
 
-export function computeExternalPose(playerPos: Readonly<Vec3Like>, state: ExternalOrbitState, out: CameraPose, minOffsetY = -Infinity): CameraPose {
+const scratchExtFwd: Vec3Like = { x: 0, y: 0, z: 0 };
+
+export function computeExternalPose(
+  playerPos: Readonly<Vec3Like>,
+  state: ExternalOrbitState,
+  out: CameraPose,
+  minOffsetY = -Infinity,
+  playerRot?: Readonly<QuatLike>,
+  frameDtSec = 0
+): CameraPose {
+  // The jet's heading (forward = (sin h, -cos h) in x, z), smoothed so a turn sweeps the camera
+  // round; held while the nose points nearly straight up or down.
+  if (playerRot) {
+    rotateVecByQuat(playerRot, BODY_FORWARD, scratchExtFwd);
+    if (Math.hypot(scratchExtFwd.x, scratchExtFwd.z) > 0.2) {
+      const h = Math.atan2(scratchExtFwd.x, -scratchExtFwd.z);
+      if (Number.isNaN(state.headingRad)) state.headingRad = h;
+      else {
+        const d = Math.atan2(Math.sin(h - state.headingRad), Math.cos(h - state.headingRad));
+        state.headingRad += d * (1 - Math.exp(-frameDtSec / EXTERNAL_ORBIT_HEADING_TAU_SEC));
+      }
+    }
+  }
+  const heading = Number.isNaN(state.headingRad) ? 0 : state.headingRad;
   const r = state.radiusM;
-  const yaw = state.yawRad;
+  // Straight behind is the heading + pi; yaw + swings round the left side.
+  const az = heading + Math.PI + state.yawRad;
   // Never below the ground: the orbit stops at the lowest pitch the ground allows (and stays
   // there, so pitching back up answers at once).
   if (r * Math.sin(state.pitchRad) < minOffsetY) state.pitchRad = Math.asin(clamp(minOffsetY / r, -1, 1));
   const pitch = state.pitchRad;
-  out.pos.x = playerPos.x + r * Math.cos(pitch) * Math.sin(yaw);
+  out.pos.x = playerPos.x + r * Math.cos(pitch) * Math.sin(az);
   out.pos.y = playerPos.y + r * Math.sin(pitch);
-  out.pos.z = playerPos.z - r * Math.cos(pitch) * Math.cos(yaw);
+  out.pos.z = playerPos.z - r * Math.cos(pitch) * Math.cos(az);
   out.lookAt.x = playerPos.x;
   out.lookAt.y = playerPos.y;
   out.lookAt.z = playerPos.z;
+  out.up.x = 0;
+  out.up.y = 1;
+  out.up.z = 0;
+  out.fovDeg = 0;
   out.useLookAt = true;
   return out;
 }
@@ -302,10 +446,21 @@ export function computeExternalPose(playerPos: Readonly<Vec3Like>, state: Extern
 export interface FlybyState {
   fixedPos: Vec3Like;
   initialized: boolean;
+  /** Which side of the flight path the next camera stands (alternates). */
+  side: 1 | -1;
+  /** Telephoto framing: x the default (FLYBY_FRAME_M); wheel zoom. */
+  zoom: number;
+  /** Field of view, smoothed, deg (NaN = snap on the next frame). */
+  fovDeg: number;
 }
 
 export function createFlybyState(): FlybyState {
-  return { fixedPos: { x: 0, y: 0, z: 0 }, initialized: false };
+  return { fixedPos: { x: 0, y: 0, z: 0 }, initialized: false, side: 1, zoom: 1, fovDeg: NaN };
+}
+
+/** Fly-by zoom (steps, + = wider). */
+export function flybyZoom(state: FlybyState, zoomSteps: number): void {
+  state.zoom = clamp(state.zoom * zoomFactor(zoomSteps), 0.3, 6);
 }
 
 const scratchFlybyVelNorm: Vec3Like = { x: 0, y: 0, z: 0 };
@@ -315,7 +470,8 @@ export function computeFlybyPose(
   playerRot: Readonly<QuatLike>,
   playerVelWorld: Readonly<Vec3Like>,
   state: FlybyState,
-  out: CameraPose
+  out: CameraPose,
+  frameDtSec = 0
 ): CameraPose {
   const speed = vec3Length(playerVelWorld);
   if (speed < 1) {
@@ -330,15 +486,32 @@ export function computeFlybyPose(
     const dy = playerPos.y - state.fixedPos.y;
     const dz = playerPos.z - state.fixedPos.z;
     const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+    // Gone past (and away from) the camera, or turned off somewhere else entirely.
     const dot = dx * scratchFlybyVelNorm.x + dy * scratchFlybyVelNorm.y + dz * scratchFlybyVelNorm.z;
-    if (dist > FLYBY_RESET_DISTANCE_M && dot < 0) needsReplace = true;
+    if ((dist > FLYBY_RESET_DISTANCE_M && dot > 0) || dist > FLYBY_PLACEMENT_DISTANCE_M * 2.5) needsReplace = true;
   }
 
   if (needsReplace) {
-    state.fixedPos.x = playerPos.x + scratchFlybyVelNorm.x * FLYBY_PLACEMENT_DISTANCE_M;
-    state.fixedPos.y = playerPos.y + scratchFlybyVelNorm.y * FLYBY_PLACEMENT_DISTANCE_M + FLYBY_HEIGHT_OFFSET_M;
-    state.fixedPos.z = playerPos.z + scratchFlybyVelNorm.z * FLYBY_PLACEMENT_DISTANCE_M;
+    // Ahead along the flight path (about 4 s), standing off to one side of it, a little above:
+    // the jet comes at the camera, passes close by and goes away.
+    const v = scratchFlybyVelNorm;
+    let sx = -v.z;
+    let sz = v.x;
+    const sl = Math.hypot(sx, sz);
+    if (sl > 1e-3) {
+      sx /= sl;
+      sz /= sl;
+    } else {
+      sx = 1;
+      sz = 0;
+    }
+    const lead = clamp(speed * 4, FLYBY_PLACEMENT_DISTANCE_M * 0.3, FLYBY_PLACEMENT_DISTANCE_M);
+    state.fixedPos.x = playerPos.x + v.x * lead + sx * FLYBY_SIDE_OFFSET_M * state.side;
+    state.fixedPos.y = playerPos.y + v.y * lead + FLYBY_HEIGHT_OFFSET_M;
+    state.fixedPos.z = playerPos.z + v.z * lead + sz * FLYBY_SIDE_OFFSET_M * state.side;
+    state.side = state.side === 1 ? -1 : 1;
     state.initialized = true;
+    state.fovDeg = NaN;
   }
 
   out.pos.x = state.fixedPos.x;
@@ -347,6 +520,14 @@ export function computeFlybyPose(
   out.lookAt.x = playerPos.x;
   out.lookAt.y = playerPos.y;
   out.lookAt.z = playerPos.z;
+  out.up.x = 0;
+  out.up.y = 1;
+  out.up.z = 0;
+  // Telephoto: frame about FLYBY_FRAME_M x zoom round the jet, whatever its distance.
+  const dist = Math.hypot(playerPos.x - state.fixedPos.x, playerPos.y - state.fixedPos.y, playerPos.z - state.fixedPos.z);
+  const want = clamp((2 * Math.atan((FLYBY_FRAME_M * state.zoom) / 2 / Math.max(dist, 1)) * 180) / Math.PI, 2.5, 75);
+  state.fovDeg = Number.isNaN(state.fovDeg) ? want : expSmooth(state.fovDeg, want, 0.12, frameDtSec);
+  out.fovDeg = state.fovDeg;
   out.useLookAt = true;
   return out;
 }
@@ -356,6 +537,7 @@ export function computeFlybyPose(
 // -----------------------------------------------------------------------------
 
 export interface CameraModeState {
+  cockpit: CockpitLookState;
   chase: ChaseCameraState;
   external: ExternalOrbitState;
   flyby: FlybyState;
@@ -363,10 +545,31 @@ export interface CameraModeState {
 
 export function createCameraModeState(): CameraModeState {
   return {
+    cockpit: createCockpitLookState(),
     chase: createChaseCameraState(),
     external: createExternalOrbitState(),
     flyby: createFlybyState(),
   };
+}
+
+/** SceneRenderer.orbitCamera for `mode` (see its contract). */
+export function lookCamera(mode: CameraMode, state: CameraModeState, deltaYawRad: number, deltaPitchRad: number, zoomSteps: number): void {
+  switch (mode) {
+    case CameraMode.Cockpit:
+      // A drag down (pitch +) looks down from the cockpit, where outside it raises the camera.
+      cockpitGlance(state.cockpit, deltaYawRad, -deltaPitchRad, zoomSteps);
+      return;
+    case CameraMode.Chase:
+      chaseLook(state.chase, deltaYawRad, deltaPitchRad, zoomSteps);
+      return;
+    case CameraMode.External:
+      orbitCamera(state.external, deltaYawRad, deltaPitchRad, zoomSteps);
+      return;
+    case CameraMode.Flyby:
+      flybyZoom(state.flyby, zoomSteps);
+      return;
+    default:
+  }
 }
 
 /** One pure dispatch per `SceneRenderer.renderFrame` call. */
@@ -383,13 +586,13 @@ export function computeCameraPose(
 ): CameraPose {
   switch (mode) {
     case CameraMode.Cockpit:
-      return computeCockpitPose(playerPos, playerRot, out);
+      return computeCockpitPose(playerPos, playerRot, out, state.cockpit, frameDtSec);
     case CameraMode.Chase:
       return computeChasePose(playerPos, playerRot, state.chase, frameDtSec, out, minOffsetY);
     case CameraMode.External:
-      return computeExternalPose(playerPos, state.external, out, minOffsetY);
+      return computeExternalPose(playerPos, state.external, out, minOffsetY, playerRot, frameDtSec);
     case CameraMode.Flyby:
-      return computeFlybyPose(playerPos, playerRot, playerVelWorld, state.flyby, out);
+      return computeFlybyPose(playerPos, playerRot, playerVelWorld, state.flyby, out, frameDtSec);
     default:
       return computeCockpitPose(playerPos, playerRot, out);
   }
