@@ -238,6 +238,8 @@ let baseSteerpoints: HudSteerpoint[] = [];
 let debriefTimer: ReturnType<typeof setTimeout> | undefined;
 const ambience = createAmbience(audioBus);
 let voiceWarnings = createVoiceWarningState();
+/** In a cockpit view at the last audio update (Betty is cut off on leaving it). */
+let bettyWasInCockpit = true;
 const voiceSay: VoiceLineDef[] = [];
 let lastAudioSimSec = -1;
 /** One-shot presses from cockpit controls, added to the next frame's pilot inputs (frames left). */
@@ -2196,6 +2198,9 @@ function updateFlightAudio(view: Float64Array, player: SnapshotEntityView | null
   const hb = HUD_BLOCK_START;
   const alive = player?.alive ?? false;
   rwrTones.update(view, hb, simSec);
+  // Inside the jet: the 3D cockpit, the HUD-only view, or the targeting pod's picture.
+  const inCockpit = podView || CAMERA_MODE_CYCLE[cameraModeIndex] === 'cockpit' || CAMERA_MODE_CYCLE[cameraModeIndex] === 'cockpit3d';
+  // The warnings are still tracked outside, so going back in does not replay old ones.
   stepVoiceWarnings(voiceWarnings, {
     warningBits: view[hb + SnapshotHud.WARNING_BITS] ?? 0,
     apFlags: view[hb + SnapshotHud.AP_FLAGS] ?? 0,
@@ -2204,7 +2209,14 @@ function updateFlightAudio(view: Float64Array, player: SnapshotEntityView | null
     fuelKg: view[hb + SnapshotHud.FUEL_KG] ?? 0,
     alive,
   }, simSec, voiceSay);
-  if (voiceSay.length) voicePlayer.say(voiceSay);
+  // The voice warnings (Betty: ANGLE OF ATTACK, PULL UP, ...) are heard in the cockpit only, not from
+  // the chase, external or fly-by cameras; leaving the cockpit cuts off the line playing.
+  if (inCockpit) {
+    if (voiceSay.length) voicePlayer.say(voiceSay);
+  } else if (bettyWasInCockpit) {
+    voicePlayer.silence();
+  }
+  bettyWasInCockpit = inCockpit;
   ambience.update({
     alive,
     throttle: player?.throttle ?? 0,
@@ -2213,7 +2225,7 @@ function updateFlightAudio(view: Float64Array, player: SnapshotEntityView | null
     iasMps: view[hb + SnapshotHud.IAS_MPS] ?? 0,
     gearPos: view[hb + SnapshotHud.GEAR_POS] ?? 0,
     airbrake: lastPlayerAirbrake,
-    inCockpit: podView || CAMERA_MODE_CYCLE[cameraModeIndex] === 'cockpit' || CAMERA_MODE_CYCLE[cameraModeIndex] === 'cockpit3d',
+    inCockpit,
   }, dt);
 }
 /** Bombing aiming help: the HUD's cues, and the release tone (off with 'off'). */
