@@ -4,7 +4,7 @@
  * section 4.1.
  */
 import type { Contact, EntityId, PilotContext, PilotInputs, Vec3Like } from '../contracts/core';
-import { ENTITY_INDEX_RADIX, MAX_ENTITIES, NO_ENTITY_ID } from '../contracts/core';
+import { ENTITY_INDEX_RADIX, EntityFlag, MAX_ENTITIES, NO_ENTITY_ID } from '../contracts/core';
 import type {
   AiDifficultyProfile,
   AiPilot,
@@ -147,9 +147,12 @@ class AiPilotImpl implements AiPilot {
     this.timeInManoeuvreSec += dtSec;
     this.perceptionTick += 1;
     if (this.params.drone) {
+      // Target drones fly lit, so they can be found and kept clear of.
+      out.lights = EntityFlag.Lights | EntityFlag.LightsStrobe;
       this.updateDrone(ctx, dtSec, out, this.params.drone.speedMps);
       return;
     }
+    out.lights = aiLights(this.state, ctx.self.flags, ctx.self.gearPos);
 
     const missileWarningNoticed = this.updateMissileWarningNotice(ctx);
     const perceived = this.filterPerceived(ctx);
@@ -469,3 +472,16 @@ class AiPilotImpl implements AiPilot {
 }
 
 export const createAiPilot: CreateAiPilot = (params: Readonly<AiPilotSpawnParams>): AiPilot => new AiPilotImpl(params);
+
+/**
+ * The AI's exterior lights, as a military crew sets them: full lights on the ground and in the
+ * landing pattern (the landing light once the gear is down), covert formation strips only while
+ * transiting or on patrol, and everything off once a fight starts.
+ */
+export function aiLights(state: TacticalState, flags: number, gearPos: number): number {
+  if (flags & EntityFlag.OnGround || state === TacticalState.Land) {
+    return EntityFlag.Lights | EntityFlag.LightsStrobe | (gearPos > 0.9 ? EntityFlag.LightsLanding : 0);
+  }
+  if (state === TacticalState.Patrol || state === TacticalState.Rtb) return EntityFlag.LightsFormation;
+  return 0;
+}

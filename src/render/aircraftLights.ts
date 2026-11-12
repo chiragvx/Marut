@@ -41,6 +41,7 @@ const GLOW_VS = /* glsl */ `
   attribute float aSize;
   attribute float aIntensity;
   attribute vec4 aDir; // xyz: lamp axis (render space), w: cos(half-angle) of its arc (-2 = all round)
+  attribute vec3 aUp;  // for a horizontal sector (navigation lights): the airframe's up; zero for a cone
   uniform vec3 uOrigin;
   uniform float uPxScale;
   uniform float uNight;
@@ -55,13 +56,21 @@ const GLOW_VS = /* glsl */ `
     float arc = 1.0;
     if (aDir.w > -1.5) {
       vec3 toCam = normalize(uAtmCamPos - (position + uOrigin));
-      arc = smoothstep(aDir.w - 0.06, aDir.w + 0.04, dot(toCam, aDir.xyz));
+      float steep = 0.0;
+      if (dot(aUp, aUp) > 0.5) {
+        // A sector: the bearing round the airframe's up axis decides; from above or below, every lamp shows.
+        float u = dot(toCam, aUp);
+        steep = smoothstep(0.85, 0.97, abs(u));
+        toCam = normalize(toCam - aUp * u + aDir.xyz * 1e-4);
+      }
+      arc = max(smoothstep(aDir.w - 0.06, aDir.w + 0.04, dot(toCam, aDir.xyz)), steep);
     }
     // Point-source falloff past ~300 m (closer, the eye sees the lens itself rather than a point).
     float far = 1.0 / (1.0 + pow(dist / 300.0, 2.0) * 0.6);
     float I = aIntensity * arc * far * atmTransmittance(position + uOrigin);
     vCorePx = max(1.5, aSize * uPxScale / dist);
-    vHaloPx = vCorePx + (2.0 + 16.0 * uNight) * sqrt(max(I, 0.0));
+    // (Kept tight even for a strobe at night: a wide halo reads as a ball of light, not a lamp.)
+    vHaloPx = vCorePx + (2.0 + 7.0 * uNight) * sqrt(max(I, 0.0));
     vPointPx = clamp(2.0 * (vCorePx + 2.5 * vHaloPx), 3.0, 128.0);
     gl_PointSize = I > 0.003 ? vPointPx : 0.0;
     vColor = aColor;
@@ -159,6 +168,8 @@ export interface LightLayout {
   strobeRight: readonly number[];
   landing: readonly number[];
   landingDir: readonly number[];
+  /** Formation (covert) strips: centre and outward normal of each. */
+  formation?: readonly { p: readonly number[]; n: readonly number[] }[];
 }
 
 export interface AircraftLightsInput {
@@ -188,6 +199,7 @@ const tmpD = new THREE.Vector3();
 const tmpM = new THREE.Matrix4();
 const tmpQ = new THREE.Quaternion();
 const tmpA = new THREE.Vector3();
+const tmpUp = new THREE.Vector3();
 /** Navigation light arcs: red/green from ahead to 110 deg to the side (axis 55 deg off the nose,
  *  half-angle 55 deg plus a little spill); white tail light over 140 deg astern. */
 const NAV_ARC_X = Math.cos((55 * Math.PI) / 180);
@@ -205,17 +217,20 @@ export function createAircraftLights(root: THREE.Object3D, lights: LightLayout, 
   const size = new Float32Array(MAX_GLOWS);
   const inten = new Float32Array(MAX_GLOWS);
   const dir = new Float32Array(MAX_GLOWS * 4);
+  const up = new Float32Array(MAX_GLOWS * 3);
   const glowGeom = new THREE.BufferGeometry();
   const posAttr = new THREE.BufferAttribute(pos, 3).setUsage(THREE.DynamicDrawUsage);
   const colAttr = new THREE.BufferAttribute(col, 3).setUsage(THREE.DynamicDrawUsage);
   const sizeAttr = new THREE.BufferAttribute(size, 1).setUsage(THREE.DynamicDrawUsage);
   const intAttr = new THREE.BufferAttribute(inten, 1).setUsage(THREE.DynamicDrawUsage);
   const dirAttr = new THREE.BufferAttribute(dir, 4).setUsage(THREE.DynamicDrawUsage);
+  const upAttr = new THREE.BufferAttribute(up, 3).setUsage(THREE.DynamicDrawUsage);
   glowGeom.setAttribute('position', posAttr);
   glowGeom.setAttribute('aColor', colAttr);
   glowGeom.setAttribute('aSize', sizeAttr);
   glowGeom.setAttribute('aIntensity', intAttr);
   glowGeom.setAttribute('aDir', dirAttr);
+  glowGeom.setAttribute('aUp', upAttr);
   const glowMat = new THREE.ShaderMaterial({
     uniforms: { ...atm, ...shared, uPxScale: { value: 500 }, uNight: { value: 0 } },
     vertexShader: GLOW_VS,
@@ -269,8 +284,8 @@ export function createAircraftLights(root: THREE.Object3D, lights: LightLayout, 
   }
 
   /** A lamp at p (render space): colour, lens size (m), intensity, and its arc (axis + cos of the
-   *  half-angle; omit for all round). */
-  function glow(p: THREE.Vector3, r: number, g: number, bl: number, sizeM: number, intensity: number, axis?: THREE.Vector3, cosHalf = -2): void {
+   *  half-angle; omit for all round); with `sectorUp`, the arc is a horizontal sector about that axis. */
+  function glow(p: THREE.Vector3, r: number, g: number, bl: number, sizeM: number, intensity: number, axis?: THREE.Vector3, cosHalf = -2, sectorUp?: THREE.Vector3): void {
     if (n >= MAX_GLOWS || intensity <= 0) return;
     pos[n * 3] = p.x;
     pos[n * 3 + 1] = p.y;
@@ -284,6 +299,9 @@ export function createAircraftLights(root: THREE.Object3D, lights: LightLayout, 
     dir[n * 4 + 1] = axis?.y ?? 0;
     dir[n * 4 + 2] = axis?.z ?? 0;
     dir[n * 4 + 3] = axis ? cosHalf : -2;
+    up[n * 3] = sectorUp?.x ?? 0;
+    up[n * 3 + 1] = sectorUp?.y ?? 0;
+    up[n * 3 + 2] = sectorUp?.z ?? 0;
     n++;
   }
 
@@ -312,9 +330,19 @@ export function createAircraftLights(root: THREE.Object3D, lights: LightLayout, 
         // Arcs (body axes, then into render space): red from dead ahead round to 110 deg left, green
         // the same to the right, white over 140 deg astern.
         const ax = (x: number, y: number, z: number): THREE.Vector3 => tmpA.set(x, y, z).transformDirection(a.airframe);
-        glow(at(a.airframe, lights.navLeft), 1.0, 0.1, 0.06, 0.09, steady, ax(NAV_ARC_X, 0, -NAV_ARC_Z), NAV_ARC_COS);
-        glow(at(a.airframe, lights.navRight), 0.1, 1.0, 0.32, 0.09, steady, ax(NAV_ARC_X, 0, NAV_ARC_Z), NAV_ARC_COS);
-        glow(at(a.airframe, lights.navTail), 1.0, 1.0, 0.95, 0.07, steady * 0.8, ax(-1, 0, 0), TAIL_ARC_COS);
+        const upAx = tmpUp.set(0, 1, 0).transformDirection(a.airframe);
+        glow(at(a.airframe, lights.navLeft), 1.0, 0.1, 0.06, 0.09, steady, ax(NAV_ARC_X, 0, -NAV_ARC_Z), NAV_ARC_COS, upAx);
+        glow(at(a.airframe, lights.navRight), 0.1, 1.0, 0.32, 0.09, steady, ax(NAV_ARC_X, 0, NAV_ARC_Z), NAV_ARC_COS, upAx);
+        glow(at(a.airframe, lights.navTail), 1.0, 1.0, 0.95, 0.07, steady * 0.8, ax(-1, 0, 0), TAIL_ARC_COS, upAx);
+      }
+      if (f & EntityFlag.LightsFormation && lights.formation && night > 0.05) {
+        // Formation strips: a faint green glimmer at night, seen only from the strip's side, so a
+        // wingman can hold position from a few hundred metres; nothing by day (the lit panel itself
+        // is drawn by the shader).
+        for (const s of lights.formation) {
+          const axis = tmpD.set(s.n[0]!, s.n[1]!, s.n[2]!).transformDirection(a.airframe);
+          glow(at(a.airframe, s.p), 0.55, 1.0, 0.4, 0.05, 0.2 * night, axis, 0.05);
+        }
       }
       const strobe = f & EntityFlag.LightsStrobe ? strobeFlash(time, a.phase) : 0;
       if (strobe > 0) {
@@ -372,6 +400,7 @@ export function createAircraftLights(root: THREE.Object3D, lights: LightLayout, 
       sizeAttr.needsUpdate = true;
       intAttr.needsUpdate = true;
       dirAttr.needsUpdate = true;
+      upAttr.needsUpdate = true;
       for (let i = beamN; i < beams.length; i++) {
         beams[i]!.beam.visible = false;
         beams[i]!.pool.visible = false;

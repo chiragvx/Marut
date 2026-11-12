@@ -47,6 +47,7 @@ const VS = /* glsl */ `
   varying vec3 vNormalL;
   varying vec2 vUv;
   varying vec4 vTangentW;
+  varying vec3 vViewL;
   void main() {
     vec3 p = position;
     vNormalL = normal;
@@ -65,6 +66,8 @@ const VS = /* glsl */ `
     #endif
     vec4 wr = modelMatrix * lp;
     vWorld = wr.xyz + uOrigin;
+    // Towards the camera, in the model's own frame (the navigation lights' arcs).
+    vViewL = transpose(mat3(modelMatrix)) * (cameraPosition - wr.xyz);
     vNormalW = normalize(mat3(modelMatrix) * nl);
     vTangentW = vec4(mat3(modelMatrix) * aTangent.xyz, aTangent.w);
     vPos = position;
@@ -95,6 +98,7 @@ const FS = /* glsl */ `
   varying float vPart;
   varying float vNoz;
   varying vec3 vNormalL;
+  varying vec3 vViewL;
   /** Markings and panel lines (tejasLivery.ts): 4 tiles, starboard | port over top | bottom. */
   uniform sampler2D uLivery;
   uniform vec4 uLiveryMap; // x0, x1, y0, y1 (body m)
@@ -286,11 +290,24 @@ const FS = /* glsl */ `
       // Navigation lights (uLightState.x).
       vec3 lc = part == 10 ? vec3(1.0, 0.12, 0.08) : part == 11 ? vec3(0.1, 1.0, 0.3) : vec3(1.0);
       col = lc * 0.3;
-      glow = lc * uLightState.x * (0.6 + 2.5 * uAtmLights);
+      // Seen lit only from inside the light's sector (red/green: from dead ahead round to 110 deg
+      // out to their side; white: 140 deg astern), as the glow (aircraftLights.ts NAV_ARC_*): outside
+      // it the lamp is behind its shield.
+      vec3 arcAxis = part == 10 ? vec3(0.574, 0.0, -0.819) : part == 11 ? vec3(0.574, 0.0, 0.819) : vec3(-1.0, 0.0, 0.0);
+      float arcCos = part == 12 ? 0.309 : 0.5;
+      // The sectors are horizontal (in the wing's plane): from above or below, every lamp shows.
+      vec3 vh = vec3(vViewL.x, 0.0, vViewL.z);
+      float h = length(vh);
+      float inArc = h < 1e-4 * length(vViewL) ? 1.0 : smoothstep(arcCos - 0.06, arcCos + 0.04, dot(vh / h, arcAxis));
+      inArc = max(inArc, smoothstep(0.85, 0.97, abs(normalize(vViewL).y)));
+      glow = lc * uLightState.x * (0.6 + 2.5 * uAtmLights) * inArc;
     } else if (part == 19) {
-      // Formation strips (uLightState.w): dim green electroluminescent.
-      col = vec3(0.16, 0.2, 0.17);
-      glow = vec3(0.35, 1.0, 0.45) * uLightState.w * (0.25 + 1.2 * uAtmLights);
+      // Formation strips (uLightState.w): electroluminescent panels, pale yellow-green when off; lit,
+      // a soft green that is barely noticeable by day and plain at night (kept dim for night vision
+      // goggles in real life, so never dazzling).
+      col = vec3(0.4, 0.45, 0.33);
+      ks = 0.25;
+      glow = vec3(0.55, 1.0, 0.4) * uLightState.w * (0.04 + 0.4 * uAtmLights);
     } else if (part == 20) {
       // Anti-collision strobes (uLightState.y = the flash).
       col = vec3(0.55);

@@ -18,7 +18,7 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import { cap, circle, loft, PART, range } from './meshBuild';
 import type { V3 } from './meshBuild';
 import { TEJAS_GLB_HASH } from './tejasGlbVersion';
-import { buildFlame, INTAKE_STATION, NOZZLE_AXIS_Y, NOZZLE_EXIT_X, type AircraftModelTemplate, type ArticulatedPart, type LIGHTS, type PartDriver, type Pylon } from './tejasModel';
+import { buildFlame, INTAKE_STATION, NOZZLE_AXIS_Y, NOZZLE_EXIT_X, type AircraftModelTemplate, type ArticulatedPart, type FormationLamp, type LIGHTS, type PartDriver, type Pylon } from './tejasModel';
 
 /** The imported Tejas (relative to the page, so it works under /play/ and in the Android build);
  *  versioned by content so a rebuilt model is never served from a stale cache. */
@@ -84,6 +84,145 @@ function lampLenses(L: SceneExtras['lights']): THREE.BufferGeometry[] {
   ];
 }
 
+/**
+ * Formation (covert) light strips, starboard side (mirrored to port): each runs from a to b, found on
+ * the skin by casting rays along `ray` from outside. Electroluminescent panels as on most modern
+ * fighters: under the cockpit on the forward fuselage, on the aft fuselage spine, on the fin
+ * (parallel to its leading edge) and on the upper wing near the tip, just aft of the slats.
+ * Body frame of the imported model (nose +x, tail -x).
+ */
+const FORMATION_STRIPS: readonly { a: V3; b: V3; ray: V3 }[] = [
+  { a: [4.55, 0.12, 2], b: [4.05, 0.12, 2], ray: [0, 0, -1] },
+  { a: [-2.2, 0.45, 2], b: [-2.75, 0.45, 2], ray: [0, 0, -1] },
+  { a: [-3.25, 1.6, 2], b: [-3.75, 2.0, 2], ray: [0, 0, -1] },
+  { a: [-1.49, 3, 3.05], b: [-2.01, 3, 3.35], ray: [0, -1, 0] },
+];
+const FORMATION_WIDTH_M = 0.05;
+const FORMATION_STANDOFF_M = 0.004;
+const FORMATION_SAMPLES = 7;
+
+/** First hit of a ray on the candidate triangles (vertex index triples), with the face normal facing the ray. */
+function castOnto(pos: THREE.BufferAttribute | THREE.InterleavedBufferAttribute, tris: Uint32Array, o: THREE.Vector3, d: THREE.Vector3): { p: THREE.Vector3; n: THREE.Vector3 } | undefined {
+  const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3();
+  const e1 = new THREE.Vector3(), e2 = new THREE.Vector3(), h = new THREE.Vector3(), q = new THREE.Vector3(), sv = new THREE.Vector3();
+  const n = new THREE.Vector3();
+  let best = Infinity;
+  for (let i = 0; i < tris.length; i += 3) {
+    a.fromBufferAttribute(pos, tris[i]!);
+    b.fromBufferAttribute(pos, tris[i + 1]!);
+    c.fromBufferAttribute(pos, tris[i + 2]!);
+    e1.subVectors(b, a);
+    e2.subVectors(c, a);
+    h.crossVectors(d, e2);
+    const det = e1.dot(h);
+    if (Math.abs(det) < 1e-12) continue;
+    const f = 1 / det;
+    sv.subVectors(o, a);
+    const u = f * sv.dot(h);
+    if (u < 0 || u > 1) continue;
+    q.crossVectors(sv, e1);
+    const v = f * d.dot(q);
+    if (v < 0 || u + v > 1) continue;
+    const t = f * e2.dot(q);
+    if (t > 1e-6 && t < best) {
+      best = t;
+      n.crossVectors(e1, e2).normalize();
+    }
+  }
+  if (!Number.isFinite(best)) return undefined;
+  if (n.dot(d) > 0) n.negate();
+  return { p: o.clone().addScaledVector(d, best), n };
+}
+
+/**
+ * The formation strips laid on the airframe's skin (a thin ribbon following its curve, just proud of
+ * it), and a lamp at each strip's centre for its glow. A strip whose rays miss the skin is left out
+ * (a reshaped model loses that strip rather than getting one floating in the air).
+ */
+function formationStrips(body: THREE.BufferGeometry): { geometry: THREE.BufferGeometry[]; lamps: FormationLamp[] } {
+  const pos = body.getAttribute('position');
+  const index = body.getIndex();
+  const vertCount = index ? index.count : pos.count;
+  const vi = (t: number): number => (index ? index.getX(t) : t);
+  const geometry: THREE.BufferGeometry[] = [];
+  const lamps: FormationLamp[] = [];
+  const o = new THREE.Vector3(), d = new THREE.Vector3(), along = new THREE.Vector3(), across = new THREE.Vector3();
+  for (const side of [1, -1]) {
+    for (const st of FORMATION_STRIPS) {
+      const m = (v: V3): THREE.Vector3 => new THREE.Vector3(v[0], v[1], v[2] * side);
+      const A = m(st.a), B = m(st.b);
+      d.copy(m(st.ray)).normalize();
+      // Only the triangles near the strip's path: those whose bounds overlap a box round it, open
+      // along the ray (bounds, not corners: a flat fin is a few big triangles with no corner near).
+      const lo = A.clone().min(B).subScalar(0.15), hi = A.clone().max(B).addScalar(0.15);
+      for (const k of ['x', 'y', 'z'] as const) {
+        if (d[k] !== 0) {
+          lo[k] = -1e9;
+          hi[k] = 1e9;
+        }
+      }
+      const near: number[] = [];
+      for (let t = 0; t + 2 < vertCount; t += 3) {
+        const i0 = vi(t), i1 = vi(t + 1), i2 = vi(t + 2);
+        const x0 = pos.getX(i0), x1 = pos.getX(i1), x2 = pos.getX(i2);
+        if (Math.max(x0, x1, x2) < lo.x || Math.min(x0, x1, x2) > hi.x) continue;
+        const y0 = pos.getY(i0), y1 = pos.getY(i1), y2 = pos.getY(i2);
+        if (Math.max(y0, y1, y2) < lo.y || Math.min(y0, y1, y2) > hi.y) continue;
+        const z0 = pos.getZ(i0), z1 = pos.getZ(i1), z2 = pos.getZ(i2);
+        if (Math.max(z0, z1, z2) < lo.z || Math.min(z0, z1, z2) > hi.z) continue;
+        near.push(i0, i1, i2);
+      }
+      const tris = new Uint32Array(near);
+      const hits: { p: THREE.Vector3; n: THREE.Vector3 }[] = [];
+      for (let k = 0; k < FORMATION_SAMPLES; k++) {
+        o.lerpVectors(A, B, k / (FORMATION_SAMPLES - 1));
+        const h = castOnto(pos, tris, o, d);
+        if (h) hits.push(h);
+      }
+      if (hits.length < FORMATION_SAMPLES) continue;
+      const verts: number[] = [], norms: number[] = [], idx: number[] = [];
+      for (let k = 0; k < hits.length; k++) {
+        const h = hits[k]!;
+        along.subVectors(hits[Math.min(k + 1, hits.length - 1)]!.p, hits[Math.max(k - 1, 0)]!.p).normalize();
+        across.crossVectors(h.n, along).normalize().multiplyScalar(FORMATION_WIDTH_M / 2);
+        for (const sgn of [-1, 1]) {
+          const p = h.p.clone().addScaledVector(h.n, FORMATION_STANDOFF_M).addScaledVector(across, sgn);
+          verts.push(p.x, p.y, p.z);
+          norms.push(h.n.x, h.n.y, h.n.z);
+        }
+      }
+      // Two triangles per segment, each wound to face out along the skin's normal.
+      const P = new THREE.Vector3(), Q = new THREE.Vector3(), R = new THREE.Vector3();
+      const face = (p: number, q: number, r: number, n: THREE.Vector3): void => {
+        P.fromArray(verts, p * 3);
+        Q.fromArray(verts, q * 3).sub(P);
+        R.fromArray(verts, r * 3).sub(P);
+        if (Q.cross(R).dot(n) >= 0) idx.push(p, q, r);
+        else idx.push(p, r, q);
+      };
+      for (let k = 1; k < hits.length; k++) {
+        const i = 2 * k;
+        face(i - 2, i - 1, i, hits[k]!.n);
+        face(i - 1, i + 1, i, hits[k]!.n);
+      }
+      const g = new THREE.BufferGeometry();
+      const count = verts.length / 3;
+      g.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
+      g.setAttribute('normal', new THREE.Float32BufferAttribute(norms, 3));
+      g.setAttribute('uv', new THREE.Float32BufferAttribute(new Float32Array(count * 2), 2));
+      g.setAttribute('aTangent', new THREE.Float32BufferAttribute(new Float32Array(count * 4), 4));
+      g.setAttribute('aPart', new THREE.Float32BufferAttribute(new Float32Array(count).fill(PART.lightFormation), 1));
+      g.setAttribute('aNoz', new THREE.Float32BufferAttribute(new Float32Array(count), 1));
+      g.setIndex(idx);
+      geometry.push(g);
+      const mid = hits[(hits.length - 1) >> 1]!;
+      const c = mid.p.clone().addScaledVector(mid.n, FORMATION_STANDOFF_M);
+      lamps.push({ p: [c.x, c.y, c.z], n: [mid.n.x, mid.n.y, mid.n.z] });
+    }
+  }
+  return { geometry, lamps };
+}
+
 /** The nose leg with the landing/taxi lamp's lens on it, facing along the light. */
 function withLandingLens(leg: THREE.BufferGeometry, L: SceneExtras['lights']): THREE.BufferGeometry {
   const l = lens(L.landing, [0.022, 0.045, 0.045], PART.lightLanding);
@@ -137,11 +276,13 @@ export function templateFromGltf(scene: THREE.Object3D): AircraftModelTemplate {
   };
   const bodyMesh = need('body');
   const fixed = [prepare(bodyMesh, PART.textured)];
+  const formation = formationStrips(fixed[0]!);
+  if (formation.lamps.length < 2 * FORMATION_STRIPS.length) console.warn(`aircraft GLB: ${2 * FORMATION_STRIPS.length - formation.lamps.length} formation light strip(s) missed the skin`);
   if (meshes.has('cockpit')) fixed.push(prepare(meshes.get('cockpit')!, PART.texturedCockpit));
   if (meshes.has('glass')) fixed.push(prepare(meshes.get('glass')!, PART.canopy));
   const nz = extras.nozzle;
   if (nz.hingeX !== undefined && nz.hingeR !== undefined && nz.exitR !== undefined) fixed.push(buildNozzle(nz as Required<SceneExtras['nozzle']>));
-  fixed.push(...lampLenses(extras.lights));
+  fixed.push(...lampLenses(extras.lights), ...formation.geometry);
   const body = mergeGeometries(fixed);
   if (!body) throw new Error('aircraft GLB: body geometries do not merge');
 
@@ -196,6 +337,7 @@ export function templateFromGltf(scene: THREE.Object3D): AircraftModelTemplate {
       strobeRight: v3(L.strobeRight),
       landing: v3(L.landing),
       landingDir: v3(L.landingDir),
+      formation: formation.lamps,
     },
     landingPart: 'noseGear',
     canopyInterior: { min: v3(extras.canopyInterior.min), max: v3(extras.canopyInterior.max) },

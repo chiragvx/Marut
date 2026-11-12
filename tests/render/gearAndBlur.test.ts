@@ -48,3 +48,20 @@ describe('camera-turn motion blur', () => {
     expect(blurScale(5 / 60, 1 / 60, 1) * (5 / 60)).toBeGreaterThan(at60);
   });
 });
+
+describe('AI exterior lights', async () => {
+  const { aiLights } = await import('../../src/ai/pilotAi');
+  const { EntityFlag } = await import('../../src/contracts/core');
+  const { TacticalState } = await import('../../src/contracts/ai');
+  it('full lights on the ground and landing, the landing light only with the gear down', () => {
+    expect(aiLights(TacticalState.Patrol, EntityFlag.OnGround, 1)).toBe(EntityFlag.Lights | EntityFlag.LightsStrobe | EntityFlag.LightsLanding);
+    expect(aiLights(TacticalState.Land, 0, 0)).toBe(EntityFlag.Lights | EntityFlag.LightsStrobe);
+  });
+  it('covert formation strips in transit, dark in a fight', () => {
+    expect(aiLights(TacticalState.Patrol, 0, 0)).toBe(EntityFlag.LightsFormation);
+    expect(aiLights(TacticalState.Rtb, 0, 0)).toBe(EntityFlag.LightsFormation);
+    for (const s of [TacticalState.Intercept, TacticalState.EngageBvr, TacticalState.Merge, TacticalState.Bfm, TacticalState.Defensive, TacticalState.Disengage]) {
+      expect(aiLights(s, 0, 0)).toBe(0);
+    }
+  });
+});

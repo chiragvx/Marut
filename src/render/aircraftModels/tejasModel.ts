@@ -689,6 +689,23 @@ export const LIGHTS = {
   landingDir: [Math.cos(0.07), -Math.sin(0.07), 0] as V3,
 };
 
+/** A formation (covert) light strip: its centre on the skin and the skin's outward normal, body frame. */
+export interface FormationLamp {
+  p: V3;
+  n: V3;
+}
+
+/** The procedural model's formation strips (buildFormationLights): nose flanks, rear fuselage, fin. */
+function formationLamps(): FormationLamp[] {
+  const out: FormationLamp[] = [];
+  for (const s of [-1, 1]) {
+    out.push({ p: [X(2.95), Y(0.16), s * (bodySideZ(X(2.95), Y(0.16)) + 0.004)], n: [0, 0, s] });
+    out.push({ p: [X(12.0), Y(0.45), s * (bodySec(X(12.0)).w + 0.004)], n: [0, 0, s] });
+    out.push({ p: [X(12.3), Y(2.3), s * 0.045], n: [0, 0, s] });
+  }
+  return out;
+}
+
 function buildNavLights(): THREE.BufferGeometry {
   const L = LIGHTS;
   return merge([
@@ -954,7 +971,7 @@ export interface AircraftModelTemplate {
   /** Flush pod mounts after the pylons in store-slot order (station L under the intake): attach points, body frame. */
   podMounts?: readonly V3[];
   /** Exterior light positions (LIGHTS); `landing` is carried by the part named by `landingPart`. */
-  lights: typeof LIGHTS;
+  lights: typeof LIGHTS & { formation?: readonly FormationLamp[] };
   landingPart: string;
   /** Inside the canopy (body frame): with the camera here, the exterior canopy frame isn't drawn (the cockpit has its own). */
   canopyInterior: { min: V3; max: V3 };
@@ -1040,7 +1057,7 @@ export function buildTejasModel(): AircraftModelTemplate {
     nozzleExitX: NOZZLE_EXIT_X,
     pylons: PYLONS,
     podMounts: [INTAKE_STATION],
-    lights: LIGHTS,
+    lights: { ...LIGHTS, formation: formationLamps() },
     landingPart: 'noseGear',
     canopyInterior: { min: [X(CANOPY_ST[1]), Y(0.55), -0.45], max: [X(CANOPY_ST[0]), Y(1.34), 0.45] },
   };
