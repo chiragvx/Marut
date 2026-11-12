@@ -17,8 +17,12 @@ export function ilsOffsetPx(normalizedDeviation: number): number {
 }
 
 export function drawIlsNeedles(ctx: CanvasRenderingContext2D, hud: Float64Array, canvasWidthPx: number, canvasHeightPx: number): void {
-  const locOffsetPx = ilsOffsetPx(hud[SnapshotHud.ILS_LOC]!);
-  const gsOffsetPx = ilsOffsetPx(hud[SnapshotHud.ILS_GS]!);
+  const loc = hud[SnapshotHud.ILS_LOC]!;
+  const gs = hud[SnapshotHud.ILS_GS]!;
+  if (loc === 0 && gs === 0) return; // no ILS (outside every runway's cone)
+  // Fly-to needles: the course is LEFT when the aircraft is right of it (loc +), and below when high (gs +).
+  const locOffsetPx = -ilsOffsetPx(loc);
+  const gsOffsetPx = ilsOffsetPx(gs);
 
   const centerX = canvasWidthPx * 0.5;
   const centerY = canvasHeightPx * 0.5;

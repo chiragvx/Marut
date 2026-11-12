@@ -240,18 +240,21 @@ export function drawHud(g: CanvasRenderingContext2D, P: HudProjector, ctx: Cockp
     g.moveTo(bx, fyC + dy);
     g.lineTo(bx + u(0.5), fyC + dy);
     g.stroke();
-    if (av.ilsLoc !== 0 || av.ilsGs !== 0) {
-      const lx = fxC - av.ilsLoc * u(4);
-      const gy = fyC + av.ilsGs * u(4);
-      g.setLineDash([u(0.4), u(0.3)]);
-      g.beginPath();
-      g.moveTo(lx, fyC - u(3.5));
-      g.lineTo(lx, fyC + u(3.5));
-      g.moveTo(fxC - u(3.5), gy);
-      g.lineTo(fxC + u(3.5), gy);
-      g.stroke();
-      g.setLineDash([]);
-    }
+  }
+  // ILS deviation bars round the FPM (fly-to), whenever airborne inside a runway's ILS cone.
+  if (!av.onGround && av.fpmValid && (av.ilsLoc !== 0 || av.ilsGs !== 0)) {
+    const lx = fxC - av.ilsLoc * u(4);
+    const gy = fyC + av.ilsGs * u(4);
+    g.save();
+    g.lineWidth *= 1.6;
+    g.setLineDash([u(0.4), u(0.3)]);
+    g.beginPath();
+    g.moveTo(lx, fyC - u(3.5));
+    g.lineTo(lx, fyC + u(3.5));
+    g.moveTo(fxC - u(3.5), gy);
+    g.lineTo(fxC + u(3.5), gy);
+    g.stroke();
+    g.restore();
   }
 
   // --- Heading tape (top). ---

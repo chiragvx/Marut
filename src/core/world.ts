@@ -311,6 +311,7 @@ class WorldImpl implements World {
     rwrCount: 0, rwr: new Float64Array(MAX_RWR_CONTACTS * SNAPSHOT_RWR_STRIDE),
   };
   private readonly ilsScratch = { loc: 0, gs: 0 };
+  private readonly ilsTry = { loc: 0, gs: 0 };
   /** The player's autopilot, and the inputs it hands the flight model (the pilot's, with its overrides). */
   private ap: AutopilotState = createAutopilotState();
   private readonly apInputs: PilotInputs = defaultPilotInputs();
@@ -1444,15 +1445,9 @@ class WorldImpl implements World {
       }
       hud.lockState = LockStateCode[rec.combat.lockState];
       hud.warningBits = rec.activeWarningBits;
-      const ils = this.findNearestIls(state.pos);
-      if (ils) {
-        computeIlsDeviation(state.pos, ils, this.ilsScratch);
-        hud.ilsLoc = this.ilsScratch.loc;
-        hud.ilsGs = this.ilsScratch.gs;
-      } else {
-        hud.ilsLoc = 0;
-        hud.ilsGs = 0;
-      }
+      this.ilsDeviationAt(state.pos);
+      hud.ilsLoc = this.ilsScratch.loc;
+      hud.ilsGs = this.ilsScratch.gs;
       hud.pipperX = rec.combat.aimPointWorld.x;
       hud.pipperY = rec.combat.aimPointWorld.y;
       hud.pipperZ = rec.combat.aimPointWorld.z;
@@ -1596,19 +1591,26 @@ class WorldImpl implements World {
     packStoreSlots(slots, out);
   }
 
-  private findNearestIls(playerPos: Vec3Like) {
-    let best: { ils: NonNullable<RunwayInfo['ils']>; distSq: number } | undefined;
+  /** ILS deviation from the nearest runway whose ILS cone the aircraft is in (0, 0 if none). */
+  private ilsDeviationAt(playerPos: Vec3Like): void {
+    const out = this.ilsScratch;
+    out.loc = 0;
+    out.gs = 0;
+    let bestSq = Infinity;
     for (const airport of this.deps.navDb.listAirports()) {
       for (const runway of airport.runways) {
         if (!runway.ils) continue;
         const dx = playerPos.x - runway.thresholdPos.x;
         const dz = playerPos.z - runway.thresholdPos.z;
         const distSq = dx * dx + dz * dz;
-        if (distSq > 40000 * 40000) continue;
-        if (!best || distSq < best.distSq) best = { ils: runway.ils, distSq };
+        if (distSq > 40000 * 40000 || distSq >= bestSq) continue;
+        const r = computeIlsDeviation(playerPos, runway.ils, this.ilsTry);
+        if (r.loc === 0 && r.gs === 0) continue;
+        bestSq = distSq;
+        out.loc = r.loc;
+        out.gs = r.gs;
       }
     }
-    return best?.ils;
   }
 
   drainEvents(out: SimEvent[]): number {

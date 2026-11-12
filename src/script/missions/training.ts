@@ -356,9 +356,10 @@ abstract class LandingLesson extends AirLesson {
         say: ['t2_touchdown'],
         prompt: 'Brakes: the airbrake {brakes} brakes the wheels too. Keep straight with the rudder',
         highlight: ['brakes'],
-        detail: (f) => kmh(f.iasMps),
+        // Ground speed, not airspeed: standing still in a 25 km/h wind still reads 25 km/h airspeed.
+        detail: (f) => `Ground speed ${kmh(Math.hypot(f.player.vx, f.player.vz))}`,
         done: (f) => {
-          const still = f.player.onGround && f.iasMps < 4;
+          const still = f.player.onGround && Math.hypot(f.player.vx, f.player.vz) < 2;
           if (!still) this.stopped = -1;
           else if (this.stopped < 0) this.stopped = f.t;
           return still && f.t - this.stopped > 1;
@@ -410,10 +411,18 @@ abstract class LandingLesson extends AirLesson {
     else if (a.aboveM < -tol * 1.5 && this.ready('gs', 12)) this.sayTagged(['t2_low']);
     else if (Math.abs(a.aboveM) < tol * 0.6 && this.done('wasOff') && this.ready('onpath', 25)) this.sayTagged(['t2_onpath']);
     if (Math.abs(a.aboveM) > tol * 1.5) this.once('wasOff');
-    const ctol = Math.max(40, a.alongM * 0.02);
-    if (Math.abs(a.crossM) > ctol && this.ready('loc', heavyWeather ? 10 : 14)) {
-      // Right of the line: steer left.
-      this.sayTagged([a.crossM > 0 ? 't3_left' : 't3_right']);
+    const ctol = Math.max(60, a.alongM * 0.03);
+    // Sideways drift toward the right of the line, m/s (+ = drifting right).
+    const h = this.rwy.headingRad;
+    const driftMps = f.player.vx * Math.cos(h) + f.player.vz * Math.sin(h);
+    // Off the line and not already coming back to it (closing in under ~40 s): steer back.
+    const off = Math.abs(a.crossM) > ctol;
+    const returning = Math.sign(driftMps) === -Math.sign(a.crossM) && Math.abs(driftMps) * 40 > Math.abs(a.crossM);
+    if (off && !returning && this.ready('loc', heavyWeather ? 10 : 14)) {
+      // Right of the line: steer left. Dropped if the pilot is back on it before the call plays.
+      const right = a.crossM > 0;
+      const backOnLine = (): boolean => (right ? this.app.crossM < ctol * 0.5 : this.app.crossM > -ctol * 0.5);
+      this.sayTagged([right ? 't3_left' : 't3_right'], backOnLine, RadioPriority.High);
       if (heavyWeather && this.once('crab')) this.sayTagged(['t3_crab']);
     }
   }
@@ -490,7 +499,7 @@ export class WeatherLandingLesson extends LandingLesson {
       {
         title: 'Find the ILS needles',
         say: ['t3_ils'],
-        prompt: 'Yellow needles on the HUD: steer toward the upright one. Hold 1,200 m until the flat one comes down to the centre',
+        prompt: 'ILS bars on the HUD (dashed, round the flight-path marker): steer toward the upright one. Hold 1,200 m until the flat one comes down to the centre',
         highlight: ['rollLeft', 'rollRight'],
         detail: () => this.glideText(),
         minSec: 4,

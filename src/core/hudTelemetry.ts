@@ -80,26 +80,47 @@ export interface IlsDeviationResult {
   gs: number;
 }
 
+/** Reception cone of the localiser / glide slope (as src/contracts/airport.ts's ILS_*_VALID_*). */
+const LOC_VALID_AZ_RAD = 0.610865;
+const LOC_VALID_RANGE_M = 46300;
+const GS_VALID_AZ_RAD = 0.139626;
+const GS_VALID_RANGE_M = 18520;
+
 /**
- * Standard localiser/glideslope angular-deviation formula, normalised to
- * [-1,1] via `ILS_LOC_FULL_SCALE_DEG`/`ILS_GS_FULL_SCALE_DEG`
- * (10-core-worker.md section 4.8; module 05's own `ilsDeviation` performs an
- * equivalent computation but src/core does not depend on src/airport's
- * runtime export for this — see this file's header). Allocation-free.
+ * Localiser / glideslope deviation, normalised to [-1,1] via `ILS_LOC_FULL_SCALE_DEG` /
+ * `ILS_GS_FULL_SCALE_DEG`. loc + = the aircraft is RIGHT of the course (looking along the
+ * runway heading), gs + = above the glide path; both 0 outside the reception cone (behind the
+ * localiser, off to the side, or out of range). Same geometry as src/airport/ils.ts (src/core does
+ * not depend on src/airport's runtime). The localiser antenna is beyond the FAR end, so the
+ * deviation is measured looking back from it toward the approach (an earlier version compared
+ * the bearing to the aircraft with the runway heading itself, 180 deg off, which pinned the
+ * needle at full scale). Allocation-free.
  */
 export function computeIlsDeviation(playerPosWorld: Readonly<Vec3Like>, ils: Readonly<IlsInfo>, out: IlsDeviationResult): IlsDeviationResult {
+  const h = ils.localiserHeadingRad;
+  const fx = Math.sin(h);
+  const fz = -Math.cos(h);
+  const rx = Math.cos(h);
+  const rz = Math.sin(h);
   const dxL = playerPosWorld.x - ils.localiserOriginPos.x;
   const dzL = playerPosWorld.z - ils.localiserOriginPos.z;
-  const bearingToAc = Math.atan2(dxL, -dzL);
-  const locDevRad = wrapAngleSigned(bearingToAc - ils.localiserHeadingRad);
-  out.loc = clamp((locDevRad * 180) / Math.PI / ILS_LOC_FULL_SCALE_DEG, -1, 1);
-
+  const crossM = dxL * rx + dzL * rz;
+  const distL = -(dxL * fx + dzL * fz);
+  const locRad = Math.atan2(crossM, distL);
   const dxG = playerPosWorld.x - ils.glideslopeOriginPos.x;
   const dzG = playerPosWorld.z - ils.glideslopeOriginPos.z;
   const dyG = playerPosWorld.y - ils.glideslopeOriginPos.y;
-  const horizDist = Math.max(Math.hypot(dxG, dzG), 1e-6);
-  const elevAngleRad = Math.atan2(dyG, horizDist);
-  const gsDevRad = elevAngleRad - ils.glideslopeAngleRad;
+  const distG = -(dxG * fx + dzG * fz);
+  const valid =
+    distL > 0 && distL <= LOC_VALID_RANGE_M && Math.abs(locRad) <= LOC_VALID_AZ_RAD &&
+    distG > 0 && distG <= GS_VALID_RANGE_M && Math.abs(Math.atan2(crossM, distG)) <= GS_VALID_AZ_RAD;
+  if (!valid) {
+    out.loc = 0;
+    out.gs = 0;
+    return out;
+  }
+  out.loc = clamp((locRad * 180) / Math.PI / ILS_LOC_FULL_SCALE_DEG, -1, 1);
+  const gsDevRad = Math.atan2(dyG, distG) - ils.glideslopeAngleRad;
   out.gs = clamp((gsDevRad * 180) / Math.PI / ILS_GS_FULL_SCALE_DEG, -1, 1);
   return out;
 }
