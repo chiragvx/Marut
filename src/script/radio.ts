@@ -26,6 +26,8 @@ export interface Transmission {
   maxAgeSec: number;
   /** The player's own call (subtitle in the player's colour). */
   own?: boolean;
+  /** Checked when its turn comes: true drops it unsaid (a lesson's step already done). */
+  stale?: () => boolean;
 }
 
 /** Subtitles where the spoken text is spelled for the voice. */
@@ -38,6 +40,21 @@ const SUBTITLE: Partial<Record<RadioClipId, string>> = {
   strike_ip: 'IP. Turn in. Target bears',
   strike_talk2: 'From the tower, go north-east 500 metres: a square earth berm with four round tanks. That is your target.',
   braa: 'Single group, BRAA',
+  t1_intro: "Good morning, cadet. This is Guru, your instructor. You're lined up on runway 13, ready to go. First, the throttle: push it all the way up.",
+  t1_rotate: '250 km/h. Ease the stick back, gently. Lift the nose about 10°.',
+  t1_climb: "Gear's up. Let go of the afterburner, and keep climbing to 1,500 m.",
+  t1_level: '1,500 m. Ease the nose down and level off. Bring the throttle back to about three quarters.',
+  t1_turn: 'Now a turn. Roll to about 45° of bank, then pull gently and hold your height. Turn 90°, either way.',
+  t1_rollout: "That's 90°. Roll the wings level.",
+  t2_intro: "Runway 13 is straight ahead, 12 km. You're a little high and fast. Bring the throttle back to about half, and let the speed come down.",
+  t2_gear: 'Under 400 km/h. Gear down.',
+  t2_speed: 'Hold about 270 km/h. Use the throttle for speed, and the nose for the glide path.',
+  t3_intro: "The weather's bad at Bhisiana: rain, a low cloud deck, and a gusty crosswind from the right. You'll fly the ILS. Bring the throttle back and descend to 1,200 m. You'll go into the cloud.",
+  t3_ils: 'Look at the HUD. The two needles are the ILS: the upright one is the runway centre line, the flat one is the glide path. Fly toward the needles to centre them.',
+  t4_mode: 'Press the radar mode button to change the scan. Search mode (RWS) sees far. Dogfight mode (ACM) looks at a small box straight ahead, for close fights.',
+  t4_gun: 'Now the second one, with the gun. Press weapon until the gun is selected. Get behind the drone, inside 1 km, put the pipper on it, and hold the trigger.',
+  t4_closer: 'Get closer. Inside 1 km.',
+  t4_select: 'You have the gun selected. Press weapon, and pick a missile. The ASRAAM is a heat-seeker for close in; the Astra is radar guided, for long range.',
 };
 
 /** A run of clips and its subtitle text. */

@@ -76,6 +76,7 @@ import { createGrade } from './postGrade';
 import { createSunShadows } from './sunShadows';
 import { TERRAIN_QUALITY_PROFILES, TERRAIN_WORLD_EXTENT_M } from '../contracts/terrain';
 import { createMeshAircraftRenderer } from './meshAircraftRenderer';
+import { createDroneRenderer } from './droneModel';
 import { buildTejasModel } from './aircraftModels/tejasModel';
 import { loadGltfAircraftModel, TEJAS_GLB_URL } from './aircraftModels/gltfModel';
 import { LIVERY_MAP, tejasLiveryTexture } from './aircraftModels/tejasLivery';
@@ -151,6 +152,8 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
   // model (public/models/tejas.glb) replaces it when loaded (aircraftModelReady: the loading screens
   // wait for it). Dev aid: ?jetmodel=classic keeps the procedural one.
   let aircraftRenderer = createMeshAircraftRenderer(aircraftRoot, withLivery(buildTejasModel()));
+  /** Target drones (EntityFlag.Drone) have their own model. */
+  const drones = createDroneRenderer(aircraftRoot);
   let sceneDisposed = false;
   let modelReady = true;
   if (typeof location === 'undefined' || new URLSearchParams(location.search).get('jetmodel') !== 'classic') {
@@ -758,7 +761,13 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
         const origin = placeCamera(fovDeg);
 
         aircraftRenderer.beginFrame(frameDtSec, origin, cameraPose.pos, nowMs / 1000);
+        drones.beginFrame();
         for (let i = 0; i < curr.entityCount; i++) {
+          if (curr.alive[i] === 1 && curr.kind[i] === EntityKindCode.aircraft && (curr.flags[i]! & EntityFlag.Drone) !== 0) {
+            interpolateEntity(snapshotBuf, i, f, interpEntity);
+            drones.update(curr.id[i]!, interpEntity.pos, interpEntity.rot, origin);
+            continue;
+          }
           if (curr.alive[i] === 1 && curr.kind[i] === EntityKindCode.missile) {
             interpolateEntity(snapshotBuf, i, f, interpEntity);
             aircraftRenderer.updateMissile(curr.stores[i]!, interpEntity.pos, interpEntity.vel, interpEntity.rot, origin, curr.flags[i]!);
@@ -792,6 +801,7 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
           st.groundY = i === playerSlot ? interpEntity.pos.y - (curr.hud[SnapshotHud.ALT_AGL_M] ?? 0) : undefined;
           aircraftRenderer.updateEntity(curr.id[i]!, interpEntity.pos, interpEntity.rot, st, origin);
         }
+        drones.endFrame();
         aircraftRenderer.endFrame();
 
         // Ground units (static for now: drawn at their current snapshot pose).
@@ -891,6 +901,7 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
       sceneDisposed = true;
       cockpit?.dispose();
       aircraftRenderer.dispose();
+      drones.dispose();
       terrainConsumer.dispose();
       urbanCache.dispose();
       features.dispose();

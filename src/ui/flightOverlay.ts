@@ -91,12 +91,12 @@ export interface FlightOverlay {
   setObjective(label: string, text: string, detail?: string): void;
   clearObjective(): void;
   /** A scripted mission's objective (src/script): its step, title and live detail; flashes when `serial` changes. */
-  setMissionObjective(o: { step: number; steps: number; title: string; detail: string; serial: number }): void;
+  setMissionObjective(o: { step: number; steps: number; title: string; detail: string; serial: number; label?: string }): void;
   /** A radio call's subtitle, held for `holdMs` (the player's own calls in their colour). */
   showRadio(from: string, text: string, own: boolean, holdMs: number): void;
   message(text: string, warn?: boolean): void;
-  /** Hint text with {key} markers, or undefined for none. */
-  setHint(text: string | undefined): void;
+  /** Hint text with {key} markers, or undefined for none; `lesson`: Flight School's bigger prompt. */
+  setHint(text: string | undefined, lesson?: boolean): void;
   clear(): void;
 }
 
@@ -140,7 +140,7 @@ export function createFlightOverlay(container: HTMLElement): FlightOverlay {
     },
     setMissionObjective(o) {
       objective.classList.add('tj-objective--mission');
-      this.setObjective(`Objective ${o.step}/${o.steps}`, o.title, o.detail);
+      this.setObjective(`${o.label ?? 'Objective'} ${o.step}/${o.steps}`, o.title, o.detail);
       if (o.serial !== objSerial) {
         const first = objSerial < 0;
         objSerial = o.serial;
@@ -168,7 +168,8 @@ export function createFlightOverlay(container: HTMLElement): FlightOverlay {
       while (toasts.childElementCount > MAX_MESSAGES) toasts.lastElementChild?.remove();
       setTimeout(() => t.remove(), MESSAGE_MS);
     },
-    setHint(text) {
+    setHint(text, lesson = false) {
+      hint.classList.toggle('tj-hint--lesson', lesson);
       if (text === hintNow) return;
       hintNow = text;
       if (!text) {

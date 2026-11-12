@@ -512,7 +512,12 @@ class WorldImpl implements World {
           patrolCenterWorld: flight.patrolCenterWorld,
           patrolRadiusM: flight.patrolRadiusM,
           formation,
+          ...(flight.drone ? { drone: { speedMps: flight.droneSpeedMps ?? 150 } } : {}),
         };
+        if (flight.drone) {
+          const st = this.pool.get(entityId);
+          if (st) st.flags |= EntityFlag.Drone;
+        }
         const sk = flight.strike;
         const aim = sk && sk.targets.length > 0 ? sk.targets[j % sk.targets.length]! : undefined;
         if (sk && aim) {

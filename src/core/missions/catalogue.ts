@@ -69,7 +69,81 @@ export const LOCKED_NOTE = 'Unlocks in a later update';
 export const PLAYABLE_MISSIONS: readonly BuiltinMissionId[] = ['border-duel', 'border-strike'];
 
 export function missionLocked(id: string): boolean {
+  if (isTraining(id)) return false;
   return !PLAYABLE_MISSIONS.includes(id as BuiltinMissionId);
+}
+
+/** One Flight School lesson (src/script/missions/training.ts runs it). */
+export interface TrainingEntry {
+  id: BuiltinMissionId;
+  /** 1-based lesson number. */
+  lesson: number;
+  title: string;
+  /** One line for the lesson tile. */
+  blurb: string;
+  /** What it teaches, as short tags. */
+  skills: readonly string[];
+  /** The briefing: two or three sentences. */
+  situation: string;
+  /** About how long it takes, minutes. */
+  minutes: number;
+  /** The look of the sky (the sim's wind and gusts are in the mission file). Absent: clear. */
+  weather?: 'clear' | 'hazy' | 'fog' | 'overcast' | 'rain';
+  timeOfDayH?: number;
+  /** An air start's throttle lever (default 0.8). */
+  startThrottle?: number;
+}
+
+/** Flight School: four short lessons with an instructor on the radio, in order. */
+export const TRAINING: readonly TrainingEntry[] = [
+  {
+    id: 'train-takeoff',
+    lesson: 1,
+    title: 'Takeoff & Handling',
+    blurb: 'Power up, rotate, raise the gear, climb and turn. Learn the views.',
+    skills: ['Throttle', 'Afterburner', 'Takeoff', 'Gear', 'Climb & turn', 'Camera'],
+    situation: 'You are lined up on runway 13 at Bhisiana with a clean jet. Your instructor, Guru, talks you through the takeoff, a climb, a level turn and the camera views. Do what the prompt at the bottom of the screen asks: the button to press glows on the left.',
+    minutes: 4,
+  },
+  {
+    id: 'train-landing',
+    lesson: 2,
+    title: 'Approach & Landing',
+    blurb: 'Fly a straight-in approach: gear, airbrake, the PAPI lights, flare and stop.',
+    skills: ['Speed control', 'Gear & airbrake', 'Glide path', 'PAPI', 'Flare', 'Braking'],
+    startThrottle: 0.3,
+    situation: 'You start 12 km out on the final approach to runway 13, a little high and fast. Slow down, lower the gear, follow the glide path down using the PAPI lights beside the runway, flare and stop on the runway.',
+    minutes: 4,
+  },
+  {
+    id: 'train-weather',
+    lesson: 3,
+    title: 'Bad-Weather Landing',
+    blurb: 'Down through the cloud in rain and a gusty crosswind, on the ILS.',
+    skills: ['Instrument approach', 'ILS needles', 'Crosswind', 'Decision height'],
+    startThrottle: 0.3,
+    situation: 'Rain, a low cloud deck and a gusty crosswind from the right. You start above the cloud, 20 km out. Descend through it, capture the ILS for runway 13 and fly the needles until the runway lights appear. At decision height, land if you can see the runway, or go around.',
+    minutes: 6,
+    weather: 'rain',
+    timeOfDayH: 16.5,
+  },
+  {
+    id: 'train-drone',
+    lesson: 4,
+    title: 'Radar & Target Drones',
+    blurb: 'Radar scan modes, the warning tones, locks, then a missile and a gun kill.',
+    skills: ['Radar scope', 'Scan modes', 'RWR tones', 'Lock', 'Missile', 'Gun'],
+    situation: 'Two target drones are orbiting over the range north of Bathinda. They are unarmed, but they carry a radar emitter so you hear your radar warning receiver. Guru walks you through the radar, then you shoot the first drone with a missile and the second with the gun.',
+    minutes: 6,
+  },
+];
+
+export function isTraining(id: string): boolean {
+  return TRAINING.some((t) => t.id === id);
+}
+
+export function trainingEntry(id: string): TrainingEntry | undefined {
+  return TRAINING.find((t) => t.id === id);
 }
 
 /** The open missions, in PLAYABLE_MISSIONS order. */

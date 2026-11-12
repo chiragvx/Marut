@@ -1,0 +1,11 @@
+{
+  "id": "train-landing",
+  "name": "Flight School 2 — Approach and landing",
+  "seed": 1971,
+  "terrain": { "seed": 1947, "theatre": "border" },
+  "airportIds": ["bhisiana-afs", "pafb-shahbaz"],
+  "playerStart": { "pos": { "x": 20357, "y": 900, "z": -19734 }, "headingRad": 2.28132, "speedMps": 122, "loadoutId": "clean" },
+  "aiFlights": [],
+  "weather": { "windWorldMps": { "x": -1.5, "y": 0, "z": 0.5 }, "gustMps": 0.5, "turbulence": 0.02 },
+  "objectives": []
+}

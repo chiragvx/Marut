@@ -29,9 +29,24 @@ export const createMainMenu: CreateMainMenu = (container, options, callbacks) =>
     const face = h('span', { className: 'tj-mm-item tj-mm-item--continue' }, h('span', { className: 'tj-mm-num', text: String(n++).padStart(2, '0') }), h('span', { className: 'tj-mm-stack' }, h('span', { className: 'tj-mm-label', text: 'Continue' }), h('span', { className: 'tj-mm-sub', text: options.continueLabel })), h('span', { className: 'tj-mm-chev', text: '›', attrs: { 'aria-hidden': 'true' } }));
     menu.append(button(face, () => onContinue(), ['block', 'primary'], { 'data-action': 'continue' }));
   }
-  const first = options.continueLabel ? 'block' : (['block', 'primary'] as const);
+  // A new pilot starts in Flight School; otherwise Free Flight leads (after Continue).
+  const schoolFirst = !!options.newPilot && !!callbacks.onTraining;
+  const first = options.continueLabel || schoolFirst ? 'block' : (['block', 'primary'] as const);
+  const onTraining = callbacks.onTraining;
+  const school = onTraining
+    ? button(item(0, 'Flight School', options.lessonsTotal ? `${options.lessonsDone ?? 0} / ${options.lessonsTotal}` : undefined), () => onTraining(), schoolFirst ? ['block', 'primary'] : 'block', { 'data-action': 'training' })
+    : undefined;
+  const renumber = (b: HTMLElement | undefined): void => {
+    const num = b?.querySelector('.tj-mm-num');
+    if (num) num.textContent = String(n++).padStart(2, '0');
+  };
+  if (school && schoolFirst) {
+    renumber(school);
+    menu.append(school);
+  }
   menu.append(
     button(item(n++, 'Free Flight'), () => callbacks.onFreeFlight(), first === 'block' ? 'block' : [...first], { 'data-action': 'free-flight' }),
+    ...(school && !schoolFirst ? [(renumber(school), school)] : []),
     button(item(n++, 'Missions', `${options.missionsDone} / ${options.missionsTotal}`), () => callbacks.onMissions(), 'block', { 'data-action': 'missions' }),
     button(item(n++, 'Settings'), () => callbacks.onSettings(), 'block', { 'data-action': 'settings' }),
     button(item(n++, 'Controls'), () => callbacks.onControls(), 'block', { 'data-action': 'controls' })

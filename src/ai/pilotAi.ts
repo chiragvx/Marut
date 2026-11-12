@@ -146,6 +146,10 @@ class AiPilotImpl implements AiPilot {
     this.timeInStateSec += dtSec;
     this.timeInManoeuvreSec += dtSec;
     this.perceptionTick += 1;
+    if (this.params.drone) {
+      this.updateDrone(ctx, dtSec, out, this.params.drone.speedMps);
+      return;
+    }
 
     const missileWarningNoticed = this.updateMissileWarningNotice(ctx);
     const perceived = this.filterPerceived(ctx);
@@ -298,6 +302,37 @@ class AiPilotImpl implements AiPilot {
    * moving point and never converge). No allocation: mutates the
    * pre-allocated `patrolAnchorWorld` in place only on first capture.
    */
+  /** Drone orbit centre (y 0: buildPatrolGoal then holds the current altitude) and the altitude it holds. */
+  private readonly droneAnchor = { x: 0, y: 0, z: 0 };
+  private droneAltM: number | undefined;
+
+  /**
+   * A target drone: it flies its orbit round the patrol centre at its start altitude and the given
+   * speed, and nothing else (no targets, weapons, countermeasures or going home).
+   */
+  private updateDrone(ctx: PilotContext, dtSec: number, out: PilotInputs, speedMps: number): void {
+    if (this.droneAltM === undefined) this.droneAltM = ctx.self.pos.y;
+    const c = this.resolvePatrolAnchor(ctx) ?? ctx.self.pos;
+    this.droneAnchor.x = c.x;
+    this.droneAnchor.z = c.z;
+    this.state = TacticalState.Patrol;
+    buildPatrolGoal(ctx, this.droneAnchor, this.params.patrolRadiusM, this.goal);
+    this.goal.desiredAltitudeM = this.droneAltM;
+    this.goal.desiredSpeedMps = speedMps;
+    const override = computeTerrainAvoidanceGoal(ctx, this.goal, dtSec, this.diffProfile, undefined);
+    const activeGoal = override ?? this.goal;
+    this.steerToGoalFn(ctx, activeGoal, dtSec, out);
+    out.trigger = false;
+    out.launch = false;
+    out.cycleWeapon = false;
+    out.cycleTarget = false;
+    out.dispenseFlare = false;
+    out.dispenseChaff = false;
+    out.nwsEnabled = undefined;
+    out.alphaLimiterDisabled = undefined;
+    this.syncDebugState(activeGoal);
+  }
+
   private resolvePatrolAnchor(ctx: PilotContext): Readonly<Vec3Like> | undefined {
     if (this.params.patrolCenterWorld !== undefined) return this.params.patrolCenterWorld;
     if (!this.patrolAnchorCaptured) {

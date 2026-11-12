@@ -118,9 +118,15 @@ export const createHudRenderer: CreateHudRenderer = (canvas, initialTier) => {
   let weaponKeys = { target: 'T', launch: 'ENTER' };
   let aimingHelp: AimingHelp = AimingHelp.Cues;
 
+  /** Space on the left taken by the on-screen buttons, CSS px. */
+  let leftInset = 0;
+
   const api: HudRenderer = {
     setOverlayMode(m) {
       overlayMode = m;
+    },
+    setLeftInset(px) {
+      leftInset = px;
     },
 
     resize(widthPxArg, heightPxArg, devicePixelRatio) {
@@ -225,7 +231,7 @@ export const createHudRenderer: CreateHudRenderer = (canvas, initialTier) => {
         drawSteerpointMarkers(ctx, steerpoints, camera, curr.posX[playerSlot]!, curr.posY[playerSlot]!, curr.posZ[playerSlot]!, widthPx, heightPx);
         drawRouteMarker(ctx, hud, route, camera, curr.posX[playerSlot]!, curr.posY[playerSlot]!, curr.posZ[playerSlot]!, widthPx, heightPx);
         drawRouteData(ctx, hud, route, curr.simTimeSec, curr.posX[playerSlot]!, curr.posZ[playerSlot]!, Math.hypot(curr.velX[playerSlot]!, curr.velZ[playerSlot]!), speedUnit, 16, 30);
-        drawRwrScope(ctx, hud, 70, heightPx - 140, 50, nowMs);
+        drawRwrScope(ctx, hud, 70 + leftInset, heightPx - 140, 50, nowMs);
         // The release cue in words (the cockpit HUD carries the symbols), and the CCIP pipper where
         // the cockpit HUD's glass does not reach.
         drawAgCue(ctx, hud, widthPx, heightPx, nowMs, weaponKeys, aimingHelp);
@@ -253,7 +259,7 @@ export const createHudRenderer: CreateHudRenderer = (canvas, initialTier) => {
       }
 
       drawLadder(ctx, hud, widthPx, heightPx);
-      drawSpeedTape(ctx, hud, 50, heightPx * 0.5, heightPx * 0.32, speedUnit);
+      drawSpeedTape(ctx, hud, 50 + leftInset, heightPx * 0.5, heightPx * 0.32, speedUnit);
       drawAltitudeTape(ctx, hud, widthPx - 50, heightPx * 0.5, heightPx * 0.32);
       drawRadarAltitude(ctx, hud, widthPx - 50, heightPx * 0.5);
       drawHeadingTape(ctx, hud, widthPx * 0.5, 16, widthPx * 0.28);
@@ -314,7 +320,7 @@ export const createHudRenderer: CreateHudRenderer = (canvas, initialTier) => {
       agVel.x = curr.velX[playerSlot]!; agVel.y = curr.velY[playerSlot]!; agVel.z = curr.velZ[playerSlot]!;
       drawAgSight(ctx, camera, hud, agPos, agVel, widthPx, heightPx, nowMs, weaponKeys, aimingHelp);
       drawWeaponStatus(ctx, hud, widthPx - 16, heightPx - 44);
-      drawRwrScope(ctx, hud, 70, heightPx - 140, 50, nowMs);
+      drawRwrScope(ctx, hud, 70 + leftInset, heightPx - 140, 50, nowMs);
       drawWarnings(ctx, hud, nowMs, widthPx * 0.5, heightPx * 0.28);
 
       if (debugSurfacesEnabled) {

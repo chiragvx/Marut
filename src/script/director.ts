@@ -39,7 +39,61 @@ export interface ScriptFrame {
   spiZ: number;
   /** DlzCode of the selected guided weapon. */
   dlz: number;
+  /** The player's flight state (Flight School reads these). */
+  iasMps: number;
+  altMslM: number;
+  vsMps: number;
+  pitchRad: number;
+  rollRad: number;
+  /** Gear 0 up .. 1 down, and the lever. */
+  gearPos: number;
+  gearDown: boolean;
+  airbrake: boolean;
+  afterburner: boolean;
+  /** Engine thrust, 0..1, and the throttle lever, 0..1. */
+  thrustFrac: number;
+  throttle: number;
+  /** WeaponKindCode of the selected weapon. */
+  weaponIdx: number;
+  /** RadarModeCode. */
+  radarMode: number;
+  /** How many times the player has changed the camera, and the radar scope's range, this flight. */
+  cameraChanges: number;
+  radarRangeChanges: number;
+  /** Radar tracks on the scope. */
+  trackCount: number;
+  /** A radio call is being said or waits to be. */
+  radioBusy: boolean;
 }
+
+/** Controls a prompt can name: its {id} markers show the key, and the on-screen buttons glow. */
+export type PromptControl =
+  | 'throttleUp'
+  | 'throttleDown'
+  | 'afterburner'
+  | 'noseUp'
+  | 'noseDown'
+  | 'rollLeft'
+  | 'rollRight'
+  | 'gear'
+  | 'airbrake'
+  | 'brakes'
+  | 'camera'
+  | 'radarMode'
+  | 'radarRange'
+  | 'target'
+  | 'weapon'
+  | 'launch'
+  | 'trigger'
+  | 'flare';
+
+/** What to do now, in big type at the bottom: text with {control} markers, and the buttons to light up. */
+export interface ScriptPrompt {
+  text: string;
+  highlight: readonly PromptControl[];
+}
+
+export type ScriptOutcome = 'success' | 'failure';
 
 export interface ObjectiveView {
   /** 1-based step of `steps`. */
@@ -49,6 +103,8 @@ export interface ObjectiveView {
   detail: string;
   /** Bumped when the objective changes (the tracker flashes). */
   serial: number;
+  /** The tracker's label before the step count ("Objective", "Step"). */
+  label?: string;
 }
 
 export interface MissionScript {
@@ -61,6 +117,10 @@ export interface MissionScript {
   drain(): Transmission[];
   /** How long the debrief waits after success, for the closing call, s. */
   readonly outroSec: number;
+  /** What to do now (Flight School), or undefined. */
+  prompt?(): ScriptPrompt | undefined;
+  /** A script that decides its own ending (Flight School): set once it is over. */
+  outcome?(): ScriptOutcome | undefined;
 }
 
 export abstract class ScriptBase implements MissionScript {
@@ -72,6 +132,8 @@ export abstract class ScriptBase implements MissionScript {
   private timers = new Map<string, number>();
   private obj: ObjectiveView | undefined;
   protected marks: HudSteerpoint[] = [];
+  /** The tracker's label ("Objective 2/4"; Flight School: "Step 2/10"). */
+  protected objectiveLabel = 'Objective';
 
   constructor(
     /** The controller's callsign (subtitle label). */
@@ -128,13 +190,17 @@ export abstract class ScriptBase implements MissionScript {
 
   protected setObjective(step: number, steps: number, title: string, detail: string): void {
     const changed = !this.obj || this.obj.title !== title || this.obj.step !== step;
-    this.obj = { step, steps, title, detail, serial: (this.obj?.serial ?? 0) + (changed ? 1 : 0) };
+    this.obj = { step, steps, title, detail, serial: (this.obj?.serial ?? 0) + (changed ? 1 : 0), label: this.objectiveLabel };
   }
 
   /** The controller says the phrases (as one transmission). */
   protected say(priority: RadioPriority, ...parts: (Phrase | RadioClipId)[]): void {
     const p = compose(...parts.map((x) => (typeof x === 'string' ? line(x) : x)));
     this.outbox.push({ from: this.controller, text: p.text, clips: p.clips, priority, maxAgeSec: priority === 0 ? 4 : priority === 1 ? 12 : 25 });
+  }
+  /** Queues a transmission as built (a lesson's calls carry their own stale check). */
+  protected pushTx(tx: Transmission): void {
+    this.outbox.push(tx);
   }
   /** The player's own call (a p_* clip in the pilot's voice), said before a reply queued with it. */
   protected own(clip: RadioClipId, text: string, priority: RadioPriority = 1): void {

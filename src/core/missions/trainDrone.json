@@ -1,0 +1,24 @@
+{
+  "id": "train-drone",
+  "name": "Flight School 4 — Radar and target drones",
+  "seed": 1971,
+  "terrain": { "seed": 1947, "theatre": "border" },
+  "airportIds": ["bhisiana-afs", "pafb-shahbaz"],
+  "playerStart": { "pos": { "x": 30500, "y": 3000, "z": -16000 }, "headingRad": 0, "speedMps": 210, "loadoutId": "cap" },
+  "aiFlights": [
+    {
+      "id": "drone-1", "aircraftId": "target-drone", "team": 1, "difficulty": "rookie",
+      "startPos": { "x": 33000, "y": 3200, "z": -44000 }, "startHeadingRad": 1.57, "startSpeedMps": 150,
+      "count": 1, "drone": true, "droneSpeedMps": 150,
+      "patrolCenterWorld": { "x": 30500, "y": 0, "z": -44000 }, "patrolRadiusM": 3500
+    },
+    {
+      "id": "drone-2", "aircraftId": "target-drone", "team": 1, "difficulty": "rookie",
+      "startPos": { "x": 24000, "y": 2600, "z": -52000 }, "startHeadingRad": 4.71, "startSpeedMps": 130,
+      "count": 1, "drone": true, "droneSpeedMps": 130,
+      "patrolCenterWorld": { "x": 26500, "y": 0, "z": -52000 }, "patrolRadiusM": 3000
+    }
+  ],
+  "weather": { "windWorldMps": { "x": -1.5, "y": 0, "z": 0.5 }, "gustMps": 0.5, "turbulence": 0.02 },
+  "objectives": []
+}

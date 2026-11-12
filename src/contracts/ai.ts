@@ -588,6 +588,8 @@ export interface AiPilotSpawnParams {
   formation?: AiFormationSlot;
   /** A strike / SEAD sortie (src/ai/strike.ts): fly to `target` and attack it, then go home. */
   strike?: AiStrikeTask;
+  /** A target drone (training): it flies its patrol orbit at this speed and nothing else (no fighting, defending, going home). */
+  drone?: { speedMps: number };
 }
 
 /** An AI air-to-ground sortie. src/core arms the aircraft's weapon system for it (designated point, air-to-ground store selected). */

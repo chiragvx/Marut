@@ -1,0 +1,11 @@
+{
+  "id": "train-takeoff",
+  "name": "Flight School 1 — Takeoff and handling",
+  "seed": 1971,
+  "terrain": { "seed": 1947, "theatre": "border" },
+  "airportIds": ["bhisiana-afs", "pafb-shahbaz"],
+  "playerStart": { "airportId": "bhisiana-afs", "runwayId": "13", "speedMps": 0, "loadoutId": "clean" },
+  "aiFlights": [],
+  "weather": { "windWorldMps": { "x": -1.5, "y": 0, "z": 0.5 }, "gustMps": 0.5, "turbulence": 0.02 },
+  "objectives": []
+}

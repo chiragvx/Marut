@@ -4,12 +4,13 @@
  */
 import type { AircraftDefinition, LoadoutPreset } from '../contracts/aircraft';
 import { tejasDefinition } from './tejasDefinition';
-import { f16Definition, jf17Definition } from './aggressors';
+import { f16Definition, jf17Definition, targetDroneDefinition } from './aggressors';
 
 const DEFINITIONS: Readonly<Record<string, AircraftDefinition>> = {
   [tejasDefinition.id]: tejasDefinition,
   [jf17Definition.id]: jf17Definition,
   [f16Definition.id]: f16Definition,
+  [targetDroneDefinition.id]: targetDroneDefinition,
 };
 
 /** Older ids still accepted (missions and saves from before the Mk1A). */

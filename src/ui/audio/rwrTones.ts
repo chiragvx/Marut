@@ -14,8 +14,8 @@
 import { MAX_RWR_CONTACTS, RWR_BASE, SNAPSHOT_RWR_STRIDE, SnapshotHud, SnapshotRwr } from '../../contracts/core';
 import { AudioChannel, type AudioBus } from './audioBus';
 
-/** RWR symbol codes (RWR_SYMBOLS) that are aircraft: JF-17, F-16, Tejas, other fighter. */
-const AIRCRAFT_SYMBOLS: ReadonlySet<number> = new Set([7, 8, 9, 10]);
+/** RWR symbol codes (RWR_SYMBOLS) that are aircraft: JF-17, F-16, Tejas, other fighter, target drone. */
+const AIRCRAFT_SYMBOLS: ReadonlySet<number> = new Set([7, 8, 9, 10, 14]);
 const MATCH_RAD = (20 * Math.PI) / 180;
 export const FORGET_SEC = 4;
 export const LOCK_TONE_SEC = 2;

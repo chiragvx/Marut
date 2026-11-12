@@ -198,6 +198,8 @@ export const EntityFlag = {
   LightsFormation: 1 << 7,
   /** A free-fall store's retarding tail (ballute) is open. */
   TailOpen: 1 << 8,
+  /** A target drone (unmanned, unarmed): drawn as the drone, not as a fighter. Set at spawn. */
+  Drone: 1 << 9,
 } as const;
 
 /** All exterior-light bits of EntityFlags. */
@@ -812,6 +814,13 @@ export interface MissionAiFlight {
   loadout?: Readonly<Record<string, { store: string; count: number }>>;
   /** A strike / SEAD sortie: each aircraft of the flight attacks targets[i] (wrapping). */
   strike?: MissionStrikeTask;
+  /**
+   * A target drone (training): it only flies its patrol orbit (at `patrolCenterWorld`, its start
+   * altitude, `droneSpeedMps`), never fights, defends or goes home, and is drawn as a drone.
+   */
+  drone?: boolean;
+  /** A drone's orbit speed, m/s (default 150). */
+  droneSpeedMps?: number;
 }
 
 /** An AI flight's air-to-ground sortie (it carries the stores for it: see `loadoutId`). */
@@ -1167,7 +1176,7 @@ export const RWR_BASE = SnapshotHud.TRACKS_BASE + MAX_SNAPSHOT_TRACKS * SNAPSHOT
 /** One RWR entry: symbol code (RWR_SYMBOLS), world bearing to the emitter (rad), state (0 search, 1 track, 2 launch), range (m). */
 export const SnapshotRwr = { SYMBOL: 0, BEARING_RAD: 1, STATE: 2, RANGE_M: 3 } as const;
 /** RWR symbols by code: search radar, early warning, LY-80, HQ-9, FM-90, AAA fire control, JF-17, F-16, Tejas, other fighter, Akash, SPYDER, MR-SAM. Append only. */
-export const RWR_SYMBOLS: readonly string[] = ['', 'S', 'EW', 'L8', '9', 'FM', 'A', 'J', 'F', 'T', 'AI', 'AK', 'SP', 'MR'];
+export const RWR_SYMBOLS: readonly string[] = ['', 'S', 'EW', 'L8', '9', 'FM', 'A', 'J', 'F', 'T', 'AI', 'AK', 'SP', 'MR', 'D'];
 /** Further HUD fields after the RWR list (SnapshotHudExt offsets from HUD_EXT_BASE). */
 export const HUD_EXT_BASE = RWR_BASE + MAX_RWR_CONTACTS * SNAPSHOT_RWR_STRIDE;
 export const SnapshotHudExt = {

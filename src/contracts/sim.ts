@@ -240,6 +240,8 @@ export interface AiPilotSpawnParamsLike {
   patrolRadiusM?: number;
   formation?: AiFormationSlotLike;
   strike?: { target: Vec3Like; ingressAltM: number; lowLevelAglM?: number; standoffM?: number };
+  /** A target drone: patrol orbit only, at this speed (m/s). */
+  drone?: { speedMps: number };
 }
 
 /** Creates a `Pilot` (core.ts) for an AI-controlled aircraft. Implemented (as an adapter) by `src/core/aiPilotAdapter.ts`, wrapping module 06's real `createAiPilot` factory. */

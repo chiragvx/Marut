@@ -8,7 +8,7 @@
  * exports of modules 04/08/09/11 rather than a contracts/*.ts file).
  */
 
-import { AimingHelp, AutopilotFlag, EntityFlag, HUD_BLOCK_START, HUD_EXT_BASE, LIGHT_MODES, LockStateCode, NO_ENTITY_ID, PodFlag, ServiceStateCode, SnapshotHud, SnapshotHudExt, SpeedUnit, WarningBit, WeaponKindCode, WeatherMode, type AutopilotAction } from './contracts/core';
+import { AimingHelp, AutopilotFlag, EntityFlag, HUD_BLOCK_START, HUD_EXT_BASE, LIGHT_MODES, LockStateCode, NO_ENTITY_ID, PodFlag, RadarModeCode, ServiceStateCode, SnapshotHud, SnapshotHudExt, SpeedUnit, WarningBit, WeaponKindCode, WeatherMode, type AutopilotAction } from './contracts/core';
 import type {
   AiDifficulty,
   EntityId,
@@ -78,7 +78,10 @@ import { airToAirScene, approachScene, lowPassScene, nightDepartureScene, taxiSc
 import { REEL_SHOTS } from './ui/reel';
 import { createFlightOverlay, hintText, pickHint, type FlightOverlay, type HintId, type HintKeys } from './ui/flightOverlay';
 import { DEFAULT_INPUT_MAP_DATA } from './input/inputMap';
-import { BASES, MISSIONS, baseInfo, freeFlightMission, missionEntry, missionLocked, playableMissions, type BaseId } from './core/missions/catalogue';
+import { BASES, MISSIONS, TRAINING, baseInfo, freeFlightMission, isTraining, missionEntry, missionLocked, playableMissions, trainingEntry, type BaseId } from './core/missions/catalogue';
+import { createActionBar, type ActionBar, type ActionId } from './ui/actionBar';
+import { createLessonBriefing, createTrainingList } from './ui/training';
+import type { PromptControl } from './script';
 import { createChunkManager } from './terrain';
 import { buildCoastProfile, createHeightSampler } from './terrain';
 import { RIVER_FLOATS, packRiver } from './terrain/riverMath';
@@ -123,6 +126,8 @@ interface PersistedSettings {
   mouseSensitivity?: number;
   /** First-flight hints in flight (Settings -> Gameplay); missing = on. */
   hintsEnabled?: boolean;
+  /** On-screen buttons in flight (Settings -> Gameplay); missing = on. */
+  actionBar?: boolean;
   /** Bombing aiming help (Settings -> Gameplay); missing = 'cues'. */
   aimingHelp?: AimingHelp;
   /** Control rates, multipliers 0.5..1.5 (Settings -> Controls); missing = 1 each. */
@@ -198,6 +203,14 @@ let currentMission: Mission | undefined;
 let weatherMode: WeatherMode = 'clear';
 /** Settings "Time of day", hours. */
 let timeOfDayH = 10.5;
+/** The on-screen buttons in flight (src/ui/actionBar.ts), and whether they are on (Settings -> Gameplay). */
+let actionBar: ActionBar | undefined;
+let actionBarEnabled = true;
+/** Camera and radar-scope range changes this flight (Flight School counts them). */
+let cameraChangeCount = 0;
+let radarRangeChangeCount = 0;
+/** A lesson has ended itself (Flight School: MissionScript.outcome). */
+let scriptEnded = false;
 /** Seeds dynamic weather: a new random sequence every mission. */
 const newWeatherSeed = (): number => Math.floor(Math.random() * 4294967296) >>> 0;
 /** First-flight hints (Settings -> Gameplay). */
@@ -228,7 +241,7 @@ let voiceWarnings = createVoiceWarningState();
 const voiceSay: VoiceLineDef[] = [];
 let lastAudioSimSec = -1;
 /** One-shot presses from cockpit controls, added to the next frame's pilot inputs (frames left). */
-const cockpitPulse = { cycleWeapon: 0, cycleTarget: 0, radarModeCycle: 0, jettisonTanks: 0, requestService: 0 };
+const cockpitPulse = { cycleWeapon: 0, cycleTarget: 0, radarModeCycle: 0, jettisonTanks: 0, requestService: 0, flare: 0, chaff: 0 };
 /** Bumped at every spawn and rearm, so the cockpit starts counting gun rounds again. */
 let lightMode = DEFAULT_LIGHT_MODE;
 /** Objective tracker, event messages and hints over the HUD (src/ui/flightOverlay.ts). */
@@ -356,12 +369,15 @@ function savedLastFlight(): Flight | undefined {
   const f = loadJson<Flight>(STORAGE.lastFlight);
   if (f?.kind === 'free' && f.setup) return baseInfo(f.setup.baseId).locked ? undefined : { kind: 'free', setup: { ...savedFreeFlight(), ...f.setup } };
   // A mission this build has locked is no longer offered to continue.
-  if (f?.kind === 'mission' && missionEntry(f.id) && !missionLocked(f.id)) return f;
+  if (f?.kind === 'mission' && (missionEntry(f.id) || isTraining(f.id)) && !missionLocked(f.id)) return f;
   return undefined;
 }
 
 function flightTitle(f: Flight): string {
-  return f.kind === 'free' ? `Free Flight · ${baseInfo(f.setup.baseId).name}` : (missionEntry(f.id)?.title ?? 'Mission');
+  if (f.kind === 'free') return `Free Flight · ${baseInfo(f.setup.baseId).name}`;
+  const t = trainingEntry(f.id);
+  if (t) return `Flight School ${t.lesson} · ${t.title}`;
+  return missionEntry(f.id)?.title ?? 'Mission';
 }
 
 function qualityLabel(): string {
@@ -385,6 +401,9 @@ function showMainMenu(): void {
       ...(last ? { continueLabel: flightTitle(last) } : {}),
       missionsDone: playableMissions().filter((m) => progress[m.id]?.completed).length,
       missionsTotal: playableMissions().length,
+      lessonsDone: TRAINING.filter((l) => progress[l.id]?.completed).length,
+      lessonsTotal: TRAINING.length,
+      newPilot: !last && Object.keys(progress).length === 0,
       qualityLabel: qualityLabel(),
       ...(fb ? { feedbackUrl: fb } : {}),
     },
@@ -392,6 +411,7 @@ function showMainMenu(): void {
       ...(last ? { onContinue: () => launchFlight(last) } : {}),
       onFreeFlight: showFreeFlight,
       onMissions: showMissions,
+      onTraining: showTraining,
       onSettings: showSettingsOverlay,
       onControls: showControlsOverlay,
     }
@@ -418,6 +438,35 @@ function showMissions(): void {
   destroyCurrentScreen();
   appState = 'missionSelect';
   currentScreen = createMissionList(uiRoot, { missions: MISSIONS, bases: BASES, progress: savedProgress() }, { onSelect: showBriefing, onBack: showMainMenu });
+}
+
+function showTraining(): void {
+  destroyCurrentScreen();
+  appState = 'missionSelect';
+  currentScreen = createTrainingList(uiRoot, { lessons: TRAINING, progress: savedProgress() }, { onSelect: showLessonBriefing, onBack: showMainMenu });
+}
+
+function showLessonBriefing(id: string): void {
+  const lesson = trainingEntry(id);
+  if (!lesson) return showTraining();
+  destroyCurrentScreen();
+  appState = 'missionSelect';
+  const k = inputSystem.inputMap.data.keyboard;
+  currentScreen = createLessonBriefing(
+    uiRoot,
+    {
+      lesson,
+      total: TRAINING.length,
+      keys: {
+        pitch: [keyLabel(k.axes.pitch.negative), keyLabel(k.axes.pitch.positive)],
+        roll: [keyLabel(k.axes.roll.negative), keyLabel(k.axes.roll.positive)],
+        throttle: [keyLabel(k.axes.throttle.positive), keyLabel(k.axes.throttle.negative)],
+        afterburner: keyLabel(k.buttons.afterburner),
+        camera: keyLabel(k.meta.cameraCycle),
+      },
+    },
+    { onStart: () => launchFlight({ kind: 'mission', id: lesson.id, difficulty: 'rookie', loadout: {} }), onBack: showTraining }
+  );
 }
 
 function showBriefing(id: string): void {
@@ -573,9 +622,15 @@ function launchFlight(flight: Flight): void {
     return;
   }
   const base = resolveBuiltinMission(flight.id);
-  weatherMode = 'clear';
-  timeOfDayH = 10.5;
+  const lesson = trainingEntry(flight.id);
+  weatherMode = lesson?.weather ?? 'clear';
+  timeOfDayH = lesson?.timeOfDayH ?? 10.5;
   renderer.setTimeOfDay(timeOfDayH);
+  if (lesson) {
+    // Flight School flies the lesson's own jet and drones as written.
+    launchMission(base, { title: flightTitle(flight), airStart: !!base.playerStart.pos, ownWeather: true, ...(lesson.startThrottle !== undefined ? { throttle: lesson.startThrottle } : {}) });
+    return;
+  }
   const mission: Mission = { ...base, aiFlights: base.aiFlights.map((f) => ({ ...f, difficulty: flight.difficulty })) };
   launchMission(withLoadout(mission, flight.loadout), { title: flightTitle(flight), airStart: false });
 }
@@ -627,6 +682,7 @@ function showSettingsOverlay(): void {
     speedUnit: currentSpeedUnit,
     alphaLimiterEnabled: inputSystem ? !inputSystem.isAlphaLimiterDisabled() : true,
     hintsEnabled: persisted?.hintsEnabled ?? true,
+    actionBar: actionBarEnabled,
     aimingHelp: persisted?.aimingHelp ?? AimingHelp.Cues,
     controlRates: inputSystem ? inputSystem.getControlRates() : { pitch: 1, roll: 1, yaw: 1 },
     audio: persisted?.audio ?? { ...DEFAULT_AUDIO_VOLUMES },
@@ -640,6 +696,7 @@ function showSettingsOverlay(): void {
         alphaLimiterEnabled: next.alphaLimiterEnabled,
         mouseSensitivity: next.mouseSensitivityMultiplier,
         hintsEnabled: next.hintsEnabled ?? true,
+        actionBar: next.actionBar ?? true,
         aimingHelp: next.aimingHelp ?? AimingHelp.Cues,
         ...(next.controlRates ? { controlRates: next.controlRates } : {}),
         ...(next.audio ? { audio: next.audio } : {}),
@@ -657,6 +714,7 @@ function showSettingsOverlay(): void {
       inputSystem?.setAlphaLimiterDisabled(!next.alphaLimiterEnabled);
       if (inputSystem) applyMouseSettings(next.mouseEnabled ?? false, next.mouseSensitivityMultiplier, next.invertPitch);
       hintsEnabled = next.hintsEnabled ?? true;
+      actionBarEnabled = next.actionBar ?? true;
       applyAimingHelp(next.aimingHelp ?? AimingHelp.Cues);
       applyAudioVolumes(next.audio ?? DEFAULT_AUDIO_VOLUMES);
       if (next.controlRates) inputSystem?.setControlRates(next.controlRates);
@@ -762,7 +820,15 @@ function showDebrief(ended: MissionEndedEvent): void {
   };
   const flight = currentFlight;
   const entry = flight?.kind === 'mission' ? missionEntry(flight.id) : undefined;
+  const lesson = flight?.kind === 'mission' ? trainingEntry(flight.id) : undefined;
   let newBest = false;
+  if (lesson && stats.outcome === MissionOutcome.Success) {
+    const progress = savedProgress();
+    const prev = progress[lesson.id];
+    newBest = prev?.bestSec === undefined || stats.durationSec < prev.bestSec;
+    progress[lesson.id] = { completed: true, bestSec: newBest ? stats.durationSec : prev!.bestSec! };
+    saveJson(STORAGE.progress, progress);
+  }
   if (entry && stats.outcome === MissionOutcome.Success) {
     const progress = savedProgress();
     const prev = progress[entry.id];
@@ -770,7 +836,9 @@ function showDebrief(ended: MissionEndedEvent): void {
     progress[entry.id] = { completed: true, bestSec: newBest ? stats.durationSec : prev!.bestSec! };
     saveJson(STORAGE.progress, progress);
   }
-  const nextEntry = entry ? playableMissions()[playableMissions().findIndex((m) => m.id === entry.id) + 1] : undefined;
+  // After a lesson: the next lesson, and after the last one the first mission.
+  const nextLesson = lesson ? TRAINING[TRAINING.indexOf(lesson) + 1] : undefined;
+  const nextEntry = entry ? playableMissions()[playableMissions().findIndex((m) => m.id === entry.id) + 1] : lesson && !nextLesson ? playableMissions()[0] : undefined;
   const fb = feedbackUrl({ screen: 'debrief', missionId: stats.missionId, quality: currentQualityTier });
   currentScreen = createDebriefScreen(
     uiRoot,
@@ -780,15 +848,19 @@ function showDebrief(ended: MissionEndedEvent): void {
         if (flight) launchFlight(flight);
         else if (currentMission) launchMission(currentMission, { title: currentMission.name, airStart: false });
       },
-      onMissionSelect: showMissions,
+      onMissionSelect: lesson ? showTraining : showMissions,
       onMainMenu: showMainMenu,
-      ...(nextEntry && stats.outcome === MissionOutcome.Success ? { onNext: () => showBriefing(nextEntry.id) } : {}),
+      ...(nextLesson && stats.outcome === MissionOutcome.Success
+        ? { onNext: () => showLessonBriefing(nextLesson.id) }
+        : nextEntry && stats.outcome === MissionOutcome.Success
+          ? { onNext: () => showBriefing(nextEntry.id) }
+          : {}),
     },
     {
       ...(flight ? { title: flightTitle(flight) } : {}),
       freeFlight: flight?.kind === 'free',
       newBest,
-      ...(entry ? { objectiveText: entry.objective } : {}),
+      ...(entry ? { objectiveText: entry.objective } : lesson ? { objectiveText: lesson.blurb } : {}),
       ...(fb ? { feedbackUrl: fb } : {}),
     }
   );
@@ -1160,6 +1232,23 @@ const scriptFrame: ScriptFrame = {
   spiX: 0,
   spiZ: 0,
   dlz: 0,
+  iasMps: 0,
+  altMslM: 190,
+  vsMps: 0,
+  pitchRad: 0,
+  rollRad: 0,
+  gearPos: 1,
+  gearDown: true,
+  airbrake: false,
+  afterburner: false,
+  thrustFrac: 0,
+  throttle: 0,
+  weaponIdx: 1,
+  radarMode: 0,
+  cameraChanges: 0,
+  radarRangeChanges: 0,
+  trackCount: 0,
+  radioBusy: false,
 };
 
 /** Runs the mission script on a snapshot: its objective markers into the HUD, its radio calls out. */
@@ -1198,10 +1287,38 @@ function tickMissionScript(view: Float64Array, entityCount: number, playerIndex:
   f.spiX = hudv(SnapshotHud.SPI_X);
   f.spiZ = hudv(SnapshotHud.SPI_Z);
   f.dlz = hudv(SnapshotHud.DLZ);
+  f.iasMps = hudv(SnapshotHud.IAS_MPS);
+  f.altMslM = hudv(SnapshotHud.ALT_MSL_M);
+  f.vsMps = hudv(SnapshotHud.VSPEED_MPS);
+  f.pitchRad = hudv(SnapshotHud.PITCH_RAD);
+  f.rollRad = hudv(SnapshotHud.ROLL_RAD);
+  f.gearPos = hudv(SnapshotHud.GEAR_POS);
+  f.gearDown = lastPlayerGearCmd;
+  f.airbrake = lastPlayerAirbrake;
+  // The pilot asking for it counts (the burner lights a moment later).
+  f.afterburner = pilotInputsScratch.afterburner || (playerIndex >= 0 && readSnapshotEntity(view, playerIndex, scriptEntityScratch).afterburnerOn === true);
+  f.thrustFrac = hudv(SnapshotHud.THRUST_FRAC);
+  f.throttle = pilotInputsScratch.throttle;
+  f.weaponIdx = hudv(SnapshotHud.WEAPON_IDX);
+  f.radarMode = hudv(SnapshotHud.RADAR_MODE);
+  f.cameraChanges = cameraChangeCount;
+  f.radarRangeChanges = radarRangeChangeCount;
+  f.trackCount = hudv(SnapshotHud.TRACK_COUNT);
+  f.radioBusy = radioPlayer.busy();
   script.update(f);
   const marks = script.markers();
   hud.setSteerpoints(marks.length ? [...baseSteerpoints, ...marks] : baseSteerpoints);
   radioPlayer.say(script.drain());
+  // A lesson that has ended itself: the debrief (the closing line has been said).
+  const out = script.outcome?.();
+  if (out && !scriptEnded) {
+    scriptEnded = true;
+    const mission = currentMission;
+    debriefTimer = setTimeout(() => {
+      debriefTimer = undefined;
+      if (currentMission === mission && (appState === 'gameplay' || appState === 'paused')) showDebrief({ type: 'missionEnded', outcome: out, objectivesCompleted: out === 'success' ? ['lesson'] : [], objectivesTotal: 1 });
+    }, 1200);
+  }
 }
 
 /** Objective tracker, warnings-as-messages and hints, from the latest snapshot's HUD block. */
@@ -1211,6 +1328,15 @@ function updateFlightOverlay(view: Float64Array): void {
   const flight = currentFlight;
   if (!o || !currentMission || (appState !== 'gameplay' && appState !== 'paused')) return;
   const hudv = (f: number): number => view[HUD_BLOCK_START + f] ?? 0;
+
+  actionBar?.setState({
+    camera: podView ? 'Pod' : CAMERA_MODE_NAMES[CAMERA_MODE_CYCLE[cameraModeIndex]!],
+    radarMode: hudv(SnapshotHud.RADAR_MODE) === RadarModeCode.acm ? 'ACM · dogfight' : 'RWS · search',
+    weapon: WEAPON_SHORT[hudv(SnapshotHud.WEAPON_IDX)] ?? '',
+    gear: hudv(SnapshotHud.GEAR_POS) > 0.95 ? 'DOWN' : lastPlayerGearCmd ? 'MOVING' : 'UP',
+    airbrake: lastPlayerAirbrake ? 'OUT' : 'IN',
+    onGround: lastPlayer.onGround,
+  });
 
   // Objective, or the nearest friendly base in Free Flight.
   const scripted = missionScript?.objective();
@@ -1246,6 +1372,14 @@ function updateFlightOverlay(view: Float64Array): void {
   if (lastTankFuelKg >= 0 && tank < 0) o.message('Tanks dropped');
   lastTankFuelKg = tank;
 
+  // Flight School: the lesson's prompt instead of the hints, and its buttons lit.
+  const lesson = missionScript?.prompt ? missionScript.prompt() : undefined;
+  if (missionScript?.prompt) {
+    o.setHint(lesson && appState === 'gameplay' ? promptKeyText(lesson.text) : undefined, true);
+    actionBar?.highlight(lesson ? lesson.highlight.flatMap((c) => PROMPT_BUTTONS[c] ?? []) : []);
+    return;
+  }
+  actionBar?.highlight([]);
   // First-flight hints.
   if (!hintsEnabled || appState !== 'gameplay') {
     o.setHint(undefined);
@@ -1490,9 +1624,10 @@ function tickShowcase(dtSec: number): void {
   if (showcaseT >= sc.durationSec) enterShowcaseScene(showcaseIndex + 1);
 }
 
-function launchMission(missionIn: Mission, opts: { title: string; airStart: boolean }): void {
+function launchMission(missionIn: Mission, opts: { title: string; airStart: boolean; throttle?: number; ownWeather?: boolean }): void {
   stopShowcase();
-  const mission = applyWeatherSetting(applyDevStart(missionIn));
+  // A Flight School lesson flies its own (tuned) wind and gusts whatever the sky looks like.
+  const mission = opts.ownWeather ? applyDevStart(missionIn) : applyWeatherSetting(applyDevStart(missionIn));
   // An air start (a free-flight air start, a mission that starts in the air, or the dev ?start=):
   // gear up and cruise power. Missions used to pass airStart: false and start airborne gear-down at idle.
   const ps = mission.playerStart;
@@ -1514,7 +1649,7 @@ function launchMission(missionIn: Mission, opts: { title: string; airStart: bool
   lightMode = DEFAULT_LIGHT_MODE;
   masterArm = true;
   if (podView) togglePodView();
-  inputSystem.setThrottle(airStart ? 0.8 : 0);
+  inputSystem.setThrottle(airStart ? (opts.throttle ?? 0.8) : 0);
 
   currentMission = mission;
   playerEntityId = NO_ENTITY_ID;
@@ -1534,6 +1669,9 @@ function launchMission(missionIn: Mission, opts: { title: string; airStart: bool
   if (debriefTimer) clearTimeout(debriefTimer);
   debriefTimer = undefined;
   radioPlayer.silence();
+  cameraChangeCount = 0;
+  radarRangeChangeCount = 0;
+  scriptEnded = false;
   missionScript = createMissionScript(mission);
   setupWorldView(mission, currentQualityTier, !!missionScript);
 
@@ -1586,6 +1724,8 @@ async function boot(): Promise<void> {
   currentSpeedUnit = persisted?.speedUnit ?? SpeedUnit.Mps;
   orientationPrompt = mountOrientationPrompt(uiRoot);
   flightOverlay = createFlightOverlay(uiRoot);
+  actionBar = createActionBar(flightOverlay.root, doBarAction);
+  actionBarEnabled = persisted?.actionBar ?? true;
 
   loading.setProgress(0.3, 'Starting simulation…');
   await initWorkersAndRenderer(currentQualityTier);
@@ -1633,12 +1773,14 @@ async function boot(): Promise<void> {
     // Dev aid (?mission=<id>, with ?start= / ?cam=): straight into a mission, starting as soon as it loads.
     devAutoStart = true;
     const id = devMissionId()!;
-    launchMission(resolveBuiltinMission(id), { title: id, airStart: (new URLSearchParams(location.search).get('start') ?? '') !== '' });
+    if (isTraining(id)) launchFlight({ kind: 'mission', id, difficulty: 'rookie', loadout: {} });
+    else launchMission(resolveBuiltinMission(id), { title: id, airStart: (new URLSearchParams(location.search).get('start') ?? '') !== '' });
   } else {
     showMainMenu();
     // Links from the landing page: /play/#free and /play/#missions.
     if (location.hash === '#free') showFreeFlight();
     else if (location.hash === '#missions') showMissions();
+    else if (location.hash === '#training') showTraining();
   }
 }
 
@@ -1719,6 +1861,12 @@ function frame(nowMs: number): void {
   tickShowcase(dtSec);
   tickLookKeys(dtSec);
   flightOverlay?.setVisible(appState === 'gameplay');
+  if (actionBar) {
+    const scheme = inputSystem?.getControlScheme();
+    const show = actionBarEnabled && scheme !== 'touch' && scheme !== 'touchGyro';
+    actionBar.setVisible(appState === 'gameplay' && show);
+    hud?.setLeftInset?.(show ? actionBar.widthPx() : 0);
+  }
   if (renderer && hud) {
     const camera: CameraState = renderer.renderFrame(nowMs);
     if (appState === 'gameplay') ambience.listen(camera, podView);
@@ -1746,6 +1894,7 @@ function wireGlobalListeners(): void {
     if (appState !== 'mainMenu' && appState !== 'missionSelect') return;
     if (location.hash === '#free') showFreeFlight();
     else if (location.hash === '#missions') showMissions();
+    else if (location.hash === '#training') showTraining();
   });
   window.addEventListener('keydown', (e: KeyboardEvent) => {
     if (e.code !== 'F1') return;
@@ -1927,7 +2076,7 @@ function wireMetaActionsOnce(): void {
     } else if (action === 'taxiGuide' && appState === 'gameplay') {
       toggleTaxiGuide();
     } else if ((action === 'radarRangeUp' || action === 'radarRangeDown') && appState === 'gameplay') {
-      hud.cycleRadarRange(action === 'radarRangeUp' ? 1 : -1);
+      cycleRadarRange(action === 'radarRangeUp' ? 1 : -1);
     } else if (AUTOPILOT_KEYS.has(action) && appState === 'gameplay') {
       autopilotKey(action, repeat === true);
     } else if (action === 'podView' && appState === 'gameplay') {
@@ -2073,6 +2222,7 @@ function applyAimingHelp(level: AimingHelp): void {
   releaseTone.setEnabled(level !== AimingHelp.Off);
 }
 function pushWeaponKeys(): void {
+  pushActionKeys();
   if (!hud || !inputSystem) return;
   const b = inputSystem.inputMap.data.keyboard.buttons;
   hud.setWeaponKeys({ target: keyLabel(b.cycleTarget), launch: keyLabel(b.launch) });
@@ -2099,7 +2249,13 @@ function togglePodView(): void {
     hud.setOverlayMode(m === 'cockpit3d' ? 'helmet' : 'full');
   }
 }
+function cycleRadarRange(dir: 1 | -1): void {
+  hud.cycleRadarRange(dir);
+  radarRangeChangeCount += 1;
+}
+
 function cycleCameraMode(): void {
+  cameraChangeCount += 1;
   if (podView) {
     togglePodView();
     return;
@@ -2143,6 +2299,8 @@ function applyCockpitPulses(): void {
   if (p.cycleWeapon > 0) pilotInputsScratch.cycleWeapon = p.cycleWeapon-- > 1;
   if (p.cycleTarget > 0) pilotInputsScratch.cycleTarget = p.cycleTarget-- > 1;
   if (p.radarModeCycle > 0) pilotInputsScratch.radarModeCycle = p.radarModeCycle-- > 1;
+  if (p.flare > 0) pilotInputsScratch.dispenseFlare = p.flare-- > 1;
+  if (p.chaff > 0) pilotInputsScratch.dispenseChaff = p.chaff-- > 1;
   // Level inputs: held for a few frames.
   if (p.jettisonTanks > 0) {
     p.jettisonTanks--;
@@ -2189,7 +2347,7 @@ function doCockpitAction(a: CockpitAction): void {
       cockpitPulse.radarModeCycle = 2;
       break;
     case 'radarRange':
-      hud.cycleRadarRange(a.dir);
+      cycleRadarRange(a.dir);
       break;
     case 'taxiGuide':
       toggleTaxiGuide();
@@ -2200,6 +2358,103 @@ function doCockpitAction(a: CockpitAction): void {
   }
   pushCockpitAux();
 }
+
+/** The selected weapon on its on-screen button, by WeaponKindCode. */
+const WEAPON_SHORT: readonly string[] = ['GUN', 'IR MISSILE', 'RADAR MISSILE', 'BOMB', 'ROCKETS', 'GUIDED BOMB', 'AGM', 'ARM'];
+
+/** An on-screen button (src/ui/actionBar.ts): does what its key does. */
+function doBarAction(id: ActionId): void {
+  if (appState !== 'gameplay') return;
+  switch (id) {
+    case 'camera':
+      cycleCameraMode();
+      return;
+    case 'radarMode':
+      return doCockpitAction({ kind: 'radarMode' });
+    case 'radarRangeDown':
+      return doCockpitAction({ kind: 'radarRange', dir: -1 });
+    case 'radarRangeUp':
+      return doCockpitAction({ kind: 'radarRange', dir: 1 });
+    case 'target':
+      return doCockpitAction({ kind: 'cycleTarget' });
+    case 'weapon':
+      return doCockpitAction({ kind: 'cycleWeapon' });
+    case 'flare':
+      cockpitPulse.flare = 2;
+      return;
+    case 'chaff':
+      cockpitPulse.chaff = 2;
+      return;
+    case 'gear':
+      return doCockpitAction({ kind: 'gear' });
+    case 'airbrake':
+      return doCockpitAction({ kind: 'airbrake' });
+    case 'taxi':
+      return doCockpitAction({ kind: 'taxiGuide' });
+  }
+}
+
+/** The keys on the on-screen buttons, from the live key map. */
+function pushActionKeys(): void {
+  if (!actionBar || !inputSystem) return;
+  const k = inputSystem.inputMap.data.keyboard;
+  actionBar.setKeys({
+    camera: keyLabel(k.meta.cameraCycle),
+    radarMode: keyLabel(k.buttons.radarMode),
+    radarRangeDown: keyLabel(k.meta.radarRangeDown),
+    radarRangeUp: keyLabel(k.meta.radarRangeUp),
+    target: keyLabel(k.buttons.cycleTarget),
+    weapon: keyLabel(k.buttons.cycleWeapon),
+    flare: keyLabel(k.buttons.flare),
+    chaff: keyLabel(k.buttons.chaff),
+    gear: keyLabel(k.buttons.gearToggle),
+    airbrake: keyLabel(k.buttons.airbrakeToggle),
+    taxi: keyLabel(k.meta.taxiGuide),
+  });
+}
+
+/** A lesson prompt's {control} -> the key, as a {key} marker for the hint. */
+function promptKeyText(text: string): string {
+  const k = inputSystem.inputMap.data.keyboard;
+  const keys: Record<PromptControl, string> = {
+    throttleUp: keyLabel(k.axes.throttle.positive),
+    throttleDown: keyLabel(k.axes.throttle.negative),
+    afterburner: keyLabel(k.buttons.afterburner),
+    noseUp: keyLabel(k.axes.pitch.positive),
+    noseDown: keyLabel(k.axes.pitch.negative),
+    rollLeft: keyLabel(k.axes.roll.negative),
+    rollRight: keyLabel(k.axes.roll.positive),
+    gear: keyLabel(k.buttons.gearToggle),
+    airbrake: keyLabel(k.buttons.airbrakeToggle),
+    brakes: keyLabel(k.buttons.brakes),
+    camera: keyLabel(k.meta.cameraCycle),
+    radarMode: keyLabel(k.buttons.radarMode),
+    radarRange: '',
+    target: keyLabel(k.buttons.cycleTarget),
+    weapon: keyLabel(k.buttons.cycleWeapon),
+    launch: keyLabel(k.buttons.launch),
+    trigger: keyLabel(k.buttons.trigger),
+    flare: keyLabel(k.buttons.flare),
+  };
+  return text.replace(/\{(\w+)\}/g, (all, id: string) => {
+    if (id === 'radarRange') return `{${keyLabel(k.meta.radarRangeDown)}} / {${keyLabel(k.meta.radarRangeUp)}}`;
+    const key = keys[id as PromptControl];
+    return key ? `{${key}}` : all;
+  });
+}
+
+/** The on-screen buttons a prompt's controls light up. */
+const PROMPT_BUTTONS: Partial<Record<PromptControl, readonly ActionId[]>> = {
+  gear: ['gear'],
+  airbrake: ['airbrake'],
+  brakes: ['airbrake'],
+  camera: ['camera'],
+  radarMode: ['radarMode'],
+  radarRange: ['radarRangeDown', 'radarRangeUp'],
+  target: ['target'],
+  weapon: ['weapon'],
+  flare: ['flare'],
+};
 
 let cockpitTip: HTMLDivElement | null = null;
 function showCockpitTip(label: string, x: number, y: number): void {

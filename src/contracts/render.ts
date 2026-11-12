@@ -617,6 +617,8 @@ export interface HudRenderer {
    * own HUD and displays carry the rest.
    */
   setOverlayMode(mode: 'full' | 'helmet' | 'pod'): void;
+  /** Screen space taken on the left (the on-screen buttons), CSS px: the speed tape and RWR scope move right of it. */
+  setLeftInset?(px: number): void;
   /** Targeting pod picture: its polarity and the key labels shown as hints. */
   setPodDisplay(polarity: 1 | 2, keys: { track: string; zoom: string; laser: string; view: string }): void;
   /** The target and release keys' labels, for the air-to-ground cues and the radar page's prompts. */

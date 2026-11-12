@@ -162,3 +162,23 @@ export const f16Definition: AircraftDefinition = {
   sensors: { radar: 'apg-68', iff: true, rwr: 'alr-69', maws: false, countermeasures: { chaff: 60, flares: 60 } },
   signature: { rcsNoseOnM2: 1.5, rcsBroadsideM2: 7.0, hitEllipsoidBodyM: { x: 7.5, y: 2.5, z: 4.7 } },
 };
+
+// --- Target drone (training): a jet-powered aerial target in the class of DRDO's Lakshya (about
+// 4 m long, 3 m span). Unarmed; it carries a radar emitter so the RWR has something to hear, and
+// no countermeasures. Small radar cross-section. It flies the Tejas airframe (no drone flight model
+// yet) and is drawn as the drone (EntityFlag.Drone, src/render/droneModel.ts).
+const droneStations: readonly StationDef[] = [];
+const droneLoadouts: readonly LoadoutPreset[] = [{ id: 'clean', name: 'Clean', fit: {} }];
+
+export const targetDroneDefinition: AircraftDefinition = {
+  ...tejasDefinition,
+  id: 'target-drone',
+  displayName: 'Target drone',
+  stations: droneStations,
+  loadouts: droneLoadouts,
+  defaultLoadoutId: 'clean',
+  hardpoints: [],
+  sensors: { radar: 'klj-7a', iff: false, rwr: 'jf17-rwr', maws: false, countermeasures: { chaff: 0, flares: 0 } },
+  // Half-axes a little bigger than the airframe, so a fair burst counts.
+  signature: { rcsNoseOnM2: 0.5, rcsBroadsideM2: 1.5, hitEllipsoidBodyM: { x: 3.2, y: 1.2, z: 2.4 } },
+};

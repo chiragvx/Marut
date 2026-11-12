@@ -553,3 +553,71 @@ a.tj-link { color: var(--tj-ink); }
   .tj-screen > .tj-panel { animation: none; }
   .tj-op-art { transition: none; }
 }
+
+/* ---- On-screen buttons in flight (src/ui/actionBar.ts) ------------------------------------ */
+
+.tj-actionbar {
+  position: absolute; left: 12px; top: 50%; transform: translateY(-46%);
+  display: grid; gap: 8px; width: 156px; pointer-events: auto; user-select: none;
+}
+.tj-ab-group { display: grid; gap: 4px; }
+.tj-ab-title { font: 600 10px/1 var(--tj-mono); letter-spacing: 0.16em; text-transform: uppercase; color: #9fd8e6; opacity: 0.8; padding-left: 2px; }
+.tj-ab-pair { display: grid; grid-template-columns: 1fr auto auto; gap: 4px; align-items: center; background: rgba(6, 14, 18, 0.45); border-radius: 6px; padding: 2px; }
+.tj-ab-rowlabel { font: 600 13px/1 system-ui, sans-serif; color: #e8f2f4; padding-left: 6px; }
+.tj-ab-btn {
+  display: grid; grid-template-columns: 22px 1fr auto; align-items: center; gap: 6px;
+  min-height: 36px; padding: 4px 8px 4px 6px; text-align: left; cursor: pointer;
+  background: rgba(6, 14, 18, 0.66); color: #e8f2f4; border: 1px solid rgba(140, 200, 220, 0.28);
+  border-radius: 6px; font: 600 13px/1.1 system-ui, sans-serif;
+  transition: background 0.12s ease, border-color 0.12s ease, box-shadow 0.2s ease;
+}
+.tj-ab-btn:hover { background: rgba(18, 40, 50, 0.85); border-color: rgba(140, 220, 240, 0.6); }
+.tj-ab-btn:active, .tj-ab-btn--pressed { animation: tj-ab-press 0.25s ease-out; }
+@keyframes tj-ab-press { 0% { background: rgba(111, 227, 255, 0.45); } 100% { background: rgba(6, 14, 18, 0.66); } }
+.tj-ab-btn--half { grid-template-columns: auto auto; padding: 4px 6px; gap: 5px; min-height: 32px; }
+.tj-ab-icon { font-size: 16px; line-height: 1; text-align: center; color: #6fe3ff; }
+.tj-ab-text { display: grid; gap: 2px; min-width: 0; }
+.tj-ab-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tj-ab-state { font: 600 10px/1 var(--tj-mono); letter-spacing: 0.06em; color: #b8d4da; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tj-ab-state:empty { display: none; }
+.tj-ab-key { font: 600 10px/1 var(--tj-mono); color: #cfe3e8; border: 1px solid rgba(200, 230, 240, 0.4); border-radius: 3px; padding: 3px 4px; min-width: 12px; text-align: center; }
+.tj-ab-key:empty { display: none; }
+.tj-ab-btn--on { border-color: rgba(120, 230, 140, 0.7); }
+.tj-ab-btn--on .tj-ab-state { color: #9be38c; }
+.tj-ab-btn--dim { opacity: 0.55; }
+/* Flight School: the button the lesson asks for. */
+.tj-ab-btn--lit {
+  border-color: #ffd34d; background: rgba(60, 46, 6, 0.8); opacity: 1;
+  animation: tj-ab-glow 1.1s ease-in-out infinite;
+}
+.tj-ab-btn--lit .tj-ab-icon, .tj-ab-btn--lit .tj-ab-label { color: #ffe27a; }
+@keyframes tj-ab-glow {
+  0%, 100% { box-shadow: 0 0 0 1px rgba(255, 211, 77, 0.6), 0 0 6px rgba(255, 211, 77, 0.25); }
+  50% { box-shadow: 0 0 0 2px rgba(255, 211, 77, 0.95), 0 0 18px rgba(255, 211, 77, 0.55); }
+}
+@media (max-height: 640px) {
+  .tj-actionbar { gap: 5px; width: 140px; transform: translateY(-44%) scale(0.86); transform-origin: left center; }
+}
+@media (prefers-reduced-motion: reduce) { .tj-ab-btn--lit, .tj-ab-btn--pressed { animation: none; } }
+
+/* Flight School's "do this now" prompt: the hint, bigger and gold-edged. */
+.tj-hint--lesson {
+  bottom: 19%; font-size: 17px; font-weight: 600; padding: 12px 20px; max-width: min(640px, 80vw);
+  border: 1px solid rgba(255, 211, 77, 0.65); box-shadow: 0 0 22px rgba(255, 211, 77, 0.18);
+}
+.tj-hint--lesson .tj-key { border-color: #ffd34d; color: #ffe27a; }
+
+/* ---- Flight School (src/ui/training.ts) ---------------------------------------------------- */
+
+.tj-lessons { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; max-width: 980px; }
+.tj-screen .tj-lesson { display: grid; grid-template-columns: 64px 1fr; gap: 0; padding: 0; text-align: left; overflow: hidden; min-height: 150px; }
+.tj-lesson-num { display: grid; place-items: center; font: 700 40px/1 var(--tj-display); color: var(--tj-accent); background: rgba(0, 0, 0, 0.35); border-right: 1px solid rgba(255, 255, 255, 0.08); }
+.tj-lesson-main { display: grid; gap: 8px; padding: 14px 16px 16px; align-content: start; }
+.tj-lesson-top { display: flex; align-items: center; gap: 10px; }
+.tj-lesson-top > :last-child { margin-left: auto; }
+.tj-lesson-title { font: 700 clamp(20px, 2vw, 26px)/1 var(--tj-display); letter-spacing: 0.04em; text-transform: uppercase; color: #fff; }
+.tj-lesson-blurb { color: #c9d1d7; font-size: 14px; }
+.tj-lesson-skills { display: flex; flex-wrap: wrap; gap: 5px; }
+.tj-chip { font: 600 11px/1 var(--tj-mono); letter-spacing: 0.04em; color: #cfe3e8; background: rgba(111, 227, 255, 0.1); border: 1px solid rgba(111, 227, 255, 0.25); padding: 4px 6px; border-radius: 3px; }
+.tj-screen .tj-lesson--next { border-color: var(--tj-accent); box-shadow: inset 3px 0 0 var(--tj-accent); }
+@media (max-width: 760px) { .tj-lessons { grid-template-columns: 1fr; } }

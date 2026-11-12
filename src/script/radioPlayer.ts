@@ -21,6 +21,8 @@ export interface RadioPlayer {
   /** Each frame: starts the next call when the channel is free. */
   update(): void;
   silence(): void;
+  /** True while a call is being said or waits to be. */
+  busy(): boolean;
   setEnabled(on: boolean): void;
   preload(): void;
 }
@@ -229,7 +231,8 @@ export function createRadioPlayer(bus: AudioBus, baseUrl: string, onSubtitle: (t
         playing = null;
         sources = [];
       }
-      while (queue.length && t - queue[0]!.queuedSec > queue[0]!.tx.maxAgeSec) queue.shift();
+      // Drop calls that waited too long, or that the script says no longer apply.
+      while (queue.length && (t - queue[0]!.queuedSec > queue[0]!.tx.maxAgeSec || queue[0]!.tx.stale?.() === true)) queue.shift();
       const next = queue[0];
       if (!next) return;
       // Its clips still loading: wait (it goes stale if they never come).
@@ -243,6 +246,9 @@ export function createRadioPlayer(bus: AudioBus, baseUrl: string, onSubtitle: (t
     silence() {
       queue.length = 0;
       stop();
+    },
+    busy() {
+      return (playing !== null && now() < busyUntil) || queue.length > 0;
     },
     setEnabled(on) {
       enabled = on;

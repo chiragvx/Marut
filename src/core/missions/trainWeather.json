@@ -1,0 +1,11 @@
+{
+  "id": "train-weather",
+  "name": "Flight School 3 — Bad-weather landing",
+  "seed": 1971,
+  "terrain": { "seed": 1947, "theatre": "border" },
+  "airportIds": ["bhisiana-afs", "pafb-shahbaz"],
+  "playerStart": { "pos": { "x": 14296, "y": 1900, "z": -24955 }, "headingRad": 2.28132, "speedMps": 130, "loadoutId": "clean" },
+  "aiFlights": [],
+  "weather": { "windWorldMps": { "x": 4.2, "y": 0, "z": -5.0 }, "gustMps": 3.5, "turbulence": 0.3 },
+  "objectives": []
+}

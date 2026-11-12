@@ -119,7 +119,7 @@ function defaultCombatEnvironment(): CombatEnvironment {
 const EMPTY_CONTACTS: readonly Contact[] = [];
 /** Radar-warning receiver: how far it hears radars, how many it lists, and fighters' symbols by type. */
 const RWR_RANGE_M = 250000;
-const AIRCRAFT_RWR_SYMBOL: Readonly<Record<string, string>> = { 'jf-17': 'J', 'f-16': 'F', 'tejas-mk1a': 'T' };
+const AIRCRAFT_RWR_SYMBOL: Readonly<Record<string, string>> = { 'jf-17': 'J', 'f-16': 'F', 'tejas-mk1a': 'T', 'target-drone': 'D' };
 /** A laser-guided bomb's owner lases for it in its last seconds of flight; its seeker sees a spot out to this range. */
 const LASE_TERMINAL_SEC = 12;
 /** An aircraft that crashes within this long of being hit is the shooter's kill, s. */

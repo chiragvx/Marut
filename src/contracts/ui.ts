@@ -224,6 +224,8 @@ export interface SettingsState {
   mouseEnabled?: boolean;
   /** First-flight hints in flight. Absent = on. */
   hintsEnabled?: boolean;
+  /** The on-screen buttons in flight (camera, radar, weapons, gear...). Absent = on. */
+  actionBar?: boolean;
   /** Air-to-ground aiming help on the HUD (contracts/core.ts AimingHelp). Absent = 'cues'. */
   aimingHelp?: AimingHelp;
   /** Control rates (multipliers 0.5..1.5). Absent = 1 each. */
@@ -262,6 +264,11 @@ export interface MainMenuOptions {
   continueLabel?: string;
   missionsDone: number;
   missionsTotal: number;
+  /** Flight School lessons done, of all. */
+  lessonsDone?: number;
+  lessonsTotal?: number;
+  /** Nothing flown yet: Flight School is the first choice. */
+  newPilot?: boolean;
   /** Current graphics quality, as shown to the player. */
   qualityLabel: string;
   /** The feedback form (src/ui/links.ts), absent while there is none. */
@@ -271,6 +278,7 @@ export interface MainMenuCallbacks {
   onContinue?(): void;
   onFreeFlight(): void;
   onMissions(): void;
+  onTraining?(): void;
   onSettings(): void;
   onControls(): void;
 }
