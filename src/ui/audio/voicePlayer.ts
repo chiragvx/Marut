@@ -77,6 +77,9 @@ export function createVoicePlayer(bus: AudioBus, baseUrl: string): VoicePlayer {
   let source: AudioBufferSourceNode | null = null;
   let enabled = true;
   let preloaded = false;
+  /** Lines still to preload, one every 80 ms (not all at once: a burst of decodes stutters the frame). */
+  const backlog: string[] = [];
+  let nextPreload = 0;
   let voiceVolume = 1;
   const now = (): number => performance.now() / 1000;
 
@@ -170,8 +173,12 @@ export function createVoicePlayer(bus: AudioBus, baseUrl: string): VoicePlayer {
       }
     },
     update() {
-      if (playing || !enabled) return;
       const t = now();
+      if (backlog.length && t >= nextPreload) {
+        load(backlog.shift()!);
+        nextPreload = t + 0.08;
+      }
+      if (playing || !enabled) return;
       const next = queue.peek(t);
       if (!next) return;
       // Its file not loaded yet: wait for it (it is dropped if it goes stale).
@@ -194,7 +201,7 @@ export function createVoicePlayer(bus: AudioBus, baseUrl: string): VoicePlayer {
     preload() {
       if (preloaded || !bus.context()) return;
       preloaded = true;
-      for (const l of ALL_VOICE_LINES) load(l.id);
+      for (const l of ALL_VOICE_LINES) backlog.push(l.id);
     },
     setSpeechVolume(v) {
       voiceVolume = v;

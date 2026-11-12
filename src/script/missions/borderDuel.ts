@@ -27,7 +27,8 @@ export function braaDetail(px: number, pz: number, b: ScriptAircraft): string {
   const r = braa(px, pz, b);
   const km = Math.hypot(b.x - px, b.z - pz) / 1000;
   const ft = Math.round((b.y * FT_PER_M) / 500) * 500;
-  return `${threeDigits(r.bearing)}° · ${(km / 1.852).toFixed(0)} NM (${km.toFixed(0)} km) · ${ft.toLocaleString('en-US')} ft · ${ASPECT_WORD[r.aspect]}`;
+  // (Not toLocaleString: it builds a number formatter per call, and this runs every snapshot.)
+  return `${threeDigits(r.bearing)}° · ${(km / 1.852).toFixed(0)} NM (${km.toFixed(0)} km) · ${String(ft).replace(/\B(?=(\d{3})+(?!\d))/g, ',')} ft · ${ASPECT_WORD[r.aspect]}`;
 }
 
 export class BorderDuelScript extends ScriptBase {

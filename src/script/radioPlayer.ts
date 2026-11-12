@@ -27,6 +27,8 @@ export interface RadioPlayer {
 
 type Clip = AudioBuffer | 'missing' | 'loading';
 
+const PRELOAD_GAP_SEC = 0.08;
+
 interface Pending {
   tx: Transmission;
   queuedSec: number;
@@ -40,6 +42,9 @@ export function createRadioPlayer(bus: AudioBus, baseUrl: string, onSubtitle: (t
   const queue: Pending[] = [];
   let enabled = true;
   let preloaded = false;
+  /** Clips still to preload: one every PRELOAD_GAP_SEC, not all at once (a burst of fetches and decodes stutters the frame). */
+  const backlog: RadioClipId[] = [];
+  let nextPreload = 0;
   let busyUntil = 0;
   let playing: Transmission | null = null;
   let sources: AudioScheduledSourceNode[] = [];
@@ -215,6 +220,10 @@ export function createRadioPlayer(bus: AudioBus, baseUrl: string, onSubtitle: (t
     },
     update() {
       const t = now();
+      if (backlog.length && t >= nextPreload) {
+        load(backlog.shift()!);
+        nextPreload = t + PRELOAD_GAP_SEC;
+      }
       if (playing && t < busyUntil) return;
       if (playing) {
         playing = null;
@@ -241,7 +250,7 @@ export function createRadioPlayer(bus: AudioBus, baseUrl: string, onSubtitle: (t
     preload() {
       if (preloaded || !bus.context()) return;
       preloaded = true;
-      for (const id of RADIO_CLIP_IDS) load(id);
+      backlog.push(...RADIO_CLIP_IDS);
     },
   };
 }
