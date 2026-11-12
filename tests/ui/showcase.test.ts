@@ -1,3 +1,4 @@
+import { Quat } from '../../src/math';
 import { describe, expect, test } from 'vitest';
 import type { AirportLayout } from '../../src/contracts/airport';
 import { EntityFlag } from '../../src/contracts/core';
@@ -86,14 +87,18 @@ describe('menu cinematic shots', () => {
     }
   });
 
+  /** The main wheels' contact point's height (tejasGeometry.ts gear), world. */
+  const mainWheelY = (ac: { pos: { y: number }; rot: { x: number; y: number; z: number; w: number } }): number =>
+    ac.pos.y + Quat.rotate(ac.rot, { x: -0.75, y: -1.7, z: 0 }, { x: 0, y: 0, z: 0 }).y;
   test('the approach touches down a few hundred metres past the threshold, not on it', () => {
     const { scene, layout, runwayId } = sceneFor('bathinda', approachScene);
     const rw = layout.runways.find((r) => r.id === runwayId)!;
     const along = (x: number, z: number): number => (x - rw.thresholdWorldX) * Math.sin(rw.headingRad) - (z - rw.thresholdWorldZ) * Math.cos(rw.headingRad);
     let touchdown: number | undefined;
     for (let t = 0; t <= scene.durationSec && touchdown === undefined; t += 0.05) {
-      const j = scene.frame(t).aircraft[0]!.pos;
-      if (j.y - layout.elevationM < 1.1 + 0.01) touchdown = along(j.x, j.z);
+      const ac = scene.frame(t).aircraft[0]!;
+      const j = ac.pos;
+      if (mainWheelY(ac) - layout.elevationM < 0.01) touchdown = along(j.x, j.z);
     }
     expect(touchdown).toBeGreaterThan(250);
     expect(touchdown).toBeLessThan(450);
@@ -102,7 +107,7 @@ describe('menu cinematic shots', () => {
     let lastSink = Infinity;
     for (let t = 0; t <= scene.durationSec; t += 0.05) {
       const fr = scene.frame(t);
-      const h = fr.aircraft[0]!.pos.y - layout.elevationM - 1.1;
+      const h = mainWheelY(fr.aircraft[0]!) - layout.elevationM;
       if (t < 1) glideSink = -fr.aircraft[0]!.vel.y;
       if (h > 0 && h < 0.3) lastSink = -fr.aircraft[0]!.vel.y;
     }

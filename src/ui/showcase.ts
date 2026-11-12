@@ -74,8 +74,18 @@ export function makeAircraft(): ShowcaseAircraft {
 export const deg = Math.PI / 180;
 /** Where the subject sits across the screen (fraction of the width right of centre), clear of the menu on the left. */
 const SUBJECT_OFFSET_X = 0.2;
-/** Height of the aircraft's origin above its wheels (the gear legs' contact points, tejasGeometry.ts). */
-const GEAR_HEIGHT_M = 1.1;
+/**
+ * The main wheels' contact points below and behind the aircraft's origin (tejasGeometry.ts gear,
+ * fully extended), and how far the loaded oleos sit compressed when it rests on them, m.
+ */
+const MAIN_WHEEL_DOWN_M = 1.7;
+const MAIN_WHEEL_AFT_M = 0.75;
+const OLEO_SAG_M = 0.1;
+/** Height of the aircraft's origin above the ground, parked on its wheels. */
+const GEAR_HEIGHT_M = MAIN_WHEEL_DOWN_M - OLEO_SAG_M;
+/** The origin's height over the main wheels at a pitch (it pivots on them), oleos `sag` m compressed. */
+export const onMainWheels = (pitchRad: number, sag = OLEO_SAG_M): number =>
+  MAIN_WHEEL_AFT_M * Math.sin(pitchRad) + (MAIN_WHEEL_DOWN_M - sag) * Math.cos(pitchRad);
 
 export const lerp = (a: number, b: number, t: number): number => a + (b - a) * t;
 export const ease = (t: number): number => t * t * (3 - 2 * t);
@@ -191,7 +201,9 @@ export function approachScene(layout: AirportLayout, runway: RunwayDef, duration
         dist = -(72 * tr - 3 * tr * tr);
         pitch = Math.max(0, 7 * deg - tr * 2.5 * deg);
       }
-      at(f, TOUCHDOWN_M - dist, 0, GEAR_HEIGHT_M + height, jet.pos);
+      // Airborne the oleos hang fully extended; on the ground they settle under the weight.
+      const sag = dist < 0 ? OLEO_SAG_M * clamp01(-dist / 60) : 0;
+      at(f, TOUCHDOWN_M - dist, 0, onMainWheels(pitch, sag) + height, jet.pos);
       setRot(jet, Quat.fromYawPitchRoll(f.heading, pitch, 0, q));
       jet.vel.x = f.dx * speed;
       jet.vel.y = -sink;
@@ -215,10 +227,16 @@ function takeoff(f: RunwayFrame, jet: ShowcaseAircraft, t: number, q: QuatLike):
   const air = Math.max(0, t - LIFTOFF_SEC);
   const height = air * air * 0.9 + air * 3;
   const climb = air > 0 ? (2 * 0.9 * air + 3) / v : 0;
-  const rotate = clamp01((t - (LIFTOFF_SEC - 1.5)) / 1.5);
-  const pitch = Math.min(12 * deg, Math.max(Math.atan(climb) + 4 * deg * rotate, rotate * 8 * deg));
-  at(f, along, 0, GEAR_HEIGHT_M + height, jet.pos);
-  setRot(jet, Quat.fromYawPitchRoll(f.heading, pitch, 0, q));
+  const rotate = ease(clamp01((t - (LIFTOFF_SEC - 1.6)) / 1.6));
+  // The nose comes up smoothly, and keeps easing up towards the climb attitude (no corner at 12 deg).
+  const want = Math.max(Math.atan(climb) + 4 * deg * rotate, rotate * 8 * deg);
+  const pitch = 13 * deg * Math.tanh(want / (13 * deg));
+  // On the roll a little runway texture through the oleos, fading as the wings take the weight.
+  const rumble = (1 - rotate) * Math.min(1, tr / 2) * (air > 0 ? 0 : 1);
+  const bump = rumble * 0.12 * deg * (Math.sin(t * 23.1) * 0.6 + Math.sin(t * 37.7 + 1.3) * 0.4);
+  const sag = OLEO_SAG_M * (1 - rotate);
+  at(f, along, 0, onMainWheels(pitch, sag) + height, jet.pos);
+  setRot(jet, Quat.fromYawPitchRoll(f.heading, pitch + bump, rumble * 0.08 * deg * Math.sin(t * 17.3), q));
   jet.vel.x = f.dx * v;
   jet.vel.y = v * climb;
   jet.vel.z = f.dz * v;
@@ -359,7 +377,12 @@ export function taxiScene(layout: AirportLayout, runway: RunwayDef, durationSec 
       const s = startS + speed * (t < 3 ? (t * t) / 6 : t - 1.5);
       const v = speed * Math.min(1, t / 3);
       jet.pos.x = L.ax + dx * s;
-      jet.pos.y = f.elev + GEAR_HEIGHT_M;
+      // The oleos working over the taxiway's slab joints (a damped nod every ~5 m) and its camber.
+      const slab = s / 5;
+      const nod = Math.exp(-3 * (slab - Math.floor(slab))) * Math.sin((slab - Math.floor(slab)) * 14);
+      const ride = (v / speed) * (0.22 * deg * nod + 0.08 * deg * Math.sin(t * 1.7));
+      jet.pos.y = f.elev + onMainWheels(ride) + 0.012 * (v / speed) * nod;
+      setRot(jet, Quat.fromYawPitchRoll(heading, ride, (v / speed) * 0.15 * deg * Math.sin(t * 1.1 + 0.4), q));
       jet.pos.z = L.az + dz * s;
       jet.vel.x = dx * v;
       jet.vel.y = 0;
@@ -452,17 +475,21 @@ export function lowPassScene(layout: AirportLayout, runway: RunwayDef, durationS
   const frame: ShowcaseFrame = { camPos: { x: 0, y: 0, z: 0 }, lookAt: { x: 0, y: 0, z: 0 }, fovDeg: 20, offsetX: SUBJECT_OFFSET_X, aircraft: [jet] };
   const q: QuatLike = { x: 0, y: 0, z: 0, w: 1 };
   /** Along-runway distance and height after `tp` s of the pull-up (flight path up at 40 deg/s to 80 deg). */
-  const pull = (tp: number): { s: number; h: number; gamma: number } => {
+  // The g comes on over half a second (not a kink), and eases off as the climb nears 80 deg; the
+  // nose rides above the flight path by an angle of attack that follows the pull.
+  const rate = (tp: number, gamma: number): number => 40 * deg * ease(clamp01(tp / 0.5)) * clamp01((80 * deg - gamma) / (18 * deg));
+  const pull = (tp: number): { s: number; h: number; gamma: number; alpha: number } => {
     let s = 0;
     let h = 0;
-    const n = Math.max(1, Math.ceil(tp / 0.02));
+    let g = 0;
+    const n = Math.max(1, Math.ceil(tp / 0.01));
     const dt = tp / n;
     for (let i = 0; i < n; i++) {
-      const g = Math.min(80 * deg, 40 * deg * (i + 0.5) * dt);
+      g += rate((i + 0.5) * dt, g) * dt;
       s += Math.cos(g) * speed * dt;
       h += Math.sin(g) * speed * dt;
     }
-    return { s, h, gamma: Math.min(80 * deg, 40 * deg * tp) };
+    return { s, h, gamma: g, alpha: 7 * deg * (rate(tp, g) / (40 * deg)) };
   };
   return {
     durationSec,
@@ -473,7 +500,10 @@ export function lowPassScene(layout: AirportLayout, runway: RunwayDef, durationS
       const p = pull(tp);
       const along = camAlong + speed * (Math.min(t, pullAt) - passAt) + p.s;
       at(f, along, 0, PASS_HEIGHT_M + p.h, jet.pos);
-      setRot(jet, Quat.fromYawPitchRoll(f.heading, p.gamma + 2 * deg, 0, q));
+      // Light chop on the way in, a few tenths of a degree.
+      const chop = 1 - clamp01(tp / 1.5);
+      const wob = (a: number, b: number): number => Math.sin(t * a + b) * 0.6 + Math.sin(t * a * 2.3 + b * 1.7) * 0.4;
+      setRot(jet, Quat.fromYawPitchRoll(f.heading + chop * 0.15 * deg * wob(0.9, 2), p.gamma + 2 * deg + p.alpha + chop * 0.25 * deg * wob(1.3, 5), chop * 0.8 * deg * wob(1.1, 1), q));
       jet.vel.x = f.dx * speed * Math.cos(p.gamma);
       jet.vel.y = speed * Math.sin(p.gamma);
       jet.vel.z = f.dz * speed * Math.cos(p.gamma);
