@@ -96,7 +96,7 @@ export const classifyGpuRenderer: ClassifyGpuRenderer = (rendererString, vendorS
 
 export const readWebglRendererStrings: ReadWebglRendererStrings = (canvas) => {
   try {
-    const gl = (canvas.getContext('webgl2') as WebGL2RenderingContext | null) ?? (canvas.getContext('webgl') as WebGLRenderingContext | null);
+    const gl = (canvas.getContext('webgl2', { powerPreference: 'high-performance' }) as WebGL2RenderingContext | null) ?? (canvas.getContext('webgl', { powerPreference: 'high-performance' }) as WebGLRenderingContext | null);
     if (gl === null) return { renderer: 'unknown', vendor: 'unknown' };
     const ext = gl.getExtension('WEBGL_debug_renderer_info');
     if (ext === null) return { renderer: 'unknown', vendor: 'unknown' };

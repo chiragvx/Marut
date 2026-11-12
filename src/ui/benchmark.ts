@@ -42,9 +42,9 @@ function buildProgram(gl: GlContext): WebGLProgram | null {
 
 function getGlContext(canvas: HTMLCanvasElement): GlContext | null {
   try {
-    const gl2 = canvas.getContext('webgl2') as WebGL2RenderingContext | null;
+    const gl2 = canvas.getContext('webgl2', { powerPreference: 'high-performance' }) as WebGL2RenderingContext | null;
     if (gl2 !== null) return gl2;
-    const gl1 = canvas.getContext('webgl') as WebGLRenderingContext | null;
+    const gl1 = canvas.getContext('webgl', { powerPreference: 'high-performance' }) as WebGLRenderingContext | null;
     return gl1;
   } catch {
     return null;

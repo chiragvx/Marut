@@ -211,9 +211,14 @@ let masterArm = true;
 const audioBus = createAudioBus();
 const releaseTone = createReleaseTone(audioBus);
 const rwrTones = createRwrTonePlayer(audioBus);
-const voicePlayer = createVoicePlayer(audioBus, import.meta.env.BASE_URL);
+/**
+ * The site's root (where public/ is served): the game page is /play/, and the build's relative
+ * BASE_URL ('./') would resolve against it (/play/audio/... is a 404). As the Tejas model's URL does.
+ */
+const SITE_ROOT = new URL('../', document.baseURI).href;
+const voicePlayer = createVoicePlayer(audioBus, SITE_ROOT);
 /** The scripted missions' radio (src/script): the voice and the subtitles. */
-const radioPlayer = createRadioPlayer(audioBus, import.meta.env.BASE_URL, (tx, ms) => flightOverlay?.showRadio(tx.from, tx.text, !!tx.own, ms));
+const radioPlayer = createRadioPlayer(audioBus, SITE_ROOT, (tx, ms) => flightOverlay?.showRadio(tx.from, tx.text, !!tx.own, ms));
 /** The flying mission's script (src/script), if it has one; the HUD's own steerpoints under its markers. */
 let missionScript: MissionScript | undefined;
 let baseSteerpoints: HudSteerpoint[] = [];
