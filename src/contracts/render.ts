@@ -661,6 +661,8 @@ export interface HudRenderer {
   setWeaponKeys(keys: { target: string; launch: string }): void;
   /** Air-to-ground aiming help (core.ts AimingHelp); defaults to 'cues'. */
   setAimingHelp(level: AimingHelp): void;
+  /** Draw the pitch ladder (horizon) and flight-path marker in the screen's centre; default on. */
+  setCentreHud(show: boolean): void;
   resize(widthPx: number, heightPx: number, devicePixelRatio: number): void;
   setQualityTier(tier: QualityTier): void;
   /** Display unit for the airspeed tape only; defaults to 'ms' (SnapshotHud.IAS_MPS's own wire unit) until called. */

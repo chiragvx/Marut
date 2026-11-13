@@ -52,9 +52,9 @@ describe('release programs', () => {
 describe('decoy flight', () => {
   it('a flare falls and burns out; chaff all but stops in the air', () => {
     const [flare, chaff] = createDecoyPool(2) as [ReturnType<typeof createDecoyPool>[0], ReturnType<typeof createDecoyPool>[0]];
-    const pos = { x: 0, y: 3000, z: 0 }, vel = { x: 250, y: 0, z: 0 }, right = { x: 0, y: 0, z: 1 };
-    launchDecoy(flare, 1, 'flare', 7, pos, vel, right, 1);
-    launchDecoy(chaff, 2, 'chaff', 7, pos, vel, right, -1);
+    const pos = { x: 0, y: 3000, z: 0 }, vel = { x: 250, y: 0, z: 0 }, rot = { x: 0, y: 0, z: 0, w: 1 };
+    launchDecoy(flare, 1, 'flare', 7, pos, vel, rot, 1);
+    launchDecoy(chaff, 2, 'chaff', 7, pos, vel, rot, -1);
     const dt = 1 / 120;
     for (let t = 0; t < 1 / dt; t++) {
       stepDecoy(flare, dt);

@@ -2,7 +2,7 @@
  * src/render/aircraftMaterial.ts — shaders for the aircraft mesh (meshAircraftRenderer.ts).
  *
  * The body shader picks each surface's finish from the model's part code (aircraftModels/
- * meshBuild.ts PART): IAF Mk1A grey with a light radome, gold-tinted canopy glass, heat-tinted
+ * meshBuild.ts PART): IAF Mk1A grey with a light radome, sapphire-tinted canopy glass, heat-tinted
  * nozzle petals and the engine's glow; markings and panel lines come from the livery texture
  * (aircraftModels/tejasLivery.ts), projected by the rest-pose normal. Hostile aircraft are a
  * darker grey with the panel lines only. Lit like the world (sun, sky ambient, cloud and sun shadows, haze), with a semi-gloss
@@ -238,14 +238,21 @@ const FS = /* glsl */ `
       col = vec3(0.16, 0.17, 0.18);
       ks = 0.06;
     } else if (part == 1) {
-      // Canopy glass (gold-tinted): the dark cockpit behind it, sky reflections, a sharp sun glint.
-      float fres = pow(1.0 - max(dot(n, V), 0.0), 4.0);
-      vec3 env = atmSky(reflect(-V, n)) * vec3(1.0, 0.9, 0.62);
-      vec3 inside = vec3(0.035, 0.04, 0.045);
+      // Canopy glass: polished, coated acrylic with a very slight sapphire cast. From outside it
+      // reads as opaque (the dark cockpit behind it, deep blue-black), and what you see is its
+      // reflection: the sky, mirror-sharp, stronger towards grazing angles (Fresnel), the sun as a
+      // sharp glint with a softer sheen round it. The tint is on the glass itself (what comes
+      // through it) and, less, on the reflection (the coating), so it never turns cartoon blue.
+      float ndv = max(dot(n, V), 0.0);
+      float fres = 0.22 + 0.78 * pow(1.0 - ndv, 4.0);
+      vec3 sapphire = vec3(0.84, 0.91, 1.0);
+      vec3 env = atmSky(reflect(-V, n)) * sapphire;
+      vec3 inside = vec3(0.026, 0.034, 0.05);
       col = inside * (uAtmAmbSky + uAtmSunCol * 0.3);
       vec3 L = normalize(uAtmSunDir);
-      float spec = pow(max(dot(n, normalize(L + V)), 0.0), 400.0) * 3.0 * cloudShadow(vWorld);
-      col += env * (0.2 + 0.7 * fres) + uAtmSunCol * spec * vec3(1.0, 0.92, 0.7);
+      float nh = max(dot(n, normalize(L + V)), 0.0);
+      float spec = (pow(nh, 900.0) * 4.0 + pow(nh, 70.0) * 0.18) * cloudShadow(vWorld);
+      col += env * fres + uAtmSunCol * spec * mix(vec3(1.0), sapphire, 0.4);
       gl_FragColor = vec4(atmApply(col, vWorld), 1.0);
       return;
     } else if (part == 5) {

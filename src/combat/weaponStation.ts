@@ -308,7 +308,7 @@ export const fireWeapons: FireWeapons = (
         velWorld,
         profile: gun,
       });
-      outEvents.push({ type: 'gunFire', shooterId, pos: posWorld, dir: { x: _dirWorld.x, y: _dirWorld.y, z: _dirWorld.z } });
+      outEvents.push({ type: 'gunFire', shooterId, pos: posWorld, dir: { x: _dirWorld.x, y: _dirWorld.y, z: _dirWorld.z }, posBody: gunStation.posBodyM });
     }
   }
 

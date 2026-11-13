@@ -11,7 +11,10 @@
  *   over the canopy, heard from the camera; in the cockpit, in the cockpit's own small room;
  * - one-shots from the sim's events: the gun, a store's release thump, a missile's motor, chaff and
  *   flares, the gear's motor and its lock, touchdown, hits on you, and explosions near you (heard
- *   after the sound's travel time).
+ *   after the sound's travel time);
+ * - the sonic boom (src/ui/audio/sonicBoom.ts): from a camera standing still outside (the flyby
+ *   view), a supersonic jet comes in silence, the boom cracks as its Mach cone sweeps over, then
+ *   the roar.
  *
  * `ambienceLevels` (pure, tested) maps the flight state to the air conditioning's and wind's levels.
  */
@@ -19,7 +22,8 @@ import type { SimEvent, Vec3Like } from '../../contracts/core';
 import { AudioChannel, type AudioBus } from './audioBus';
 import { createEngineSoundState, engineVoiceParams, stepEngineSound, type EngineSoundEvents, type EngineVoiceParams } from './engineModel';
 import { createEngineVoice, type EngineVoice } from './engineVoice';
-import { createCockpitRoom, createEmitter, multiplyQuat, rotate, type Airframe, type Emitter, type Listener } from './spatial';
+import { createBoomBuffer, machConeState, soundSpeedAt } from './sonicBoom';
+import { createCockpitRoom, createEmitter, multiplyQuat, rotate, rotateInverse, type Airframe, type Emitter, type Listener } from './spatial';
 import { COCKPIT_EYE_OFFSET_BODY_M, type CameraState } from '../../contracts/render';
 
 export interface AmbienceInputs {
@@ -98,6 +102,14 @@ export function createAmbience(bus: AudioBus): Ambience {
   let gunUntil = 0;
   let live = false;
   const lv: AmbienceLevels = { aircon: 0, wind: 0, windHz: 0 };
+  // The sonic boom: the jet's sound outside goes through `hush` (silent ahead of the Mach cone).
+  let hush: GainNode | null = null;
+  let coneWas: 'subsonic' | 'outside' | 'inside' | null = null;
+  let boomPrevMs = -1;
+  const prevJet = { x: 0, y: 0, z: 0 };
+  const prevEar = { x: 0, y: 0, z: 0 };
+  const jetVel = { x: 0, y: 0, z: 0 };
+  const relBoom = { x: 0, y: 0, z: 0 };
 
   const build = (): typeof loops => {
     const ac = bus.context();
@@ -106,8 +118,10 @@ export function createAmbience(bus: AudioBus): Ambience {
     const noise = bus.noise();
     if (!ac || !amb || !fx || !noise) return null;
     const room = createCockpitRoom(ac, amb);
+    hush = ac.createGain();
+    hush.connect(amb);
     const place = (body: Vec3Like, cone?: Parameters<typeof createEmitter>[4]): AudioNode => {
-      const e = createEmitter(ac, amb, room, body, cone);
+      const e = createEmitter(ac, hush!, room, body, cone);
       emitters.push(e);
       return e.input;
     };
@@ -190,6 +204,61 @@ export function createAmbience(bus: AudioBus): Ambience {
     }
   };
 
+  /** The boom, from the direction of the jet (listener frame x: right), at `distM` from it. */
+  const boom = (distM: number, panX: number): void => {
+    const ac = bus.context();
+    const fx = bus.channel(AudioChannel.Effects);
+    if (!ac || !fx) return;
+    const src = ac.createBufferSource();
+    src.buffer = createBoomBuffer(ac, distM);
+    const g = ac.createGain();
+    // Overpressure falls off as distance^-3/4.
+    g.gain.value = Math.min(1, Math.pow(250 / Math.max(50, distM), 0.75));
+    const pan = ac.createStereoPanner();
+    pan.pan.value = Math.max(-0.6, Math.min(0.6, panX));
+    src.connect(g).connect(pan).connect(fx);
+    src.start();
+  };
+
+  /** The Mach cone against a listener standing still outside: silence ahead of it, the boom as it passes. */
+  const machCone = (nowMs: number, fixedEar: boolean): void => {
+    const ac = bus.context();
+    if (!ac || !hush) return;
+    const dt = (nowMs - boomPrevMs) / 1000;
+    const ok = boomPrevMs >= 0 && dt > 1e-3 && dt < 0.25;
+    let state: typeof coneWas = null;
+    if (ok) {
+      const k = 1 - Math.exp(-dt / 0.1);
+      jetVel.x += ((jet.pos.x - prevJet.x) / dt - jetVel.x) * k;
+      jetVel.y += ((jet.pos.y - prevJet.y) / dt - jetVel.y) * k;
+      jetVel.z += ((jet.pos.z - prevJet.z) / dt - jetVel.z) * k;
+      // Only a listener standing still (the flyby camera): one riding along (chase) or jumping to
+      // a new place (a view change) does not count.
+      const earMove = Math.hypot(listener.pos.x - prevEar.x, listener.pos.y - prevEar.y, listener.pos.z - prevEar.z);
+      if (fixedEar && earMove < 40 * dt + 0.5) {
+        relBoom.x = jet.pos.x - listener.pos.x;
+        relBoom.y = jet.pos.y - listener.pos.y;
+        relBoom.z = jet.pos.z - listener.pos.z;
+        state = machConeState(relBoom, jetVel, soundSpeedAt(jet.pos.y));
+      }
+    } else jetVel.x = jetVel.y = jetVel.z = 0;
+    if (state === 'inside' && coneWas === 'outside') {
+      const dist = Math.hypot(relBoom.x, relBoom.y, relBoom.z);
+      if (dist < 15000) {
+        rotateInverse(listener.rot, relBoom, relBoom);
+        boom(dist, relBoom.x / Math.max(1, dist));
+      }
+    }
+    // Ahead of the cone the jet is not heard yet; once it has passed, its roar comes in.
+    if (state === 'outside') hush.gain.setTargetAtTime(0, ac.currentTime, 0.15);
+    // (A one-frame jump of the flyby camera to its next place keeps what it had.)
+    else if (state !== null || !fixedEar || !ok) hush.gain.setTargetAtTime(1, ac.currentTime, state === 'inside' && coneWas === 'outside' ? 0.12 : 0.05);
+    coneWas = state;
+    boomPrevMs = nowMs;
+    Object.assign(prevJet, jet.pos);
+    Object.assign(prevEar, listener.pos);
+  };
+
   const set = (p: AudioParam, v: number, tc = 0.08): void => {
     const ac = bus.context();
     if (ac) p.setTargetAtTime(v, ac.currentTime, tc);
@@ -268,6 +337,7 @@ export function createAmbience(bus: AudioBus): Ambience {
         Object.assign(listener.rot, cam.worldRot);
       }
       for (const e of emitters) e.place(listener, jet, inside);
+      machCone(performance.now(), !pilotsEars && !inside && !!cam.worldRot);
     },
     silence() {
       if (!loops) return;
@@ -277,6 +347,9 @@ export function createAmbience(bus: AudioBus): Ambience {
       for (const l of Object.values(loops)) set(l.gain.gain, 0, 0.05);
       engine?.silence();
       engineState.initialised = false;
+      coneWas = null;
+      boomPrevMs = -1;
+      if (hush) set(hush.gain, 1, 0.05);
     },
   };
 }

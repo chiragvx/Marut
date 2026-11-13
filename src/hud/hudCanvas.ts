@@ -117,6 +117,8 @@ export const createHudRenderer: CreateHudRenderer = (canvas, initialTier) => {
   let podKeys = { track: 'I', zoom: 'U', laser: 'K', view: 'Y' };
   let weaponKeys = { target: 'T', launch: 'ENTER' };
   let aimingHelp: AimingHelp = AimingHelp.Cues;
+  // The pitch ladder (horizon) and flight-path marker in the middle of the screen.
+  let centreHud = true;
 
   /** Space on the left taken by the on-screen buttons, CSS px. */
   let leftInset = 0;
@@ -204,6 +206,10 @@ export const createHudRenderer: CreateHudRenderer = (canvas, initialTier) => {
       aimingHelp = level;
     },
 
+    setCentreHud(show) {
+      centreHud = show;
+    },
+
     setDebugSurfacesEnabled(enabled) {
       debugSurfacesEnabled = enabled;
     },
@@ -258,7 +264,7 @@ export const createHudRenderer: CreateHudRenderer = (canvas, initialTier) => {
         return;
       }
 
-      drawLadder(ctx, hud, widthPx, heightPx);
+      if (centreHud) drawLadder(ctx, hud, widthPx, heightPx);
       drawSpeedTape(ctx, hud, 50 + leftInset, heightPx * 0.5, heightPx * 0.32, speedUnit);
       drawAltitudeTape(ctx, hud, widthPx - 50, heightPx * 0.5, heightPx * 0.32);
       drawRadarAltitude(ctx, hud, widthPx - 50, heightPx * 0.5);

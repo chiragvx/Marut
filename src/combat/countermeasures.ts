@@ -12,7 +12,7 @@
  * A seduced missile guides on the decoy; when the decoy burns out it has lost its target.
  * Allocation-free in the step functions.
  */
-import type { EntityId, Vec3Like } from '../contracts/core';
+import type { EntityId, QuatLike, Vec3Like } from '../contracts/core';
 
 export type DecoyKind = 'flare' | 'chaff';
 
@@ -51,22 +51,55 @@ export function createDecoyPool(size: number): Decoy[] {
 }
 
 /**
- * Initialises decoy `d` released from an aircraft at `pos`/`vel`, `rightW` its right wing
- * direction, `side` -1 or +1 (the pair goes out either side).
+ * The dispensers: flush in the underside of the rear fuselage either side of the keel, ahead of
+ * the nozzle (body frame, m: +X nose, +Y up, +Z right; `side` -1 port, +1 starboard). The
+ * cartridges fire out of them down and outboard, a little aft.
  */
-export function launchDecoy(d: Decoy, id: EntityId, kind: DecoyKind, ownerId: EntityId, pos: Vec3Like, vel: Vec3Like, rightW: Vec3Like, side: number): void {
+export function dispenserBody(side: number, out: Vec3Like): Vec3Like {
+  out.x = -4.25;
+  out.y = -0.6;
+  out.z = 0.36 * side;
+  return out;
+}
+export function ejectDirBody(side: number, out: Vec3Like): Vec3Like {
+  out.x = -0.17;
+  out.y = -0.83;
+  out.z = 0.53 * side;
+  return out;
+}
+
+/** v rotated by unit quaternion q, into out. */
+function rotateQ(q: QuatLike, v: Vec3Like, out: Vec3Like): Vec3Like {
+  const tx = 2 * (q.y * v.z - q.z * v.y);
+  const ty = 2 * (q.z * v.x - q.x * v.z);
+  const tz = 2 * (q.x * v.y - q.y * v.x);
+  const vx = v.x, vy = v.y, vz = v.z;
+  out.x = vx + q.w * tx + (q.y * tz - q.z * ty);
+  out.y = vy + q.w * ty + (q.z * tx - q.x * tz);
+  out.z = vz + q.w * tz + (q.x * ty - q.y * tx);
+  return out;
+}
+const _b = { x: 0, y: 0, z: 0 };
+const _w = { x: 0, y: 0, z: 0 };
+
+/**
+ * Initialises decoy `d` released from an aircraft at `pos`/`vel` with attitude `rot` (body to
+ * world), out of its `side` dispenser (-1 port, +1 starboard: a pair goes out either side).
+ */
+export function launchDecoy(d: Decoy, id: EntityId, kind: DecoyKind, ownerId: EntityId, pos: Vec3Like, vel: Vec3Like, rot: QuatLike, side: number): void {
   d.active = true;
   d.id = id;
   d.kind = kind;
   d.ownerId = ownerId;
   d.ageSec = 0;
-  d.pos.x = pos.x;
-  d.pos.y = pos.y - 1;
-  d.pos.z = pos.z;
-  const s = EJECT_SPEED_MPS * 0.6 * side;
-  d.vel.x = vel.x + rightW.x * s;
-  d.vel.y = vel.y - EJECT_SPEED_MPS * 0.8 + rightW.y * s;
-  d.vel.z = vel.z + rightW.z * s;
+  rotateQ(rot, dispenserBody(side, _b), _w);
+  d.pos.x = pos.x + _w.x;
+  d.pos.y = pos.y + _w.y;
+  d.pos.z = pos.z + _w.z;
+  rotateQ(rot, ejectDirBody(side, _b), _w);
+  d.vel.x = vel.x + _w.x * EJECT_SPEED_MPS;
+  d.vel.y = vel.y + _w.y * EJECT_SPEED_MPS;
+  d.vel.z = vel.z + _w.z * EJECT_SPEED_MPS;
 }
 
 /** Advances one decoy; returns false once it has burnt out / dispersed (the caller frees it). */

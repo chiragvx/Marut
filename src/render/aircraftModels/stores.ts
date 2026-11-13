@@ -864,9 +864,10 @@ function buildTargetingPod(p: { len: number; dia: number }): THREE.BufferGeometr
   const n2 = new THREE.Vector3(Math.cos(phi2) / a, -Math.sin(phi2) * 0.4 / bR, Math.sin(phi2) * 0.9 / bR).normalize();
   parts.push(cylinder([P2[0] - n2.x * 0.02, P2[1] - n2.y * 0.02, P2[2] - n2.z * 0.02], [P2[0] + n2.x * 0.008, P2[1] + n2.y * 0.008, P2[2] + n2.z * 0.008], 0.035, PART.gunmetal, 16));
   parts.push(disc([P2[0] + n2.x * 0.0085, P2[1] + n2.y * 0.0085, P2[2] + n2.z * 0.0085], [n2.x, n2.y, n2.z], 0.027, PART.seeker, 16));
-  // Pylon adapter: a low saddle on top with two lugs; the cooling scoop under the rear body.
-  parts.push(box([0.1, r + 0.012, 0], [0.42, 0.016, 0.07], PART.podGrey));
-  parts.push(...lug(0.1 + 0.178, r + 0.02, 0.02), ...lug(0.1 - 0.178, r + 0.02, 0.02));
+  // Adapter: a saddle on top that runs up to the intake skin (the pod hangs close under the
+  // intake, its adapter faired against the skin); the cooling scoop under the rear body.
+  parts.push(box([0.1, r + 0.02, 0], [0.46, 0.05, 0.1], PART.podGrey));
+  parts.push(box([0.1, r + 0.046, 0], [0.5, 0.004, 0.12], PART.dark));
   parts.push(box([X(1.55), -r + 0.005, 0], [0.16, 0.03, 0.055], PART.podGrey));
   parts.push(box([X(1.55) + 0.161, -r + 0.003, 0], [0.002, 0.022, 0.045], PART.dark));
   // Panel joints: two thin bands round the body.
@@ -1027,7 +1028,7 @@ export function buildStoreModels(): StoreModels {
       return model;
     }
     const p = PODS[id];
-    if (p) return { kind: 'pod', geometry: id === 'litening' ? buildTargetingPod(p) : buildRocketPod(p), mount: new THREE.Matrix4().makeTranslation(0.1, -(0.04 + p.dia / 2), 0) };
+    if (p) return { kind: 'pod', geometry: id === 'litening' ? buildTargetingPod(p) : buildRocketPod(p), mount: new THREE.Matrix4().makeTranslation(0.1, id === 'litening' ? -(p.dia / 2 + 0.005) : -(0.04 + p.dia / 2), 0) };
     return undefined;
   });
   return { byCode, rail: buildRail(), twinRail: buildTwinRail() };

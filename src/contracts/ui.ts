@@ -237,6 +237,8 @@ export interface SettingsState {
   actionBar?: boolean;
   /** Air-to-ground aiming help on the HUD (contracts/core.ts AimingHelp). Absent = 'cues'. */
   aimingHelp?: AimingHelp;
+  /** The centre HUD (pitch ladder / horizon, flight-path marker) in the outside views. Absent = on. */
+  centreHudOutside?: boolean;
   /** Control rates (multipliers 0.5..1.5). Absent = 1 each. */
   controlRates?: { pitch: number; roll: number; yaw: number };
   /** Camera (Settings -> Controls): look speed and zoom speed multipliers (0.3..3), invert the drag's up/down, chase view re-centre delay s (0 = never). Absent = the defaults. */

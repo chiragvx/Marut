@@ -1284,6 +1284,8 @@ export interface GunFireEvent {
   shooterId: EntityId;
   pos: Vec3Like;
   dir: Vec3Like;
+  /** The muzzle on the shooter's airframe (body frame, m), for an aircraft's gun: the renderer puts the flash there on the jet as drawn. */
+  posBody?: Vec3Like;
 }
 export interface HitEvent {
   type: 'hit';

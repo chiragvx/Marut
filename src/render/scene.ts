@@ -846,9 +846,10 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
           }
         }
 
+        renderer.getDrawingBufferSize(viewSize);
+        effects.setView(viewSize.x, viewSize.y);
         effects.syncFromSnapshot(snapshotBuf, f, origin);
         effects.tick(frameDtSec, origin);
-        renderer.getDrawingBufferSize(viewSize);
         groundEffects.tick(frameDtSec, origin, viewSize.y, camera.fov);
         craters.tick(origin);
         followOrigin(origin);

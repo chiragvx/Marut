@@ -131,7 +131,6 @@ const ARM_MEMORY_EXACT_M = 8000;
 const LASER_SEEKER_RANGE_M = 15000;
 /** Flares and chaff in the air at once, all aircraft together. */
 const MAX_DECOYS = 96;
-const RIGHT_BODY = { x: 0, y: 0, z: 1 };
 
 /** An aircraft type's radar signature and hit ellipsoid (cached). */
 const signatureCache = new Map<string, { radar: RadarSignature; hitEllipsoidBodyM: Vec3Like } | null>();
@@ -204,17 +203,15 @@ export function createCombatAdapter(): CombatPort & CombatPortWithContacts & Com
   let laserSpotCount = 0;
   let autoLaseOwners = new Set<EntityId>();
   let autoLaseNext = new Set<EntityId>();
-  const rightScratch = { x: 0, y: 0, z: 0 };
   const hitRngScratch = { seedState: 0 };
 
   /** Releases `n` decoys of `kind` from `owner` and gives each enemy missile guiding on it a chance to take the bait. */
   function releaseDecoys(kind: 'flare' | 'chaff', n: number, owner: EntityState, rng: { seedState: number }, liveCount: number, ctx: WorldCombatTickContext, eventsOut: EventQueue): void {
-    Quat.rotate(owner.rot, RIGHT_BODY, rightScratch);
     for (let k = 0; k < n; k++) {
       let d: Decoy | undefined;
       for (let i = 0; i < decoys.length; i++) if (!decoys[i]!.active) { d = decoys[i]; break; }
       if (!d) return;
-      launchDecoy(d, DECOY_ID_BASE + (decoySerial++ % DECOY_ID_BASE), kind, owner.id, owner.pos, owner.vel, rightScratch, k % 2 === 0 ? -1 : 1);
+      launchDecoy(d, DECOY_ID_BASE + (decoySerial++ % DECOY_ID_BASE), kind, owner.id, owner.pos, owner.vel, owner.rot, k % 2 === 0 ? -1 : 1);
       eventsOut.push({ type: 'countermeasure', entityId: owner.id, kind, pos: { x: d.pos.x, y: d.pos.y, z: d.pos.z }, vel: { x: d.vel.x, y: d.vel.y, z: d.vel.z } });
       for (let i = 0; i < liveCount; i++) {
         const e = ctx.liveAt(i);

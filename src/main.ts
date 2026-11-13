@@ -130,6 +130,8 @@ interface PersistedSettings {
   actionBar?: boolean;
   /** Bombing aiming help (Settings -> Gameplay); missing = 'cues'. */
   aimingHelp?: AimingHelp;
+  /** Centre HUD (pitch ladder, flight-path marker) in the outside views (Settings -> Gameplay); missing = on. */
+  centreHudOutside?: boolean;
   /** Control rates, multipliers 0.5..1.5 (Settings -> Controls); missing = 1 each. */
   controlRates?: { pitch: number; roll: number; yaw: number };
   /** Camera look / zoom (Settings -> Controls); missing = DEFAULT_CAMERA_SETTINGS. */
@@ -150,6 +152,7 @@ function loadPersistedSettings(): PersistedSettings | undefined {
     if (parsed.weatherEnabled !== undefined && typeof parsed.weatherEnabled !== 'boolean') return undefined;
     if (parsed.weatherMode !== undefined && !(Object.values(WeatherMode) as string[]).includes(parsed.weatherMode)) delete parsed.weatherMode;
     if (parsed.timeOfDayH !== undefined && !(typeof parsed.timeOfDayH === 'number' && parsed.timeOfDayH >= 0 && parsed.timeOfDayH <= 24)) delete parsed.timeOfDayH;
+    if (parsed.centreHudOutside !== undefined && typeof parsed.centreHudOutside !== 'boolean') delete parsed.centreHudOutside;
     if (parsed.aimingHelp !== undefined && !(Object.values(AimingHelp) as string[]).includes(parsed.aimingHelp)) delete parsed.aimingHelp;
     const au = parsed.audio;
     if (au !== undefined && !(typeof au === 'object' && au !== null && [au.master, au.voice, au.tones, au.ambience].every((v) => typeof v === 'number' && v >= 0 && v <= 1))) delete parsed.audio;
@@ -693,6 +696,7 @@ function showSettingsOverlay(): void {
     hintsEnabled: persisted?.hintsEnabled ?? true,
     actionBar: actionBarEnabled,
     aimingHelp: persisted?.aimingHelp ?? AimingHelp.Cues,
+    centreHudOutside,
     controlRates: inputSystem ? inputSystem.getControlRates() : { pitch: 1, roll: 1, yaw: 1 },
     audio: persisted?.audio ?? { ...DEFAULT_AUDIO_VOLUMES },
     camera: { ...cameraSettings },
@@ -708,6 +712,7 @@ function showSettingsOverlay(): void {
         hintsEnabled: next.hintsEnabled ?? true,
         actionBar: next.actionBar ?? true,
         aimingHelp: next.aimingHelp ?? AimingHelp.Cues,
+        centreHudOutside: next.centreHudOutside ?? true,
         ...(next.controlRates ? { controlRates: next.controlRates } : {}),
         ...(next.audio ? { audio: next.audio } : {}),
         ...(next.camera ? { camera: next.camera } : {}),
@@ -727,6 +732,8 @@ function showSettingsOverlay(): void {
       hintsEnabled = next.hintsEnabled ?? true;
       actionBarEnabled = next.actionBar ?? true;
       applyAimingHelp(next.aimingHelp ?? AimingHelp.Cues);
+      centreHudOutside = next.centreHudOutside ?? true;
+      applyCentreHud();
       applyAudioVolumes(next.audio ?? DEFAULT_AUDIO_VOLUMES);
       applyCameraSettings(next.camera ?? DEFAULT_CAMERA_SETTINGS);
       if (next.controlRates) inputSystem?.setControlRates(next.controlRates);
@@ -1712,6 +1719,8 @@ function launchMission(missionIn: Mission, opts: { title: string; airStart: bool
 // Boot sequence (10-core-worker.md section 4.10.2).
 // -----------------------------------------------------------------------------
 
+/** Settings: the centre HUD (horizon, flight-path marker) in the outside views; the HUD view always has it. */
+let centreHudOutside = true;
 async function boot(): Promise<void> {
   startAnalytics();
   uiRoot = document.getElementById('ui-root') as HTMLElement;
@@ -1758,6 +1767,8 @@ async function boot(): Promise<void> {
   applyMouseSettings(inputSystem.inputMap.data.mouse.enabled, persisted?.mouseSensitivity ?? 1, inputSystem.inputMap.data.mouse.invertPitch ?? false);
   hintsEnabled = persisted?.hintsEnabled ?? true;
   applyAimingHelp(persisted?.aimingHelp ?? AimingHelp.Cues);
+  centreHudOutside = persisted?.centreHudOutside ?? true;
+  applyCentreHud();
   applyAudioVolumes(persisted?.audio ?? DEFAULT_AUDIO_VOLUMES);
   applyCameraSettings(persisted?.camera ?? DEFAULT_CAMERA_SETTINGS);
   // Browsers let audio start only after a key press or click.
@@ -2265,6 +2276,9 @@ function updateFlightAudio(view: Float64Array, player: SnapshotEntityView | null
     inCockpit,
   }, dt);
 }
+function applyCentreHud(): void {
+  hud?.setCentreHud(centreHudOutside || (!podView && CAMERA_MODE_CYCLE[cameraModeIndex] === 'cockpit'));
+}
 /** Bombing aiming help: the HUD's cues, and the release tone (off with 'off'). */
 function applyAimingHelp(level: AimingHelp): void {
   hud?.setAimingHelp(level);
@@ -2296,6 +2310,7 @@ function togglePodView(): void {
     const m = CAMERA_MODE_CYCLE[cameraModeIndex]!;
     renderer.setCameraMode(m);
     hud.setOverlayMode(m === 'cockpit3d' ? 'helmet' : 'full');
+    applyCentreHud();
   }
 }
 function cycleRadarRange(dir: 1 | -1): void {
@@ -2313,6 +2328,7 @@ function cycleCameraMode(): void {
   const m = CAMERA_MODE_CYCLE[cameraModeIndex]!;
   renderer.setCameraMode(m);
   hud.setOverlayMode(m === 'cockpit3d' ? 'helmet' : 'full');
+  applyCentreHud();
   if (m === 'cockpit3d') pushCockpitAux();
   else hideCockpitTip();
   flightOverlay?.message(`View: ${CAMERA_MODE_NAMES[m]}`);
