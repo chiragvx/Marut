@@ -253,6 +253,9 @@ const greyed = (a: Rgb, t: number): Rgb => {
 
 const DAY_SUN: Rgb = [1.0, 0.97, 0.9];
 const LOW_SUN: Rgb = [1.0, 0.55, 0.28];
+/** The sun's disc on the horizon (bright, orange; yellow-white once it is a few degrees up). */
+const SUN_DISC_LOW: Rgb = [1.0, 0.62, 0.34];
+const SUN_DISC_HIGH: Rgb = [1.0, 0.97, 0.88];
 const MOON: Rgb = [0.55, 0.66, 0.9];
 const DAY_AMB_SKY: Rgb = [0.44, 0.47, 0.52];
 const DAY_AMB_GROUND: Rgb = [0.3, 0.27, 0.22];
@@ -280,7 +283,10 @@ export function computeSkyLight(sun: Readonly<Dir3>, moon: Readonly<Dir3>, baseZ
 
   // Direct light: the sun (reddening and fading near the horizon) or, once it is well down, the moon.
   const sunI = ss(-1.5, 6, e);
-  const lowSun = 1 - ss(3, 25, e);
+  // Warm, low light: golden through the first twenty degrees.
+  const lowSun = 1 - ss(1, 20, e);
+  // The sky's glow is orange only while the sun is close to the horizon (and after it sets).
+  const lowGlow = 1 - ss(-1, 9, e);
   const night = 1 - ss(-10, -3, e);
   const moonI = night * ss(-1, 10, me);
   const useSun = e > -4.5;
@@ -321,11 +327,11 @@ export function computeSkyLight(sun: Readonly<Dir3>, moon: Readonly<Dir3>, baseZ
   out.glowDir.x = g.x;
   out.glowDir.y = g.y;
   out.glowDir.z = g.z;
-  if (glowSun) scale3(mix3(DAY_GLOW, SUNSET_GLOW, lowSun, out.glow), ss(-11, 0, e) * (0.45 + 0.55 * ss(-4, 6, e)) * (1 - 0.85 * w.deck));
+  if (glowSun) scale3(mix3(DAY_GLOW, SUNSET_GLOW, lowGlow, out.glow), ss(-11, 0, e) * (0.45 + 0.55 * ss(-4, 6, e)) * (1 - 0.85 * w.deck));
   else scale3(mix3(MOON_GLOW, MOON_GLOW, 0, out.glow), moonI * (1 - w.deck));
 
   const clearSky = (1 - w.deck) * (1 - fog);
-  scale3(mix3(DAY_GLOW, LOW_SUN, lowSun, out.sunDisc), Math.min(1, sunI * 4) * clearSky);
+  scale3(mix3(SUN_DISC_HIGH, SUN_DISC_LOW, 1 - ss(0, 7, e), out.sunDisc), Math.min(1, sunI * 4) * clearSky);
   const moonDisc: Rgb = [0.85, 0.87, 0.92];
   scale3(mix3(moonDisc, moonDisc, 0, out.moonDisc), ss(2, 8, -e) * ss(-2, 2, me) * clearSky);
   out.stars = night * clearSky * ss(3, 20, w.visKm);

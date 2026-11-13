@@ -150,17 +150,41 @@ export const ATMOSPHERE_GLSL = /* glsl */ `
     return w;
   }
   vec3 atmInscatter(vec3 dir) {
-    float mu = dot(dir, normalize(uAtmGlowDir));
-    float glow = pow(max(mu, 0.0), 8.0) * 0.55 + pow(max(mu, 0.0), 64.0) * 0.6;
-    // Once the sun has set: a wide band of afterglow low along the horizon beneath it.
-    float sunSet = smoothstep(0.0, -0.08, normalize(uAtmGlowDir).y);
-    if (sunSet > 0.0) {
-      float band = pow(mu * 0.5 + 0.5, 4.0) * exp(-max(dir.y, 0.0) * 9.0);
-      glow = mix(glow, band * 0.9, sunSet);
-    }
+    vec3 g = normalize(uAtmGlowDir);
+    float mu = dot(dir, g);
+    float m = max(mu, 0.0);
+    // How low the glow's source is: 0 with the sun well up (above ~17 deg), 1 at the horizon and below.
+    float low = 1.0 - smoothstep(0.03, 0.3, g.y);
+    // The aureole, close round the sun itself (gone once it is below the horizon).
+    float aureole = (pow(m, mix(64.0, 220.0, low)) * 0.55 + pow(m, 900.0) * 0.6) * smoothstep(-0.05, 0.01, g.y);
+    // High sun: a wide forward-scattering lobe round it.
+    float lobe = pow(m, 8.0) * 0.55;
+    // Low sun: the light runs along the horizon instead, a band widest beneath the sun and thinning
+    // with height above it (a flat ellipse, not a ball round the disc), plus a softer lobe low down.
+    vec2 hd = dir.xz / max(length(dir.xz), 1e-3);
+    vec2 hg = g.xz / max(length(g.xz), 1e-3);
+    float muH = dot(hd, hg);
+    float up = max(dir.y, 0.0);
+    float band = pow(muH * 0.5 + 0.5, 6.0) * exp(-up * 7.0);
+    float lowLobe = pow(m, 12.0) * 0.3 * exp(-up * 3.0);
+    float glow = mix(lobe, band * 0.95 + lowLobe, low) + aureole;
     // Slightly darker and bluer looking away from the sun.
     vec3 base = uAtmHaze * (0.93 + 0.07 * mu);
-    return mix(base, uAtmSunGlow, clamp(glow, 0.0, 1.0));
+    // Low sun: the haze under the band takes the sunset's hue (its own brightness kept), so the
+    // horizon glows orange rather than a pale pink wash over the lavender twilight haze.
+    vec3 hue = uAtmSunGlow / max(max(uAtmSunGlow.r, uAtmSunGlow.g), 1e-3);
+    float lumB = dot(base, vec3(0.3, 0.55, 0.15));
+    base = mix(base, lumB * hue * 1.15, clamp(band * low * 1.4, 0.0, 1.0) * 0.8);
+    // Screen blend: the glow only ever brightens the haze (a dim twilight glow mixed in used to
+    // muddy the horizon brown).
+    vec3 col = 1.0 - (1.0 - base) * (1.0 - clamp(uAtmSunGlow * glow, 0.0, 1.0));
+    // Twilight: the pink anti-twilight arch (Belt of Venus) low over the horizon opposite the sun.
+    float arch = smoothstep(0.12, 0.02, g.y) * smoothstep(-0.14, -0.03, g.y);
+    if (arch > 0.0) {
+      float belt = pow(max(-muH, 0.0), 1.5) * exp(-abs(up - 0.06) * 22.0);
+      col += vec3(0.32, 0.2, 0.24) * belt * arch * (uAtmSunGlow.r + uAtmSunGlow.g) * 0.5;
+    }
+    return col;
   }
   float atmTransmittance(vec3 w) {
     vec3 d = w - uAtmCamPos;

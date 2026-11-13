@@ -16,7 +16,8 @@ export const SKY_HORIZON_COLOR_HEX = 0xbcd4e8;
 export const SKY_GROUND_COLOR_HEX = 0x7a6a52;
 export const SUN_DISC_COLOR_HEX = 0xfff6e0;
 const SKY_DOME_RADIUS_M = 200000;
-const SUN_DISC_RADIUS_M = 1100;
+/** A touch larger than the real 0.53 deg, so it reads on screen (~0.8 deg). */
+const SUN_DISC_RADIUS_M = 1400;
 const SUN_LIGHT_DISTANCE_M = 10000;
 /** Fixed cascade split distance from camera, per 08-render.md section 4.11. */
 const SHADOW_CASCADE_SPLIT_M = 500;
@@ -105,12 +106,13 @@ export function createSkyFogSystem(scene: THREE.Scene): SkyFogSystem {
   scene.add(skyDome);
 
   const sunGeometry = new THREE.SphereGeometry(SUN_DISC_RADIUS_M, 16, 8);
-  const sunMaterial = new THREE.MeshBasicMaterial({ color: SUN_DISC_COLOR_HEX, fog: false });
+  // Added to the sky (never darker than it: a dim disc at twilight used to show as a dark dot).
+  const sunMaterial = new THREE.MeshBasicMaterial({ color: SUN_DISC_COLOR_HEX, fog: false, blending: THREE.AdditiveBlending, transparent: true, depthWrite: false });
   const sunDisc = new THREE.Mesh(sunGeometry, sunMaterial);
   sunDisc.frustumCulled = false;
   scene.add(sunDisc);
 
-  const moonMaterial = new THREE.MeshBasicMaterial({ color: 0xd8dde8, fog: false });
+  const moonMaterial = new THREE.MeshBasicMaterial({ color: 0xd8dde8, fog: false, blending: THREE.AdditiveBlending, transparent: true, depthWrite: false });
   const moonDisc = new THREE.Mesh(sunGeometry, moonMaterial);
   moonDisc.frustumCulled = false;
   moonDisc.visible = false;
