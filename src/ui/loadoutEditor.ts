@@ -17,7 +17,7 @@ import { WEAPONS, FUEL_TANKS } from '../catalog';
 import { loadoutMassKg, loadoutTanks, resolveLoadout, stationChoices, storeName, type LoadoutFit } from '../aircraft/loadout';
 import { mountScreen } from './screenHandle';
 import { button, checkbox, h, menuKeys, shell } from './kit';
-import { hardpointSvg, storeIconSvg, TEJAS_STATIONS } from './hardpointDiagram';
+import { hardpointSvg, storeIconSvg, storeShape, TEJAS_STATIONS } from './hardpointDiagram';
 import type { ScreenHandle } from '../contracts/ui';
 
 /** A preset by id, or a custom fit. */
@@ -97,6 +97,35 @@ function sameFit(a: Fit, b: Fit): boolean {
     if (x.store !== y.store || x.count !== y.count) return false;
   }
   return true;
+}
+
+/** The store a fit is about (what to draw on its tile): its weapon for the ground, else its biggest missile. */
+function signatureStore(fit: Fit): { store: string; count: number } | undefined {
+  const order = ['arm', 'lgb', 'rocket', 'bomb', 'radar', 'ir', 'pod', 'tank'];
+  let best: { store: string; count: number } | undefined;
+  let rank = order.length;
+  for (const f of Object.values(fit)) {
+    if (!f || WEAPONS[f.store]?.kind === 'gun') continue;
+    const r = order.indexOf(storeShape(f.store));
+    if (r >= 0 && r < rank) {
+      rank = r;
+      best = f;
+    }
+  }
+  return best;
+}
+
+/** "4 AAM · 2 LGB · POD · 1 TANK": what a fit carries, by kind. */
+export function briefFit(fit: Fit): string {
+  const names: Record<string, string> = { ir: 'AAM', radar: 'AAM', lgb: 'GUIDED', bomb: 'BOMB', rocket: 'RKT POD', arm: 'ARM', tank: 'TANK', pod: 'POD' };
+  const n = new Map<string, number>();
+  for (const f of Object.values(fit)) {
+    if (!f || WEAPONS[f.store]?.kind === 'gun') continue;
+    const k = names[storeShape(f.store)]!;
+    n.set(k, (n.get(k) ?? 0) + f.count);
+  }
+  if (n.size === 0) return 'Gun only';
+  return [...n].map(([k, c]) => (k === 'POD' ? k : `${c} ${k}`)).join(' · ');
 }
 
 /** The 3D view of the jet with its fit (the hangar), while the editor is open. */
@@ -184,22 +213,30 @@ export function createLoadoutEditor(container: HTMLElement, def: AircraftDefinit
   const s = shell({
     title: 'Loadout',
     eyebrow: def.displayName ?? def.id,
-    sub: 'Pick a mission fit, or pick a station on the drawing and choose what it carries.',
     back: { label: 'Cancel', onClick: () => cb.onCancel() },
     ...(view ? { clear: true } : {}),
   });
   s.root.classList.add('tj-loadout');
   if (view) s.root.classList.add('tj-loadout--3d');
+  // No title or subtitle: the breadcrumb names the screen; the aircraft's name stays as the eyebrow.
+  s.panel.querySelector('.tj-title')?.remove();
 
-  const presetRow = h('div', { className: 'tj-row tj-presets' });
-  const presetButtons = presets.map((p) =>
-    button(p.label, () => {
+  // The mission fits as tiles: the fit's signature store drawn, the role, what it carries in brief.
+  const presetRow = h('div', { className: 'tj-missions', attrs: { role: 'group', 'aria-label': 'Mission fits' } });
+  const presetButtons = presets.map((p) => {
+    const pf = selectionFit(def, { presetId: p.id });
+    const b = h('button', { className: 'tj-mission', attrs: { type: 'button', 'data-preset': p.id, 'aria-pressed': 'false' } });
+    const sig = signatureStore(pf);
+    b.innerHTML = sig ? storeIconSvg(sig.store, sig.count >= 2 ? 2 : 1) : '<svg class="hp-icon" viewBox="0 0 44 34" aria-hidden="true"><circle cx="22" cy="17" r="7" class="hp-empty"/></svg>';
+    b.append(h('span', { className: 'tj-mission-name', text: p.label }), h('span', { className: 'tj-mission-fit', text: briefFit(pf) }));
+    b.addEventListener('click', () => {
       fit = selectionFit(def, { presetId: p.id });
       render();
-    }, 'default', { 'data-preset': p.id })
-  );
-  const customTag = h('span', { className: 'tj-badge', text: 'Custom' });
-  presetRow.append(h('span', { className: 'tj-label', text: 'Mission' }), ...presetButtons, customTag);
+    });
+    return b;
+  });
+  const customTag = h('span', { className: 'tj-mission tj-mission--custom', attrs: { 'aria-hidden': 'true' } }, h('span', { className: 'tj-mission-name', text: 'Custom' }), h('span', { className: 'tj-mission-fit', text: 'Your own fit' }));
+  presetRow.append(...presetButtons, customTag);
 
   const diagram = h('div', { className: 'tj-hardpoints', attrs: { 'data-role': 'hardpoints' } });
   const pickHead = h('div', { className: 'tj-pick-head' });

@@ -6,7 +6,8 @@
  * under the wing, joined to their pylons. Click a pylon or a badge to choose what it carries.
  *
  * Station numbers as the aircraft's: 1/3/5 left wing inner to outer, 2/4/6 right, 7 the centreline,
- * L the targeting pod on the intake. Seen from ahead, so the left wing is on the right.
+ * L the targeting pod on the intake. Seen from ahead, so the left wing is on the right. The airframe
+ * is traced from the Tejas weapon-stations drawing (see `ref` below).
  *
  * Pure: builds SVG markup (`hardpointSvg`, `storeIconSvg`); the editor (loadoutEditor.ts) wires it.
  */
@@ -109,15 +110,58 @@ export function storeIconSvg(id: string, count = 1): string {
 
 const W = 600;
 const CX = W / 2;
-const PX_PER_M = 72;
-const WING_ROOT_Y = 104;
-const WING_TIP_Y = 116;
-/** The wing's underside at x (a slight droop to the tips). */
-const wingBottom = (x: number): number => {
-  const u = Math.min(1, Math.abs(x - CX) / (4.1 * PX_PER_M));
-  return WING_ROOT_Y + 14 + (WING_TIP_Y + 3 - WING_ROOT_Y - 14) * u;
-};
-const BADGE_Y = 214;
+/**
+ * The airframe is traced from the Tejas weapon-stations drawing (Wikimedia Commons, "HAL Tejas
+ * weapon stations", A. Shukla, CC BY-SA 3.0, after tejas.gov.in): its outlines are written below in
+ * that drawing's pixels (centreline x = 490, wingtip x = 120) and mapped onto this one by `ref`.
+ */
+const REF_CX = 490;
+const REF_K = 0.8;
+const refX = (x: number): number => CX + (x - REF_CX) * REF_K;
+const refY = (y: number): number => (y - 8) * REF_K + 4;
+/** A path in the reference drawing's pixels ("x,y" pairs), mapped here; `mirror` for the other side. */
+const ref = (d: string, mirror = false): string =>
+  d.replace(/(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/g, (_, x: string, y: string) => `${refX(mirror ? 2 * REF_CX - Number(x) : Number(x)).toFixed(1)},${refY(Number(y)).toFixed(1)}`);
+/** Span scale: the reference's half-span (370 px) is 4.1 m. */
+const PX_PER_M = (370 * REF_K) / 4.1;
+
+/** One side of the airframe (the left of the drawing: the aircraft's right). */
+const SIDE = [
+  // The wing: the upper surface sweeping up into the fuselage (the blended root), the lower nearly flat.
+  `<path class="hp-wing" d="M457,226 C432,240 408,247 380,251 C330,256 220,259 126,261 Q112,263 126,266 L142,268 C230,268 330,269 404,270 L448,262 L452,236 Z"/>`,
+  `<path class="hp-thin" d="M330,268 C380,265 420,262 448,259"/>`,
+  // The intake: its outer wall, and the D-shaped mouth beside the splitter.
+  `<path d="M404,262 L404,300 C404,322 420,333 440,334 L449,329 L449,258 Z"/>`,
+  `<path class="hp-intake" d="M441,277 C424,277 410,288 410,304 C410,320 424,330 441,330 Z"/>`,
+];
+
+/** The airframe head-on, as SVG. */
+function airframe(): string {
+  const p: string[] = ['<g class="hp-air">'];
+  // The fin: its root fairing, the tapering fin, the tip with its crossbar and the pitot.
+  p.push(ref(`<path d="M476,188 L482,178 L498,178 L504,188 Z"/>`));
+  p.push(ref(`<path class="hp-fin" d="M481,178 L487,36 L493,36 L499,178 Z"/>`));
+  p.push(ref(`<path class="hp-fin" d="M486,37 L488,25 L491,22 L495,30 L494,37 Z"/>`));
+  p.push(ref(`<path class="hp-line" d="M476,31 L506,31 M491,23 L491,9"/>`));
+  for (const s of SIDE) p.push(ref(s), ref(s, true));
+  // The fuselage: the cheeks either side down to the belly, the radome between them.
+  p.push(ref(`<path d="M455,228 C449,236 448,245 448,252 L448,328 C450,334 458,338 468,338 L512,338 C522,338 530,334 532,328 L532,252 C532,245 531,236 525,228 Z"/>`));
+  p.push(`<circle class="hp-radome" cx="${refX(490)}" cy="${refY(293)}" r="${(37 * REF_K).toFixed(1)}"/>`);
+  // The canopy: the dome, its frame arcs, the nose below it.
+  p.push(ref(`<path class="hp-canopy" d="M456,226 C455,200 470,184 490,183 C510,184 525,200 524,226 Z"/>`));
+  p.push(ref(`<path class="hp-thin" d="M459,226 C462,206 476,197 490,197 C504,197 518,206 521,226 M462,228 C465,210 478,202 490,202 C502,202 515,210 518,228"/>`));
+  p.push(ref(`<path d="M459,226 L460,247 C462,253 470,254 480,254 C486,254 488,251 490,251 C492,251 494,254 500,254 C510,254 518,253 520,247 L521,226 Z"/>`));
+  p.push('</g>');
+  return p.join('');
+}
+const AIRFRAME = airframe();
+
+/** Where each station's pylon hangs from (the reference's pixels): under the wing, the belly, the left intake. */
+const WING_UNDER_Y = 269;
+const BELLY_Y = 338;
+const INTAKE_UNDER_Y = 334;
+const INTAKE_X = 2 * REF_CX - 425;
+const BADGE_Y = 326;
 /** Stores drawn larger than life on the drawing (they read better). */
 const SK = 1.45;
 const BADGE_W = 64;
@@ -129,30 +173,14 @@ const BADGE_H = 42;
  */
 export function hardpointSvg(fit: Readonly<Record<string, { store: string; count: number } | undefined>>, selected: string | undefined, have: ReadonlySet<string>): string {
   const sts = TEJAS_STATIONS.filter((s) => have.has(s.id));
-  const parts: string[] = [];
-  // The airframe head-on: wings (thin, drooping a touch), fuselage and radome, intakes, canopy, fin.
-  const tip = 4.1 * PX_PER_M;
-  const wing = (dir: number): string => {
-    const xr = CX + dir * 30;
-    const xt = CX + dir * tip;
-    return `<path d="M${xr} ${WING_ROOT_Y} L${xt} ${WING_TIP_Y} Q${xt + dir * 6} ${WING_TIP_Y + 2} ${xt} ${WING_TIP_Y + 4} L${xr} ${WING_ROOT_Y + 14} Z"/>`;
-  };
-  parts.push(`<g class="hp-air">`);
-  parts.push(`<path class="hp-fin" d="M${CX - 5} 82 L${CX - 2.5} 14 L${CX + 2.5} 14 L${CX + 5} 82 Z"/><line x1="${CX}" y1="14" x2="${CX}" y2="4"/>`);
-  parts.push(wing(-1), wing(1));
-  parts.push(`<path d="M${CX - 18} 90 Q${CX} 64 ${CX + 18} 90 Z" class="hp-canopy"/>`);
-  for (const d of [-1, 1]) {
-    const x = CX + d * 44;
-    parts.push(`<rect x="${x - 15}" y="104" width="30" height="40" rx="11"/><ellipse cx="${x}" cy="125" rx="9.5" ry="13" class="hp-intake"/>`);
-  }
-  parts.push(`<ellipse cx="${CX}" cy="112" rx="30" ry="32"/><circle cx="${CX}" cy="116" r="22" class="hp-radome"/>`);
-  parts.push(`</g>`);
+  const parts: string[] = [AIRFRAME];
   // Pylons, stores, leader lines and badges.
   const step = (W - 40) / Math.max(1, sts.length);
   sts.forEach((st, i) => {
-    const x = Math.round(CX - st.spanM * PX_PER_M * (st.body && st.id === 'intake-pod' ? 0.6 / 0.74 : 1));
-    const top = st.body ? (st.id === 'centreline' ? 144 : 144) : wingBottom(x);
-    const pyl = top + 8;
+    const x = st.id === 'intake-pod' ? Math.round(refX(INTAKE_X)) : Math.round(CX - st.spanM * PX_PER_M);
+    const top = refY(st.id === 'centreline' ? BELLY_Y : st.id === 'intake-pod' ? INTAKE_UNDER_Y : WING_UNDER_Y);
+    const pylH = st.body ? 6 : 10;
+    const pyl = top + pylH;
     const f = fit[st.id];
     const sel = st.id === selected;
     const bx = Math.round(20 + step * (i + 0.5));
@@ -160,8 +188,9 @@ export function hardpointSvg(fit: Readonly<Record<string, { store: string; count
     parts.push(`<g class="${cls}" data-station="${st.id}" tabindex="0" role="button" aria-label="Station ${st.num}, ${st.label}: ${f ? storeShort(f.store) : 'empty'}">`);
     // Hit area round the pylon and its store.
     parts.push(`<rect class="hp-hit" x="${x - 18}" y="${top - 4}" width="36" height="${BADGE_Y - top + 4}"/>`);
-    parts.push(`<rect class="hp-pylon" x="${x - 3}" y="${top}" width="6" height="8" rx="1"/>`);
-    let storeY = pyl + 8;
+    // The pylon: a short open-topped bracket, as drawn on the reference.
+    parts.push(`<path class="hp-pylon" d="M${x - 4} ${top} L${x - 4} ${pyl} L${x + 4} ${pyl} L${x + 4} ${top}"/>`);
+    let storeY = pyl + 6;
     if (f) {
       const shape = storeShape(f.store);
       const r = (shape === 'tank' ? 12 : shape === 'rocket' ? 8.5 : shape === 'bomb' || shape === 'lgb' ? 7 : 5) * SK;
@@ -173,7 +202,7 @@ export function hardpointSvg(fit: Readonly<Record<string, { store: string; count
       } else parts.push(storeGlyph(shape, x, storeY, SK));
       storeY += r + 2;
     }
-    parts.push(`<path class="hp-lead" d="M${x} ${storeY + 2} L${x} ${BADGE_Y - 18} L${bx} ${BADGE_Y - 6} L${bx} ${BADGE_Y}"/>`);
+    parts.push(`<path class="hp-lead" d="M${x} ${storeY + 2} L${x} ${Math.max(storeY + 4, BADGE_Y - 18)} L${bx} ${BADGE_Y - 6} L${bx} ${BADGE_Y}"/>`);
     parts.push(`<rect class="hp-badge" x="${bx - BADGE_W / 2}" y="${BADGE_Y}" width="${BADGE_W}" height="${BADGE_H}" rx="2"/>`);
     parts.push(`<text class="hp-num" x="${bx}" y="${BADGE_Y + 16}">${st.num}</text>`);
     parts.push(`<text class="hp-what" x="${bx}" y="${BADGE_Y + 34}">${f ? `${f.count >= 2 ? '2× ' : ''}${storeShort(f.store)}` : '—'}</text>`);
