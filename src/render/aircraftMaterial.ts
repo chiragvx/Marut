@@ -132,7 +132,7 @@ const FS = /* glsl */ `
     vec3 vh = vec3(vViewL.x, 0.0, vViewL.z);
     float h = length(vh);
     float inArc = h < 1e-4 * length(vViewL) ? 1.0 : smoothstep(cosHalf - 0.06, cosHalf + 0.04, dot(vh / h, axis));
-    return max(inArc, smoothstep(0.85, 0.97, abs(normalize(vViewL).y)));
+    return max(inArc, smoothstep(0.45, 0.8, abs(normalize(vViewL).y)));
   }
   // Inside the triangle abc (soft-edged over a few mm): 0..1.
   float triMask(vec2 p, vec2 a, vec2 b, vec2 c) {
@@ -373,10 +373,10 @@ const FS = /* glsl */ `
     vec3 lamps = vec3(0.0);
     if (uLightState.x + uLightState.y > 0.0) {
       vec3 nb = normalize(vNormalL);
-      float navK = uLightState.x * (0.05 + 1.4 * uAtmLights);
-      lamps += lampLight(uLampNavL, vPos, nb, vec3(1.0, 0.1, 0.06) * navK, 0.45);
-      lamps += lampLight(uLampNavR, vPos, nb, vec3(0.08, 1.0, 0.3) * navK, 0.45);
-      lamps += lampLight(uLampTail, vPos, nb, vec3(1.0, 0.97, 0.9) * navK * 0.7, 0.35);
+      float navK = uLightState.x * (0.08 + 3.5 * uAtmLights);
+      lamps += lampLight(uLampNavL, vPos, nb, vec3(1.0, 0.1, 0.06) * navK, 0.8);
+      lamps += lampLight(uLampNavR, vPos, nb, vec3(0.08, 1.0, 0.3) * navK, 0.8);
+      lamps += lampLight(uLampTail, vPos, nb, vec3(1.0, 0.97, 0.9) * navK * 0.7, 0.6);
       float strobeK = uLightState.y * (1.2 + 5.0 * uAtmLights);
       lamps += lampLight(uLampStrobeL, vPos, nb, vec3(1.0, 0.98, 0.95) * strobeK, 1.1);
       lamps += lampLight(uLampStrobeR, vPos, nb, vec3(1.0, 0.98, 0.95) * strobeK, 1.1);

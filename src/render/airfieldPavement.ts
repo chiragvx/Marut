@@ -18,6 +18,7 @@ import * as THREE from 'three';
 import type { Vec3Like } from '../contracts/core';
 import type { PavementGeometry } from '../airport/pavementGeometry';
 import { ATMOSPHERE_GLSL, getAtmosphereUniforms } from './atmosphere';
+import { GROUND_LAMPS_GLSL, getGroundLampUniforms } from './groundLamps';
 import { CLOUD_SHADOW_GLSL, getCloudShadowUniforms } from './clouds';
 import { SUN_SHADOW_GLSL, getSunShadowUniforms } from './sunShadows';
 import { DETAIL_GLSL, getDetailTexture } from './detailTextures';
@@ -76,6 +77,7 @@ const VS = /* glsl */ `
 const FS = /* glsl */ `
   precision highp float;
   ${ATMOSPHERE_GLSL}
+  ${GROUND_LAMPS_GLSL}
   uniform vec3 uSunDir;
   ${CLOUD_SHADOW_GLSL}
   ${SUN_SHADOW_GLSL}
@@ -275,7 +277,7 @@ const FS = /* glsl */ `
       col = yellow * (1.0 - 0.3 * uAtmWet);
       vec3 L = normalize(uSunDir);
       float diff = max(L.y, 0.0) * cloudShadow(vWorld) * sunShadow(vWorld, L.y);
-      col *= uAtmAmbSky * 0.9 + uAtmAmbGround * 0.1 + uAtmSunCol * diff;
+      col *= uAtmAmbSky * 0.9 + uAtmAmbGround * 0.1 + uAtmSunCol * diff + groundLamps(vWorld, vec3(0.0, 1.0, 0.0));
       gl_FragColor = vec4(atmApply(col, vWorld), cover);
       return;
     } else if (kind == 2) {
@@ -322,7 +324,7 @@ const FS = /* glsl */ `
     vec3 n = vec3(0.0, 1.0, 0.0);
     vec3 L = normalize(uSunDir);
     float diff = max(L.y, 0.0) * cloudShadow(vWorld) * sunShadow(vWorld, L.y);
-    col *= uAtmAmbSky * 0.9 + uAtmAmbGround * 0.1 + uAtmSunCol * diff;
+    col *= uAtmAmbSky * 0.9 + uAtmAmbGround * 0.1 + uAtmSunCol * diff + groundLamps(vWorld, vec3(0.0, 1.0, 0.0));
     gl_FragColor = vec4(atmApply(col, vWorld), 1.0);
   }
 `;
@@ -342,6 +344,7 @@ export function createAirfieldPavement(root: THREE.Object3D): AirfieldPavement {
   const mat = new THREE.ShaderMaterial({
     uniforms: {
       ...getAtmosphereUniforms(),
+      ...getGroundLampUniforms(),
       ...getCloudShadowUniforms(),
       ...getSunShadowUniforms(),
       uDetail: { value: getDetailTexture() },

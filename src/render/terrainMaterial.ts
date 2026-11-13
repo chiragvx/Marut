@@ -37,6 +37,7 @@ import type { SceneEnvironment } from '../contracts/render';
 import { DETAIL_GLSL, getDetailTexture } from './detailTextures';
 import { CLOUD_SHADOW_GLSL, getCloudShadowUniforms } from './clouds';
 import { ATMOSPHERE_GLSL, getAtmosphereUniforms } from './atmosphere';
+import { GROUND_LAMPS_GLSL, getGroundLampUniforms } from './groundLamps';
 import { SUN_SHADOW_GLSL, getSunShadowUniforms } from './sunShadows';
 import { MAX_RIVERS, RIVER_FLOATS, RIVER_GLSL } from '../terrain/riverMath';
 import { ESTUARY_FLOATS, ESTUARY_GLSL, MAX_ESTUARIES } from '../terrain/coastMath';
@@ -167,6 +168,7 @@ const FRAGMENT_SHADER = /* glsl */ `
   }
   ${CLOUD_SHADOW_GLSL}
   ${ATMOSPHERE_GLSL}
+  ${GROUND_LAMPS_GLSL}
   ${SUN_SHADOW_GLSL}
   ${RIVER_GLSL}
   ${ESTUARY_GLSL}
@@ -601,7 +603,8 @@ const FRAGMENT_SHADER = /* glsl */ `
       float sunVis = cloudShadow(wWater) * sunShadow(wWater, ndlGeom);
       float diff = max(dot(n, L), 0.0) * shadow * sunVis;
       vec3 ambient = mix(uAtmAmbGround, uAtmAmbSky, 0.5 + 0.5 * n.y);
-      col *= ambient * occ + uAtmSunCol * diff * mix(1.0, occ, 0.35);
+      // (+ aircraft lamps near the ground: navigation lights, the landing light.)
+      col *= ambient * occ + uAtmSunCol * diff * mix(1.0, occ, 0.35) + groundLamps(vWorld, n);
       col += gTownGlowCol * gTownGlow * uAtmLights;
       if (riverWater > 0.0) col = mix(col, waterShade(vWorld, vRel, px, clamp(rv.x * 0.03, 0.0, 6.0), 1e9, 0.0, sunVis), riverWater);
       if (coastWater > 0.0) {
@@ -650,6 +653,7 @@ export function createTerrainMaterial(): THREE.ShaderMaterial {
       uEstuaryCount: { value: 0 },
       ...getCloudShadowUniforms(),
       ...getAtmosphereUniforms(),
+      ...getGroundLampUniforms(),
       ...getSunShadowUniforms(),
       uShore: { value: Array.from({ length: COAST_VEC4S }, () => new THREE.Vector4()) },
       uHead: { value: Array.from({ length: COAST_VEC4S }, () => new THREE.Vector4()) },

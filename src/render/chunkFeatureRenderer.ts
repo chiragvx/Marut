@@ -59,7 +59,7 @@ const TOWN_LIGHT_VS = /* glsl */ `
     vec2 toCam = normalize(uAtmCamPos.xz - base.xz + vec2(1e-3, 0.0));
     vec3 w = base + vec3(toCam.x * wid * 0.6, min(hgt * 0.45, 3.5), toCam.y * wid * 0.6);
     vCol = (h < 0.55 ? vec3(1.0, 0.66, 0.3) : vec3(0.82, 0.88, 1.0)) * 1.7 * fade;
-    gl_Position = lightSprite(w, 1.2, 2.1);
+    gl_Position = lightSprite(w, 0.8, 1.4);
   }
 `;
 

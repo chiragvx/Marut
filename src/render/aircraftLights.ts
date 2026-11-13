@@ -1,25 +1,26 @@
 /**
  * src/render/aircraftLights.ts — what the aircraft's exterior lights throw into the scene, beyond
  * the lit lamp surfaces themselves (aircraftMaterial.ts):
- * - a point of light at every lit lamp (navigation, strobe flashes, landing light): a hot core the
- *   size of the lens with a screen-space halo, shown only inside the lamp's arc (navigation lights'
- *   sectors, the landing light's beam), fading with distance and haze; a distant aircraft at night
- *   is still a point of light;
- * - the landing light's beam, a soft additive cone ahead of the nose gear;
- * - where that beam meets the ground (the player's aircraft, whose ground height is known), a
- *   pool of light on the runway.
+ * - a point of light at every lit lamp (navigation, strobe flashes, landing light): a crisp disc
+ *   the size of the lens, with no glow or halo round it, shown only inside the lamp's arc
+ *   (navigation lights' sectors, the landing light's beam), fading with distance and haze; a
+ *   distant aircraft at night is still a point of light;
+ * - the light the lamps throw on the ground (the player's aircraft, whose ground height is known):
+ *   the navigation lights and the landing light are handed to the terrain and pavement shaders as
+ *   real lights (groundLamps.ts), so the concrete is lit, not overlaid. (The landing light's beam
+ *   itself is not drawn: in clear air it is invisible; only what it lights shows.)
  * Strobes flash a double pulse every 1.2 s, each aircraft at its own phase. By day the steady
  * lights are faint and the strobes still show; at night everything is bright.
- * One Points draw for every glow; the beams and pools are pooled meshes.
+ * One Points draw for every lamp.
  */
 import * as THREE from 'three';
 import { EntityFlag } from '../contracts/core';
 import { ATMOSPHERE_GLSL, getAtmosphereUniforms } from './atmosphere';
 import type { AircraftSharedUniforms } from './aircraftMaterial';
+import { MAX_GROUND_LAMPS, getGroundLampUniforms } from './groundLamps';
 
 const MAX_GLOWS = 512;
-const MAX_BEAMS = 16;
-const BEAM_LENGTH_M = 70;
+/** Landing light beam: half-angle of its bright core, rad. */
 const BEAM_HALF_ANGLE_RAD = 0.16;
 const STROBE_PERIOD_SEC = 1.2;
 
@@ -29,12 +30,11 @@ export function strobeFlash(tSec: number, phaseSec: number): number {
   return p < 0.05 || (p > 0.16 && p < 0.21) ? 1 : 0;
 }
 
-// A lamp seen from outside: a tiny hot core the size of its lens (never under ~1.5 px, so a
-// distant aircraft at night is still a point of light), and a halo sized in screen pixels (the
-// eye's / lens's scatter round a bright source, not a ball of light in the air): small by day,
-// wider at night and while a strobe fires. Brightness falls with distance (a point source) and with
-// the haze; directional lamps (navigation lights: their sector, the landing light: its beam) fade
-// outside their arc.
+// A lamp seen from outside: an evenly lit disc the size of its lens (never under ~1.5 px, so a
+// distant aircraft at night is still a point of light), with a one-pixel anti-aliased rim and no
+// glow round it. Brightness falls with distance (a point source) and with the haze; directional
+// lamps (navigation lights: their sector, the landing light: its beam) fade outside their arc. A
+// lamp brighter than the display can show burns towards white at its centre, as a real one does.
 const GLOW_VS = /* glsl */ `
   ${ATMOSPHERE_GLSL}
   attribute vec3 aColor;
@@ -44,15 +44,18 @@ const GLOW_VS = /* glsl */ `
   attribute vec3 aUp;  // for a horizontal sector (navigation lights): the airframe's up; zero for a cone
   uniform vec3 uOrigin;
   uniform float uPxScale;
-  uniform float uNight;
   varying vec3 vColor;
   varying float vIntensity;
-  varying float vCorePx;
-  varying float vHaloPx;
+  varying float vRadPx;
   varying float vPointPx;
   void main() {
     vec4 mv = modelViewMatrix * vec4(position, 1.0);
     float dist = max(0.1, -mv.z);
+    // Up close the lit lens itself (aircraftMaterial.ts) is the light; the point takes over only
+    // further out, where the lens shrinks under a few pixels. There it is drawn a little towards
+    // the eye (a fraction of a pixel) so the fairing round the lens never hides it.
+    float nearFade = smoothstep(12.0, 35.0, dist);
+    mv.xyz += normalize(-mv.xyz) * min(0.004 * dist, 0.5);
     float arc = 1.0;
     if (aDir.w > -1.5) {
       vec3 toCam = normalize(uAtmCamPos - (position + uOrigin));
@@ -60,18 +63,17 @@ const GLOW_VS = /* glsl */ `
       if (dot(aUp, aUp) > 0.5) {
         // A sector: the bearing round the airframe's up axis decides; from above or below, every lamp shows.
         float u = dot(toCam, aUp);
-        steep = smoothstep(0.85, 0.97, abs(u));
+        steep = smoothstep(0.45, 0.8, abs(u));
         toCam = normalize(toCam - aUp * u + aDir.xyz * 1e-4);
       }
       arc = max(smoothstep(aDir.w - 0.06, aDir.w + 0.04, dot(toCam, aDir.xyz)), steep);
     }
-    // Point-source falloff past ~300 m (closer, the eye sees the lens itself rather than a point).
-    float far = 1.0 / (1.0 + pow(dist / 300.0, 2.0) * 0.6);
-    float I = aIntensity * arc * far * atmTransmittance(position + uOrigin);
-    vCorePx = max(1.5, aSize * uPxScale / dist);
-    // (Kept tight even for a strobe at night: a wide halo reads as a ball of light, not a lamp.)
-    vHaloPx = vCorePx + (2.0 + 7.0 * uNight) * sqrt(max(I, 0.0));
-    vPointPx = clamp(2.0 * (vCorePx + 2.5 * vHaloPx), 3.0, 128.0);
+    // Once the lens is under a pixel or two the eye sees a point whose brightness, not size, falls
+    // with distance; gently, so a nav light at night still reads several km out.
+    float far = 1.0 / (1.0 + pow(dist / 2500.0, 2.0));
+    float I = aIntensity * arc * far * nearFade * atmTransmittance(position + uOrigin);
+    vRadPx = 0.5 * max(2.0, aSize * uPxScale / dist);
+    vPointPx = clamp(2.0 * vRadPx + 2.0, 3.0, 128.0);
     gl_PointSize = I > 0.003 ? vPointPx : 0.0;
     vColor = aColor;
     vIntensity = I;
@@ -83,79 +85,15 @@ const GLOW_FS = /* glsl */ `
   precision highp float;
   varying vec3 vColor;
   varying float vIntensity;
-  varying float vCorePx;
-  varying float vHaloPx;
+  varying float vRadPx;
   varying float vPointPx;
   void main() {
     float r = length(gl_PointCoord - 0.5) * vPointPx; // px from the centre
-    float rc = r / vCorePx;
-    float core = exp(-rc * rc * 2.2);
-    // (Faded to nothing at the sprite's edge: a clipped halo shows as a square.)
-    float halo = exp(-r / (0.45 * vHaloPx)) * 0.22 * (1.0 - smoothstep(0.6, 1.0, r / (0.5 * vPointPx)));
-    // A white-hot centre, the lamp's colour round it.
-    vec3 c = mix(vColor, vec3(1.0), core * 0.55) * (core * 1.6 + halo);
-    gl_FragColor = vec4(c * vIntensity, 1.0);
-  }
-`;
-
-const BEAM_VS = /* glsl */ `
-  ${ATMOSPHERE_GLSL}
-  attribute float aU;
-  uniform vec3 uOrigin;
-  varying float vU;
-  varying vec3 vWorld;
-  varying vec3 vNormalW;
-  void main() {
-    vec4 w = modelMatrix * vec4(position, 1.0);
-    vWorld = w.xyz + uOrigin;
-    vNormalW = normalize(mat3(modelMatrix) * normal);
-    vU = aU;
-    gl_Position = projectionMatrix * viewMatrix * w;
-  }
-`;
-
-const BEAM_FS = /* glsl */ `
-  precision highp float;
-  ${ATMOSPHERE_GLSL}
-  uniform float uIntensity;
-  varying float vU;
-  varying vec3 vWorld;
-  varying vec3 vNormalW;
-  void main() {
-    vec3 V = normalize(uAtmCamPos - vWorld);
-    // Faint haze lit by the beam: brightest near the lamp, fading along it and towards its edges.
-    float edge = pow(abs(dot(normalize(vNormalW), V)), 2.5);
-    // max(): interpolation can take vU a hair past 1 at the open end, and pow() of a negative
-    // number is NaN (drawn as a dotted black ring where the beam ends).
-    float k = pow(max(1.0 - vU, 0.0), 2.5) * edge * uIntensity;
-    gl_FragColor = vec4(vec3(1.0, 0.94, 0.82) * k * 0.06 * atmTransmittance(vWorld), 1.0);
-  }
-`;
-
-// The pool starts where the beam's centre meets the ground (v = 0) and runs ahead (v = 1 at
-// uLengthM): it widens with distance and dims with the square of it.
-const POOL_FS = /* glsl */ `
-  precision highp float;
-  uniform float uIntensity;
-  uniform float uLengthM;
-  uniform float uNearM;
-  varying vec2 vUv;
-  void main() {
-    float v = vUv.y;
-    float halfWidth = 0.2 + 0.8 * v;
-    float lat = abs(vUv.x - 0.5) * 2.0 / halfWidth;
-    float across = exp(-lat * lat * 2.5) * (1.0 - smoothstep(0.75, 1.0, lat));
-    float d = uNearM + v * uLengthM;
-    float along = smoothstep(0.0, 0.08, v) * (uNearM * uNearM + 400.0) / (d * d + 400.0);
-    gl_FragColor = vec4(vec3(1.0, 0.93, 0.8) * across * along * uIntensity, 1.0);
-  }
-`;
-
-const POOL_VS = /* glsl */ `
-  varying vec2 vUv;
-  void main() {
-    vUv = uv;
-    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    float cov = clamp(vRadPx + 0.5 - r, 0.0, 1.0);
+    if (cov <= 0.0) discard;
+    // The lamp's own colour; an over-bright lamp (strobe, landing light head-on) burns white.
+    vec3 c = mix(vColor, vec3(1.0), smoothstep(1.0, 4.0, vIntensity) * 0.7);
+    gl_FragColor = vec4(c * min(vIntensity, 1.6) * cov, 1.0);
   }
 `;
 
@@ -196,8 +134,6 @@ export interface AircraftLights {
 
 const tmpV = new THREE.Vector3();
 const tmpD = new THREE.Vector3();
-const tmpM = new THREE.Matrix4();
-const tmpQ = new THREE.Quaternion();
 const tmpA = new THREE.Vector3();
 const tmpUp = new THREE.Vector3();
 /** Navigation light arcs: red/green from ahead to 110 deg to the side (axis 55 deg off the nose,
@@ -206,7 +142,6 @@ const NAV_ARC_X = Math.cos((55 * Math.PI) / 180);
 const NAV_ARC_Z = Math.sin((55 * Math.PI) / 180);
 const NAV_ARC_COS = Math.cos((60 * Math.PI) / 180);
 const TAIL_ARC_COS = Math.cos((72 * Math.PI) / 180);
-const X_AXIS = new THREE.Vector3(1, 0, 0);
 
 export function createAircraftLights(root: THREE.Object3D, lights: LightLayout, shared: AircraftSharedUniforms): AircraftLights {
   const atm = getAtmosphereUniforms();
@@ -232,7 +167,7 @@ export function createAircraftLights(root: THREE.Object3D, lights: LightLayout, 
   glowGeom.setAttribute('aDir', dirAttr);
   glowGeom.setAttribute('aUp', upAttr);
   const glowMat = new THREE.ShaderMaterial({
-    uniforms: { ...atm, ...shared, uPxScale: { value: 500 }, uNight: { value: 0 } },
+    uniforms: { ...atm, ...shared, uPxScale: { value: 500 } },
     vertexShader: GLOW_VS,
     fragmentShader: GLOW_FS,
     transparent: true,
@@ -245,42 +180,23 @@ export function createAircraftLights(root: THREE.Object3D, lights: LightLayout, 
   root.add(glows);
   let n = 0;
 
-  // Beams and ground pools.
-  const beamGeom = (() => {
-    const g = new THREE.ConeGeometry(Math.tan(BEAM_HALF_ANGLE_RAD) * BEAM_LENGTH_M, BEAM_LENGTH_M, 24, 8, true);
-    // Cone along +y with its apex at +L/2: make the apex the origin and point it along +x.
-    g.translate(0, -BEAM_LENGTH_M / 2, 0);
-    g.rotateZ(Math.PI / 2);
-    const p = g.getAttribute('position');
-    const u = new Float32Array(p.count);
-    for (let i = 0; i < p.count; i++) u[i] = Math.min(1, Math.max(0, p.getX(i) / BEAM_LENGTH_M));
-    g.setAttribute('aU', new THREE.BufferAttribute(u, 1));
-    return g;
-  })();
-  // Unit plane on the ground, from z = 0 (near edge, at the aim point) to z = 1 (far edge).
-  const poolGeom = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2).translate(0, 0, 0.5);
-  const beams: { beam: THREE.Mesh; beamMat: THREE.ShaderMaterial; pool: THREE.Mesh; poolMat: THREE.ShaderMaterial }[] = [];
-  let beamN = 0;
-  function nextBeam(): (typeof beams)[number] | undefined {
-    if (beamN >= MAX_BEAMS) return undefined;
-    let b = beams[beamN];
-    if (!b) {
-      const beamMat = new THREE.ShaderMaterial({ uniforms: { ...atm, ...shared, uIntensity: { value: 0 } }, vertexShader: BEAM_VS, fragmentShader: BEAM_FS, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide });
-      const poolMat = new THREE.ShaderMaterial({ uniforms: { uIntensity: { value: 0 }, uLengthM: { value: 100 }, uNearM: { value: 10 } }, vertexShader: POOL_VS, fragmentShader: POOL_FS, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 });
-      const beam = new THREE.Mesh(beamGeom, beamMat);
-      const pool = new THREE.Mesh(poolGeom, poolMat);
-      for (const m of [beam, pool]) {
-        m.matrixAutoUpdate = false;
-        m.frustumCulled = false;
-        m.renderOrder = 2;
-        m.visible = false;
-        root.add(m);
-      }
-      b = { beam, beamMat, pool, poolMat };
-      beams.push(b);
-    }
-    beamN++;
-    return b;
+  // Lamps lighting the ground (groundLamps.ts), world coordinates.
+  const gl = getGroundLampUniforms();
+  let lampN = 0;
+  const origin = shared.uOrigin.value;
+  /** A lamp on the ground shader: render-space position, colour x intensity; a spot (axis, cos of
+   *  its half-angle) or a horizontal sector (axis, cos of its half-angle). */
+  function groundLamp(p: THREE.Vector3, r: number, g: number, b: number, intensity: number, spotAxis?: THREE.Vector3, spotCos = -2, sectorAxis?: THREE.Vector3, sectorCos = -2): void {
+    if (lampN >= MAX_GROUND_LAMPS || intensity <= 0) return;
+    gl.uGLampPos.value[lampN]!.set(p.x + origin.x, p.y + origin.y, p.z + origin.z, intensity);
+    gl.uGLampCol.value[lampN]!.set(r, g, b, spotAxis ? spotCos : -2);
+    const d = gl.uGLampDir.value[lampN]!;
+    if (spotAxis) d.set(spotAxis.x, spotAxis.y, spotAxis.z, -2);
+    else if (sectorAxis) {
+      const h = Math.hypot(sectorAxis.x, sectorAxis.z) || 1;
+      d.set(sectorAxis.x / h, 0, sectorAxis.z / h, sectorCos);
+    } else d.set(0, 0, 0, -2);
+    lampN++;
   }
 
   /** A lamp at p (render space): colour, lens size (m), intensity, and its arc (axis + cos of the
@@ -316,10 +232,9 @@ export function createAircraftLights(root: THREE.Object3D, lights: LightLayout, 
 
     begin(timeSec) {
       n = 0;
-      beamN = 0;
+      lampN = 0;
       time = timeSec;
       night = Math.min(1, Math.max(0, atm.uAtmLights.value));
-      (glowMat.uniforms['uNight'] as { value: number }).value = night;
     },
 
     add(a) {
@@ -334,6 +249,17 @@ export function createAircraftLights(root: THREE.Object3D, lights: LightLayout, 
         glow(at(a.airframe, lights.navLeft), 1.0, 0.1, 0.06, 0.09, steady, ax(NAV_ARC_X, 0, -NAV_ARC_Z), NAV_ARC_COS, upAx);
         glow(at(a.airframe, lights.navRight), 0.1, 1.0, 0.32, 0.09, steady, ax(NAV_ARC_X, 0, NAV_ARC_Z), NAV_ARC_COS, upAx);
         glow(at(a.airframe, lights.navTail), 1.0, 1.0, 0.95, 0.07, steady * 0.8, ax(-1, 0, 0), TAIL_ARC_COS, upAx);
+        if (a.groundY !== undefined && night > 0.05) {
+          // Near the ground at night the wingtip and tail lights light the concrete round them.
+          const k = 8.0 * night;
+          const lit = (p: THREE.Vector3): boolean => p.y - a.groundY! < 30;
+          let p = at(a.airframe, lights.navLeft);
+          if (lit(p)) groundLamp(p, 1.0, 0.1, 0.06, k, undefined, -2, ax(NAV_ARC_X, 0, -NAV_ARC_Z), NAV_ARC_COS);
+          p = at(a.airframe, lights.navRight);
+          if (lit(p)) groundLamp(p, 0.08, 1.0, 0.3, k, undefined, -2, ax(NAV_ARC_X, 0, NAV_ARC_Z), NAV_ARC_COS);
+          p = at(a.airframe, lights.navTail);
+          if (lit(p)) groundLamp(p, 1.0, 0.97, 0.9, k * 0.6, undefined, -2, ax(-1, 0, 0), TAIL_ARC_COS);
+        }
       }
       if (f & EntityFlag.LightsFormation && lights.formation && night > 0.05) {
         // Formation strips: a faint green glimmer at night, seen only from the strip's side, so a
@@ -356,38 +282,16 @@ export function createAircraftLights(root: THREE.Object3D, lights: LightLayout, 
         // Dazzling looking into the beam, just the lens from the side.
         glow(lamp, 1.0, 0.96, 0.88, 0.1, 2.0 + 3.0 * night, tmpA, Math.cos(0.5));
         glow(lamp, 1.0, 0.96, 0.88, 0.1, 0.15 + 0.5 * night);
-        const b = nextBeam();
-        if (b) {
-          // Beam frame: apex at the lamp, +x along the light's direction.
-          tmpD.set(lights.landingDir[0]!, lights.landingDir[1]!, lights.landingDir[2]!).transformDirection(a.landingPart);
-          tmpQ.setFromUnitVectors(X_AXIS, tmpD);
-          b.beam.matrix.compose(lamp, tmpQ, tmpV.set(1, 1, 1));
-          b.beam.matrixWorldNeedsUpdate = true;
-          b.beam.visible = true;
-          (b.beamMat.uniforms['uIntensity'] as { value: number }).value = 0.08 + 0.9 * night;
-          // Pool where the beam's centre meets the ground.
-          b.pool.visible = false;
-          if (a.groundY !== undefined && tmpD.y < -0.01) {
-            const t = (a.groundY - lamp.y) / tmpD.y;
-            if (t > 0 && t < 400) {
-              // From half-way to the aim point to well past it, widening with the beam.
-              const near = t * 0.5;
-              const length = Math.min(220, t * 4 + 40);
-              const hlen = Math.hypot(tmpD.x, tmpD.z) || 1;
-              const hx = lamp.x + (tmpD.x / hlen) * near * hlen;
-              const hz = lamp.z + (tmpD.z / hlen) * near * hlen;
-              const width = 2 * (near + length) * Math.tan(BEAM_HALF_ANGLE_RAD) + 2;
-              const yaw = Math.atan2(tmpD.x, tmpD.z);
-              tmpM.makeRotationY(yaw).scale(tmpV.set(width, 1, length));
-              tmpM.setPosition(hx, a.groundY + 0.05, hz);
-              b.pool.matrix.copy(tmpM);
-              b.pool.matrixWorldNeedsUpdate = true;
-              b.pool.visible = true;
-              (b.poolMat.uniforms['uIntensity'] as { value: number }).value = (0.05 + 1.1 * night) / (1 + (t / 120) ** 2);
-              (b.poolMat.uniforms['uLengthM'] as { value: number }).value = length;
-              (b.poolMat.uniforms['uNearM'] as { value: number }).value = near;
-            }
-          }
+        if (a.groundY !== undefined && lamp.y - a.groundY < 400) {
+          // The beam on the runway. Aimed along the lamp's axis it would graze the concrete (the lamp
+          // is under a metre up, the axis a few degrees down), so the slightest nose-up pitch threw
+          // the hotspot 100 m+ down the runway; a taxi/landing lamp's beam is broad and spills
+          // downwards, so it is taken a few degrees lower and wider: the pool starts just ahead of
+          // the nose wheel and fades down the runway.
+          tmpD.copy(tmpA);
+          tmpD.y -= 0.06;
+          tmpD.normalize();
+          groundLamp(lamp, 1.0, 0.94, 0.84, 200 + 15000 * night, tmpD, Math.cos(BEAM_HALF_ANGLE_RAD * 1.5));
         }
       }
       return { strobe };
@@ -401,24 +305,14 @@ export function createAircraftLights(root: THREE.Object3D, lights: LightLayout, 
       intAttr.needsUpdate = true;
       dirAttr.needsUpdate = true;
       upAttr.needsUpdate = true;
-      for (let i = beamN; i < beams.length; i++) {
-        beams[i]!.beam.visible = false;
-        beams[i]!.pool.visible = false;
-      }
+      gl.uGLampN.value = lampN;
     },
 
     dispose() {
       root.remove(glows);
       glowGeom.dispose();
       glowMat.dispose();
-      for (const b of beams) {
-        root.remove(b.beam);
-        root.remove(b.pool);
-        b.beamMat.dispose();
-        b.poolMat.dispose();
-      }
-      beamGeom.dispose();
-      poolGeom.dispose();
+      gl.uGLampN.value = 0;
     },
   };
 }
