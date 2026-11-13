@@ -122,7 +122,7 @@ export function createFreeFlightSetup(container: HTMLElement, opts: { bases: rea
   const loadoutText = h('span', { className: 'tj-note' });
   function renderLoadout(): void {
     loadoutName.textContent = selectionName(opts.def, setup.loadout);
-    loadoutText.textContent = describeFit(selectionFit(opts.def, setup.loadout));
+    loadoutText.textContent = describeFit(selectionFit(opts.def, setup.loadout)) + (setup.loadout.fuelFrac !== undefined && setup.loadout.fuelFrac < 1 ? ` · fuel ${Math.round(setup.loadout.fuelFrac * 100)}%` : '');
   }
   renderLoadout();
   const changeLoadout = button('Change loadout…', () => openEditor(), 'default', { 'data-action': 'loadout' });

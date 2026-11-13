@@ -771,11 +771,44 @@ function buildBallute(b: BombSpec): THREE.BufferGeometry {
 // Pods
 // ---------------------------------------------------------------------------------------------
 
-/** Pods: B-8M1 rocket pod (20 x 80 mm, 2.75 m, 520 mm), Litening targeting pod (2.2 m, 406 mm). */
+/** Pods: B-8M1 rocket pod (20 x 80 mm, 2.75 m, 520 mm), Litening targeting pod (2.2 m, 406 mm), EL/L-8222 jammer (~2.4 m, 330 mm). */
 const PODS: Record<string, { len: number; dia: number }> = {
   b8m1: { len: 2.75, dia: 0.52 },
   litening: { len: 2.2, dia: 0.406 },
+  'el-l-8222': { len: 2.4, dia: 0.33 },
 };
+
+/**
+ * EL/L-8222 self-protection jammer: a slim grey pod with a dark dielectric radome at each end (the
+ * forward and aft transmit/receive antennas), a ram-air scoop under the front (it cools the
+ * transmitters), a blade antenna under the body and the suspension lugs on top.
+ */
+function buildJammerPod(p: { len: number; dia: number }): THREE.BufferGeometry {
+  const r = p.dia / 2;
+  const L = p.len;
+  const X = (d: number): number => L / 2 - d;
+  const nose = 0.48;
+  const tail = 0.36;
+  const radius = (d: number): number => {
+    if (d < nose) return Math.max(0.02, r * Math.sqrt(1 - Math.pow(1 - d / nose, 2.2)));
+    const e = d - (L - tail);
+    if (e > 0) return Math.max(0.03, r * Math.sqrt(Math.max(0, 1 - Math.pow(e / tail, 2.4))));
+    return r;
+  };
+  const parts = body(L, radius, [
+    [0, nose, PART.radome],
+    [nose, nose + 0.012, PART.dark],
+    [nose + 0.012, L - tail - 0.012, PART.podGrey],
+    [L - tail - 0.012, L - tail, PART.dark],
+    [L - tail, L, PART.radome],
+  ], 24, 0.06);
+  // Ram-air scoop under the front, a blade antenna under the middle, lugs on top.
+  parts.push(box([X(0.75), -r - 0.02, 0], [0.22, 0.05, 0.1], PART.podGrey));
+  parts.push(box([X(0.75) + 0.111, -r - 0.02, 0], [0.002, 0.036, 0.07], PART.dark));
+  parts.push(box([X(1.5), -r - 0.05, 0], [0.12, 0.1, 0.012], PART.dark));
+  parts.push(box([X(1.0), r + 0.015, 0], [0.5, 0.03, 0.08], PART.podGrey));
+  return merge(parts);
+}
 
 /** B-8M1 tube centres (y, z): one in the middle, six round it, thirteen in the outer ring. */
 const B8_TUBES: readonly (readonly [number, number])[] = [
@@ -884,6 +917,8 @@ function buildTargetingPod(p: { len: number; dia: number }): THREE.BufferGeometr
 const TANKS: Record<string, { len: number; dia: number; noseLen: number; tailLen: number }> = {
   'tank-1200l': { len: 4.6, dia: 0.68, noseLen: 1.4, tailLen: 1.2 },
   'tank-725l': { len: 3.8, dia: 0.58, noseLen: 1.1, tailLen: 1.0 },
+  // 800 L mid-wing tank: slimmer and shorter than the inboard 1200 L so it clears the landing gear.
+  'tank-800l': { len: 4.0, dia: 0.6, noseLen: 1.2, tailLen: 1.05 },
 };
 
 function buildTank(t: { len: number; dia: number; noseLen: number; tailLen: number }): THREE.BufferGeometry {
@@ -1028,7 +1063,7 @@ export function buildStoreModels(): StoreModels {
       return model;
     }
     const p = PODS[id];
-    if (p) return { kind: 'pod', geometry: id === 'litening' ? buildTargetingPod(p) : buildRocketPod(p), mount: new THREE.Matrix4().makeTranslation(0.1, id === 'litening' ? -(p.dia / 2 + 0.005) : -(0.04 + p.dia / 2), 0) };
+    if (p) return { kind: 'pod', geometry: id === 'litening' ? buildTargetingPod(p) : id === 'el-l-8222' ? buildJammerPod(p) : buildRocketPod(p), mount: new THREE.Matrix4().makeTranslation(0.1, id === 'litening' ? -(p.dia / 2 + 0.005) : -(0.04 + p.dia / 2), 0) };
     return undefined;
   });
   return { byCode, rail: buildRail(), twinRail: buildTwinRail() };

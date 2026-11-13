@@ -16,7 +16,7 @@ export * from './countermeasures';
 export { createDamageState, applyHit, rollSubsystemHit, subsystemHitFromU01 } from './subsystemDamage';
 
 // 3.4 Sensors / radar / RWR
-export { updateSensors, radarDetectionRangeM, computeGeometry, computeMissileThreat } from './radarModel';
+export { updateSensors, radarDetectionRangeM, burnThroughRangeM, computeGeometry, computeMissileThreat } from './radarModel';
 export { irDetectionRangeM, updateIrGuidance, rotateTowards } from './irMissileSeeker';
 
 // 3.5 Projectile flight

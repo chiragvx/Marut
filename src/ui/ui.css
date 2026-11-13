@@ -656,6 +656,8 @@ a.tj-link { color: var(--tj-ink); }
 .hp-store .hp-dot { fill: rgba(10, 14, 20, 0.85); stroke: none; }
 .hp-store .hp-hole { fill: rgba(10, 14, 20, 0.95); stroke: none; }
 .hp-store .hp-lens { fill: rgba(70, 120, 200, 0.9); stroke: none; }
+.hp-store .hp-wave { fill: none; stroke: rgba(225, 230, 236, 0.85); stroke-width: 1.2; stroke-linecap: round; }
+.hp-st.is-sel .hp-store .hp-wave { stroke: var(--tj-accent); }
 .hp-store-tank circle:first-child { fill: rgba(200, 206, 212, 0.9); }
 .hp-store-bomb circle, .hp-store-lgb circle:first-of-type { fill: rgba(150, 156, 150, 0.95); }
 .hp-store-lgb circle:last-of-type { fill: none; stroke: rgba(10, 14, 20, 0.9); }
@@ -702,3 +704,16 @@ a.tj-link { color: var(--tj-ink); }
 .tj-mission--custom { grid-template-columns: 1fr; cursor: default; border-style: dashed; border-color: var(--tj-accent); background: color-mix(in srgb, var(--tj-accent) 10%, transparent); }
 .tj-mission--custom .tj-mission-name { color: var(--tj-accent); }
 @media (max-width: 760px) { .tj-missions { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+/* Take-off weight against MTOW, and the internal fuel taken. */
+.tj-weight { display: grid; gap: 6px; padding: 10px 12px; border: 1px solid var(--tj-line, rgba(255,255,255,0.14)); border-radius: 4px; background: rgba(255,255,255,0.03); }
+.tj-wt-row { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+.tj-wt-val { font-variant-numeric: tabular-nums; font-size: 13px; }
+.tj-wt-bar { position: relative; height: 8px; border-radius: 4px; background: rgba(255,255,255,0.08); overflow: visible; }
+.tj-wt-fill { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 4px; background: #7fb8d8; transition: width 0.2s ease; }
+.tj-wt-mtow { position: absolute; top: -4px; bottom: -4px; width: 2px; margin-left: -1px; background: rgba(255,255,255,0.75); }
+.tj-wt-note { margin: 0; font-size: 12px; opacity: 0.75; }
+.tj-weight.is-over { border-color: rgba(232,128,64,0.6); }
+.tj-weight.is-over .tj-wt-fill { background: linear-gradient(90deg, #7fb8d8, #e88040); }
+.tj-weight.is-over .tj-wt-note, .tj-weight.is-over [data-role="weight"] { color: #f0a060; opacity: 1; }
+.tj-weight .tj-range { width: 100%; margin: 0; }

@@ -21,10 +21,11 @@
  */
 import { NO_ENTITY_ID, type EntityId, type HeightSampler, type SimEvent, type Team, type Vec3Like } from '../contracts/core';
 import type { AirDefenceSystem } from '../contracts/ground';
-import { ProjectileKind, type DetectableEntity, type ProjectileSpawnRequest, type WeaponProfile } from '../contracts/combat';
+import { JAMMER_SAM_BURN_THROUGH_FACTOR, ProjectileKind, type DetectableEntity, type ProjectileSpawnRequest, type WeaponProfile } from '../contracts/combat';
 import { GROUND_UNIT_TYPES, WEAPONS } from '../catalog';
 import { terrainLineOfSight } from './lineOfSight';
 import { velocityAlignQuat } from './gunBallistics';
+import { burnThroughRangeM } from './radarModel';
 
 /** A radar site sees an anti-radiation missile diving at it inside this range, and shuts down with this probability. */
 const ARM_WARNING_M = 30000;
@@ -322,6 +323,8 @@ export class AirDefenceNetwork {
     if (agl < sys.minAltAglM) return false;
     if (sys.sensor === 'radar') {
       reach *= Math.pow(Math.max(0.1, (e.radarSignature?.broadsideRcsM2 ?? 4) * 0.5 + (e.radarSignature?.noseOnRcsM2 ?? 2) * 0.5) / RCS_REF_M2, 0.25);
+      // A jamming target is seen (searched and tracked) only inside the radar's burn-through range.
+      reach = burnThroughRangeM(reach, e, JAMMER_SAM_BURN_THROUGH_FACTOR);
       // Low down, ground clutter cuts the radar's reach (to 30% at its floor, full above ~300 m)...
       const c = Math.min(1, Math.max(0, (agl - sys.minAltAglM) / (LOW_CLUTTER_AGL_M - sys.minAltAglM)));
       reach *= 0.3 + 0.7 * c * c * (3 - 2 * c);

@@ -1045,6 +1045,25 @@ export const SENSOR_PODS: Readonly<Record<string, SensorPodProfile>> = {
   litening: { id: 'litening', name: 'Litening III targeting pod', label: 'LITENING', short: 'TGP', massKg: 208, dragAreaM2: 0.05, fovsDeg: [18.4, 3.5, 1.0], laserRangeM: 20000, maxUpDeg: 5 },
 };
 
+/**
+ * A self-protection jammer pod: while it is carried, hostile radars (fighters' and air-defence
+ * sites') see and track the aircraft only inside their burn-through range, and radar-guided missiles
+ * homing on it are easier to seduce (src/combat: `JAMMER_*`).
+ */
+export interface JammerPodProfile {
+  id: string;
+  name: string;
+  label: string;
+  short: string;
+  massKg: number;
+  dragAreaM2: number;
+}
+
+/** Jammer pods by catalogue id. ELTA EL/L-8222SB (Tejas Mk1A, one outer wing station). */
+export const JAMMER_PODS: Readonly<Record<string, JammerPodProfile>> = {
+  'el-l-8222': { id: 'el-l-8222', name: 'EL/L-8222 jammer pod', label: 'JAMMER', short: 'ECM', massKg: 115, dragAreaM2: 0.03 },
+};
+
 // --- Surface-to-air weapons (hostile air defences; public-data approximations). Radar-guided SAMs
 // guide on their site's engagement radar (semi-active / command / track-via-missile): they are
 // "datalinked" only while that radar tracks the target, and their terminal homing (inside
@@ -1251,6 +1270,8 @@ export interface FuelTankStore {
 export const FUEL_TANKS: Readonly<Record<string, FuelTankStore>> = {
   // Tejas 1200 L wing tank: 1200 L at ~0.80 kg/L = 960 kg; ~140 kg empty.
   'tank-1200l': { id: 'tank-1200l', name: '1200 L tank', label: '1200 L', short: 'TK', capacityKg: 960, emptyMassKg: 140, dragAreaM2: 0.075, lengthM: 4.0, diameterM: 0.72 },
+  // Tejas 800 L mid-wing tank (stations 3/4, the midboard wet points): 800 L ~ 640 kg.
+  'tank-800l': { id: 'tank-800l', name: '800 L tank', label: '800 L', short: 'TK', capacityKg: 640, emptyMassKg: 105, dragAreaM2: 0.06, lengthM: 4.1, diameterM: 0.6 },
   // Tejas 725 L centreline tank.
   'tank-725l': { id: 'tank-725l', name: '725 L tank', label: '725 L', short: 'TK', capacityKg: 580, emptyMassKg: 95, dragAreaM2: 0.055, lengthM: 3.8, diameterM: 0.52 },
 };
@@ -1261,7 +1282,7 @@ export type StoreKind = WeaponKind | 'fuel_tank' | 'pod';
 export function storeKind(id: string): StoreKind | undefined {
   const w = WEAPONS[id];
   if (w) return w.kind;
-  if (SENSOR_PODS[id]) return 'pod';
+  if (SENSOR_PODS[id] || JAMMER_PODS[id]) return 'pod';
   return FUEL_TANKS[id] ? 'fuel_tank' : undefined;
 }
 
@@ -1280,7 +1301,7 @@ export function storeInfo(id: string): StoreInfo | undefined {
   if (info === undefined) {
     const w = WEAPONS[id];
     const t = FUEL_TANKS[id];
-    const pod = SENSOR_PODS[id];
+    const pod = SENSOR_PODS[id] ?? JAMMER_PODS[id];
     if (pod) {
       info = { id, kind: 'pod', label: pod.label, short: pod.short };
     } else if (w) {

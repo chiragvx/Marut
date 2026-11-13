@@ -11,7 +11,7 @@
  *
  * Pure: builds SVG markup (`hardpointSvg`, `storeIconSvg`); the editor (loadoutEditor.ts) wires it.
  */
-import { FUEL_TANKS, SENSOR_PODS, WEAPONS } from '../catalog';
+import { FUEL_TANKS, JAMMER_PODS, SENSOR_PODS, WEAPONS } from '../catalog';
 
 export interface HardpointStation {
   id: string;
@@ -36,12 +36,13 @@ export const TEJAS_STATIONS: readonly HardpointStation[] = [
   { id: 'wing-outer-l', num: '5', label: 'Left outer', spanM: -3.42 },
 ];
 
-export type StoreShape = 'ir' | 'radar' | 'tank' | 'bomb' | 'lgb' | 'rocket' | 'arm' | 'pod';
+export type StoreShape = 'ir' | 'radar' | 'tank' | 'bomb' | 'lgb' | 'rocket' | 'arm' | 'pod' | 'jammer';
 
 /** How a store is drawn. */
 export function storeShape(id: string): StoreShape {
   if (FUEL_TANKS[id]) return 'tank';
   if (SENSOR_PODS[id]) return 'pod';
+  if (JAMMER_PODS[id]) return 'jammer';
   switch (WEAPONS[id]?.kind) {
     case 'ir_missile':
       return 'ir';
@@ -63,6 +64,7 @@ export function storeShort(id: string): string {
   const t = FUEL_TANKS[id];
   if (t) return t.name.replace(/\s*tank$/i, '').replace(/\s+/g, '');
   if (SENSOR_PODS[id]) return SENSOR_PODS[id]!.name.split(' ')[0]!.toUpperCase();
+  if (JAMMER_PODS[id]) return JAMMER_PODS[id]!.label;
   return (WEAPONS[id]?.label ?? id).toUpperCase();
 }
 
@@ -98,6 +100,11 @@ export function storeGlyph(shape: StoreShape, x: number, y: number, k = 1): stri
       return g(`<circle cx="${x}" cy="${y}" r="${r(4.8)}"/>${fins(x, y, 4.8 * k, 8 * k)}<rect x="${x - 2 * k}" y="${y - 2 * k}" width="${r(4)}" height="${r(4)}" class="hp-dot" transform="rotate(45 ${x} ${y})"/>`);
     case 'pod':
       return g(`<circle cx="${x}" cy="${y}" r="${r(6)}"/><circle cx="${x}" cy="${y}" r="${r(2.6)}" class="hp-lens"/>`);
+    case 'jammer': {
+      // The pod head-on, its dark radome, and radiating arcs either side.
+      const arc = (d: number, s: number): string => `<path class="hp-wave" d="M${(x + s * d * k).toFixed(1)} ${(y - d * 0.8 * k).toFixed(1)} Q${(x + s * (d + 2.2) * k).toFixed(1)} ${y} ${(x + s * d * k).toFixed(1)} ${(y + d * 0.8 * k).toFixed(1)}"/>`;
+      return g(`<circle cx="${x}" cy="${y}" r="${r(5)}"/><circle cx="${x}" cy="${y}" r="${r(3)}" class="hp-dot"/>${arc(7.5, 1)}${arc(7.5, -1)}${arc(10.5, 1)}${arc(10.5, -1)}`);
+    }
   }
 }
 
@@ -193,7 +200,7 @@ export function hardpointSvg(fit: Readonly<Record<string, { store: string; count
     let storeY = pyl + 6;
     if (f) {
       const shape = storeShape(f.store);
-      const r = (shape === 'tank' ? 12 : shape === 'rocket' ? 8.5 : shape === 'bomb' || shape === 'lgb' ? 7 : 5) * SK;
+      const r = (shape === 'tank' ? 12 : shape === 'rocket' ? 8.5 : shape === 'bomb' || shape === 'lgb' ? 7 : shape === 'jammer' ? 5.5 : 5) * SK;
       storeY = pyl + r + 1;
       if (f.count >= 2) {
         const dx = shape === 'ir' || shape === 'radar' || shape === 'arm' ? 13 : 15;

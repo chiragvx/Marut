@@ -196,6 +196,28 @@ export const RADAR_NOTCH_MAX_RANGE_M = 20000;
 export const RADAR_LOS_SAMPLE_COUNT = 3;
 export const TERRAIN_LOS_MASK_MARGIN_M = 15;
 
+/**
+ * Self-screening jamming (a jammer pod on the target, e.g. EL/L-8222). The pod radiates noise and
+ * deceptive returns into the hostile radar's main lobe. The target's echo falls off as 1/R^4 while
+ * the jamming falls off only as 1/R^2 (one way), so far out the jamming swamps the echo and the
+ * radar cannot detect or hold the target; closing in, the echo grows faster than the noise until,
+ * inside the burn-through range, the radar "burns through" and sees it again. Modelled simply: a
+ * radar's detection AND track range against a jamming target is its normal range (RCS-scaled)
+ * times this factor. A fighter's small, low-power nose radar (vs a 115 kg self-protection pod)
+ * keeps ~55% of its range; see `JAMMER_SAM_BURN_THROUGH_FACTOR` for ground radars.
+ */
+export const JAMMER_BURN_THROUGH_FACTOR = 0.55;
+/** As `JAMMER_BURN_THROUGH_FACTOR`, for air-defence search and engagement radars: big antennas (high gain, narrow beams, sidelobe cancellers) and far more power than a fighter's radar, so they burn through further out (~70% of their range). */
+export const JAMMER_SAM_BURN_THROUGH_FACTOR = 0.7;
+/**
+ * A radar-guided missile's active seeker homing on a jamming aircraft: the pod's deception (range-gate
+ * and velocity-gate pull-off) walks the seeker's tracking gates off the aircraft, so chaff dispensed
+ * in that moment captures it more easily. Each chaff bundle's seduction chance (src/combat
+ * countermeasures.ts `chaffSeductionChance`) is multiplied by this, capped at 1. IR missiles and the
+ * gun are unaffected.
+ */
+export const JAMMER_CHAFF_FACTOR = 1.6;
+
 // -----------------------------------------------------------------------------
 // 5. Constants — radar missile (Derby-like)
 // -----------------------------------------------------------------------------
@@ -405,6 +427,13 @@ export interface GuidedWeaponProfile {
 }
 
 /** A sensor pod (targeting pod) carried on a station: FLIR/TV, laser designator/rangefinder. */
+/** What src/combat needs of a self-protection jammer pod (the catalogue's JAMMER_PODS entries satisfy it). */
+export interface JammerSpec {
+  id: string;
+  massKg: number;
+  dragAreaM2: number;
+}
+
 export interface SensorPodProfile {
   id: string;
   name: string;
@@ -502,6 +531,8 @@ export interface WeaponsLoadout {
   stations: readonly WeaponStationSpec[];
   /** Targeting pod carried (on its station), if any. */
   pod?: SensorPodProfile;
+  /** Self-protection jammer pod carried (on its station), if any. */
+  jammer?: JammerSpec;
   /** The aircraft's radar. Absent = the generic radar (the RADAR_* constants). */
   radar?: RadarProfile;
   /** Chaff bundles and flares carried (AircraftSensors.countermeasures). Absent = none. */
@@ -605,6 +636,8 @@ export interface WeaponsState {
   nextRocketStation: number;
   /** Targeting pod (src/combat/targetingPod.ts), when carried. */
   pod?: PodState;
+  /** Self-protection jammer pod, when carried (always on: its mass and drag count in `computeStoresLoad`). */
+  jammer?: JammerSpec;
   /**
    * World-space gun lead-computing-sight aim point against `lockedTargetId`
    * (or the currently-selected contact, if the pilot has cycled a target
@@ -730,6 +763,12 @@ export interface DetectableEntity {
    * degrades gracefully, does not error.
    */
   radarEmission?: { trackedTargetId: EntityId | undefined; lockedTargetId: EntityId | undefined };
+  /**
+   * Aircraft only: it carries a self-protection jammer pod (src/core sets this from its fit), so
+   * hostile radars see and track it only inside their burn-through range (JAMMER_*_FACTOR) and
+   * radar missiles homing on it are easier to decoy with chaff. Absent = not jamming.
+   */
+  jamming?: boolean;
 }
 
 /** A ground target the ground-map radar may show (src/core builds these from the mission's targets). */

@@ -50,7 +50,7 @@ import { DECOYS_PER_PROGRAM, DECOY_PROGRAM_INTERVAL_SEC } from './countermeasure
  * writes these onto the aircraft's EntityState (storesMassKg/storesDragAreaM2) each tick, so both
  * drop as rounds are fired and missiles launched. Allocation-free.
  */
-export function computeStoresLoad(state: Pick<WeaponsState, 'stations'>, out: { massKg: number; dragAreaM2: number }): void {
+export function computeStoresLoad(state: Pick<WeaponsState, 'stations'> & Partial<Pick<WeaponsState, 'pod' | 'jammer'>>,out: { massKg: number; dragAreaM2: number }): void {
   let massKg = 0;
   let dragAreaM2 = 0;
   for (let i = 0; i < state.stations.length; i++) {
@@ -66,10 +66,15 @@ export function computeStoresLoad(state: Pick<WeaponsState, 'stations'>, out: { 
       dragAreaM2 += st.count * st.profile.carriageDragAreaM2;
     }
   }
-  const pod = (state as Partial<WeaponsState>).pod;
+  const pod = state.pod;
   if (pod) {
     massKg += pod.profile.massKg;
     dragAreaM2 += pod.profile.dragAreaM2;
+  }
+  const jammer = state.jammer;
+  if (jammer) {
+    massKg += jammer.massKg;
+    dragAreaM2 += jammer.dragAreaM2;
   }
   out.massKg = massKg;
   out.dragAreaM2 = dragAreaM2;
@@ -135,6 +140,7 @@ export const createWeaponsState: CreateWeaponsState = (loadout: WeaponsLoadout, 
     agAwaySec: 0,
     ccrpReleased: false,
     ...(loadout.pod ? { pod: createPodState(loadout.pod) } : {}),
+    ...(loadout.jammer ? { jammer: loadout.jammer } : {}),
     aimPointWorld: { x: 0, y: 0, z: 0 },
     aimPointValid: false,
     rng: createCombatRngState(rngSubSeed),

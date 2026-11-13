@@ -115,7 +115,7 @@ export function createBriefing(
     const fit = selectionFit(opts.def, loadout);
     loadoutName.textContent = selectionName(opts.def, loadout);
     loadoutText.textContent = describeFit(fit);
-    loadoutSummary.textContent = fitSummary(opts.def, fit);
+    loadoutSummary.textContent = fitSummary(opts.def, fit, loadout.fuelFrac);
   }
   renderLoadout();
   const change = button('Change loadout…', () => openEditor(), 'default', { 'data-action': 'loadout' });

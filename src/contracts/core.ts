@@ -848,6 +848,8 @@ export interface MissionPlayerStart {
    * against the aircraft's stations (src/aircraft/loadout.ts): entries a station cannot carry are dropped.
    */
   loadout?: Readonly<Record<string, { store: string; count: number }>>;
+  /** Internal fuel at the start, 0..1 of `maxFuelKg` (drop tanks always start full). Absent = full. */
+  fuelFrac?: number;
   pos?: Vec3Like;
   headingRad?: number;
   speedMps?: number;
@@ -982,6 +984,7 @@ export const STORE_IDS: readonly string[] = [
   'ly-80-msl', 'hq-9-msl', 'fm-90-msl', 'anza-mk3',
   'rudram-1', 'saaw',
   'mk-82', 'mk-82-se', 'mar-1', 'akash-msl', 'spyder-derby', 'mrsam-msl',
+  'tank-800l', 'el-l-8222',
 ];
 
 /** How a station carries its stores: one on the pylon, a twin missile rail, or a multiple ejector rack (bombs). */

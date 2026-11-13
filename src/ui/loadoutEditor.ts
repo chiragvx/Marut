@@ -24,6 +24,23 @@ import type { ScreenHandle } from '../contracts/ui';
 export interface LoadoutSelection {
   presetId?: string;
   fit?: LoadoutFit;
+  /** Internal fuel at the start, 0..1 (absent = full; drop tanks always start full). */
+  fuelFrac?: number;
+}
+
+/** The lightest internal fuel the slider offers. */
+export const MIN_FUEL_FRAC = 0.1;
+
+/**
+ * The take-off weight of a fit, kg: the empty jet, the internal fuel taken, the stores (tanks full).
+ * Nothing stops an overweight fit (the jet just flies heavy); `overKg` is how far past MTOW it is.
+ */
+export function takeoffWeight(def: AircraftDefinition, fit: LoadoutFit, fuelFrac = 1): { kg: number; fuelKg: number; storesKg: number; mtowKg: number | undefined; overKg: number } {
+  const fuelKg = def.maxFuelKg * Math.min(1, Math.max(0, fuelFrac));
+  const storesKg = loadoutMassKg({ id: 'x', name: 'x', fit });
+  const kg = def.emptyMassKg + fuelKg + storesKg;
+  const mtowKg = def.maxTakeoffMassKg;
+  return { kg, fuelKg, storesKg, mtowKg, overKg: mtowKg ? Math.max(0, kg - mtowKg) : 0 };
 }
 
 type Fit = Record<string, { store: string; count: number }>;
@@ -69,8 +86,8 @@ export function selectionName(def: AircraftDefinition, sel: LoadoutSelection): s
   return (def.loadouts ?? []).find((l) => l.id === (sel.presetId ?? def.defaultLoadoutId))?.name.split(':')[0] ?? 'Default';
 }
 
-/** Missiles by kind, tanks, added mass and total fuel. */
-export function fitSummary(def: AircraftDefinition, fit: LoadoutFit): string {
+/** Missiles by kind, tanks, added mass and total fuel (internal at `fuelFrac`, tanks full). */
+export function fitSummary(def: AircraftDefinition, fit: LoadoutFit, fuelFrac = 1): string {
   let ir = 0;
   let radar = 0;
   for (const f of Object.values(fit)) {
@@ -81,7 +98,7 @@ export function fitSummary(def: AircraftDefinition, fit: LoadoutFit): string {
   const preset = { id: 'x', name: 'x', fit };
   const tanks = loadoutTanks(preset);
   const kg = Math.round(loadoutMassKg(preset));
-  const fuel = Math.round(def.maxFuelKg + tanks.fuelKg);
+  const fuel = Math.round(def.maxFuelKg * Math.min(1, Math.max(0, fuelFrac)) + tanks.fuelKg);
   return `${ir} heat-seeking · ${radar} radar-guided · ${tanks.count} tank${tanks.count === 1 ? '' : 's'} · +${kg.toLocaleString('en-US')} kg · fuel ${fuel.toLocaleString('en-US')} kg`;
 }
 
@@ -101,7 +118,7 @@ function sameFit(a: Fit, b: Fit): boolean {
 
 /** The store a fit is about (what to draw on its tile): its weapon for the ground, else its biggest missile. */
 function signatureStore(fit: Fit): { store: string; count: number } | undefined {
-  const order = ['arm', 'lgb', 'rocket', 'bomb', 'radar', 'ir', 'pod', 'tank'];
+  const order = ['arm', 'lgb', 'rocket', 'bomb', 'radar', 'ir', 'jammer', 'pod', 'tank'];
   let best: { store: string; count: number } | undefined;
   let rank = order.length;
   for (const f of Object.values(fit)) {
@@ -117,7 +134,7 @@ function signatureStore(fit: Fit): { store: string; count: number } | undefined 
 
 /** "4 AAM · 2 LGB · POD · 1 TANK": what a fit carries, by kind. */
 export function briefFit(fit: Fit): string {
-  const names: Record<string, string> = { ir: 'AAM', radar: 'AAM', lgb: 'GUIDED', bomb: 'BOMB', rocket: 'RKT POD', arm: 'ARM', tank: 'TANK', pod: 'POD' };
+  const names: Record<string, string> = { ir: 'AAM', radar: 'AAM', lgb: 'GUIDED', bomb: 'BOMB', rocket: 'RKT POD', arm: 'ARM', tank: 'TANK', pod: 'POD', jammer: 'JAMMER' };
   const n = new Map<string, number>();
   for (const f of Object.values(fit)) {
     if (!f || WEAPONS[f.store]?.kind === 'gun') continue;
@@ -125,7 +142,7 @@ export function briefFit(fit: Fit): string {
     n.set(k, (n.get(k) ?? 0) + f.count);
   }
   if (n.size === 0) return 'Gun only';
-  return [...n].map(([k, c]) => (k === 'POD' ? k : `${c} ${k}`)).join(' · ');
+  return [...n].map(([k, c]) => (k === 'POD' || k === 'JAMMER' ? k : `${c} ${k}`)).join(' · ');
 }
 
 /** The 3D view of the jet with its fit (the hangar), while the editor is open. */
@@ -206,6 +223,7 @@ export function createLoadoutEditor(container: HTMLElement, def: AircraftDefinit
   const all = def.loadouts ?? [];
   const presets = MISSION_PRESETS.filter((m) => all.some((l) => l.id === m.id));
   let fit = selectionFit(def, initial);
+  let fuelFrac = Math.min(1, Math.max(MIN_FUEL_FRAC, initial.fuelFrac ?? 1));
   let mirror = true;
   const have = new Set(TEJAS_STATIONS.map((t) => t.id).filter((id) => choices.has(id)));
   let selected = ['wing-outer-l', ...have].find((id) => have.has(id));
@@ -243,6 +261,45 @@ export function createLoadoutEditor(container: HTMLElement, def: AircraftDefinit
   const picker = h('div', { className: 'tj-picker', attrs: { role: 'radiogroup', 'data-role': 'picker' } });
   const summary = h('p', { className: 'tj-note', attrs: { 'data-role': 'summary' } });
   const described = h('p', { attrs: { 'data-role': 'described' } });
+  // Internal fuel to take, and the take-off weight against MTOW: an overweight fit is allowed
+  // (each pylon only takes what it is rated for, but the heavy pylons together can overload the jet).
+  const fuelInput = h('input', { className: 'tj-range', attrs: { type: 'range', min: String(MIN_FUEL_FRAC * 100), max: '100', step: '5', 'data-role': 'fuel', 'aria-label': 'Internal fuel' } });
+  fuelInput.value = String(Math.round(fuelFrac * 100));
+  const fuelOut = h('span', { className: 'tj-wt-val', attrs: { 'data-role': 'fuel-value' } });
+  fuelInput.addEventListener('input', () => {
+    fuelFrac = Number(fuelInput.value) / 100;
+    renderWeight();
+  });
+  const wtVal = h('span', { className: 'tj-wt-val', attrs: { 'data-role': 'weight' } });
+  const wtFill = h('div', { className: 'tj-wt-fill' });
+  const wtMark = h('div', { className: 'tj-wt-mtow' });
+  const wtNote = h('p', { className: 'tj-wt-note', attrs: { 'data-role': 'overweight', 'aria-live': 'polite' } });
+  const weightBox = h('div', { className: 'tj-weight', attrs: { 'data-role': 'weight-box' } },
+    h('div', { className: 'tj-wt-row' }, h('span', { className: 'tj-label', text: 'Internal fuel' }), fuelOut),
+    fuelInput,
+    h('div', { className: 'tj-wt-row' }, h('span', { className: 'tj-label', text: 'Take-off weight' }), wtVal),
+    h('div', { className: 'tj-wt-bar' }, wtFill, wtMark),
+    wtNote
+  );
+  function renderWeight(): void {
+    const w = takeoffWeight(def, fit, fuelFrac);
+    const kg = (n: number): string => Math.round(n).toLocaleString('en-US');
+    fuelOut.textContent = `${Math.round(fuelFrac * 100)}% · ${kg(w.fuelKg)} kg`;
+    wtVal.textContent = w.mtowKg ? `${kg(w.kg)} / ${kg(w.mtowKg)} kg` : `${kg(w.kg)} kg`;
+    // The bar runs to 125% of MTOW (further if heavier), MTOW marked.
+    const scale = w.mtowKg ? Math.max(w.mtowKg * 1.25, w.kg) : w.kg;
+    wtFill.style.width = `${((w.kg / scale) * 100).toFixed(1)}%`;
+    wtMark.style.left = w.mtowKg ? `${((w.mtowKg / scale) * 100).toFixed(1)}%` : '100%';
+    wtMark.classList.toggle('tj-hidden', !w.mtowKg);
+    weightBox.classList.toggle('is-over', w.overKg > 0);
+    wtNote.textContent = !w.mtowKg
+      ? ''
+      : w.overKg > 0
+        ? `Over MTOW by ${kg(w.overKg)} kg (+${((w.overKg / w.mtowKg) * 100).toFixed(1)}%): longer take-off run, slower climb, less g in hand.`
+        : `${kg(w.mtowKg - w.kg)} kg under MTOW.`;
+    summary.textContent = fitSummary(def, fit, fuelFrac);
+  }
+
   const mirrorBox = checkbox('Same on both wings', mirror, (v) => (mirror = v), { 'data-role': 'mirror' });
 
   const setStation = (stationId: string, next: { store: string; count: number } | undefined): void => {
@@ -252,7 +309,8 @@ export function createLoadoutEditor(container: HTMLElement, def: AircraftDefinit
     };
     put(stationId);
     const m = mirrorOf(stationId);
-    if (mirror && m && choices.has(m)) put(m);
+    // The mirror station only if it takes the same store (the jammer goes on one wing only).
+    if (mirror && m && choices.has(m) && (!next || choices.get(m)!.stores.includes(next.store))) put(m);
     render();
     picker.querySelector<HTMLElement>('[aria-checked="true"]')?.focus();
   };
@@ -307,7 +365,7 @@ export function createLoadoutEditor(container: HTMLElement, def: AircraftDefinit
     for (const b of presetButtons) b.setAttribute('aria-pressed', String(b.getAttribute('data-preset') === match?.id));
     customTag.classList.toggle('tj-hidden', !!match);
     described.textContent = describeFit(fit);
-    summary.textContent = fitSummary(def, fit);
+    renderWeight();
     view?.setFit({ ...fit });
   }
   render();
@@ -317,12 +375,14 @@ export function createLoadoutEditor(container: HTMLElement, def: AircraftDefinit
     diagram,
     h('div', { className: 'tj-row tj-pick-bar' }, pickHead, mirrorBox),
     picker,
+    weightBox,
     h('div', { className: 'tj-stack tj-fit-sum' }, described, summary)
   );
   s.actions.append(
     button('Done', () => {
       const match = presets.find((p) => sameFit(selectionFit(def, { presetId: p.id }), fit));
-      cb.onDone(match ? { presetId: match.id } : { fit: { ...fit } });
+      const fuel = fuelFrac < 1 ? { fuelFrac } : {};
+      cb.onDone(match ? { presetId: match.id, ...fuel } : { fit: { ...fit }, ...fuel });
     }, 'primary', { 'data-action': 'done' })
   );
 

@@ -25,6 +25,18 @@ describe('drop tanks at spawn', () => {
   });
 });
 
+describe('fuel taken at spawn', () => {
+  it('the player starts with the internal fuel chosen on the loadout screen; drop tanks still full', () => {
+    const base = resolveBuiltinMission('dogfight-1v1');
+    const mission = { ...base, playerStart: { ...base.playerStart, fuelFrac: 0.5 } };
+    const world = createWorld(buildWorldDependencies(mission));
+    world.loadMission(mission);
+    const player = world.getEntityState(world.getPlayerEntityId())!;
+    expect(player.fuelKg).toBeCloseTo(tejasDefinition.maxFuelKg * 0.5);
+    expect(player.dropTankFuelKg).toBeGreaterThan(0);
+  });
+});
+
 describe('setPlayerInput', () => {
   it('forwards every PilotInputs field, including the optional ones', () => {
     const mission = resolveBuiltinMission('free-flight');

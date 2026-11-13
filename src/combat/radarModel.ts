@@ -29,6 +29,7 @@ import {
   RADAR_NOTCH_CLOSURE_MPS,
   RADAR_NOTCH_MAX_RANGE_M,
   TERRAIN_LOS_MASK_MARGIN_M,
+  JAMMER_BURN_THROUGH_FACTOR,
   DEFAULT_AIRCRAFT_RCS_NOSE_ON_M2,
   DEFAULT_AIRCRAFT_RCS_BROADSIDE_M2,
   VISUAL_DETECT_RANGE_M,
@@ -59,6 +60,14 @@ export const radarDetectionRangeM: RadarDetectionRangeM = (rcsM2, radar) => {
   const raw = (radar?.referenceRangeM ?? RADAR_REFERENCE_RANGE_M) * Math.pow(rcsM2 / (radar?.referenceRcsM2 ?? RADAR_REFERENCE_RCS_M2), 0.25);
   return clamp(raw, 0, radar?.maxRangeM ?? RADAR_MAX_RANGE_M);
 };
+
+/**
+ * A radar's detection / track range against `target`: `rangeM` (its RCS-scaled range), cut to the
+ * burn-through range (x `factor`) when the target is jamming (JAMMER_BURN_THROUGH_FACTOR's doc comment).
+ */
+export function burnThroughRangeM(rangeM: number, target: Pick<DetectableEntity, 'jamming'>, factor: number = JAMMER_BURN_THROUGH_FACTOR): number {
+  return target.jamming ? rangeM * factor : rangeM;
+}
 
 const WORLD_FORWARD_BODY: Vec3Like = { x: 1, y: 0, z: 0 };
 const WORLD_UP_BODY: Vec3Like = { x: 0, y: 1, z: 0 };
@@ -265,7 +274,7 @@ export const updateSensors: UpdateSensors = (
     const geom = computeGeometry(observer, e, sampler, radar);
     if (geom.terrainMasked) continue;
     // A pulse-Doppler radar loses a target in the ground-clutter notch altogether.
-    const radarDetected = radarOn && geom.inScanCone && !geom.isNotched && geom.rangeM <= radarDetectionRangeM(geom.rcsM2, radar);
+    const radarDetected = radarOn && geom.inScanCone && !geom.isNotched && geom.rangeM <= burnThroughRangeM(radarDetectionRangeM(geom.rcsM2, radar), e);
     const angleFromNoseObs = Math.acos(clamp(Vec3.dot(_bearing, _forwardW), -1, 1));
     const visualDetected = geom.rangeM <= VISUAL_DETECT_RANGE_M && angleFromNoseObs <= VISUAL_FOV_HALF_ANGLE_RAD;
     if (!radarDetected && !visualDetected) continue;
@@ -504,7 +513,7 @@ export const updateSensors: UpdateSensors = (
       satisfied = !!lockedEntity.radarEmission && off <= (armProfile.seekerHalfAngleDeg * Math.PI) / 180 && rng <= armProfile.maxRangeM;
       grace = 2;
     } else if (state.selectedWeapon === 'radar_missile') {
-      satisfied = geom.inTrackCone && !geom.isNotched && !geom.terrainMasked && geom.rangeM <= radarDetectionRangeM(geom.rcsM2, radar);
+      satisfied = geom.inTrackCone && !geom.isNotched && !geom.terrainMasked && geom.rangeM <= burnThroughRangeM(radarDetectionRangeM(geom.rcsM2, radar), lockedEntity);
       grace = radar.lockBreakGraceSec;
     } else {
       // ir_missile — recompute bearing to the locked target explicitly (the

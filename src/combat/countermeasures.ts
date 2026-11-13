@@ -13,6 +13,7 @@
  * Allocation-free in the step functions.
  */
 import type { EntityId, QuatLike, Vec3Like } from '../contracts/core';
+import { JAMMER_CHAFF_FACTOR } from '../contracts/combat';
 
 export type DecoyKind = 'flare' | 'chaff';
 
@@ -137,10 +138,15 @@ export function flareSeductionChance(flareResistance: number | undefined, missil
   return (1 - (flareResistance ?? 0.5)) * aspect * (afterburnerOn ? 0.6 : 1);
 }
 
-/** Chance one chaff bundle seduces an active radar seeker (see the file header). */
-export function chaffSeductionChance(chaffResistance: number | undefined, missilePos: Vec3Like, targetPos: Vec3Like, targetVel: Vec3Like): number {
+/**
+ * Chance one chaff bundle seduces an active radar seeker (see the file header). `targetJamming`: the
+ * target carries a self-protection jammer, whose deception makes the chaff JAMMER_CHAFF_FACTOR times
+ * likelier to take the seeker (capped at 1).
+ */
+export function chaffSeductionChance(chaffResistance: number | undefined, missilePos: Vec3Like, targetPos: Vec3Like, targetVel: Vec3Like, targetJamming = false): number {
   const c = aspectCos(missilePos, targetPos, targetVel);
   // 1 when beaming (no closure for the Doppler filter to separate), 0.2 nose- or tail-on.
   const notch = 0.2 + 0.8 * (1 - Math.abs(c));
-  return (1 - (chaffResistance ?? 0.5)) * notch;
+  const p = (1 - (chaffResistance ?? 0.5)) * notch;
+  return targetJamming ? Math.min(1, p * JAMMER_CHAFF_FACTOR) : p;
 }

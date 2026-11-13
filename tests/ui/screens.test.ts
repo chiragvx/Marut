@@ -7,7 +7,7 @@ import { createLoadingScreen } from '../../src/ui/loadingScreen';
 import { createSettingsScreen } from '../../src/ui/settings';
 import { createFreeFlightSetup, DEFAULT_FREE_FLIGHT } from '../../src/ui/freeFlight';
 import { createBriefing, createMissionList } from '../../src/ui/missions';
-import { createLoadoutEditor, describeFit, selectionFit } from '../../src/ui/loadoutEditor';
+import { createLoadoutEditor, describeFit, selectionFit, takeoffWeight } from '../../src/ui/loadoutEditor';
 import { createControlsScreen } from '../../src/ui/controls';
 import { menuKeys } from '../../src/ui/kit';
 import type { DebriefStats, SettingsState } from '../../src/contracts/ui';
@@ -229,7 +229,7 @@ describe('loadout editor', () => {
     createLoadoutEditor(container, tejasDefinition, { presetId: 'cap' }, { onDone, onCancel: noop });
     (container.querySelector('[data-role="hardpoints"] [data-station="wing-outer-l"]') as Element).dispatchEvent(new MouseEvent('click', { bubbles: true }));
     // Only what the outboard pylon carries.
-    expect(stores(container)).toEqual(['', 'asraam:1', 'asraam:2', 'python-5:1', 'python-5:2', 'r-73:1', 'r-73:2', 'derby:1', 'derby:2']);
+    expect(stores(container)).toEqual(['', 'asraam:1', 'asraam:2', 'python-5:1', 'python-5:2', 'r-73:1', 'r-73:2', 'derby:1', 'derby:2', 'el-l-8222:1']);
     pick(container, 'wing-outer-l', 'r-73:2');
     click(container, '[data-action="done"]');
     const sel = onDone.mock.calls[0]![0];
@@ -249,6 +249,57 @@ describe('loadout editor', () => {
     pick(container, 'wing-inner-l', 'tank-1200l:1');
     click(container, '[data-action="done"]');
     expect(onDone.mock.calls[0]![0]).toEqual({ presetId: 'cap' });
+  });
+
+  it('offers the jammer pod on the left outboard pylon only, never mirrored, and the 800 L tank on the mid pylons', () => {
+    const container = makeContainer();
+    const onDone = vi.fn();
+    createLoadoutEditor(container, tejasDefinition, { presetId: 'cap' }, { onDone, onCancel: noop });
+    (container.querySelector('[data-role="hardpoints"] [data-station="wing-outer-r"]') as Element).dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    expect(stores(container)).not.toContain('el-l-8222:1');
+    pick(container, 'wing-outer-l', 'el-l-8222:1');
+    (container.querySelector('[data-role="hardpoints"] [data-station="wing-mid-l"]') as Element).dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    expect(stores(container)).toContain('tank-800l:1');
+    pick(container, 'wing-mid-l', 'tank-800l:1');
+    click(container, '[data-action="done"]');
+    const fit = onDone.mock.calls[0]![0].fit;
+    expect(fit['wing-outer-l']).toEqual({ store: 'el-l-8222', count: 1 });
+    expect(fit['wing-outer-r']?.store).not.toBe('el-l-8222');
+    expect(fit['wing-mid-l']).toEqual({ store: 'tank-800l', count: 1 });
+    expect(fit['wing-mid-r']).toEqual({ store: 'tank-800l', count: 1 });
+  });
+
+  it('shows the take-off weight against MTOW, lets the jet be overloaded, and returns the fuel taken', () => {
+    const container = makeContainer();
+    const onDone = vi.fn();
+    createLoadoutEditor(container, tejasDefinition, { presetId: 'clean' }, { onDone, onCancel: noop });
+    const box = container.querySelector('[data-role="weight-box"]')!;
+    expect(box.classList.contains('is-over')).toBe(false);
+    // Every tank and four ASRAAMs, mirrored: over MTOW, and still allowed.
+    pick(container, 'wing-inner-l', 'tank-1200l:1');
+    pick(container, 'wing-mid-l', 'tank-800l:1');
+    pick(container, 'centreline', 'tank-725l:1');
+    pick(container, 'wing-outer-l', 'asraam:2');
+    const w = takeoffWeight(tejasDefinition, selectionFit(tejasDefinition, { fit: { 'wing-outer-l': { store: 'asraam', count: 2 }, 'wing-outer-r': { store: 'asraam', count: 2 }, 'wing-inner-l': { store: 'tank-1200l', count: 1 }, 'wing-inner-r': { store: 'tank-1200l', count: 1 }, 'wing-mid-l': { store: 'tank-800l', count: 1 }, 'wing-mid-r': { store: 'tank-800l', count: 1 }, centreline: { store: 'tank-725l', count: 1 } } }));
+    expect(w.overKg).toBeGreaterThan(0);
+    expect(box.classList.contains('is-over')).toBe(true);
+    expect(container.querySelector('[data-role="overweight"]')!.textContent).toContain('Over MTOW by');
+    // Less fuel: lighter.
+    const fuel = container.querySelector('[data-role="fuel"]') as HTMLInputElement;
+    fuel.value = '50';
+    fuel.dispatchEvent(new Event('input', { bubbles: true }));
+    expect(container.querySelector('[data-role="fuel-value"]')!.textContent).toContain('50%');
+    click(container, '[data-action="done"]');
+    expect(onDone.mock.calls[0]![0].fuelFrac).toBe(0.5);
+    expect(onDone.mock.calls[0]![0].fit.centreline).toEqual({ store: 'tank-725l', count: 1 });
+  });
+
+  it('weighs a fit: empty + fuel taken + stores', () => {
+    const clean = takeoffWeight(tejasDefinition, {}, 1);
+    expect(clean.kg).toBe(tejasDefinition.emptyMassKg + tejasDefinition.maxFuelKg);
+    expect(clean.mtowKg).toBe(13500);
+    expect(clean.overKg).toBe(0);
+    expect(takeoffWeight(tejasDefinition, {}, 0.5).kg).toBeCloseTo(tejasDefinition.emptyMassKg + tejasDefinition.maxFuelKg / 2);
   });
 
   it('describes a fit in words', () => {

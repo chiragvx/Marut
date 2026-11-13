@@ -12,6 +12,8 @@ import { FUEL_TANKS, storeKind } from '../catalog/weapons';
 // --- Mass / fuel (section 5.1) ---
 export const emptyMassKg = 6560;
 export const maxFuelKg = 2458;
+/** Maximum take-off weight, kg (Tejas Mk1A, as published). */
+export const maxTakeoffMassKg = 13500;
 /** Fixed reference combat weight the integrator treats as constant (02-flight-model.md section 9). */
 export const massKg = 8500;
 
@@ -50,10 +52,12 @@ export const meanChordM = wingAreaM2 / wingSpanM;
 // The gun: GSh-23 in its blister under the starboard intake.
 export const stations: readonly StationDef[] = [
   { id: 'gun', posBodyM: { x: 2.15, y: -0.7, z: 0.78 }, accepts: ['gsh-23'], maxCount: 220 },
-  { id: 'wing-outer-l', posBodyM: { x: -2.6, y: -0.29, z: -3.42 }, accepts: ['asraam', 'python-5', 'r-73', 'derby'], maxCount: 2 },
+  // The self-protection jammer (EL/L-8222) goes on one outer station only: the left (as photographed).
+  { id: 'wing-outer-l', posBodyM: { x: -2.6, y: -0.29, z: -3.42 }, accepts: ['asraam', 'python-5', 'r-73', 'derby', 'el-l-8222'], maxCount: 2 },
   { id: 'wing-outer-r', posBodyM: { x: -2.6, y: -0.29, z: 3.42 }, accepts: ['asraam', 'python-5', 'r-73', 'derby'], maxCount: 2 },
-  { id: 'wing-mid-l', posBodyM: { x: -1.9, y: -0.28, z: -2.66 }, accepts: ['astra-mk1', 'derby-er', 'derby', 'python-5', 'r-73', 'asraam', 'hsld-250', 'hsld-250r', 'b8m1', 'saaw'], maxCount: 2 },
-  { id: 'wing-mid-r', posBodyM: { x: -1.9, y: -0.28, z: 2.66 }, accepts: ['astra-mk1', 'derby-er', 'derby', 'python-5', 'r-73', 'asraam', 'hsld-250', 'hsld-250r', 'b8m1', 'saaw'], maxCount: 2 },
+  // The middle stations are wet too: an 800 L tank (1200 L inboard, 725 L centreline).
+  { id: 'wing-mid-l', posBodyM: { x: -1.9, y: -0.28, z: -2.66 }, accepts: ['astra-mk1', 'derby-er', 'derby', 'python-5', 'r-73', 'asraam', 'hsld-250', 'hsld-250r', 'b8m1', 'saaw', 'tank-800l'], maxCount: 2 },
+  { id: 'wing-mid-r', posBodyM: { x: -1.9, y: -0.28, z: 2.66 }, accepts: ['astra-mk1', 'derby-er', 'derby', 'python-5', 'r-73', 'asraam', 'hsld-250', 'hsld-250r', 'b8m1', 'saaw', 'tank-800l'], maxCount: 2 },
   { id: 'wing-inner-l', posBodyM: { x: -0.95, y: -0.28, z: -1.68 }, accepts: ['tank-1200l', 'astra-mk1', 'derby-er', 'derby', 'hsld-450', 'hsld-250', 'hsld-250r', 'griffin-lgb', 'hammer-250', 'rudram-1', 'saaw'], maxCount: 1 },
   { id: 'wing-inner-r', posBodyM: { x: -0.95, y: -0.28, z: 1.68 }, accepts: ['tank-1200l', 'astra-mk1', 'derby-er', 'derby', 'hsld-450', 'hsld-250', 'hsld-250r', 'griffin-lgb', 'hammer-250', 'rudram-1', 'saaw'], maxCount: 1 },
   { id: 'centreline', posBodyM: { x: -0.35, y: -0.82, z: 0 }, accepts: ['tank-725l', 'hsld-450', 'hsld-250', 'griffin-lgb'], maxCount: 1 },

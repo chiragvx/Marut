@@ -7,7 +7,7 @@
  * impossible aircraft. The gun always keeps its default load.
  */
 import type { AircraftDefinition, LoadoutPreset } from '../contracts/aircraft';
-import { FUEL_TANKS, SENSOR_PODS, WEAPONS } from '../catalog';
+import { FUEL_TANKS, JAMMER_PODS, SENSOR_PODS, WEAPONS } from '../catalog';
 import { getLoadout } from './registry';
 import { MAX_STORE_SLOTS, STORE_IDS, StoreRack, packStoreSlot, packStoreSlots } from '../contracts/core';
 
@@ -18,12 +18,12 @@ export const CUSTOM_LOADOUT_ID = 'custom';
 
 /** A store the game can draw and simulate (a catalogue weapon or fuel tank). */
 export function isBuiltStore(id: string): boolean {
-  return WEAPONS[id] !== undefined || FUEL_TANKS[id] !== undefined || SENSOR_PODS[id] !== undefined;
+  return WEAPONS[id] !== undefined || FUEL_TANKS[id] !== undefined || SENSOR_PODS[id] !== undefined || JAMMER_PODS[id] !== undefined;
 }
 
 /** Display name of a store. */
 export function storeName(id: string): string {
-  return WEAPONS[id]?.name ?? FUEL_TANKS[id]?.name ?? SENSOR_PODS[id]?.name ?? id;
+  return WEAPONS[id]?.name ?? FUEL_TANKS[id]?.name ?? SENSOR_PODS[id]?.name ?? JAMMER_PODS[id]?.name ?? id;
 }
 
 /** `fit` with every entry the aircraft cannot carry removed, and the gun's default load kept. */
@@ -39,7 +39,8 @@ export function sanitizeFit(def: AircraftDefinition, fit: LoadoutFit): Record<st
     }
     const f = fit[st.id];
     if (!f || !st.accepts.includes(f.store) || !isBuiltStore(f.store)) continue;
-    const count = Math.min(st.maxCount, Math.floor(f.count));
+    // Tanks and pods: one to a station (the twin rails and racks are for weapons).
+    const count = Math.min(WEAPONS[f.store] ? st.maxCount : 1, Math.floor(f.count));
     if (count >= 1) out[st.id] = { store: f.store, count };
   }
   return out;
@@ -88,7 +89,7 @@ export function loadoutMassKg(preset: LoadoutPreset | undefined): number {
     if (w && w.kind !== 'gun') kg += f.count * w.carriageMassKg;
     const tank = FUEL_TANKS[f.store];
     if (tank) kg += f.count * (tank.capacityKg + tank.emptyMassKg);
-    const pod = SENSOR_PODS[f.store];
+    const pod = SENSOR_PODS[f.store] ?? JAMMER_PODS[f.store];
     if (pod) kg += pod.massKg;
   }
   return kg;

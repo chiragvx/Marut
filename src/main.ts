@@ -618,11 +618,12 @@ function applyMouseSettings(enabled: boolean, sensitivity: number, invert: boole
 
 /** A preset or custom fit onto the mission's player start (no choice = the mission's own fit). */
 function withLoadout(m: Mission, sel: LoadoutSelection): Mission {
-  if (!sel.fit && !sel.presetId) return m;
+  const fuel = sel.fuelFrac !== undefined && sel.fuelFrac < 1 ? { fuelFrac: sel.fuelFrac } : {};
+  if (!sel.fit && !sel.presetId) return { ...m, playerStart: { ...m.playerStart, ...fuel } };
   const { loadout: _l, loadoutId: _id, ...rest } = m.playerStart;
   void _l;
   void _id;
-  const playerStart = { ...rest, ...(sel.fit ? { loadout: sel.fit } : sel.presetId ? { loadoutId: sel.presetId } : {}) };
+  const playerStart = { ...rest, ...(sel.fit ? { loadout: sel.fit } : sel.presetId ? { loadoutId: sel.presetId } : {}), ...fuel };
   return { ...m, playerStart };
 }
 
@@ -1130,6 +1131,7 @@ function applyDevStart(mission: Mission): Mission {
       ...(mission.playerStart.aircraftId ? { aircraftId: mission.playerStart.aircraftId } : {}),
       ...(mission.playerStart.loadoutId ? { loadoutId: mission.playerStart.loadoutId } : {}),
       ...(mission.playerStart.loadout ? { loadout: mission.playerStart.loadout } : {}),
+      ...(mission.playerStart.fuelFrac !== undefined ? { fuelFrac: mission.playerStart.fuelFrac } : {}),
       pos: { x: v[0]!, y: v[1]!, z: v[2]! },
       headingRad: ((v[3] ?? 0) * Math.PI) / 180,
       speedMps: v[4] ?? 200,

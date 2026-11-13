@@ -459,7 +459,11 @@ class WorldImpl implements World {
     const playerId = this.spawnAircraftOnly(0, playerPos, playerHeadingRad, playerSpeedMps, ps.aircraftId ?? PLAYER_DEFAULT_AIRCRAFT_ID, playerStartOnGround, true);
     if (playerId !== NO_ENTITY_ID) {
       const state = this.pool.get(playerId);
-      if (state) state.flags |= EntityFlag.IsPlayer;
+      if (state) {
+        state.flags |= EntityFlag.IsPlayer;
+        // The fuel the player chose to take (the loadout screen); drop tanks still start full.
+        if (ps.fuelFrac !== undefined && Number.isFinite(ps.fuelFrac)) state.fuelKg *= Math.min(1, Math.max(0.05, ps.fuelFrac));
+      }
       this.playerEntityIdInternal = playerId;
     }
 

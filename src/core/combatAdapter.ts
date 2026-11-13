@@ -21,7 +21,7 @@ import type { LoadoutPreset } from '../contracts/aircraft';
 import type { CombatPortWithAirDefence, CombatPortWithBriefing, CombatPortWithContacts, CombatPortWithGroundMap, CombatPortWithRearm, CombatPortWithStores, WorldCombatTickContext } from './combatContext';
 import { subSeed } from './seed';
 import { getAircraftDefinition, getLoadout } from '../aircraft';
-import { GROUND_UNIT_TYPES, RADARS, SENSOR_PODS, WEAPONS } from '../catalog';
+import { GROUND_UNIT_TYPES, JAMMER_PODS, RADARS, SENSOR_PODS, WEAPONS } from '../catalog';
 import { isaDensityKgM3 } from '../combat/isaDensity';
 import {
   createWeaponsState,
@@ -66,6 +66,7 @@ import type {
   CombatEnvironment,
   DetectableEntity,
   GroundMapCandidate,
+  JammerSpec,
   ProjectileSpawnRequest,
   RadarSignature,
   ProjectileState,
@@ -90,10 +91,12 @@ function loadoutFor(defId: string | undefined, fit?: LoadoutPreset): WeaponsLoad
   const preset = fit ?? (def ? getLoadout(def) : undefined);
   const stations: WeaponStationSpec[] = [];
   let pod: SensorPodProfile | undefined;
+  let jammer: JammerSpec | undefined;
   if (def?.stations && preset) {
     for (const st of def.stations) {
       const fit = preset.fit[st.id];
       if (fit && SENSOR_PODS[fit.store]) pod = SENSOR_PODS[fit.store];
+      if (fit && JAMMER_PODS[fit.store]) jammer = JAMMER_PODS[fit.store];
       const profile = fit ? WEAPONS[fit.store] : undefined;
       if (!fit || !profile || fit.count <= 0) continue;
       stations.push({ hardpointId: st.id, posBodyM: st.posBodyM, weapon: profile.kind, maxCount: fit.count * (profile.roundsPerStore ?? 1), profile });
@@ -103,7 +106,7 @@ function loadoutFor(defId: string | undefined, fit?: LoadoutPreset): WeaponsLoad
   }
   const radar = def?.sensors?.radar ? RADARS[def.sensors.radar] : undefined;
   const cm = def?.sensors?.countermeasures;
-  const out: WeaponsLoadout = { stations, ...(radar ? { radar } : {}), ...(cm ? { countermeasures: cm } : {}), ...(pod ? { pod } : {}) };
+  const out: WeaponsLoadout = { stations, ...(radar ? { radar } : {}), ...(cm ? { countermeasures: cm } : {}), ...(pod ? { pod } : {}), ...(jammer ? { jammer } : {}) };
   loadoutCache.set(key, out);
   return out;
 }
@@ -224,7 +227,8 @@ export function createCombatAdapter(): CombatPort & CombatPortWithContacts & Com
         if (kind === 'flare' && p.kind === 'ir_missile' && p.guidance === 'ir_homing') {
           chance = flareSeductionChance(p.profile?.ir?.flareResistance, e.pos, owner.pos, owner.vel, owner.afterburnerOn);
         } else if (kind === 'chaff' && p.kind === 'radar_missile' && p.guidance === 'radar_active') {
-          chance = chaffSeductionChance(p.profile?.radar?.chaffResistance, e.pos, owner.pos, owner.vel);
+          // A jamming aircraft's deception pulls the seeker's gates off it: the chaff captures it more easily.
+          chance = chaffSeductionChance(p.profile?.radar?.chaffResistance, e.pos, owner.pos, owner.vel, !!weaponsStates.get(owner.id)?.jammer);
         }
         if (chance > 0 && combatRand01(rng) < chance) p.targetId = d.id;
       }
@@ -450,6 +454,8 @@ export function createCombatAdapter(): CombatPort & CombatPortWithContacts & Com
           d.radarSignature = undefined;
           d.hitEllipsoidBodyM = undefined;
         }
+        // Carrying a self-protection jammer pod: hostile radars see it only inside burn-through range.
+        d.jamming = !!ws?.jammer;
         allEntitiesScratch[i] = d;
       }
       // Decoys in the air (flown on, burnt-out ones freed), after the real entities.
