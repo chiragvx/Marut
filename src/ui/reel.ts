@@ -18,7 +18,7 @@ import { bell, bellRate, flyPath, follower, holdGamma, shake, smooth01, type Tra
 const Y: Vec3Like = { x: 0, y: 1, z: 0 };
 
 /** A point (body frame: forward, up, right) from the jet, world. */
-function fromJet(jet: ShowcaseAircraft, fwd: number, up: number, right: number, out: Vec3Like): Vec3Like {
+export function fromJet(jet: ShowcaseAircraft, fwd: number, up: number, right: number, out: Vec3Like): Vec3Like {
   Quat.rotate(jet.rot, { x: fwd, y: up, z: right }, out);
   out.x += jet.pos.x;
   out.y += jet.pos.y;
@@ -27,14 +27,14 @@ function fromJet(jet: ShowcaseAircraft, fwd: number, up: number, right: number, 
 }
 
 /** The camera's up vector rolled `lock` of the way to the jet's (1 = rolls with it). */
-function rollUp(frame: ShowcaseFrame, jetRot: QuatLike, lock: number): void {
+export function rollUp(frame: ShowcaseFrame, jetRot: QuatLike, lock: number): void {
   const u = Quat.rotate(jetRot, Y, frame.up ?? (frame.up = { x: 0, y: 1, z: 0 }));
   u.x *= lock;
   u.y = lerp(1, u.y, lock);
   u.z *= lock;
 }
 
-function gearUp(jet: ShowcaseAircraft, throttle: number): ShowcaseAircraft {
+export function gearUp(jet: ShowcaseAircraft, throttle: number): ShowcaseAircraft {
   jet.gearPos = 0;
   jet.throttle = throttle;
   jet.flags = EntityFlag.Lights | EntityFlag.LightsStrobe;
@@ -42,20 +42,20 @@ function gearUp(jet: ShowcaseAircraft, throttle: number): ShowcaseAircraft {
 }
 
 /** A point over the fields some way off the base (runway coordinates), for the air shots. */
-function overFields(f: RunwayFrame, along: number, right: number, up: number): Vec3Like {
+export function overFields(f: RunwayFrame, along: number, right: number, up: number): Vec3Like {
   return at(f, along, right, up, { x: 0, y: 0, z: 0 });
 }
 
 /** Scratch aircraft for the camera followers (they sample a track off-frame). */
 const probe = makeAircraft();
 
-type Ship = { pos: (t: number, o: Vec3Like) => Vec3Like; look: (t: number, o: Vec3Like) => Vec3Like };
+export type Ship = { pos: (t: number, o: Vec3Like) => Vec3Like; look: (t: number, o: Vec3Like) => Vec3Like };
 
 /**
  * A camera ship flying behind the jet's path: `back` m behind, `up` above and `right` to the side,
  * in the frame of its (smoothed) direction of flight, chasing that point on a spring.
  */
-function chaseShip(track: Track, durationSec: number, back: number, up: number, right: number, omega: number): Ship {
+export function chaseShip(track: Track, durationSec: number, back: number, up: number, right: number, omega: number): Ship {
   const dir = follower(durationSec, 2.5, (t, o) => {
     track.sample(t, probe);
     const v = Math.hypot(probe.vel.x, probe.vel.z) || 1;
@@ -87,7 +87,7 @@ function chaseShip(track: Track, durationSec: number, back: number, up: number, 
 }
 
 /** A camera ship holding a point in the jet's frame (fwd, up, right) on a spring, looking at `lookFwd` along its nose. */
-function bodyShip(track: Track, durationSec: number, fwd: number, up: number, right: number, lookFwd: number, omega: number): Ship {
+export function bodyShip(track: Track, durationSec: number, fwd: number, up: number, right: number, lookFwd: number, omega: number): Ship {
   const pos = follower(durationSec, omega, (t, o) => {
     track.sample(t, probe);
     return fromJet(probe, fwd, up, right, o);

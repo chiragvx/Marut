@@ -220,7 +220,7 @@ const LIFTOFF_SEC = 12;
  * A take-off from the threshold: held 2 s, then rolling on afterburner, lifting off at 12 s and
  * climbing out, gear up from 15 s. Sets the jet's pose, speed, gear and lights for time t.
  */
-function takeoff(f: RunwayFrame, jet: ShowcaseAircraft, t: number, q: QuatLike): void {
+export function takeoff(f: RunwayFrame, jet: ShowcaseAircraft, t: number, q: QuatLike): void {
   const tr = Math.max(0, t - 2);
   const v = 3 + 7.2 * tr;
   const along = 60 + 3 * tr + 3.6 * tr * tr;

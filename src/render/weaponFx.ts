@@ -12,6 +12,11 @@
  * - Chaff: a bundle bursts into a cloud of fine dipoles, a fast-spreading silvery haze that stops
  *   in the air within a fraction of a second, the dipoles glinting in the sun as they tumble down.
  *
+ * - Missiles and rockets: the motor's flame and a long, dense white smoke trail while it burns
+ *   (they then coast on, unseen but for the trail they left).
+ * - Explosions in the air: a flash, a fireball rolling out and darkening into black smoke, hot
+ *   fragments flung out on smoking arcs; a big one (an aircraft) leaves burning wreckage falling.
+ *
  * Three batched draws: soft lit smoke puffs (normal blending), streaks (camera-facing capsules,
  * additive) and sparks (round points, additive). Everything is in absolute world coordinates on
  * the CPU and drawn relative to the floating origin. The flight of a decoy is the sim's own
@@ -19,9 +24,10 @@
  */
 import * as THREE from 'three';
 import { EntityKindCode, type QuatLike, type SimEvent, type Vec3Like } from '../contracts/core';
+import type { ShowcaseFrame } from '../contracts/render';
 import { CHAFF_LIFE_SEC, FLARE_LIFE_SEC, dispenserBody } from '../combat/countermeasures';
 import { ATMOSPHERE_GLSL, getAtmosphereUniforms } from './atmosphere';
-import { createInterpolatedEntity, interpolateEntity, type InterpolatedEntity, type SnapshotDoubleBuffer } from './snapshotInterpolation';
+import { interpolateEntity, type SnapshotDoubleBuffer } from './snapshotInterpolation';
 
 const MAX_PUFFS = 2048;
 const MAX_STREAKS = 384;
@@ -74,7 +80,7 @@ const PUFF_VS = /* glsl */ `
     float dist = max(0.05, -mv.z);
     float px = aSize * projectionMatrix[1][1] * 0.5 * uViewH / dist;
     // Fades as it comes right up to the eye (a puff filling the screen), and under a pixel.
-    vAlpha = aAlpha * (1.0 - smoothstep(uViewH * 0.5, uViewH * 1.1, px)) * smoothstep(0.3, 2.0, dist) * min(1.0, px);
+    vAlpha = aAlpha * (1.0 - smoothstep(uViewH * 0.18, uViewH * 0.6, px)) * smoothstep(1.0, 6.0, dist) * min(1.0, px);
     gl_PointSize = clamp(px, 1.0, 1024.0);
     vTint = aTint;
     vWorld = position + uOrigin;
@@ -224,10 +230,76 @@ interface DecoyFx {
   lastSmoke: Vec3Like;
 }
 
+/** A pose as drawn this frame. */
+export interface FxPose {
+  pos: Vec3Like;
+  rot: QuatLike;
+  vel: Vec3Like;
+}
+
+/** Where things are as drawn this frame (the interpolated snapshot, or a cinematic shot). */
+export interface FxPoses {
+  /** The pose of entity `id`: 'aircraft', 'other', or null when it is not there. */
+  pose(id: number, out: FxPose): 'aircraft' | 'other' | null;
+  /** Every gun round in flight. */
+  bullets(cb: (id: number, pos: Vec3Like, vel: Vec3Like) => void): void;
+}
+
+/** FxPoses over the interpolated snapshot. */
+export function snapshotPoses(buf: SnapshotDoubleBuffer, f: number): FxPoses {
+  const scratch = { pos: { x: 0, y: 0, z: 0 }, rot: { x: 0, y: 0, z: 0, w: 1 }, vel: { x: 0, y: 0, z: 0 }, elevonL: 0, elevonR: 0, rudder: 0, gearPos: 0, throttle: 0 };
+  return {
+    pose(id, out) {
+      const c = buf.curr;
+      for (let i = 0; i < c.entityCount; i++) {
+        if (c.id[i] !== id || c.alive[i] !== 1) continue;
+        interpolateEntity(buf, i, f, scratch);
+        Object.assign(out.pos, scratch.pos);
+        Object.assign(out.rot, scratch.rot);
+        Object.assign(out.vel, scratch.vel);
+        return c.kind[i] === EntityKindCode.aircraft ? 'aircraft' : 'other';
+      }
+      return null;
+    },
+    bullets(cb) {
+      const c = buf.curr;
+      for (let i = 0; i < c.entityCount; i++) {
+        if (c.alive[i] !== 1 || c.kind[i] !== EntityKindCode.bullet) continue;
+        interpolateEntity(buf, i, f, scratch);
+        cb(c.id[i]!, scratch.pos, scratch.vel);
+      }
+    },
+  };
+}
+
+/** FxPoses over a cinematic shot's frame. */
+export function showcasePoses(fr: ShowcaseFrame): FxPoses {
+  return {
+    pose(id, out) {
+      for (const a of fr.aircraft) {
+        if (a.id !== id) continue;
+        Object.assign(out.pos, a.pos); Object.assign(out.rot, a.rot); Object.assign(out.vel, a.vel);
+        return 'aircraft';
+      }
+      for (const a of fr.stores ?? []) {
+        if (a.id !== id) continue;
+        Object.assign(out.pos, a.pos); Object.assign(out.rot, a.rot); Object.assign(out.vel, a.vel);
+        return 'other';
+      }
+      return null;
+    },
+    bullets(cb) {
+      for (const b of fr.bullets ?? []) cb(b.id, b.pos, b.vel);
+    },
+  };
+}
+
 export interface WeaponFx {
   ingest(ev: SimEvent): void;
-  /** The jets as drawn this frame: muzzle flashes, tracers, decoys leaving their dispensers. */
-  sync(buf: SnapshotDoubleBuffer, f: number, originWorld: Readonly<Vec3Like>): void;
+  /** The jets as drawn this frame: muzzle flashes, tracers, decoys leaving their dispensers, missile motors. */
+  sync(poses: FxPoses, originWorld: Readonly<Vec3Like>): void;
+  /** Clears everything (a cinematic shot starting over). */
+  reset(): void;
   tick(dtSec: number, originWorld: Readonly<Vec3Like>): void;
   setView(widthPx: number, heightPx: number): void;
   dispose(): void;
@@ -245,7 +317,7 @@ export function createWeaponFx(root: THREE.Object3D): WeaponFx {
   const pAge = new Float32Array(MAX_PUFFS), pLife = new Float32Array(MAX_PUFFS).fill(-1);
   const pS0 = new Float32Array(MAX_PUFFS), pS1 = new Float32Array(MAX_PUFFS), pGrow = new Float32Array(MAX_PUFFS);
   const pA0 = new Float32Array(MAX_PUFFS), pAlb = new Float32Array(MAX_PUFFS), pGlow = new Float32Array(MAX_PUFFS);
-  const pSeed = new Float32Array(MAX_PUFFS), pDrag = new Float32Array(MAX_PUFFS);
+  const pSeed = new Float32Array(MAX_PUFFS), pDrag = new Float32Array(MAX_PUFFS), pGlowTau = new Float32Array(MAX_PUFFS);
   let pHead = 0;
   const puffGeo = new THREE.BufferGeometry();
   const puffPos = new Float32Array(MAX_PUFFS * 3), puffSize = new Float32Array(MAX_PUFFS), puffAlpha = new Float32Array(MAX_PUFFS), puffTint = new Float32Array(MAX_PUFFS * 3);
@@ -259,7 +331,7 @@ export function createWeaponFx(root: THREE.Object3D): WeaponFx {
   puffs.frustumCulled = false;
   puffs.renderOrder = 2;
 
-  function puff(x: number, y: number, z: number, vx: number, vy: number, vz: number, drag: number, life: number, s0: number, s1: number, grow: number, a0: number, albedo: number, glow: number): void {
+  function puff(x: number, y: number, z: number, vx: number, vy: number, vz: number, drag: number, life: number, s0: number, s1: number, grow: number, a0: number, albedo: number, glow: number, glowTau = 0.12): void {
     const i = pHead;
     pHead = (pHead + 1) % MAX_PUFFS;
     pX[i] = x; pY[i] = y; pZ[i] = z;
@@ -269,6 +341,7 @@ export function createWeaponFx(root: THREE.Object3D): WeaponFx {
     pS0[i] = s0; pS1[i] = s1; pGrow[i] = grow;
     pA0[i] = a0; pAlb[i] = albedo; pGlow[i] = glow;
     pSeed[i] = Math.random();
+    pGlowTau[i] = glowTau;
   }
 
   // --- Streaks ---
@@ -350,8 +423,12 @@ export function createWeaponFx(root: THREE.Object3D): WeaponFx {
   const pending: { ownerId: number; flare: boolean; pos: Vec3Like; vel: Vec3Like }[] = [];
   const decoys: DecoyFx[] = Array.from({ length: MAX_DECOYS }, () => ({ active: false, flare: true, pos: { x: 0, y: 0, z: 0 }, vel: { x: 0, y: 0, z: 0 }, age: 0, seed: 0, lastSmoke: { x: 0, y: 0, z: 0 } }));
   let clock = 0;
-  const pose: InterpolatedEntity = createInterpolatedEntity();
-  const bullet: InterpolatedEntity = createInterpolatedEntity();
+  const pose: FxPose = { pos: { x: 0, y: 0, z: 0 }, rot: { x: 0, y: 0, z: 0, w: 1 }, vel: { x: 0, y: 0, z: 0 } };
+  /** Missiles and rockets in flight: their motors and smoke trails. */
+  const motors: { id: number; age: number; burnSec: number; last: Vec3Like; hasLast: boolean; seen: boolean }[] = [];
+  /** Explosions in the air (their flash), and the fragments they threw. */
+  const blasts: { pos: Vec3Like; r: number; age: number }[] = [];
+  const frags: { pos: Vec3Like; vel: Vec3Like; age: number; life: number; size: number; burning: boolean; last: Vec3Like }[] = [];
   const v1 = { x: 0, y: 0, z: 0 };
   const v2 = { x: 0, y: 0, z: 0 };
   const fwd = { x: 0, y: 0, z: 0 };
@@ -361,10 +438,32 @@ export function createWeaponFx(root: THREE.Object3D): WeaponFx {
   const muzzles: { p: Vec3Like; d: Vec3Like }[] = [];
   let muzzleN = 0;
 
-  function slotOf(buf: SnapshotDoubleBuffer, id: number): number {
-    const c = buf.curr;
-    for (let i = 0; i < c.entityCount; i++) if (c.id[i] === id && c.alive[i] === 1) return i;
-    return -1;
+  /** An explosion in the air at p, radius r (m); `vel` the velocity of what blew up (its wreckage carries it). */
+  function blast(p: Vec3Like, r: number, vel?: Vec3Like): void {
+    if (blasts.length > 24) blasts.shift();
+    blasts.push({ pos: { ...p }, r, age: 0 });
+    const vx = vel?.x ?? 0, vy = vel?.y ?? 0, vz = vel?.z ?? 0;
+    // The fireball: hot, billowing, rolling outwards, cooling into black smoke.
+    const nFire = Math.min(26, 8 + Math.round(r * 1.2));
+    for (let k = 0; k < nFire; k++) {
+      const u = rnd(-1, 1), th = rnd(0, Math.PI * 2), s = Math.sqrt(1 - u * u), sp = rnd(0.5, 1.6) * r;
+      puff(p.x + s * Math.cos(th) * r * 0.2, p.y + u * r * 0.2, p.z + s * Math.sin(th) * r * 0.2,
+        vx * 0.5 + s * Math.cos(th) * sp, vy * 0.5 + u * sp, vz * 0.5 + s * Math.sin(th) * sp,
+        0.45, rnd(3.5, 6.5), r * rnd(0.25, 0.45), r * rnd(1.0, 1.6), 0.35, 0.85, 0.16, rnd(2.2, 3.2), rnd(0.25, 0.5));
+    }
+    // Fragments: hot bits flung out on smoking arcs; a big blast leaves burning wreckage.
+    const nFrag = Math.min(22, 6 + Math.round(r));
+    for (let k = 0; k < nFrag; k++) {
+      const u = rnd(-0.6, 1), th = rnd(0, Math.PI * 2), s = Math.sqrt(1 - u * u), sp = rnd(30, 110);
+      const burning = r >= 12 && k < 3;
+      const m = burning ? 0.25 : 1;
+      frags.push({
+        pos: { ...p },
+        vel: { x: vx * (burning ? 0.8 : 0.4) + s * Math.cos(th) * sp * m, y: vy * 0.5 + u * sp * m, z: vz * (burning ? 0.8 : 0.4) + s * Math.sin(th) * sp * m },
+        age: 0, life: burning ? rnd(5, 8) : rnd(0.8, 2.2), size: burning ? rnd(1.2, 2.2) : rnd(0.15, 0.4), burning, last: { ...p },
+      });
+    }
+    if (frags.length > 160) frags.splice(0, frags.length - 160);
   }
 
   function launch(flare: boolean, pos: Vec3Like, vel: Vec3Like): void {
@@ -413,17 +512,21 @@ export function createWeaponFx(root: THREE.Object3D): WeaponFx {
         Object.assign(s.dir, ev.dir);
       } else if (ev.type === 'countermeasure') {
         pending.push({ ownerId: ev.entityId, flare: ev.kind === 'flare', pos: { ...ev.pos }, vel: { ...ev.vel } });
+      } else if (ev.type === 'missileLaunch') {
+        if (ev.weapon === 'bomb' || ev.weapon === 'guided_bomb') return;
+        const burnSec = ev.weapon === 'rocket' ? 1.1 : ev.weapon === 'ir_missile' ? 2.8 : 5.5;
+        if (motors.length > 32) motors.shift();
+        motors.push({ id: ev.missileId, age: 0, burnSec, last: { x: 0, y: 0, z: 0 }, hasLast: false, seen: false });
+      } else if (ev.type === 'explosion') {
+        blast(ev.pos, Math.max(3, ev.radiusM), ev.vel);
       }
     },
 
-    sync(buf, f, originWorld) {
-      const c = buf.curr;
+    sync(poses, originWorld) {
       org = originWorld as { x: number; y: number; z: number };
       // Decoys out of the dispensers of the jet as drawn.
       for (const p of pending) {
-        const slot = slotOf(buf, p.ownerId);
-        if (slot >= 0) {
-          interpolateEntity(buf, slot, f, pose);
+        if (poses.pose(p.ownerId, pose)) {
           // Which side's dispenser: the side the cartridge was fired towards.
           rotate(pose.rot, Z_AXIS, v1);
           const side = (p.vel.x - pose.vel.x) * v1.x + (p.vel.y - pose.vel.y) * v1.y + (p.vel.z - pose.vel.z) * v1.z >= 0 ? 1 : -1;
@@ -448,9 +551,7 @@ export function createWeaponFx(root: THREE.Object3D): WeaponFx {
         }
         let m: Vec3Like = s.pos;
         let d: Vec3Like = s.dir;
-        const slot = s.posBody ? slotOf(buf, id) : -1;
-        if (slot >= 0 && c.kind[slot] === EntityKindCode.aircraft) {
-          interpolateEntity(buf, slot, f, pose);
+        if (s.posBody && poses.pose(id, pose) === 'aircraft') {
           rotate(pose.rot, s.posBody!, v1);
           m = { x: pose.pos.x + v1.x, y: pose.pos.y + v1.y, z: pose.pos.z + v1.z };
           d = rotate(pose.rot, X_AXIS, { x: 0, y: 0, z: 0 });
@@ -493,12 +594,11 @@ export function createWeaponFx(root: THREE.Object3D): WeaponFx {
 
       // Tracers: every other round, a hot streak from the round back along its flight, cut at the
       // muzzle while it is just out of the gun.
-      for (let i = 0; i < c.entityCount; i++) {
-        if (c.alive[i] !== 1 || c.kind[i] !== EntityKindCode.bullet) continue;
-        if ((c.id[i]! & 1) === 1) continue;
-        interpolateEntity(buf, i, f, bullet);
+      poses.bullets((id, bpos, bvel) => {
+        if ((id & 1) === 1) return;
+        const bullet = { pos: bpos, vel: bvel };
         const sp = Math.hypot(bullet.vel.x, bullet.vel.y, bullet.vel.z);
-        if (sp < 1) continue;
+        if (sp < 1) return;
         fwd.x = bullet.vel.x / sp; fwd.y = bullet.vel.y / sp; fwd.z = bullet.vel.z / sp;
         const h = bullet.pos;
         let L = TRACER_LEN_M;
@@ -508,8 +608,51 @@ export function createWeaponFx(root: THREE.Object3D): WeaponFx {
           const along = dx * fwd.x + dy * fwd.y + dz * fwd.z;
           if (along > -1 && along < L && dx * dx + dy * dy + dz * dz - along * along < 25) L = Math.max(0, along);
         }
-        if (L < 0.3) continue;
+        if (L < 0.3) return;
         streak(h.x - fwd.x * L, h.y - fwd.y * L, h.z - fwd.z * L, h.x, h.y, h.z, 0.1, 1.8, 1.0, 0.42, 0.16, 0.0);
+      });
+
+      // Missile and rocket motors: the flame, the trail laid along the path while it burns.
+      for (let i = motors.length - 1; i >= 0; i--) {
+        const m = motors[i]!;
+        const kind = poses.pose(m.id, pose);
+        if (!kind) {
+          if (m.seen || m.age > 2) motors.splice(i, 1);
+          continue;
+        }
+        m.seen = true;
+        if (m.age > m.burnSec + 0.3) {
+          m.hasLast = false;
+          continue;
+        }
+        const sp = Math.hypot(pose.vel.x, pose.vel.y, pose.vel.z);
+        if (sp > 1) {
+          fwd.x = pose.vel.x / sp; fwd.y = pose.vel.y / sp; fwd.z = pose.vel.z / sp;
+        } else rotate(pose.rot, X_AXIS, fwd);
+        // The nozzle, at the missile's tail.
+        const nx = pose.pos.x - fwd.x * 1.5, ny = pose.pos.y - fwd.y * 1.5, nz = pose.pos.z - fwd.z * 1.5;
+        const burning = m.age > 0.04 && m.age < m.burnSec;
+        const I = burning ? Math.min(1, (m.age - 0.04) / 0.08) * (0.85 + rnd(0, 0.3)) : 0;
+        if (I > 0) {
+          const fl = rnd(2.2, 3.4);
+          streak(nx - fwd.x * fl, ny - fwd.y * fl, nz - fwd.z * fl, nx, ny, nz, 0.45, 2.2, 1.0 * I, 0.62 * I, 0.3 * I, 0.0);
+          spark(nx, ny, nz, 0.6, 3, 1.5 * I, 1.35 * I, 1.1 * I);
+          spark(nx, ny, nz, 2.5, 5, 0.25 * I, 0.14 * I, 0.06 * I);
+        }
+        // Dense white smoke, laid along the path, hanging in the air.
+        if (burning) {
+          const from = m.hasLast ? m.last : { x: nx, y: ny, z: nz };
+          const dx = nx - from.x, dy = ny - from.y, dz = nz - from.z;
+          const dist = Math.hypot(dx, dy, dz);
+          const n = Math.min(40, Math.max(1, Math.floor(dist / 0.7)));
+          for (let j = 1; j <= n; j++) {
+            const t = j / n;
+            puff(from.x + dx * t + rnd(-0.1, 0.1), from.y + dy * t + rnd(-0.1, 0.1), from.z + dz * t + rnd(-0.1, 0.1),
+              rnd(-0.4, 0.4), rnd(-0.2, 0.4), rnd(-0.4, 0.4), 1, rnd(6, 9), 0.35, rnd(2.6, 4), 3.0, 0.42 * Math.min(1, m.age / 0.25 + 0.3), 0.9, j === n ? 0.9 : 0.3);
+          }
+          m.last.x = nx; m.last.y = ny; m.last.z = nz;
+          m.hasLast = true;
+        }
       }
     },
 
@@ -521,6 +664,52 @@ export function createWeaponFx(root: THREE.Object3D): WeaponFx {
       const sunLum = Math.min(1.5, (atm.uAtmSunCol.value.r + atm.uAtmSunCol.value.g + atm.uAtmSunCol.value.b) / 3);
       const night = 1 - Math.min(1, sunLum * 2);
 
+      for (const m of motors) m.age += dtSec;
+      // Explosion flashes.
+      for (let i = blasts.length - 1; i >= 0; i--) {
+        const b = blasts[i]!;
+        b.age += dtSec;
+        if (b.age > 0.6) {
+          blasts.splice(i, 1);
+          continue;
+        }
+        const I = Math.exp(-b.age / 0.09);
+        spark(b.pos.x, b.pos.y, b.pos.z, b.r * 1.4, 10, 2.0 * I, 1.7 * I, 1.2 * I);
+        spark(b.pos.x, b.pos.y, b.pos.z, b.r * 4, 16, 0.5 * I, 0.3 * I, 0.12 * I);
+      }
+      // Fragments: hot streaks on ballistic arcs, smoking; burning wreckage trailing fire and black smoke.
+      for (let i = frags.length - 1; i >= 0; i--) {
+        const g = frags[i]!;
+        g.age += dtSec;
+        if (g.age >= g.life) {
+          frags.splice(i, 1);
+          continue;
+        }
+        const k = Math.min(1, dtSec / (g.burning ? 6 : 1.2));
+        g.vel.x -= g.vel.x * k;
+        g.vel.z -= g.vel.z * k;
+        g.vel.y -= 9.81 * dtSec + g.vel.y * k * 0.3;
+        g.pos.x += g.vel.x * dtSec;
+        g.pos.y += g.vel.y * dtSec;
+        g.pos.z += g.vel.z * dtSec;
+        const heat = g.burning ? Math.min(1, (g.life - g.age) / 1.5) : Math.exp(-g.age / (g.life * 0.45));
+        const sp = Math.hypot(g.vel.x, g.vel.y, g.vel.z) || 1;
+        const tl = Math.min(g.burning ? 6 : 3, sp * 0.03);
+        streak(g.pos.x - (g.vel.x / sp) * tl, g.pos.y - (g.vel.y / sp) * tl, g.pos.z - (g.vel.z / sp) * tl, g.pos.x, g.pos.y, g.pos.z, g.size, 1.6, 1.0 * heat, 0.5 * heat, 0.18 * heat, 0.0);
+        if (g.burning) spark(g.pos.x, g.pos.y, g.pos.z, g.size * 1.6, 4, 1.2 * heat, 0.75 * heat, 0.35 * heat);
+        const dx = g.pos.x - g.last.x, dy = g.pos.y - g.last.y, dz = g.pos.z - g.last.z;
+        const dist = Math.hypot(dx, dy, dz);
+        const step = g.burning ? 1.2 : 2.5;
+        if (dist > step) {
+          const n = Math.min(10, Math.floor(dist / step));
+          for (let j = 1; j <= n; j++) {
+            const t = j / n;
+            if (g.burning) puff(g.last.x + dx * t, g.last.y + dy * t, g.last.z + dz * t, rnd(-0.5, 0.5), rnd(0, 1), rnd(-0.5, 0.5), 1, rnd(5, 8), 0.8, rnd(5, 8), 1.8, 0.65 * heat + 0.1, 0.12, 2.0 * heat, 0.25);
+            else puff(g.last.x + dx * t, g.last.y + dy * t, g.last.z + dz * t, 0, 0, 0, 1, rnd(1.5, 2.5), 0.25, rnd(1.2, 2), 0.8, 0.35 * heat, 0.3, 0.6 * heat, 0.1);
+          }
+          Object.assign(g.last, g.pos);
+        }
+      }
       // Decoys.
       for (const d of decoys) {
         if (!d.active) continue;
@@ -615,7 +804,7 @@ export function createWeaponFx(root: THREE.Object3D): WeaponFx {
         puffSize[n] = pS0[i]! + (pS1[i]! - pS0[i]!) * (1 - Math.exp(-age / pGrow[i]!));
         puffAlpha[n] = pA0[i]! * Math.pow(1 - u, 1.6) * Math.min(1, age / 0.04);
         puffTint[n * 3] = pAlb[i]!;
-        puffTint[n * 3 + 1] = pGlow[i]! * Math.exp(-age / 0.12);
+        puffTint[n * 3 + 1] = pGlow[i]! * Math.exp(-age / pGlowTau[i]!);
         puffTint[n * 3 + 2] = pSeed[i]!;
         n++;
       }
@@ -628,6 +817,17 @@ export function createWeaponFx(root: THREE.Object3D): WeaponFx {
       sparkGeo.setDrawRange(0, sparkN);
       // (Streaks from sync() are drawn once; tick() without a sync (no player) draws none.)
       streakN = 0;
+    },
+
+    reset() {
+      pLife.fill(-1);
+      gLife.fill(-1);
+      for (const d of decoys) d.active = false;
+      motors.length = 0;
+      blasts.length = 0;
+      frags.length = 0;
+      shooters.clear();
+      pending.length = 0;
     },
 
     setView(w, h) {

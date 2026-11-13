@@ -76,6 +76,7 @@ import { createVoicePlayer } from './ui/audio/voicePlayer';
 import { createAmbience } from './ui/audio/ambience';
 import { airToAirScene, approachScene, lowPassScene, nightDepartureScene, taxiScene, type ShowcaseScene } from './ui/showcase';
 import { REEL_SHOTS } from './ui/reel';
+import { PROMO_SHOTS } from './ui/promo';
 import { createFlightOverlay, hintText, pickHint, type FlightOverlay, type HintId, type HintKeys } from './ui/flightOverlay';
 import { DEFAULT_INPUT_MAP_DATA } from './input/inputMap';
 import { BASES, MISSIONS, TRAINING, baseInfo, freeFlightMission, isTraining, missionEntry, missionLocked, playableMissions, trainingEntry, type BaseId } from './core/missions/catalogue';
@@ -1528,7 +1529,7 @@ function showcaseSceneFor(index: number): ShowcaseScene | undefined {
   const rwyId = activeRunway(layout, { x: wind.x, z: wind.z });
   const runway = layout.runways.find((r) => r.id === rwyId) ?? layout.runways[0];
   if (!runway) return undefined;
-  const list = devShowcase?.reel ? REEL_SHOTS : SHOWCASE_SHOTS;
+  const list = devShowcase?.promo ? PROMO_SHOTS : devShowcase?.reel ? REEL_SHOTS : SHOWCASE_SHOTS;
   const shot = list[((index % list.length) + list.length) % list.length]!;
   const scene = shot(layout, runway);
   weatherMode = 'clear';
@@ -1558,13 +1559,15 @@ function enterShowcaseScene(index: number): void {
  * in; `near` moves the camera to 25 m beside the jet (for checking it against the ground); `z0.6`
  * narrows the lens to 0.6 of the shot's and `o0.3` puts the subject 0.3 of the width right of
  * centre (for stills, e.g. the landing page's captures). `r<i>` in place of the shot holds the
- * landing page's reel shot i instead (src/ui/reel.ts, rendered by tools/site/captureReel.mjs).
+ * landing page's reel shot i instead (src/ui/reel.ts, rendered by tools/site/captureReel.mjs), and
+ * `p<i>` the promo's shot i (src/ui/promo.ts, tools/promo/capturePromo.mjs).
  */
-const devShowcase = ((): { index: number; t: number; near: boolean; zoom: number; offsetX?: number; reel: boolean } | undefined => {
+const devShowcase = ((): { index: number; t: number; near: boolean; zoom: number; offsetX?: number; reel: boolean; promo: boolean } | undefined => {
   const v = new URLSearchParams(location.search).get('showcase')?.split(',');
   if (!v || v.length < 2) return undefined;
   const reel = v[0]!.startsWith('r');
-  const index = Number(reel ? v[0]!.slice(1) : v[0]);
+  const promo = v[0]!.startsWith('p');
+  const index = Number(reel || promo ? v[0]!.slice(1) : v[0]);
   const t = Number(v[1]);
   const opt = (k: string): number | undefined => {
     const o = v.slice(2).find((x) => x.startsWith(k));
@@ -1574,7 +1577,7 @@ const devShowcase = ((): { index: number; t: number; near: boolean; zoom: number
   const z = opt('z');
   const o = opt('o');
   if (!Number.isFinite(index) || !Number.isFinite(t)) return undefined;
-  return { index, t, reel, near: v.includes('near'), zoom: z !== undefined && z > 0 ? z : 1, ...(o !== undefined ? { offsetX: o } : {}) };
+  return { index, t, reel, promo, near: v.includes('near'), zoom: z !== undefined && z > 0 ? z : 1, ...(o !== undefined ? { offsetX: o } : {}) };
 })();
 
 function devShowcaseFrame(sc: ShowcaseScene, t: number): ShowcaseFrame {

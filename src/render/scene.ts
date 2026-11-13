@@ -58,7 +58,7 @@ import { createRunwayCraters } from './runwayCraters';
 import { createAirfieldSigns } from './airfieldSigns';
 import { createFarGround } from './farGround';
 import { getAtmosphereUniforms, setAtmosphereCamera, setAtmosphereHaze } from './atmosphere';
-import type { WeatherMode } from '../contracts/core';
+import type { SimEvent, WeatherMode } from '../contracts/core';
 import type { SceneEnvironment } from '../contracts/render';
 import {
   computeSkyLight,
@@ -294,6 +294,8 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
   let groundHeightAt: ((x: number, z: number) => number) | null = null;
   /** The menu's cinematic, drawn instead of the flight while set. */
   let showcase: import('../contracts/render').ShowcaseFrame | null = null;
+  /** The cinematic shot's clock last frame (its events play as the clock passes them); NaN: none yet. */
+  let showcaseLastT = NaN;
   let mode: CameraMode = CameraMode.Chase;
   let lastFrameMs = -1;
 
@@ -509,6 +511,10 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
       return modelReady;
     },
     setShowcase(frame) {
+      if (!frame && showcase) {
+        effects.reset();
+        showcaseLastT = NaN;
+      }
       showcase = frame;
     },
 
@@ -676,7 +682,30 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
         if (sc.offsetX) camera.setViewOffset(sizeW, sizeH, -sc.offsetX * sizeW, 0, sizeW, sizeH);
         else if (camera.view) camera.clearViewOffset();
         const origin = placeCamera(sc.fovDeg);
-        aircraftRenderer.beginFrame(frameDtSec, origin, cameraPose.pos, nowMs / 1000);
+        // On the shot's own clock when it has one: the effects step with it (frame-by-frame
+        // captures, slow motion), and its events play as the clock passes them. A jump (a new
+        // shot, a capture starting) starts the effects over.
+        let showDt = frameDtSec;
+        let showTime = nowMs / 1000;
+        if (sc.timeSec !== undefined) {
+          const step = sc.timeSec - showcaseLastT;
+          if (!(step >= 0 && step < 0.3)) {
+            effects.reset();
+            showDt = 0;
+          } else {
+            showDt = step;
+            const due: SimEvent[] = [];
+            for (const e of sc.events ?? []) if (e.t > showcaseLastT && e.t <= sc.timeSec) due.push(e.ev);
+            if (due.length) {
+              effects.ingestEvents(due);
+              groundEffects.ingestEvents(due);
+            }
+          }
+          showcaseLastT = sc.timeSec;
+          showTime = sc.timeSec;
+        }
+        aircraftRenderer.beginFrame(showDt, origin, cameraPose.pos, showTime);
+        for (const st of sc.stores ?? []) aircraftRenderer.updateMissile(st.code, st.pos, st.vel, st.rot, origin, st.flags ?? 0);
         for (const a of sc.aircraft) {
           const st = aircraftState;
           st.elevonL = 0;
@@ -687,7 +716,7 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
           st.afterburner = a.afterburner;
           st.airbrakeOut = false;
           st.onGround = false;
-          st.team = 0;
+          st.team = a.team ?? 0;
           st.vel = a.vel;
           st.stores = a.stores;
           st.storesB = a.storesB;
@@ -696,7 +725,11 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
           aircraftRenderer.updateEntity(a.id, a.pos, a.rot, st, origin);
         }
         aircraftRenderer.endFrame();
-        effects.tick(frameDtSec, origin);
+        renderer.getDrawingBufferSize(viewSize);
+        effects.setView(viewSize.x, viewSize.y);
+        effects.syncShowcase(sc, origin);
+        effects.tick(showDt, origin);
+        groundEffects.tick(showDt, origin, viewSize.y, camera.fov);
         followOrigin(origin);
       } else if (snapshotBuf.hasData && snapshotBuf.curr.playerSlot >= 0) {
         subjectDrawn = true;

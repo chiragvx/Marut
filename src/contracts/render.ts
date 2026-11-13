@@ -442,6 +442,20 @@ export interface ShowcaseAircraft {
   storesB: number;
   /** Ground height under it, world m (lights the landing light's pool). */
   groundY?: number;
+  /** Team (0 own, 1 hostile); default 0. */
+  team?: number;
+}
+
+/** A weapon in flight in a cinematic shot (missile, rocket or bomb), drawn as the sim's would be. */
+export interface ShowcaseStore {
+  id: number;
+  /** Store code (core.ts STORE_IDS index). */
+  code: number;
+  pos: Vec3Like;
+  rot: QuatLike;
+  vel: Vec3Like;
+  /** EntityFlags (e.g. TailOpen). */
+  flags?: number;
 }
 
 /** A frame of the menu's cinematic: the camera and the aircraft, drawn instead of the flight. */
@@ -454,6 +468,17 @@ export interface ShowcaseFrame {
   /** The camera's up direction (world, need not be unit); world up when absent. Lets a shot roll with the jet. */
   up?: Vec3Like;
   aircraft: readonly ShowcaseAircraft[];
+  /**
+   * The shot's own clock, s. When set, the effects (smoke, flares, explosions) run on it rather than
+   * on the wall clock, so a shot stepped frame by frame (a capture, slow motion) plays them the same.
+   */
+  timeSec?: number;
+  /** Things that happen in the shot (launches, flares, hits), at their times on `timeSec`: each plays once as the clock passes it. */
+  events?: readonly { t: number; ev: SimEvent }[];
+  /** Weapons in flight. */
+  stores?: readonly ShowcaseStore[];
+  /** Gun rounds in flight (the tracers). */
+  bullets?: readonly { id: number; pos: Vec3Like; vel: Vec3Like }[];
 }
 
 /**

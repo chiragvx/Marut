@@ -1272,6 +1272,8 @@ export interface ExplosionEvent {
   pos: Vec3Like;
   radiusM: number;
   causedBy?: EntityId;
+  /** Velocity of what blew up (an aircraft): its wreckage carries it on. */
+  vel?: Vec3Like;
 }
 export interface MissileLaunchEvent {
   type: 'missileLaunch';

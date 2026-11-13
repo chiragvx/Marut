@@ -11,3 +11,6 @@ acceptance-report.json
 
 # Downloaded 3D model sources (large; processed outputs are committed instead)
 tools/models/source/
+
+# Rendered promo video (tools/promo/capturePromo.mjs)
+/promo/
