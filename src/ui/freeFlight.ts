@@ -10,7 +10,8 @@ import type { BaseId, BaseInfo, StartMode } from '../core/missions/catalogue';
 import { LOCKED_NOTE, UNTESTED_BADGE, UNTESTED_NOTE } from '../core/missions/catalogue';
 import { mountScreen } from './screenHandle';
 import { button, field, h, lockTag, menuKeys, segmented, shell } from './kit';
-import { createLoadoutEditor, describeFit, selectionFit, selectionName, type LoadoutSelection } from './loadoutEditor';
+import { createLoadoutEditor, describeFit, selectionFit, selectionName, type LoadoutSelection, type LoadoutView } from './loadoutEditor';
+import type { LoadoutFit } from '../aircraft/loadout';
 import { formatTimeOfDay } from './settings';
 
 export interface FreeFlightSetup {
@@ -37,7 +38,7 @@ export interface FreeFlightCallbacks {
   onBack(): void;
 }
 
-export function createFreeFlightSetup(container: HTMLElement, opts: { bases: readonly BaseInfo[]; def: AircraftDefinition; setup: FreeFlightSetup }, cb: FreeFlightCallbacks): ScreenHandle {
+export function createFreeFlightSetup(container: HTMLElement, opts: { bases: readonly BaseInfo[]; def: AircraftDefinition; setup: FreeFlightSetup; /** The jet in its hangar, in 3D, while the loadout is edited (none: the editor alone). */ openLoadoutView?: (fit: LoadoutFit) => LoadoutView | undefined }, cb: FreeFlightCallbacks): ScreenHandle {
   const setup: FreeFlightSetup = { ...opts.setup, loadout: { ...opts.setup.loadout } };
   if (opts.bases.find((b) => b.id === setup.baseId)?.locked) setup.baseId = opts.bases.find((b) => !b.locked)?.id ?? setup.baseId;
   const s = shell({ title: 'Free Flight', eyebrow: 'Punjab · No enemies, no time limit', sub: 'Pick the hour, the weather and what hangs under the wings, then fly.', back: { onClick: () => cb.onBack() } });
@@ -154,7 +155,7 @@ export function createFreeFlightSetup(container: HTMLElement, opts: { bases: rea
         s.root.classList.remove('tj-hidden');
         changeLoadout.focus();
       },
-    });
+    }, opts.openLoadoutView?.(selectionFit(opts.def, setup.loadout)));
   }
 
   return { ...handle, destroy: () => { release(); handle.destroy(); } };

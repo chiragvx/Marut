@@ -76,6 +76,9 @@ import { createVoicePlayer } from './ui/audio/voicePlayer';
 import { createAmbience } from './ui/audio/ambience';
 import { airToAirScene, approachScene, lowPassScene, nightDepartureScene, taxiScene, type ShowcaseScene } from './ui/showcase';
 import { REEL_SHOTS } from './ui/reel';
+import { createHangarScene, findHangarBay } from './ui/hangarView';
+import type { LoadoutView } from './ui/loadoutEditor';
+import type { LoadoutFit } from './aircraft/loadout';
 import { PROMO_SHOTS } from './ui/promo';
 import { createFlightOverlay, hintText, pickHint, type FlightOverlay, type HintId, type HintKeys } from './ui/flightOverlay';
 import { DEFAULT_INPUT_MAP_DATA } from './input/inputMap';
@@ -436,7 +439,7 @@ function showFreeFlight(): void {
   appState = 'mainMenu';
   currentScreen = createFreeFlightSetup(
     uiRoot,
-    { bases: BASES, def: playerAircraft, setup: savedFreeFlight() },
+    { bases: BASES, def: playerAircraft, setup: savedFreeFlight(), openLoadoutView },
     {
       onFly: (setup) => {
         saveJson(STORAGE.freeFlight, setup);
@@ -1543,6 +1546,43 @@ function showcaseSceneFor(index: number): ShowcaseScene | undefined {
   timeOfDayH = scene.timeOfDayH;
   renderer.setTimeOfDay(timeOfDayH);
   return scene;
+}
+
+/**
+ * The loadout's 3D view (src/ui/hangarView.ts): the cinematic gives way to the jet in a hangar at
+ * Bathinda, showing the fit being edited, until the editor closes (the cinematic then carries on
+ * from the shot it left). Only while the cinematic plays (it has the base's world loaded).
+ */
+function openLoadoutView(fit: LoadoutFit): LoadoutView | undefined {
+  if (!showcaseActive || devShowcase) return undefined;
+  const base = baseInfo('bathinda');
+  const mission = resolveBuiltinMission(base.freeMissionId);
+  const layout = (mission.world.airports as readonly AirportLayout[]).find((a) => a.id === base.airportId);
+  const bay = layout ? findHangarBay(layout) : undefined;
+  if (!layout || !bay) return undefined;
+  const scene = createHangarScene(layout, bay, playerAircraft, fit);
+  scene.setOffsetX(window.innerWidth > 760 ? 0.2 : 0);
+  const resume = showcaseIndex;
+  showcaseScene = scene;
+  showcasePhase = 'loading';
+  showcaseT = 0;
+  setFade(true);
+  setShowcaseCaption(undefined, 0);
+  weatherMode = 'clear';
+  renderer.setWeather(weatherMode, 7);
+  timeOfDayH = scene.timeOfDayH;
+  renderer.setTimeOfDay(timeOfDayH);
+  renderer.setShowcase(scene.frame(0));
+  let open = true;
+  return {
+    setFit: (f) => scene.setFit(f),
+    orbitBy: (a, b, z) => scene.orbitBy(a, b, z),
+    close: () => {
+      if (!open) return;
+      open = false;
+      if (showcaseActive && showcaseScene === scene) enterShowcaseScene(resume + 1);
+    },
+  };
 }
 
 function enterShowcaseScene(index: number): void {

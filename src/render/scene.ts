@@ -56,6 +56,7 @@ import { createGroundUnitRenderer } from './groundUnits';
 import { createGroundEffects } from './groundEffects';
 import { createRunwayCraters } from './runwayCraters';
 import { createAirfieldSigns } from './airfieldSigns';
+import { createHangarBay } from './hangarBay';
 import { createFarGround } from './farGround';
 import { getAtmosphereUniforms, setAtmosphereCamera, setAtmosphereHaze } from './atmosphere';
 import type { SimEvent, WeatherMode } from '../contracts/core';
@@ -100,6 +101,9 @@ const FOV_BY_MODE: Readonly<Record<CameraMode, number>> = {
   [CameraMode.Flyby]: FLYBY_VERTICAL_FOV_DEG,
   [CameraMode.Tgp]: 18,
 };
+
+/** The hangar lamps' light on the jet in the loadout view (linear RGB). */
+const HANGAR_FILL = [0.42, 0.4, 0.37] as const;
 
 export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) => {
   const scene = new THREE.Scene();
@@ -224,6 +228,17 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
   const groundPos = { x: 0, y: 0, z: 0 };
   const groundRot = { x: 0, y: 0, z: 0, w: 1 };
   const signs = createAirfieldSigns(scene);
+  const hangarBay = createHangarBay(scene);
+  let hangarHidden: string | null = null;
+  /** The loadout view's hangar: its interior shown, the closed shed it stands in hidden. */
+  const setHangar = (bay: import('../contracts/render').ShowcaseFrame['hangar'] | null): void => {
+    hangarBay.set(bay ?? null);
+    const hide = bay?.hideTargetId ?? null;
+    if (hide !== hangarHidden) {
+      structures.setHidden(hide);
+      hangarHidden = hide;
+    }
+  };
   /** The player's ground-service state and heading from the latest snapshot (for the service vehicles). */
   let playerServiceState = 0;
   let playerHeadingRad = 0;
@@ -515,6 +530,10 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
         effects.reset();
         showcaseLastT = NaN;
       }
+      if (!frame) {
+        setHangar(null);
+        aircraftRenderer.setFillLight(0, 0, 0);
+      }
       showcase = frame;
     },
 
@@ -641,6 +660,7 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
         pavement.updateOrigin(origin);
         structures.update(origin, lastFrameMs / 1000);
         signs.updateOrigin(origin);
+        hangarBay.updateOrigin(origin);
       };
       /** Points the three.js camera from cameraPose (after the floating origin has moved). */
       const placeCamera = (fovDeg: number): Readonly<{ x: number; y: number; z: number }> => {
@@ -678,6 +698,9 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
         cameraPose.useLookAt = true;
         shadowFocus.set(sc.aircraft[0]?.pos.x ?? sc.lookAt.x, sc.aircraft[0]?.pos.y ?? sc.lookAt.y, sc.aircraft[0]?.pos.z ?? sc.lookAt.z);
         structures.setServiceVehicles(null);
+        setHangar(sc.hangar ?? null);
+        if (sc.hangar) aircraftRenderer.setFillLight(HANGAR_FILL[0], HANGAR_FILL[1], HANGAR_FILL[2]);
+        else aircraftRenderer.setFillLight(0, 0, 0);
         // Subject off-centre (clear of the menu): shift the frustum, not the camera.
         if (sc.offsetX) camera.setViewOffset(sizeW, sizeH, -sc.offsetX * sizeW, 0, sizeW, sizeH);
         else if (camera.view) camera.clearViewOffset();
@@ -964,6 +987,7 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
       structures.dispose();
       groundUnits.dispose();
       signs.dispose();
+      hangarBay.dispose();
       deck.dispose();
       rain.dispose();
       farGround.dispose();

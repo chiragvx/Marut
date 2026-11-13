@@ -9,6 +9,7 @@
 import type { AircraftDefinition, LoadoutPreset } from '../contracts/aircraft';
 import { FUEL_TANKS, SENSOR_PODS, WEAPONS } from '../catalog';
 import { getLoadout } from './registry';
+import { MAX_STORE_SLOTS, STORE_IDS, StoreRack, packStoreSlot, packStoreSlots } from '../contracts/core';
 
 export type LoadoutFit = LoadoutPreset['fit'];
 
@@ -105,4 +106,24 @@ export function stationChoices(def: AircraftDefinition): StationChoice[] {
   return (def.stations ?? [])
     .map((st) => ({ stationId: st.id, stores: st.accepts.filter((a) => isBuiltStore(a) && WEAPONS[a]?.kind !== 'gun'), maxCount: st.maxCount }))
     .filter((c) => c.stores.length > 0);
+}
+
+/**
+ * A fit packed for the snapshot's STORES / STORES_B fields (one slot per station, the gun skipped),
+ * as the sim packs a freshly armed aircraft's (core/world.ts packStores): drawing a fit with no sim.
+ */
+export function packFitStores(def: AircraftDefinition, fit: LoadoutFit, out: { a: number; b: number } = { a: 0, b: 0 }): { a: number; b: number } {
+  const slots: number[] = [];
+  for (const st of def.stations ?? []) {
+    if (st.id === 'gun') continue;
+    if (slots.length >= MAX_STORE_SLOTS) break;
+    const f = fit[st.id];
+    const code = f ? STORE_IDS.indexOf(f.store) : -1;
+    if (f && code > 0) {
+      const w = WEAPONS[f.store];
+      const rack = f.count < 2 ? StoreRack.Single : w && (w.kind === 'ir_missile' || w.kind === 'radar_missile') ? StoreRack.TwinRail : StoreRack.MultiRack;
+      slots.push(packStoreSlot(code, f.count, rack));
+    } else slots.push(0);
+  }
+  return packStoreSlots(slots, out);
 }

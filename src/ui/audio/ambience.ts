@@ -9,7 +9,9 @@
  * - all of it placed in 3D (src/ui/audio/spatial.ts): the whine at the intakes, the roar and
  *   rumble at the nozzle, the air conditioning at the vents either side of the pilot, the wind
  *   over the canopy, heard from the camera; in the cockpit, in the cockpit's own small room;
- * - one-shots from the sim's events: the gun, a store's release thump, a missile's motor, chaff and
+ * - the gun (src/ui/audio/gunSound.ts): the GSh-23's hard ~57-shot-a-second "brrrrt", a thump of
+ *   the airframe under each crack in the cockpit, a ripping report outside, duller further off;
+ * - one-shots from the sim's events: a store's release thump, a missile's motor, chaff and
  *   flares, the gear's motor and its lock, touchdown, hits on you, and explosions near you (heard
  *   after the sound's travel time);
  * - the sonic boom (src/ui/audio/sonicBoom.ts): from a camera standing still outside (the flyby
@@ -22,6 +24,7 @@ import type { SimEvent, Vec3Like } from '../../contracts/core';
 import { AudioChannel, type AudioBus } from './audioBus';
 import { createEngineSoundState, engineVoiceParams, stepEngineSound, type EngineSoundEvents, type EngineVoiceParams } from './engineModel';
 import { createEngineVoice, type EngineVoice } from './engineVoice';
+import { createGunVoice, type GunVoice } from './gunSound';
 import { boomGain, createBoomBuffer, machConeState, soundSpeedAt } from './sonicBoom';
 import { createCockpitRoom, createEmitter, multiplyQuat, rotate, rotateInverse, type Airframe, type Emitter, type Listener } from './spatial';
 import { COCKPIT_EYE_OFFSET_BODY_M, type CameraState } from '../../contracts/render';
@@ -87,7 +90,7 @@ interface Loop {
 }
 
 export function createAmbience(bus: AudioBus): Ambience {
-  let loops: { airconL: Loop; airconR: Loop; windL: Loop; windR: Loop; gun: Loop; gearMotor: Loop } | null = null;
+  let loops: { airconL: Loop; airconR: Loop; windL: Loop; windR: Loop; gearMotor: Loop } | null = null;
   let engine: EngineVoice | null = null;
   let emitters: Emitter[] = [];
   let engineOuts: { front: AudioNode; rear: AudioNode } | null = null;
@@ -99,7 +102,7 @@ export function createAmbience(bus: AudioBus): Ambience {
   const engineEv: EngineSoundEvents = { abLit: false, abOut: false };
   const engineParams: EngineVoiceParams = { whineHz: 0, whine: 0, shaftHz: 0, buzz: 0, jet: 0, jetHz: 0, rumble: 0, ab: 0, crackle: 0, muffleHz: 0 };
   let gearWas = -1;
-  let gunUntil = 0;
+  let gun: GunVoice | null = null;
   let live = false;
   const lv: AmbienceLevels = { aircon: 0, wind: 0, windHz: 0 };
   // The sonic boom: the jet's sound outside goes through `hush` (silent ahead of the Mach cone).
@@ -118,6 +121,7 @@ export function createAmbience(bus: AudioBus): Ambience {
     const noise = bus.noise();
     if (!ac || !amb || !fx || !noise) return null;
     const room = createCockpitRoom(ac, amb);
+    gun = createGunVoice(ac, fx);
     hush = ac.createGain();
     hush.connect(amb);
     const place = (body: Vec3Like, cone?: Parameters<typeof createEmitter>[4]): AudioNode => {
@@ -163,8 +167,6 @@ export function createAmbience(bus: AudioBus): Ambience {
       airconR: noiseLoop('highpass', 2200, 0.5, place(VENT_BODY(1))),
       windL: noiseLoop('bandpass', 800, 0.6, place(CANOPY_BODY(-1))),
       windR: noiseLoop('bandpass', 800, 0.6, place(CANOPY_BODY(1))),
-      // The GSh-23's buzz: ~57 shots a second.
-      gun: oscLoop('square', 57, 'lowpass', 900, 1, fx),
       gearMotor: oscLoop('sawtooth', 110, 'lowpass', 500, 1, fx),
     };
   };
@@ -280,7 +282,7 @@ export function createAmbience(bus: AudioBus): Ambience {
         set(l.gain.gain, lv.wind * 0.7);
         set(l.filter.frequency, lv.windHz);
       }
-      set(loops.gun.gain.gain, inp.alive && ac.currentTime < gunUntil ? 0.22 : 0, 0.01);
+      gun?.update(inp.inCockpit, inp.alive);
       // The gear: its motor while it moves, a clunk as it locks.
       const moving = gearWas >= 0 && Math.abs(inp.gearPos - gearWas) > 1e-4;
       set(loops.gearMotor.gain.gain, moving && inp.alive ? 0.035 : 0, 0.05);
@@ -292,7 +294,7 @@ export function createAmbience(bus: AudioBus): Ambience {
       if (!ac || !live) return;
       switch (ev.type) {
         case 'gunFire':
-          if (ev.shooterId === playerId) gunUntil = ac.currentTime + 0.09;
+          if (ev.shooterId === playerId) gun?.fire();
           break;
         case 'missileLaunch':
           if (ev.shooterId !== playerId) break;
@@ -336,12 +338,13 @@ export function createAmbience(bus: AudioBus): Ambience {
         Object.assign(listener.rot, cam.worldRot);
       }
       for (const e of emitters) e.place(listener, jet, inside);
+      gun?.distance(inside ? 0 : Math.hypot(listener.pos.x - jet.pos.x, listener.pos.y - jet.pos.y, listener.pos.z - jet.pos.z));
       machCone(performance.now(), !pilotsEars && !inside && !!cam.worldRot);
     },
     silence() {
       if (!loops) return;
       live = false;
-      gunUntil = 0;
+      gun?.silence();
       gearWas = -1;
       for (const l of Object.values(loops)) set(l.gain.gain, 0, 0.05);
       engine?.silence();

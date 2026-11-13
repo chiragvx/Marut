@@ -166,6 +166,8 @@ export interface MeshAircraftRenderer {
   setViewport(heightPx: number, projection11: number): void;
   /** How humid the air is, 0..1 (vapour.ts airHumidity). */
   setHumidity(h: number): void;
+  /** Overhead lamplight on every airframe (linear RGB; 0 outdoors): the hangar of the loadout view. */
+  setFillLight(r: number, g: number, b: number): void;
   /** Hides instances not updated this frame and uploads the stores. */
   endFrame(): void;
   dispose(): void;
@@ -349,6 +351,9 @@ export function createMeshAircraftRenderer(root: THREE.Object3D, template: Aircr
   const tmpCam = new THREE.Vector3();
   const tmpQ = new THREE.Quaternion();
   return {
+    setFillLight(r, g, b) {
+      shared.uFill.value.set(r, g, b);
+    },
     beginFrame(dtSec, origin, cam, timeSec) {
       touched.fill(0);
       for (const b of allBatches) b.n = 0;

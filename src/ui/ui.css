@@ -621,3 +621,22 @@ a.tj-link { color: var(--tj-ink); }
 .tj-chip { font: 600 11px/1 var(--tj-mono); letter-spacing: 0.04em; color: #cfe3e8; background: rgba(111, 227, 255, 0.1); border: 1px solid rgba(111, 227, 255, 0.25); padding: 4px 6px; border-radius: 3px; }
 .tj-screen .tj-lesson--next { border-color: var(--tj-accent); box-shadow: inset 3px 0 0 var(--tj-accent); }
 @media (max-width: 760px) { .tj-lessons { grid-template-columns: 1fr; } }
+
+/* ---- The loadout over its 3D view (the jet in the hangar) ---------------------------------
+ * The panel narrows to the left, the pylons paired left and right wing; the rest of the screen is
+ * the view (drag to walk round the jet, scroll to zoom). */
+.tj-screen.tj-loadout--3d { cursor: grab; touch-action: none; user-select: none; -webkit-user-select: none; background: linear-gradient(90deg, rgba(4, 6, 9, 0.88) 0%, rgba(4, 6, 9, 0.7) 34%, rgba(4, 6, 9, 0) 52%); }
+.tj-screen.tj-loadout--3d.tj-orbiting { cursor: grabbing; }
+.tj-screen.tj-loadout--3d > .tj-panel { width: min(540px, 100%); cursor: auto; touch-action: auto; }
+.tj-loadout--3d .tj-pylons { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.tj-loadout--3d .tj-pylon--centre { grid-column: 1 / -1; }
+.tj-loadout--3d .tj-planform { padding: 6px 10px; }
+.tj-orbit-hint {
+  position: absolute; right: max(16px, 4vw); bottom: calc(var(--lb) + 14px);
+  font: 12px/1.3 var(--tj-mono); letter-spacing: 0.08em; text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.72); text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8); pointer-events: none;
+}
+@media (max-width: 760px) {
+  .tj-screen.tj-loadout--3d { background: linear-gradient(180deg, rgba(4, 6, 9, 0.88) 0%, rgba(4, 6, 9, 0.75) 60%, rgba(4, 6, 9, 0.2) 100%); }
+  .tj-orbit-hint { display: none; }
+}

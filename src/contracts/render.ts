@@ -481,6 +481,12 @@ export interface ShowcaseFrame {
   stores?: readonly ShowcaseStore[];
   /** Gun rounds in flight (the tracers). */
   bullets?: readonly { id: number; pos: Vec3Like; vel: Vec3Like }[];
+  /**
+   * The shot is inside a hangar (the loadout view): its open interior (render/hangarBay.ts) is
+   * drawn here, floor at `y`, doors facing `headingRad`, in place of the base's closed structure
+   * `hideTargetId` (SceneEnvironment.structures targetId).
+   */
+  hangar?: { x: number; y: number; z: number; headingRad: number; widthM: number; lengthM: number; heightM: number; hideTargetId?: string };
 }
 
 /**

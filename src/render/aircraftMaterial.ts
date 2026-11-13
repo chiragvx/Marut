@@ -23,10 +23,12 @@ export interface AircraftSharedUniforms {
   /** Camera position in render space, for the Earth-curvature drop. */
   uCamRel: { value: THREE.Vector3 };
   uTime: { value: number };
+  /** Overhead lamplight on the airframe (a hangar's lamps, the loadout view), linear RGB; 0 outdoors. */
+  uFill: { value: THREE.Vector3 };
 }
 
 export function createAircraftSharedUniforms(): AircraftSharedUniforms {
-  return { uOrigin: { value: new THREE.Vector3() }, uCamRel: { value: new THREE.Vector3() }, uTime: { value: 0 } };
+  return { uOrigin: { value: new THREE.Vector3() }, uCamRel: { value: new THREE.Vector3() }, uTime: { value: 0 }, uFill: { value: new THREE.Vector3() } };
 }
 
 const VS = /* glsl */ `
@@ -100,6 +102,7 @@ const FS = /* glsl */ `
   varying vec3 vNormalL;
   varying vec3 vViewL;
   /** Markings and panel lines (tejasLivery.ts): 4 tiles, starboard | port over top | bottom. */
+  uniform vec3 uFill;
   uniform sampler2D uLivery;
   uniform vec4 uLiveryMap; // x0, x1, y0, y1 (body m)
   uniform float uLiveryHalfZ;
@@ -397,7 +400,10 @@ const FS = /* glsl */ `
       lamps += lampLight(uLampStrobeL, vPos, nb, vec3(1.0, 0.98, 0.95) * strobeK, 1.1);
       lamps += lampLight(uLampStrobeR, vPos, nb, vec3(1.0, 0.98, 0.95) * strobeK, 1.1);
     }
-    col = col * (amb + uAtmSunCol * diff + lamps) + uAtmSunCol * spec + env * refl * (0.4 + 3.0 * fres) + glow;
+    // Overhead lamps (in a hangar): a soft light from above, and their sheen on the skin.
+    vec3 fill = uFill * (0.45 + 0.55 * max(n.y, 0.0));
+    vec3 fillSpec = uFill * pow(max(dot(n, normalize(vec3(0.0, 1.0, 0.0) + V)), 0.0), shin) * ks;
+    col = col * (amb + uAtmSunCol * diff + lamps + fill) + fillSpec + uAtmSunCol * spec + env * refl * (0.4 + 3.0 * fres) + glow;
     // FLIR: a warm airframe; the nozzle and engine white-hot, more so with power.
     bool hot = part == 6 || part == 7 || (textured && vPos.x < uHotX);
     if (uAtmThermal > 0.5) col = vec3(hot ? 1.6 : 0.8 + 0.3 * uThrottle);

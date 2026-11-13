@@ -5,6 +5,10 @@
  * Each slot offers only the stores that station accepts and the game has built, up to its count
  * (two on twin-rail pylons). "Same on both wings" (on by default) mirrors every change to the other
  * wing. Presets fill every slot at once; any edit that no longer matches a preset makes it Custom.
+ *
+ * With a 3D view (`LoadoutView`, the jet in its hangar: src/ui/hangarView.ts) the panel sits on the
+ * left, the pylons paired left and right wing, and the rest of the screen is the view: every change
+ * shows on the jet at once; drag to walk round it, scroll (or pinch) to close in.
  */
 import type { AircraftDefinition } from '../contracts/aircraft';
 import { WEAPONS, FUEL_TANKS } from '../catalog';
@@ -95,19 +99,90 @@ function optionLabel(store: string, count: number): string {
   return count >= 2 ? `${storeName(store)} ×2 (twin rail)` : `${storeName(store)} ×1`;
 }
 
+/** The 3D view of the jet with its fit (the hangar), while the editor is open. */
+export interface LoadoutView {
+  setFit(fit: LoadoutFit): void;
+  /** Turn round the jet and up/down (rad); zoom: distance factor (< 1 closer). */
+  orbitBy(dYaw: number, dPitch: number, zoom: number): void;
+  close(): void;
+}
+
+/** The pylons' order in the paired layout: each row a left and a right station, the centreline last. */
+const PAIR_ORDER = ['wing-outer-l', 'wing-outer-r', 'wing-mid-l', 'wing-mid-r', 'wing-inner-l', 'wing-inner-r', 'centreline'];
+
+/** Drag (and pinch) on `el`, away from `panel`: turns and zooms the view. Returns the remover. */
+function attachOrbit(el: HTMLElement, panel: HTMLElement, view: LoadoutView): () => void {
+  const pts = new Map<number, { x: number; y: number }>();
+  let pinch = 0;
+  const outside = (t: EventTarget | null): boolean => !(t instanceof Node && panel.contains(t));
+  const down = (e: PointerEvent): void => {
+    if (!outside(e.target)) return;
+    e.preventDefault();
+    pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    el.setPointerCapture?.(e.pointerId);
+    el.classList.add('tj-orbiting');
+    pinch = 0;
+  };
+  const move = (e: PointerEvent): void => {
+    const p = pts.get(e.pointerId);
+    if (!p) return;
+    const dx = e.clientX - p.x;
+    const dy = e.clientY - p.y;
+    p.x = e.clientX;
+    p.y = e.clientY;
+    if (pts.size >= 2) {
+      const [a, b] = [...pts.values()];
+      const d = Math.hypot(a!.x - b!.x, a!.y - b!.y);
+      if (pinch > 0 && d > 0) view.orbitBy(0, 0, pinch / d);
+      pinch = d;
+      return;
+    }
+    view.orbitBy(-dx * 0.008, dy * 0.006, 1);
+  };
+  const up = (e: PointerEvent): void => {
+    pts.delete(e.pointerId);
+    pinch = 0;
+    if (pts.size === 0) el.classList.remove('tj-orbiting');
+  };
+  const wheel = (e: WheelEvent): void => {
+    if (!outside(e.target)) return;
+    e.preventDefault();
+    view.orbitBy(0, 0, Math.exp(Math.max(-200, Math.min(200, e.deltaY)) * 0.0015));
+  };
+  el.addEventListener('pointerdown', down);
+  el.addEventListener('pointermove', move);
+  el.addEventListener('pointerup', up);
+  el.addEventListener('pointercancel', up);
+  el.addEventListener('wheel', wheel, { passive: false });
+  return () => {
+    el.removeEventListener('pointerdown', down);
+    el.removeEventListener('pointermove', move);
+    el.removeEventListener('pointerup', up);
+    el.removeEventListener('pointercancel', up);
+    el.removeEventListener('wheel', wheel);
+  };
+}
+
 export interface LoadoutEditorCallbacks {
   onDone(sel: LoadoutSelection): void;
   onCancel(): void;
 }
 
-export function createLoadoutEditor(container: HTMLElement, def: AircraftDefinition, initial: LoadoutSelection, cb: LoadoutEditorCallbacks): ScreenHandle {
+export function createLoadoutEditor(container: HTMLElement, def: AircraftDefinition, initial: LoadoutSelection, cb: LoadoutEditorCallbacks, view?: LoadoutView): ScreenHandle {
   const choices = new Map(stationChoices(def).map((c) => [c.stationId, c]));
   const presets = def.loadouts ?? [];
   let fit = selectionFit(def, initial);
   let mirror = true;
 
-  const s = shell({ title: 'Loadout', eyebrow: def.displayName ?? def.id, sub: 'Pick what hangs on each pylon. Each pylon lists only what it can carry.', back: { label: 'Cancel', onClick: () => cb.onCancel() } });
+  const s = shell({
+    title: 'Loadout',
+    eyebrow: def.displayName ?? def.id,
+    sub: 'Pick what hangs on each pylon. Each pylon lists only what it can carry.',
+    back: { label: 'Cancel', onClick: () => cb.onCancel() },
+    ...(view ? { clear: true } : {}),
+  });
   s.root.classList.add('tj-loadout');
+  if (view) s.root.classList.add('tj-loadout--3d');
 
   const presetRow = h('div', { className: 'tj-row' });
   const presetButtons = presets.map((p) =>
@@ -149,19 +224,22 @@ export function createLoadoutEditor(container: HTMLElement, def: AircraftDefinit
 
   function render(): void {
     const focused = (document.activeElement as HTMLElement | null)?.getAttribute('data-station');
-    pylons.replaceChildren(...SPAN_ORDER.filter((id) => choices.has(id)).map(slotSelect));
+    pylons.replaceChildren(...(view ? PAIR_ORDER : SPAN_ORDER).filter((id) => choices.has(id)).map(slotSelect));
     if (focused) pylons.querySelector<HTMLElement>(`[data-station="${focused}"]`)?.focus();
     const match = presets.find((p) => sameFit(selectionFit(def, { presetId: p.id }), fit));
     for (const b of presetButtons) b.setAttribute('aria-pressed', String(b.getAttribute('data-preset') === match?.id));
     customTag.classList.toggle('tj-hidden', !!match);
     described.textContent = describeFit(fit);
     summary.textContent = fitSummary(def, fit);
+    view?.setFit({ ...fit });
   }
   render();
 
   s.body.append(
     presetRow,
-    h('div', { className: 'tj-planform', text: 'LEFT WING  ◂  outer · middle · inner  |  centre  |  inner · middle · outer  ▸  RIGHT WING   (seen from behind the aircraft)' }),
+    view
+      ? h('div', { className: 'tj-planform', text: 'LEFT WING  |  RIGHT WING   (as the pilot sees them)' })
+      : h('div', { className: 'tj-planform', text: 'LEFT WING  ◂  outer · middle · inner  |  centre  |  inner · middle · outer  ▸  RIGHT WING   (seen from behind the aircraft)' }),
     pylons,
     h('div', { className: 'tj-row', attrs: { style: 'justify-content: space-between' } }, mirrorBox, h('div', { className: 'tj-stack', attrs: { style: 'justify-items: end; gap: 2px' } }, described, summary))
   );
@@ -172,7 +250,17 @@ export function createLoadoutEditor(container: HTMLElement, def: AircraftDefinit
     }, 'primary', { 'data-action': 'done' })
   );
 
+  if (view) s.root.append(h('div', { className: 'tj-orbit-hint', text: 'Drag to walk round the jet · scroll or pinch to zoom' }));
   const handle = mountScreen(container, s.root);
   const release = menuKeys(s.root, () => cb.onCancel());
-  return { ...handle, destroy: () => { release(); handle.destroy(); } };
+  const releaseOrbit = view ? attachOrbit(s.root, s.panel, view) : () => {};
+  return {
+    ...handle,
+    destroy: () => {
+      releaseOrbit();
+      view?.close();
+      release();
+      handle.destroy();
+    },
+  };
 }

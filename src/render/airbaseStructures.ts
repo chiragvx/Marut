@@ -171,6 +171,8 @@ export interface AirbaseStructures {
   setStructures(list: StructureList | undefined): void;
   /** A static target's damage state (contracts/ground.ts TargetStateCode) by its target id. */
   setTargetState(targetId: string, state: number): void;
+  /** Leave out the structure with this target id (the loadout view's hangar stands in it); null shows it again. */
+  setHidden(targetId: string | null): void;
   /**
    * The ground-service vehicles beside the player while it is refuelled and re-armed: a fuel bowser
    * on its right and a weapons trolley on its left (null hides them). y = ground level.
@@ -217,7 +219,8 @@ export function createAirbaseStructures(root: THREE.Object3D): AirbaseStructures
   });
   let meshes: THREE.InstancedMesh[] = [];
   /** Where each target's instance is: its mesh's damage attribute and index. */
-  const byTarget = new Map<string, { attr: THREE.InstancedBufferAttribute; index: number }>();
+  const byTarget = new Map<string, { attr: THREE.InstancedBufferAttribute; index: number; mesh: THREE.InstancedMesh }>();
+  let hidden: { mesh: THREE.InstancedMesh; index: number; m: THREE.Matrix4 } | null = null;
   const m4 = new THREE.Matrix4();
   const place = (mesh: THREE.InstancedMesh, x: number, y: number, z: number, h: number, w: number, l: number, ht: number): void => {
     const c = Math.cos(h);
@@ -250,6 +253,7 @@ export function createAirbaseStructures(root: THREE.Object3D): AirbaseStructures
       }
       meshes = [];
       byTarget.clear();
+      hidden = null;
       if (!list || list.length === 0) return;
       const byKind = new Map<string, StructureList[number][]>();
       for (const s of list) {
@@ -280,7 +284,7 @@ export function createAirbaseStructures(root: THREE.Object3D): AirbaseStructures
         const damage = new THREE.InstancedBufferAttribute(new Float32Array(items.length), 1);
         geom.setAttribute('iDamage', damage);
         items.forEach((s, i) => {
-          if (s.targetId) byTarget.set(s.targetId, { attr: damage, index: i });
+          if (s.targetId) byTarget.set(s.targetId, { attr: damage, index: i, mesh });
         });
         mesh.instanceMatrix.needsUpdate = true;
         if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
@@ -295,6 +299,20 @@ export function createAirbaseStructures(root: THREE.Object3D): AirbaseStructures
       if (!t) return;
       t.attr.setX(t.index, state);
       t.attr.needsUpdate = true;
+    },
+    setHidden(targetId) {
+      if (hidden) {
+        hidden.mesh.setMatrixAt(hidden.index, hidden.m);
+        hidden.mesh.instanceMatrix.needsUpdate = true;
+        hidden = null;
+      }
+      const t = targetId ? byTarget.get(targetId) : undefined;
+      if (!t) return;
+      const m = new THREE.Matrix4();
+      t.mesh.getMatrixAt(t.index, m);
+      hidden = { mesh: t.mesh, index: t.index, m };
+      t.mesh.setMatrixAt(t.index, new THREE.Matrix4().makeScale(0, 0, 0));
+      t.mesh.instanceMatrix.needsUpdate = true;
     },
     setServiceVehicles(at) {
       bowser.visible = cart.visible = !!at;
