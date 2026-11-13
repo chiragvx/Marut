@@ -207,15 +207,30 @@ describe('free flight setup', () => {
 });
 
 describe('loadout editor', () => {
+  const pick = (container: HTMLElement, station: string, value: string): void => {
+    (container.querySelector(`[data-role="hardpoints"] [data-station="${station}"]`) as Element).dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    click(container, `[data-role="picker"] [data-store="${value}"]`);
+  };
+  const stores = (container: HTMLElement): string[] => Array.from(container.querySelectorAll('[data-role="picker"] [data-store]')).map((b) => b.getAttribute('data-store')!);
+
+  it('offers the mission fits as presets, and every station on the drawing, the targeting pod included', () => {
+    const container = makeContainer();
+    createLoadoutEditor(container, tejasDefinition, { presetId: 'cap' }, { onDone: noop, onCancel: noop });
+    expect(Array.from(container.querySelectorAll('[data-preset]')).map((b) => b.getAttribute('data-preset'))).toEqual(['cap', 'precision', 'lowlevel', 'sead', 'runway-denial', 'cas', 'clean']);
+    const shown = Array.from(container.querySelectorAll('[data-role="hardpoints"] [data-station]')).map((g) => g.getAttribute('data-station'));
+    expect(shown).toEqual(['wing-outer-r', 'wing-mid-r', 'wing-inner-r', 'centreline', 'intake-pod', 'wing-inner-l', 'wing-mid-l', 'wing-outer-l']);
+    pick(container, 'intake-pod', 'litening:1');
+    expect(container.querySelector('[data-role="picker"] [data-store="litening:1"]')!.getAttribute('aria-checked')).toBe('true');
+  });
+
   it('mirrors a change to the other wing and turns a preset into a custom fit', () => {
     const container = makeContainer();
     const onDone = vi.fn();
     createLoadoutEditor(container, tejasDefinition, { presetId: 'cap' }, { onDone, onCancel: noop });
-    const left = container.querySelector('[data-station="wing-outer-l"]') as HTMLSelectElement;
+    (container.querySelector('[data-role="hardpoints"] [data-station="wing-outer-l"]') as Element).dispatchEvent(new MouseEvent('click', { bubbles: true }));
     // Only what the outboard pylon carries.
-    expect(Array.from(left.options).map((o) => o.value)).toEqual(['', 'asraam:1', 'asraam:2', 'python-5:1', 'python-5:2', 'r-73:1', 'r-73:2', 'derby:1', 'derby:2']);
-    change(left, 'r-73:2');
-    expect((container.querySelector('[data-station="wing-outer-r"]') as HTMLSelectElement).value).toBe('r-73:2');
+    expect(stores(container)).toEqual(['', 'asraam:1', 'asraam:2', 'python-5:1', 'python-5:2', 'r-73:1', 'r-73:2', 'derby:1', 'derby:2']);
+    pick(container, 'wing-outer-l', 'r-73:2');
     click(container, '[data-action="done"]');
     const sel = onDone.mock.calls[0]![0];
     expect(sel.presetId).toBeUndefined();
@@ -228,10 +243,10 @@ describe('loadout editor', () => {
     const onDone = vi.fn();
     createLoadoutEditor(container, tejasDefinition, { presetId: 'cap' }, { onDone, onCancel: noop });
     change(container.querySelector('[data-role="mirror"]') as HTMLInputElement, false);
-    const tankL = container.querySelector('[data-station="wing-inner-l"]') as HTMLSelectElement;
-    change(tankL, '');
-    expect((container.querySelector('[data-station="wing-inner-r"]') as HTMLSelectElement).value).toBe('tank-1200l:1');
-    change(container.querySelector('[data-station="wing-inner-l"]') as HTMLSelectElement, 'tank-1200l:1');
+    pick(container, 'wing-inner-l', '');
+    (container.querySelector('[data-role="hardpoints"] [data-station="wing-inner-r"]') as Element).dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    expect(container.querySelector('[data-role="picker"] [aria-checked="true"]')!.getAttribute('data-store')).toBe('tank-1200l:1');
+    pick(container, 'wing-inner-l', 'tank-1200l:1');
     click(container, '[data-action="done"]');
     expect(onDone.mock.calls[0]![0]).toEqual({ presetId: 'cap' });
   });

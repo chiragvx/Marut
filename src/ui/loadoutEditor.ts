@@ -1,20 +1,23 @@
 /**
  * src/ui/loadoutEditor.ts — choose what hangs on each pylon.
  *
- * One slot per store station, laid out as on the aircraft from the left wingtip to the right.
- * Each slot offers only the stores that station accepts and the game has built, up to its count
- * (two on twin-rail pylons). "Same on both wings" (on by default) mirrors every change to the other
- * wing. Presets fill every slot at once; any edit that no longer matches a preset makes it Custom.
+ * The hardpoints are drawn head-on (src/ui/hardpointDiagram.ts): the Tejas in line art, each pylon
+ * with its store drawn on it and a numbered badge under the wing. Pick a station (the pylon or its
+ * badge) and the picker under the drawing lists what that station can carry: only the stores it
+ * accepts and the game has built, singly or two on a twin rail. "Same on both wings" (on by default)
+ * mirrors every change to the other wing. The presets are the missions' own fits; any edit that no
+ * longer matches one makes it Custom.
  *
  * With a 3D view (`LoadoutView`, the jet in its hangar: src/ui/hangarView.ts) the panel sits on the
- * left, the pylons paired left and right wing, and the rest of the screen is the view: every change
- * shows on the jet at once; drag to walk round it, scroll (or pinch) to close in.
+ * left and the rest of the screen is the view: every change shows on the jet at once; drag to walk
+ * round it, scroll (or pinch) to close in.
  */
 import type { AircraftDefinition } from '../contracts/aircraft';
 import { WEAPONS, FUEL_TANKS } from '../catalog';
 import { loadoutMassKg, loadoutTanks, resolveLoadout, stationChoices, storeName, type LoadoutFit } from '../aircraft/loadout';
 import { mountScreen } from './screenHandle';
-import { button, checkbox, h, menuKeys, select, shell } from './kit';
+import { button, checkbox, h, menuKeys, shell } from './kit';
+import { hardpointSvg, storeIconSvg, TEJAS_STATIONS } from './hardpointDiagram';
 import type { ScreenHandle } from '../contracts/ui';
 
 /** A preset by id, or a custom fit. */
@@ -25,17 +28,19 @@ export interface LoadoutSelection {
 
 type Fit = Record<string, { store: string; count: number }>;
 
-/** The stations' order across the aircraft, left wingtip to right. */
-const SPAN_ORDER = ['wing-outer-l', 'wing-mid-l', 'wing-inner-l', 'centreline', 'wing-inner-r', 'wing-mid-r', 'wing-outer-r'];
-const SLOT_LABEL: Record<string, string> = {
-  'wing-outer-l': 'Left outer',
-  'wing-mid-l': 'Left middle',
-  'wing-inner-l': 'Left inner',
-  centreline: 'Centre',
-  'wing-inner-r': 'Right inner',
-  'wing-mid-r': 'Right middle',
-  'wing-outer-r': 'Right outer',
-};
+/**
+ * The presets offered: the fits the missions fly (named for the mission's role), in the missions'
+ * order. Other presets still resolve (a saved selection, an AI flight's); they are just not listed.
+ */
+export const MISSION_PRESETS: readonly { id: string; label: string }[] = [
+  { id: 'cap', label: 'Air defence' },
+  { id: 'precision', label: 'Precision strike' },
+  { id: 'lowlevel', label: 'Low level' },
+  { id: 'sead', label: 'SEAD' },
+  { id: 'runway-denial', label: 'Runway denial' },
+  { id: 'cas', label: 'Close support' },
+  { id: 'clean', label: 'Clean' },
+];
 
 const mirrorOf = (id: string): string | undefined => (id.endsWith('-l') ? id.slice(0, -2) + '-r' : id.endsWith('-r') ? id.slice(0, -2) + '-l' : undefined);
 
@@ -94,11 +99,6 @@ function sameFit(a: Fit, b: Fit): boolean {
   return true;
 }
 
-function optionLabel(store: string, count: number): string {
-  if (FUEL_TANKS[store]) return storeName(store);
-  return count >= 2 ? `${storeName(store)} ×2 (twin rail)` : `${storeName(store)} ×1`;
-}
-
 /** The 3D view of the jet with its fit (the hangar), while the editor is open. */
 export interface LoadoutView {
   setFit(fit: LoadoutFit): void;
@@ -108,9 +108,6 @@ export interface LoadoutView {
   setDragging(on: boolean): void;
   close(): void;
 }
-
-/** The pylons' order in the paired layout: each row a left and a right station, the centreline last. */
-const PAIR_ORDER = ['wing-outer-l', 'wing-outer-r', 'wing-mid-l', 'wing-mid-r', 'wing-inner-l', 'wing-inner-r', 'centreline'];
 
 /** Drag (and pinch) on `el`, away from `panel`: turns and zooms the view. Returns the remover. */
 function attachOrbit(el: HTMLElement, panel: HTMLElement, view: LoadoutView): () => void {
@@ -177,62 +174,98 @@ export interface LoadoutEditorCallbacks {
 
 export function createLoadoutEditor(container: HTMLElement, def: AircraftDefinition, initial: LoadoutSelection, cb: LoadoutEditorCallbacks, view?: LoadoutView): ScreenHandle {
   const choices = new Map(stationChoices(def).map((c) => [c.stationId, c]));
-  const presets = def.loadouts ?? [];
+  const all = def.loadouts ?? [];
+  const presets = MISSION_PRESETS.filter((m) => all.some((l) => l.id === m.id));
   let fit = selectionFit(def, initial);
   let mirror = true;
+  const have = new Set(TEJAS_STATIONS.map((t) => t.id).filter((id) => choices.has(id)));
+  let selected = ['wing-outer-l', ...have].find((id) => have.has(id));
 
   const s = shell({
     title: 'Loadout',
     eyebrow: def.displayName ?? def.id,
-    sub: 'Pick what hangs on each pylon. Each pylon lists only what it can carry.',
+    sub: 'Pick a mission fit, or pick a station on the drawing and choose what it carries.',
     back: { label: 'Cancel', onClick: () => cb.onCancel() },
     ...(view ? { clear: true } : {}),
   });
   s.root.classList.add('tj-loadout');
   if (view) s.root.classList.add('tj-loadout--3d');
 
-  const presetRow = h('div', { className: 'tj-row' });
+  const presetRow = h('div', { className: 'tj-row tj-presets' });
   const presetButtons = presets.map((p) =>
-    button(p.name.split(':')[0]!, () => {
+    button(p.label, () => {
       fit = selectionFit(def, { presetId: p.id });
       render();
     }, 'default', { 'data-preset': p.id })
   );
   const customTag = h('span', { className: 'tj-badge', text: 'Custom' });
-  presetRow.append(h('span', { className: 'tj-label', text: 'Presets' }), ...presetButtons, customTag);
+  presetRow.append(h('span', { className: 'tj-label', text: 'Mission' }), ...presetButtons, customTag);
 
-  const pylons = h('div', { className: 'tj-pylons' });
+  const diagram = h('div', { className: 'tj-hardpoints', attrs: { 'data-role': 'hardpoints' } });
+  const pickHead = h('div', { className: 'tj-pick-head' });
+  const picker = h('div', { className: 'tj-picker', attrs: { role: 'radiogroup', 'data-role': 'picker' } });
   const summary = h('p', { className: 'tj-note', attrs: { 'data-role': 'summary' } });
   const described = h('p', { attrs: { 'data-role': 'described' } });
   const mirrorBox = checkbox('Same on both wings', mirror, (v) => (mirror = v), { 'data-role': 'mirror' });
 
-  function slotSelect(stationId: string): HTMLElement {
-    const c = choices.get(stationId);
-    const opts: { value: string; label: string }[] = [{ value: '', label: 'Empty' }];
-    for (const store of c?.stores ?? []) {
-      const max = FUEL_TANKS[store] ? 1 : Math.max(1, c!.maxCount);
-      for (let n = 1; n <= max; n++) opts.push({ value: `${store}:${n}`, label: optionLabel(store, n) });
+  const setStation = (stationId: string, next: { store: string; count: number } | undefined): void => {
+    const put = (id: string): void => {
+      if (next) fit[id] = { ...next };
+      else delete fit[id];
+    };
+    put(stationId);
+    const m = mirrorOf(stationId);
+    if (mirror && m && choices.has(m)) put(m);
+    render();
+    picker.querySelector<HTMLElement>('[aria-checked="true"]')?.focus();
+  };
+
+  const choose = (id: string): void => {
+    selected = id;
+    render();
+    diagram.querySelector<SVGElement>(`[data-station="${id}"]`)?.focus();
+  };
+  diagram.addEventListener('click', (e) => {
+    const g = (e.target as Element).closest?.('[data-station]');
+    if (g) choose(g.getAttribute('data-station')!);
+  });
+  diagram.addEventListener('keydown', (e) => {
+    const g = (e.target as Element).closest?.('[data-station]');
+    if (g && (e.key === 'Enter' || e.key === ' ')) {
+      e.preventDefault();
+      choose(g.getAttribute('data-station')!);
     }
-    const cur = fit[stationId];
-    const value = cur ? `${cur.store}:${cur.count}` : '';
-    const sel = select(opts, value, (v) => {
-      const next = v ? { store: v.split(':')[0]!, count: Number(v.split(':')[1]) } : undefined;
-      const set = (id: string): void => {
-        if (next) fit[id] = { ...next };
-        else delete fit[id];
-      };
-      set(stationId);
-      const m = mirrorOf(stationId);
-      if (mirror && m && choices.has(m)) set(m);
-      render();
-    }, { 'data-station': stationId, 'aria-label': SLOT_LABEL[stationId] ?? stationId });
-    return h('div', { className: `tj-pylon${stationId === 'centreline' ? ' tj-pylon--centre' : ''}` }, h('span', { className: 'tj-label', text: SLOT_LABEL[stationId] ?? stationId }), sel);
+  });
+
+  function renderPicker(): void {
+    const st = TEJAS_STATIONS.find((t) => t.id === selected);
+    const c = selected ? choices.get(selected) : undefined;
+    if (!st || !c) {
+      pickHead.replaceChildren();
+      picker.replaceChildren();
+      return;
+    }
+    pickHead.replaceChildren(h('span', { className: 'tj-pick-num', text: st.num }), h('span', { className: 'tj-label', text: `Station ${st.num} · ${st.label}` }));
+    const cur = fit[st.id];
+    const curValue = cur ? `${cur.store}:${cur.count}` : '';
+    const opt = (value: string, label: string, icon: string, next: { store: string; count: number } | undefined): HTMLElement => {
+      const b = h('button', { className: 'tj-pick', attrs: { type: 'button', role: 'radio', 'aria-checked': String(value === curValue), 'data-store': value, title: label } });
+      b.innerHTML = icon;
+      b.append(h('span', { text: label }));
+      b.addEventListener('click', () => setStation(st.id, next));
+      return b;
+    };
+    const opts = [opt('', 'Empty', '<svg class="hp-icon" viewBox="0 0 44 34" aria-hidden="true"><circle cx="22" cy="17" r="7" class="hp-empty"/></svg>', undefined)];
+    for (const store of c.stores) {
+      const max = FUEL_TANKS[store] || !WEAPONS[store] ? 1 : Math.max(1, c.maxCount);
+      for (let n = 1; n <= max; n++) opts.push(opt(`${store}:${n}`, n >= 2 ? `2× ${storeName(store)}` : storeName(store), storeIconSvg(store, n), { store, count: n }));
+    }
+    picker.replaceChildren(...opts);
   }
 
   function render(): void {
-    const focused = (document.activeElement as HTMLElement | null)?.getAttribute('data-station');
-    pylons.replaceChildren(...(view ? PAIR_ORDER : SPAN_ORDER).filter((id) => choices.has(id)).map(slotSelect));
-    if (focused) pylons.querySelector<HTMLElement>(`[data-station="${focused}"]`)?.focus();
+    diagram.innerHTML = hardpointSvg(fit, selected, have);
+    renderPicker();
     const match = presets.find((p) => sameFit(selectionFit(def, { presetId: p.id }), fit));
     for (const b of presetButtons) b.setAttribute('aria-pressed', String(b.getAttribute('data-preset') === match?.id));
     customTag.classList.toggle('tj-hidden', !!match);
@@ -244,11 +277,10 @@ export function createLoadoutEditor(container: HTMLElement, def: AircraftDefinit
 
   s.body.append(
     presetRow,
-    view
-      ? h('div', { className: 'tj-planform', text: 'LEFT WING  |  RIGHT WING   (as the pilot sees them)' })
-      : h('div', { className: 'tj-planform', text: 'LEFT WING  ◂  outer · middle · inner  |  centre  |  inner · middle · outer  ▸  RIGHT WING   (seen from behind the aircraft)' }),
-    pylons,
-    h('div', { className: 'tj-row', attrs: { style: 'justify-content: space-between' } }, mirrorBox, h('div', { className: 'tj-stack', attrs: { style: 'justify-items: end; gap: 2px' } }, described, summary))
+    diagram,
+    h('div', { className: 'tj-row tj-pick-bar' }, pickHead, mirrorBox),
+    picker,
+    h('div', { className: 'tj-stack tj-fit-sum' }, described, summary)
   );
   s.actions.append(
     button('Done', () => {

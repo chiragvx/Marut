@@ -198,12 +198,6 @@ a.tj-link { color: var(--tj-ink); }
 
 /* ---- Loadout editor --------------------------------------------------------------------- */
 
-.tj-pylons { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 8px; }
-.tj-pylon { display: grid; gap: 6px; align-content: start; background: var(--tj-panel-2); border-radius: var(--tj-radius); padding: 10px 8px; }
-.tj-pylon .tj-select { width: 100%; }
-.tj-pylon--centre { background: var(--tj-panel-3); }
-.tj-planform { font: 12px/1.3 var(--tj-mono); color: var(--tj-muted); text-align: center; border: 1px dashed var(--tj-line); border-radius: var(--tj-radius); padding: 10px; }
-@media (max-width: 760px) { .tj-pylons { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 
 /* ---- In-flight overlays (never take pointer input) -------------------------------------- */
 
@@ -623,14 +617,11 @@ a.tj-link { color: var(--tj-ink); }
 @media (max-width: 760px) { .tj-lessons { grid-template-columns: 1fr; } }
 
 /* ---- The loadout over its 3D view (the jet in the hangar) ---------------------------------
- * The panel narrows to the left, the pylons paired left and right wing; the rest of the screen is
+ * The panel narrows to the left; the rest of the screen is
  * the view (drag to walk round the jet, scroll to zoom). */
 .tj-screen.tj-loadout--3d { cursor: grab; touch-action: none; user-select: none; -webkit-user-select: none; background: linear-gradient(90deg, rgba(4, 6, 9, 0.88) 0%, rgba(4, 6, 9, 0.7) 34%, rgba(4, 6, 9, 0) 52%); }
 .tj-screen.tj-loadout--3d.tj-orbiting { cursor: grabbing; }
 .tj-screen.tj-loadout--3d > .tj-panel { width: min(540px, 100%); cursor: auto; touch-action: auto; }
-.tj-loadout--3d .tj-pylons { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-.tj-loadout--3d .tj-pylon--centre { grid-column: 1 / -1; }
-.tj-loadout--3d .tj-planform { padding: 6px 10px; }
 .tj-orbit-hint {
   position: absolute; right: max(16px, 4vw); bottom: calc(var(--lb) + 14px);
   font: 12px/1.3 var(--tj-mono); letter-spacing: 0.08em; text-transform: uppercase;
@@ -640,3 +631,51 @@ a.tj-link { color: var(--tj-ink); }
   .tj-screen.tj-loadout--3d { background: linear-gradient(180deg, rgba(4, 6, 9, 0.88) 0%, rgba(4, 6, 9, 0.75) 60%, rgba(4, 6, 9, 0.2) 100%); }
   .tj-orbit-hint { display: none; }
 }
+
+/* ---- The hardpoint diagram (src/ui/hardpointDiagram.ts) and the station picker ---------------
+ * Line art on the dark panel: the airframe in thin white strokes, the stores filled pale, the station
+ * being edited and its store in amber. */
+.tj-hardpoints { border: 1px solid var(--tj-line); background: rgba(255, 255, 255, 0.02); padding: 6px 4px 2px; }
+.tj-hardpoints .hp-svg { display: block; width: 100%; height: auto; overflow: visible; }
+.hp-air * { fill: rgba(10, 14, 20, 0.85); stroke: rgba(235, 240, 245, 0.75); stroke-width: 1.3; stroke-linejoin: round; }
+.hp-air .hp-intake { fill: #030406; stroke-width: 1; }
+.hp-air .hp-radome { fill: rgba(30, 36, 44, 0.9); }
+.hp-air .hp-canopy { fill: rgba(60, 90, 140, 0.35); }
+.hp-st { cursor: pointer; outline: none; }
+.hp-st .hp-hit { fill: transparent; stroke: none; }
+.hp-st .hp-pylon { fill: rgba(235, 240, 245, 0.85); stroke: none; }
+.hp-st .hp-rail { stroke: rgba(235, 240, 245, 0.85); stroke-width: 2; }
+.hp-st .hp-lead { fill: none; stroke: rgba(235, 240, 245, 0.28); stroke-width: 1; }
+.hp-st .hp-badge { fill: rgba(255, 255, 255, 0.04); stroke: rgba(235, 240, 245, 0.25); stroke-width: 1; }
+.hp-st .hp-num { fill: var(--tj-ink); font: 600 17px/1 var(--tj-font); text-anchor: middle; letter-spacing: 0.04em; }
+.hp-st .hp-what { fill: var(--tj-muted); font: 10.5px/1 var(--tj-mono); text-anchor: middle; letter-spacing: 0.04em; }
+.hp-store circle, .hp-store rect { fill: rgba(225, 230, 236, 0.92); stroke: rgba(10, 14, 20, 0.9); stroke-width: 1; }
+.hp-store line { stroke: rgba(225, 230, 236, 0.92); stroke-linecap: round; }
+.hp-store .hp-dot { fill: rgba(10, 14, 20, 0.85); stroke: none; }
+.hp-store .hp-hole { fill: rgba(10, 14, 20, 0.95); stroke: none; }
+.hp-store .hp-lens { fill: rgba(70, 120, 200, 0.9); stroke: none; }
+.hp-store-tank circle:first-child { fill: rgba(200, 206, 212, 0.9); }
+.hp-store-bomb circle, .hp-store-lgb circle:first-of-type { fill: rgba(150, 156, 150, 0.95); }
+.hp-store-lgb circle:last-of-type { fill: none; stroke: rgba(10, 14, 20, 0.9); }
+.hp-st:hover .hp-badge, .hp-st:focus-visible .hp-badge { stroke: rgba(235, 240, 245, 0.7); fill: rgba(255, 255, 255, 0.08); }
+.hp-st:not(.is-full) .hp-num { fill: var(--tj-muted); }
+.hp-st.is-sel .hp-badge { stroke: var(--tj-accent); fill: color-mix(in srgb, var(--tj-accent) 18%, transparent); stroke-width: 1.5; }
+.hp-st.is-sel .hp-num { fill: var(--tj-accent); }
+.hp-st.is-sel .hp-lead { stroke: var(--tj-accent); stroke-opacity: 0.8; }
+.hp-st.is-sel .hp-pylon, .hp-st.is-sel .hp-store circle:first-child { stroke: var(--tj-accent); stroke-width: 1.6; }
+.hp-st.is-sel .hp-store line { stroke: var(--tj-accent); }
+
+.tj-pick-bar { justify-content: space-between; align-items: center; }
+.tj-pick-head { display: flex; align-items: center; gap: 10px; }
+.tj-pick-num { display: inline-grid; place-items: center; min-width: 28px; height: 28px; background: var(--tj-accent); color: #0b0d10; font: 600 16px/1 var(--tj-font); }
+.tj-picker { display: grid; grid-template-columns: repeat(auto-fill, minmax(132px, 1fr)); gap: 6px; }
+.tj-pick {
+  display: grid; grid-template-columns: 40px 1fr; align-items: center; gap: 6px; text-align: left;
+  padding: 4px 8px 4px 4px; min-height: 40px; background: rgba(255, 255, 255, 0.04); color: var(--tj-ink);
+  border: 1px solid var(--tj-line); font: 500 12px/1.2 var(--tj-font); cursor: pointer;
+}
+.tj-pick:hover, .tj-pick:focus-visible { background: rgba(255, 255, 255, 0.09); border-color: rgba(255, 255, 255, 0.4); outline: none; }
+.tj-pick[aria-checked="true"] { border-color: var(--tj-accent); background: color-mix(in srgb, var(--tj-accent) 16%, transparent); }
+.tj-pick .hp-icon { width: 40px; height: 31px; }
+.hp-icon .hp-empty { fill: none; stroke: var(--tj-muted); stroke-dasharray: 3 3; stroke-width: 1.2; }
+.tj-fit-sum { gap: 2px; }
