@@ -203,7 +203,8 @@ export function createMeshAircraftRenderer(root: THREE.Object3D, template: Aircr
   const railBatch = batch(storeModels.rail, 512);
   const twinBatch = batch(storeModels.twinRail, 256);
   const balluteBatches = storeModels.byCode.map((m) => (m?.ballute ? batch(m.ballute, 48) : undefined));
-  const allBatches = [...storeBatches.filter((b): b is StoreBatch => !!b), ...balluteBatches.filter((b): b is StoreBatch => !!b), railBatch, twinBatch];
+  const openBatches = storeModels.byCode.map((m) => (m?.bodyOpen ? batch(m.bodyOpen, 48) : undefined));
+  const allBatches = [...storeBatches, ...balluteBatches, ...openBatches].filter((b): b is StoreBatch => !!b).concat(railBatch, twinBatch);
   const lights = createAircraftLights(root, template.lights, shared);
   // Lamps light the skin round them (the shader works in the model's own frame, as LIGHTS are).
   const lampPositions = template.lights;
@@ -557,8 +558,10 @@ export function createMeshAircraftRenderer(root: THREE.Object3D, template: Aircr
         else qM.set(rot.x, rot.y, rot.z, rot.w);
       }
       mA.makeRotationFromQuaternion(qM).setPosition(pos.x - origin.x, pos.y - origin.y, pos.z - origin.z);
-      put(storeBatches[code], mA);
-      if ((flags & EntityFlag.TailOpen) !== 0) put(balluteBatches[code], mA);
+      const open = (flags & EntityFlag.TailOpen) !== 0;
+      // A tail that opens (Snakeye blades) swaps the body; a ballute is drawn behind it.
+      put(open && openBatches[code] ? openBatches[code] : storeBatches[code], mA);
+      if (open) put(balluteBatches[code], mA);
     },
 
     updateStore(code, pos, rot, origin) {

@@ -327,6 +327,15 @@ const FS = /* glsl */ `
       // Bombs: olive drab paint.
       col = vec3(0.26, 0.28, 0.19);
       ks = 0.1;
+    } else if (part == 29) {
+      // Store fittings: dark gunmetal, a little worn.
+      col = vec3(0.17, 0.175, 0.18);
+      ks = 0.35;
+      shin = 40.0;
+    } else if (part == 30) {
+      // Store paint: medium grey.
+      col = vec3(0.46, 0.48, 0.49);
+      ks = 0.14;
     } else if (part >= 10 && part <= 12) {
       // Navigation lights (uLightState.x).
       vec3 lc = part == 10 ? vec3(1.0, 0.12, 0.08) : part == 11 ? vec3(0.1, 1.0, 0.3) : vec3(1.0);

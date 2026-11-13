@@ -44,6 +44,10 @@ export const PART = {
   textured: 27,
   /** As `textured`, but cockpit interior and canopy frame: hidden from inside the 3D cockpit. */
   texturedCockpit: 28,
+  /** Stores: dark gunmetal fittings (lugs, launch track, bezels, rims). */
+  gunmetal: 29,
+  /** Stores: medium grey paint (targeting pod, HAMMER kit, access panels). */
+  podGrey: 30,
 } as const;
 
 /** Monotone cubic through (xs ascending, ys). */
