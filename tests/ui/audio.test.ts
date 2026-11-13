@@ -8,7 +8,7 @@ import { AutopilotFlag, WarningBit } from '../../src/contracts/core';
 import { createRwrToneState, FORGET_SEC, LOCK_TONE_SEC, stepRwrTones, type RwrEmitter, type RwrToneCommand } from '../../src/ui/audio/rwrTones';
 import { BINGO_FRAC, createVoiceWarningState, REARM_SEC, stepVoiceWarnings, VOICE_LINES, type VoiceInputs, type VoiceLineDef } from '../../src/ui/audio/voiceWarnings';
 import { isFemaleVoice, STALE_SEC, VoiceQueue } from '../../src/ui/audio/voicePlayer';
-import { absorptionHz, multiplyQuat, toListener, travelSec } from '../../src/ui/audio/spatial';
+import { absorptionHz, distanceGain, HEAR_ENGINE_M, multiplyQuat, toListener, travelSec } from '../../src/ui/audio/spatial';
 import { ambienceLevels, type AmbienceInputs, type AmbienceLevels } from '../../src/ui/audio/ambience';
 import { createEngineSoundState, engineVoiceParams, FAN_SHAFT_HZ, IDLE_N2, n2ForThrottle, WHINE_ORDER, stepEngineSound, type EngineSoundInputs, type EngineSoundState, type EngineVoiceParams } from '../../src/ui/audio/engineModel';
 
@@ -298,5 +298,23 @@ describe('sound travel time', () => {
     const d1 = travelSec({ x: -1000 + v * dt, y: 0, z: 0 }, { x: v, y: 0, z: 0 });
     // Heard frequency = f (1 - d'(t)).
     expect(1 - (d1 - d0) / dt).toBeCloseTo(1 / (1 - v / c), 4);
+  });
+});
+
+describe('engine heard far off', () => {
+  it('is full up close and falls gently, still heard at 5 km', () => {
+    expect(distanceGain(5)).toBe(1);
+    expect(distanceGain(20)).toBe(1);
+    expect(distanceGain(1000)).toBeLessThan(distanceGain(200));
+    // Gentler than the inverse law, and audible (above -40 dB) at 5 km.
+    expect(distanceGain(1000)).toBeGreaterThan(20 / 1000);
+    expect(distanceGain(HEAR_ENGINE_M)).toBeGreaterThan(0.01);
+  });
+  it('fades out beyond 5 km', () => {
+    expect(distanceGain(HEAR_ENGINE_M + 1500)).toBe(0);
+    expect(distanceGain(9000)).toBe(0);
+  });
+  it('arrives ~14.6 s late from 5 km', () => {
+    expect(travelSec({ x: 5000, y: 0, z: 0 }, { x: 0, y: 0, z: 0 })).toBeCloseTo(5000 / 343, 3);
   });
 });

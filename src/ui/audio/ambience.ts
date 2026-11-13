@@ -22,7 +22,7 @@ import type { SimEvent, Vec3Like } from '../../contracts/core';
 import { AudioChannel, type AudioBus } from './audioBus';
 import { createEngineSoundState, engineVoiceParams, stepEngineSound, type EngineSoundEvents, type EngineVoiceParams } from './engineModel';
 import { createEngineVoice, type EngineVoice } from './engineVoice';
-import { createBoomBuffer, machConeState, soundSpeedAt } from './sonicBoom';
+import { boomGain, createBoomBuffer, machConeState, soundSpeedAt } from './sonicBoom';
 import { createCockpitRoom, createEmitter, multiplyQuat, rotate, rotateInverse, type Airframe, type Emitter, type Listener } from './spatial';
 import { COCKPIT_EYE_OFFSET_BODY_M, type CameraState } from '../../contracts/render';
 
@@ -212,8 +212,7 @@ export function createAmbience(bus: AudioBus): Ambience {
     const src = ac.createBufferSource();
     src.buffer = createBoomBuffer(ac, distM);
     const g = ac.createGain();
-    // Overpressure falls off as distance^-3/4.
-    g.gain.value = Math.min(1, Math.pow(250 / Math.max(50, distM), 0.75));
+    g.gain.value = boomGain(distM);
     const pan = ac.createStereoPanner();
     pan.pan.value = Math.max(-0.6, Math.min(0.6, panX));
     src.connect(g).connect(pan).connect(fx);

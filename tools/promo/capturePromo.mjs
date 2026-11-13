@@ -26,43 +26,7 @@ const FPS = 60;
 const WORK = '.scratch/promo';
 const OUT = process.env.OUT ?? 'promo';
 
-/** The cut: [name, shot, knots [output s, shot s]] (linear between knots; the clip ends at the last). */
-export const CUT = [
-  { name: '01-scramble', shot: 0, knots: [[0, 0.2], [3.2, 2.4], [5.2, 6.5]] },
-  { name: '02-weapons-close', shot: 1, knots: [[0, 0], [6, 8]] },
-  { name: '03-strike-close', shot: 2, knots: [[0, 0], [5, 7]] },
-  { name: '04-afterburner', shot: 11, knots: [[0, 0], [4.5, 5]] },
-  { name: '05-off-the-rail', shot: 4, knots: [[0, 0.5], [0.5, 0.95], [2.4, 1.6], [3.0, 2.6]] },
-  { name: '06-fox-two', shot: 3, knots: [[0, 0.6], [2.0, 2.6], [3.6, 3.4], [5.0, 6.0]] },
-  { name: '07-astra', shot: 5, knots: [[0, 0.6], [1.2, 1.2], [2.6, 1.9], [4.4, 4.2]] },
-  { name: '08-guns', shot: 6, knots: [[0, 0.4], [4.4, 4.8]] },
-  { name: '09-guns-night', shot: 7, knots: [[0, 0.5], [4.2, 4.7]] },
-  { name: '10-bombs-release', shot: 8, knots: [[0, 1.0], [1.0, 1.5], [2.4, 1.9], [4.8, 4.6]] },
-  { name: '11-bombs-impact', shot: 9, knots: [[0, 1.2], [1.8, 3.0], [4.6, 8.4], [6.8, 11.6]] },
-  { name: '12-flares', shot: 10, knots: [[0, 0.5], [6, 6.8]] },
-  { name: '13-transonic', shot: 12, knots: [[0, 1.85], [0.8, 2.2], [2.4, 2.6], [3.4, 3.4]] },
-];
-
-const sceneT = (knots, u) => {
-  for (let i = 1; i < knots.length; i++) {
-    const [a0, b0] = knots[i - 1];
-    const [a1, b1] = knots[i];
-    if (u <= a1) return b0 + ((b1 - b0) * (u - a0)) / (a1 - a0);
-  }
-  return knots[knots.length - 1][1];
-};
-
-async function openShot(browser, shot, w, h) {
-  const p = await browser.newPage({ viewport: { width: w, height: h } });
-  p.on('pageerror', (e) => console.log('pageerror', e.message));
-  await p.addInitScript(() => localStorage.setItem('tejas.settings.v1', JSON.stringify({ qualityTierOverride: 'high', version: 1 })));
-  await p.goto(`${URL0}?showcase=p${shot},0`);
-  await p.waitForSelector('[data-action="free-flight"]', { timeout: 90000 });
-  // No UI at all: only the 3D view (and the fade, kept clear).
-  await p.addStyleTag({ content: '#ui-root > *{display:none!important} .tj-fade{display:none!important}' });
-  await p.waitForTimeout(7000);
-  return p;
-}
+import { CUT, sceneT, openShot } from './cut.mjs';
 
 async function setT(p, t) {
   await p.evaluate((tt) => new Promise((res) => {
@@ -86,7 +50,7 @@ if (process.env.PREVIEW) {
     const clip = CUT.find((c) => c.shot === shot);
     const t0 = clip.knots[0][1];
     const t1 = clip.knots[clip.knots.length - 1][1];
-    const p = await openShot(browser, shot, 960, 540);
+    const p = await openShot(browser, URL0, shot, 960, 540);
     await preroll(p, t0);
     let k = 0;
     for (let t = t0; t <= t1 + 1e-6; t += 1 / 30) {
@@ -114,7 +78,7 @@ async function renderClip(clip) {
   const out = join(OUT, `${clip.name}.mp4`);
   const dur = clip.knots[clip.knots.length - 1][0];
   const n = Math.round(dur * FPS);
-  const p = await openShot(browser, clip.shot, W, H);
+  const p = await openShot(browser, URL0, clip.shot, W, H);
   await preroll(p, clip.knots[0][1]);
   const ff = spawn('ffmpeg', ['-y', '-loglevel', 'error', '-f', 'image2pipe', '-c:v', 'mjpeg', '-framerate', String(FPS), '-i', '-', '-vf', `${grade},format=yuv420p`, '-an', '-c:v', 'libx264', '-preset', 'medium', '-crf', '14', '-movflags', '+faststart', out], { stdio: ['pipe', 'inherit', 'inherit'] });
   const done = new Promise((res, rej) => ff.on('close', (c) => (c === 0 ? res() : rej(new Error(`ffmpeg ${clip.name} exited ${c}`)))));
@@ -140,6 +104,7 @@ await browser.close();
 // The whole cut, in order.
 const list = [];
 for (const clip of CUT) {
+  if (clip.inCut === false) continue;
   const out = join(OUT, `${clip.name}.mp4`);
   if (!existsSync(out)) {
     console.log('missing', clip.name);

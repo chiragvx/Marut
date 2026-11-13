@@ -12,7 +12,10 @@
  * - the vapour cone: near the speed of sound the air expanding round the jet condenses, and a shock
  *   wave standing on the airframe (about mid-wing) clears it again: a bell of fog that fades in
  *   from the cockpit and ends in a sharp edge at the shock.
- * All need humid air (the weather: haze, overcast, rain, fog; the coast more than the plains), and
+ * And, dry or not, the shock cone: past Mach 1 the bow shock trails back from the nose as a cone at
+ * the Mach angle (asin 1/M), narrowing as the jet speeds up. Air is clear, so it is only a faint
+ * shimmer where the eye runs along its surface, fading behind the jet.
+ * The vapour needs humid air (the weather: haze, overcast, rain, fog; the coast more than the plains), and
  * they belong low down, where the air holds the most water. How hard the wing is lifting comes from
  * each jet's own speed, height and angle of attack, so AI jets show it too.
  */
@@ -21,7 +24,7 @@ import type { QuatLike, Vec3Like } from "../contracts/core";
 import type { SceneEnvironment } from "../contracts/render";
 import { ATMOSPHERE_GLSL, getAtmosphereUniforms } from "./atmosphere";
 import type { WeatherState } from "./skyState";
-import type { VapourCone, VapourWing } from "./aircraftModels/tejasModel";
+import { NOSE_TIP_X, type VapourCone, type VapourWing } from "./aircraftModels/tejasModel";
 
 // -----------------------------------------------------------------------------
 // When: the physics.
@@ -256,6 +259,80 @@ const CONE_FS = /* glsl */ `
   }
 `;
 
+const SHOCK_VS = /* glsl */ `
+  attribute float aS; // 0 at the apex (the nose) .. 1 at the far end
+  varying float vS;
+  varying vec3 vN;
+  varying vec3 vV;
+  void main() {
+    vec4 mv = modelViewMatrix * vec4(position, 1.0);
+    vS = aS;
+    vN = normalize(normalMatrix * normal);
+    vV = -mv.xyz;
+    gl_Position = projectionMatrix * mv;
+  }
+`;
+
+const SHOCK_FS = /* glsl */ `
+  precision highp float;
+  uniform float uI;
+  uniform float uTime;
+  varying float vS;
+  varying vec3 vN;
+  varying vec3 vV;
+  void main() {
+    // Only where the eye runs along the shell (its silhouette): a thin shimmering line.
+    float graze = 1.0 - abs(dot(normalize(vN), normalize(vV)));
+    float edge = pow(graze, 6.0);
+    float along = smoothstep(0.0, 0.04, vS) * (1.0 - smoothstep(0.08, 0.55, vS));
+    float shimmer = 0.75 + 0.25 * sin(vS * 140.0 - uTime * 30.0);
+    float a = uI * edge * along * shimmer * 0.05;
+    if (a < 0.002) discard;
+    gl_FragColor = vec4(vec3(1.0), a);
+  }
+`;
+
+/** A unit cone for the shock: apex at the origin, opening along -x to radius 1 at x = -1 (scaled per frame to the Mach angle). */
+export function buildShockConeGeometry(): THREE.BufferGeometry {
+  const NS = 24;
+  const NT = 64;
+  const pos: number[] = [];
+  const nrm: number[] = [];
+  const as: number[] = [];
+  const idx: number[] = [];
+  const k = Math.SQRT1_2;
+  for (let i = 0; i <= NS; i++) {
+    const t = i / NS;
+    for (let j = 0; j <= NT; j++) {
+      const th = (j / NT) * Math.PI * 2;
+      const cy = Math.cos(th);
+      const cz = Math.sin(th);
+      pos.push(-t, t * cy, t * cz);
+      nrm.push(k, k * cy, k * cz);
+      as.push(t);
+    }
+  }
+  for (let i = 0; i < NS; i++) {
+    for (let j = 0; j < NT; j++) {
+      const a = i * (NT + 1) + j;
+      idx.push(a, a + NT + 1, a + 1, a + 1, a + NT + 1, a + NT + 2);
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute("normal", new THREE.Float32BufferAttribute(nrm, 3));
+  g.setAttribute("aS", new THREE.Float32BufferAttribute(as, 1));
+  g.setIndex(idx);
+  g.computeBoundingSphere();
+  return g;
+}
+
+/** The shock cone's length behind the nose, m, and how its strength comes in past Mach 1. */
+const SHOCK_LENGTH_M = 45;
+export function shockStrength(mach: number): number {
+  return sstep(1.0, 1.15, mach);
+}
+
 const TRAIL_VS = /* glsl */ `
   attribute vec2 aTrail; // across (-1..1), alpha
   uniform vec3 uOrigin;
@@ -396,6 +473,7 @@ function transparentMat(
 export interface VapourMeshes {
   wing?: THREE.Mesh;
   cone?: THREE.Mesh;
+  shock?: THREE.Mesh;
   set(d: Readonly<VapourDrive>, speedMps: number): void;
   dispose(): void;
 }
@@ -405,6 +483,8 @@ export function createVapourMeshes(
   wingGeom: THREE.BufferGeometry | undefined,
   coneGeom: THREE.BufferGeometry | undefined,
   shared: VapourShared,
+  shockGeom?: THREE.BufferGeometry,
+  noseX = NOSE_TIP_X,
 ): VapourMeshes {
   const wingMat = wingGeom
     ? transparentMat(
@@ -438,10 +518,33 @@ export function createVapourMeshes(
   };
   const wing = wingGeom && wingMat ? mk(wingGeom, wingMat) : undefined;
   const cone = coneGeom && coneMat ? mk(coneGeom, coneMat) : undefined;
+  const shockMat = shockGeom
+    ? new THREE.ShaderMaterial({
+        uniforms: { uI: { value: 0 }, uTime: shared.uTime },
+        vertexShader: SHOCK_VS,
+        fragmentShader: SHOCK_FS,
+        transparent: true,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+      })
+    : undefined;
+  const shock = shockGeom && shockMat ? mk(shockGeom, shockMat) : undefined;
+  shock?.position.set(noseX, 0, 0);
   return {
     wing,
     cone,
+    shock,
     set(d, speed) {
+      if (shock && shockMat) {
+        const k = shockStrength(d.mach);
+        shock.visible = k > 0.01;
+        if (shock.visible) {
+          // The Mach angle: tan(mu) = 1 / sqrt(M^2 - 1).
+          const tanMu = Math.min(4, 1 / Math.sqrt(Math.max(1e-4, d.mach * d.mach - 1)));
+          shock.scale.set(SHOCK_LENGTH_M, SHOCK_LENGTH_M * tanMu, SHOCK_LENGTH_M * tanMu);
+          shockMat.uniforms["uI"]!.value = k;
+        }
+      }
       if (wing && wingMat) {
         wing.visible = d.wing > 0.01;
         wingMat.uniforms["uI"]!.value = d.wing;
@@ -455,6 +558,8 @@ export function createVapourMeshes(
     dispose() {
       wingMat?.dispose();
       coneMat?.dispose();
+      shockMat?.dispose();
+      if (shock) parent.remove(shock);
       if (wing) parent.remove(wing);
       if (cone) parent.remove(cone);
     },

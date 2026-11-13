@@ -28,6 +28,7 @@ import {
   EXTERNAL_ORBIT_HEADING_TAU_SEC,
   FLYBY_FRAME_M,
   FLYBY_SIDE_OFFSET_M,
+  FLYBY_MAX_LEAD_M,
   CHASE_CAM_DISTANCE_M,
   CHASE_CAM_HEIGHT_M,
   CHASE_CAM_SMOOTHING_TAU_SEC,
@@ -452,10 +453,12 @@ export interface FlybyState {
   zoom: number;
   /** Field of view, smoothed, deg (NaN = snap on the next frame). */
   fovDeg: number;
+  /** How far ahead this camera was placed, m (its hold after the pass scales with the speed too). */
+  leadM: number;
 }
 
 export function createFlybyState(): FlybyState {
-  return { fixedPos: { x: 0, y: 0, z: 0 }, initialized: false, side: 1, zoom: 1, fovDeg: NaN };
+  return { fixedPos: { x: 0, y: 0, z: 0 }, initialized: false, side: 1, zoom: 1, fovDeg: NaN, leadM: FLYBY_PLACEMENT_DISTANCE_M };
 }
 
 /** Fly-by zoom (steps, + = wider). */
@@ -486,14 +489,17 @@ export function computeFlybyPose(
     const dy = playerPos.y - state.fixedPos.y;
     const dz = playerPos.z - state.fixedPos.z;
     const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
-    // Gone past (and away from) the camera, or turned off somewhere else entirely.
+    // Gone past (and away from) the camera, held ~3 s after the pass however fast (a supersonic
+    // pass is not cut short), or turned off somewhere else entirely.
     const dot = dx * scratchFlybyVelNorm.x + dy * scratchFlybyVelNorm.y + dz * scratchFlybyVelNorm.z;
-    if ((dist > FLYBY_RESET_DISTANCE_M && dot > 0) || dist > FLYBY_PLACEMENT_DISTANCE_M * 2.5) needsReplace = true;
+    const holdM = Math.max(FLYBY_RESET_DISTANCE_M, speed * 3);
+    if ((dist > holdM && dot > 0) || dist > Math.max(FLYBY_PLACEMENT_DISTANCE_M * 2.5, state.leadM * 1.6)) needsReplace = true;
   }
 
   if (needsReplace) {
-    // Ahead along the flight path (about 4 s), standing off to one side of it, a little above:
-    // the jet comes at the camera, passes close by and goes away.
+    // Ahead along the flight path (about 4 s, up to FLYBY_MAX_LEAD_M), standing off to one side
+    // of it (further at speed, so the pass does not whip across), a little above: the jet comes
+    // at the camera, passes close by and goes away.
     const v = scratchFlybyVelNorm;
     let sx = -v.z;
     let sz = v.x;
@@ -505,10 +511,12 @@ export function computeFlybyPose(
       sx = 1;
       sz = 0;
     }
-    const lead = clamp(speed * 4, FLYBY_PLACEMENT_DISTANCE_M * 0.3, FLYBY_PLACEMENT_DISTANCE_M);
-    state.fixedPos.x = playerPos.x + v.x * lead + sx * FLYBY_SIDE_OFFSET_M * state.side;
+    const lead = clamp(speed * 4, FLYBY_PLACEMENT_DISTANCE_M * 0.3, Math.max(FLYBY_PLACEMENT_DISTANCE_M, Math.min(FLYBY_MAX_LEAD_M, speed * 4)));
+    const side = FLYBY_SIDE_OFFSET_M * clamp(speed / 250, 1, 2.5);
+    state.leadM = lead;
+    state.fixedPos.x = playerPos.x + v.x * lead + sx * side * state.side;
     state.fixedPos.y = playerPos.y + v.y * lead + FLYBY_HEIGHT_OFFSET_M;
-    state.fixedPos.z = playerPos.z + v.z * lead + sz * FLYBY_SIDE_OFFSET_M * state.side;
+    state.fixedPos.z = playerPos.z + v.z * lead + sz * side * state.side;
     state.side = state.side === 1 ? -1 : 1;
     state.initialized = true;
     state.fovDeg = NaN;

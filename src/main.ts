@@ -1532,6 +1532,8 @@ function showcaseSceneFor(index: number): ShowcaseScene | undefined {
   const list = devShowcase?.promo ? PROMO_SHOTS : devShowcase?.reel ? REEL_SHOTS : SHOWCASE_SHOTS;
   const shot = list[((index % list.length) + list.length) % list.length]!;
   const scene = shot(layout, runway);
+  // Dev hold: the shot itself, for tools (tools/promo/promoAudio.mjs samples it for the sound mix).
+  if (devShowcase) (globalThis as { __showcaseScene?: ShowcaseScene }).__showcaseScene = scene;
   weatherMode = 'clear';
   renderer.setWeather(weatherMode, 7);
   if (showcaseWorldBase !== base.id) {

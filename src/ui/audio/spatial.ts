@@ -9,7 +9,9 @@
  * - a delay of the sound's travel time from where the jet was when it made it (`travelSec`) —
  *   which also makes the Doppler shift of a jet going past, as the delay shortens and lengthens;
  * - air absorption: the further, the duller;
- * - an HRTF panner (direction, and the fall-off with distance), with a cone where the sound is
+ * - the fall-off with distance (`distanceGain`): gentler than the free-field inverse law (a jet's
+ *   roar carries: heard as a low rumble kilometres off), out to ~5 km (`HEAR_ENGINE_M`);
+ * - an HRTF panner (direction), with a cone where the sound is
  *   louder one way (the intake's whine forward, the nozzle's roar aft);
  * - in the cockpit, a send to a small, hard, damped room (the canopy and cockpit walls: a short
  *   synthetic reverb), so it sounds inside a cockpit, not in a void.
@@ -19,8 +21,10 @@
 import type { QuatLike, Vec3Like } from '../../contracts/core';
 
 const SOUND_MPS = 343;
-/** Longest delay (distance) a source is heard at, s. */
-const MAX_DELAY_SEC = 12;
+/** Longest delay a source is heard at, s (5 km is ~14.6 s; a jet flying away stretches it). */
+const MAX_DELAY_SEC = 20;
+/** How far a jet's engine is heard, m (faded out over the next 1.5 km). */
+export const HEAR_ENGINE_M = 5000;
 
 /** v rotated by unit quaternion q, into out. */
 export function rotate(q: QuatLike, v: Vec3Like, out: Vec3Like): Vec3Like {
@@ -102,6 +106,17 @@ export function travelSec(rel: Vec3Like, vel: Vec3Like): number {
   return (-b + Math.sqrt(b * b + a * r2)) / a;
 }
 
+/**
+ * The level of a source at `distM` (1 within 20 m): falling as distance^-3/4 (gentler than the
+ * inverse law's distance^-1, so the far roar stays audible under the mix: -24 dB at 1 km, -36 dB
+ * at 5 km), faded to nothing from HEAR_ENGINE_M to 1.5 km beyond.
+ */
+export function distanceGain(distM: number): number {
+  if (distM <= 20) return 1;
+  const u = Math.min(1, Math.max(0, (distM - HEAR_ENGINE_M) / 1500));
+  return Math.pow(20 / distM, 0.75) * (1 - u * u * (3 - 2 * u));
+}
+
 /** Air absorption: the low-pass corner for a distance, Hz. */
 export const absorptionHz = (distM: number): number => Math.min(20000, 22000 / (1 + distM / 250));
 
@@ -162,9 +177,9 @@ export function createEmitter(ac: BaseAudioContext, dest: AudioNode, room: Audio
   const pan = ac.createPanner();
   pan.panningModel = 'HRTF';
   pan.distanceModel = 'inverse';
-  pan.refDistance = 20;
-  pan.rolloffFactor = 1;
-  pan.maxDistance = 10000;
+  // The fall-off is `far` (distanceGain), not the panner's.
+  pan.rolloffFactor = 0;
+  const far = ac.createGain();
   if (opts.cone) {
     pan.coneInnerAngle = opts.cone.innerDeg;
     pan.coneOuterAngle = opts.cone.outerDeg;
@@ -172,8 +187,8 @@ export function createEmitter(ac: BaseAudioContext, dest: AudioNode, room: Audio
   }
   const send = ac.createGain();
   send.gain.value = 0;
-  input.connect(delay).connect(air).connect(pan).connect(dest);
-  if (room) pan.connect(send).connect(room);
+  input.connect(delay).connect(air).connect(pan).connect(far).connect(dest);
+  if (room) far.connect(send).connect(room);
 
   const rel = { x: 0, y: 0, z: 0 };
   const dir = { x: 0, y: 0, z: 0 };
@@ -205,9 +220,6 @@ export function createEmitter(ac: BaseAudioContext, dest: AudioNode, room: Audio
       prevSec = t;
       rotateInverse(listener.rot, world, rel);
       const dist = Math.hypot(rel.x, rel.y, rel.z);
-      // Inside, the sources are an arm's length to a few metres away: keep their level (the
-      // engine's levels are set for the cockpit already) and only take their direction.
-      pan.refDistance = inside ? 50 : 20;
       pan.positionX.setTargetAtTime(rel.x, t, 0.02);
       pan.positionY.setTargetAtTime(rel.y, t, 0.02);
       pan.positionZ.setTargetAtTime(rel.z, t, 0.02);
@@ -229,6 +241,9 @@ export function createEmitter(ac: BaseAudioContext, dest: AudioNode, room: Audio
       }
       lastDelay = d;
       air.frequency.setTargetAtTime(absorptionHz(dist), t, 0.1);
+      // Inside, the sources are an arm's length to a few metres away: keep their level (the
+      // engine's levels are set for the cockpit already) and only take their direction.
+      far.gain.setTargetAtTime(inside ? 1 : distanceGain(dist), t, 0.05);
       send.gain.setTargetAtTime(inside ? 0.45 : 0, t, 0.05);
     },
   };

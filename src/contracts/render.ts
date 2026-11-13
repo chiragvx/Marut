@@ -218,6 +218,8 @@ export const FLYBY_SIDE_OFFSET_M = 55;
 export const FLYBY_FRAME_M = 42;
 /** Once the aircraft has passed more than this far behind the fixed camera, the camera is replaced ahead again. */
 export const FLYBY_RESET_DISTANCE_M = 500;
+/** The furthest ahead a fly-by camera stands (a fast jet's ~4 s of flight; slower ones come sooner). */
+export const FLYBY_MAX_LEAD_M = 3000;
 export const FLYBY_VERTICAL_FOV_DEG = 45;
 
 /**

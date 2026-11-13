@@ -24,7 +24,7 @@ import { AIRCRAFT_SHADOW_LAYER } from './sunShadows';
 import type { AircraftModelTemplate, ArticulatedPart } from './aircraftModels/tejasModel';
 import { buildStoreModels, BOMB_RACK_Z, TWIN_RAIL_FRAMES, type StoreModel } from './aircraftModels/stores';
 import { createAircraftLights } from './aircraftLights';
-import { buildVapourConeGeometry, buildVapourWingGeometry, createVapourDrive, DEV_VAPOUR_FORCE, createVapourMeshes, createVapourTrails, vapourDrive, type VapourMeshes } from './vapour';
+import { buildShockConeGeometry, buildVapourConeGeometry, buildVapourWingGeometry, createVapourDrive, DEV_VAPOUR_FORCE, createVapourMeshes, createVapourTrails, vapourDrive, type VapourMeshes } from './vapour';
 import { EntityFlag } from '../contracts/core';
 import { createAircraftBodyMaterial, createAircraftFlameMaterial, createAircraftSharedUniforms, type AircraftBodyUniforms, type AircraftFlameUniforms } from './aircraftMaterial';
 
@@ -211,6 +211,7 @@ export function createMeshAircraftRenderer(root: THREE.Object3D, template: Aircr
   const landingPivot = template.parts.find((p) => p.name === template.landingPart)?.pivot ?? [0, 0, 0];
   const vapourWingGeom = template.vapourWing ? buildVapourWingGeometry(template.vapourWing) : undefined;
   const vapourConeGeom = template.vapourCone ? buildVapourConeGeometry(template.vapourCone) : undefined;
+  const shockConeGeom = buildShockConeGeometry();
   const vapourTrails = createVapourTrails(root, shared);
   const vapourTip = template.vapourWing?.tipTe;
   const drive = createVapourDrive();
@@ -340,7 +341,7 @@ export function createMeshAircraftRenderer(root: THREE.Object3D, template: Aircr
     airframe.add(flame);
     root.add(group);
     const landingNode = parts.find((p) => p.part.name === template.landingPart)?.node;
-    const vapour = createVapourMeshes(airframe, vapourWingGeom, vapourConeGeom, shared);
+    const vapour = createVapourMeshes(airframe, vapourWingGeom, vapourConeGeom, shared, shockConeGeom);
     return { root: group, parts, body, flameMat, flame, airframe, landingNode, assignedId: NO_ID, airbrake: 0, slat: 0, nozzle: 0, rolled: 0, rollSpeed: 0, steer: 0, oleo: {}, vapour, vapWing: 0, vapTip: 0, vapCone: 0 };
   }
 
@@ -528,6 +529,7 @@ export function createMeshAircraftRenderer(root: THREE.Object3D, template: Aircr
       vapourNow.wing = inst.vapWing;
       vapourNow.tip = inst.vapTip;
       vapourNow.cone = inst.vapCone;
+      vapourNow.mach = drive.mach;
       inst.vapour.set(vapourNow, Math.hypot(s.vel.x, s.vel.y, s.vel.z));
       if (vapourTip) {
         tipQ.set(rot.x, rot.y, rot.z, rot.w);
@@ -607,6 +609,7 @@ export function createMeshAircraftRenderer(root: THREE.Object3D, template: Aircr
       vapourTrails.dispose();
       vapourWingGeom?.dispose();
       vapourConeGeom?.dispose();
+      shockConeGeom.dispose();
       template.body.dispose();
       template.flame.dispose();
       for (const p of template.parts) p.geometry.dispose();
