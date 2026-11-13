@@ -436,6 +436,8 @@ export function drawHud(g: CanvasRenderingContext2D, P: HudProjector, ctx: Cockp
   g.fillText(`${wLabel} ${wCount}`, wx, wy);
   g.fillText(aux.masterArm ? 'ARM' : 'SAFE', wx, wy + u(0.95));
   if (av.radarMode === 1) g.fillText('ACM', wx, wy - u(0.95));
+  // The self-protection jammer pod is on and jamming.
+  if (av.jamming) g.fillText('JAM', wx, wy + u(1.9));
 
   // Target designator box (conformal) or a locator line when it is outside the display.
   const locked = av.lockState === LockStateCode.locked;

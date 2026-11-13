@@ -5,7 +5,7 @@
  * snapshot's HUD block (SELECTED_STORE / SELECTED_COUNT / GUN_ROUNDS).
  */
 
-import { LockStateByCode, NO_ENTITY_ID, STORE_IDS, SnapshotHud, WeaponKind, WeaponKindByCode, type LockState } from '../contracts/core';
+import { LockStateByCode, NO_ENTITY_ID, PodFlag, STORE_IDS, SnapshotHud, WeaponKind, WeaponKindByCode, type LockState } from '../contracts/core';
 import { WEAPON_DISPLAY_LABEL } from '../contracts/render';
 import { storeInfo } from '../catalog';
 
@@ -29,6 +29,11 @@ export function drawWeaponStatus(ctx: CanvasRenderingContext2D, hud: Float64Arra
   if (cue) {
     ctx.fillStyle = cue === 'LOCK' ? '#ff4040' : cue === 'TRK' ? '#ffc040' : '#40ff60';
     ctx.fillText(cue, xPx, yPx - 18);
+  }
+  // The self-protection jammer pod is on and jamming.
+  if ((hud[SnapshotHud.POD_FLAGS] ?? 0) & PodFlag.Jammer) {
+    ctx.fillStyle = '#40ff60';
+    ctx.fillText('JAM', xPx, yPx - 34);
   }
   ctx.restore();
 }

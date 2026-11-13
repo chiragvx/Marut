@@ -13,6 +13,7 @@ import {
   createWeaponsState,
   radarDetectionRangeM,
   updateSensors,
+  writeCombatStatus,
   type AdSiteSpec,
   type AdUnitSpec,
 } from '../../src/combat';
@@ -25,7 +26,7 @@ import {
   type ProjectileSpawnRequest,
   type WeaponsLoadout,
 } from '../../src/contracts/combat';
-import type { Contact, HeightSampler, PilotInputs, SimEvent } from '../../src/contracts/core';
+import { PodFlag, type CombatStatus, type Contact, type HeightSampler, type PilotInputs, type SimEvent } from '../../src/contracts/core';
 import { buildWorldDependencies, createWorld, resolveBuiltinMission } from '../../src/core';
 
 const IDENTITY = { x: 0, y: 0, z: 0, w: 1 };
@@ -129,6 +130,17 @@ describe('the jammer pod is carried', () => {
     computeStoresLoad(s, out);
     expect(out.massKg - clean.massKg).toBeCloseTo(POD.massKg, 9);
     expect(out.dragAreaM2 - clean.dragAreaM2).toBeCloseTo(POD.dragAreaM2, 9);
+  });
+
+  it('raises the JAM cue (POD_FLAGS Jammer bit) in the combat status, and only with the pod', () => {
+    const loadout: WeaponsLoadout = { stations: [{ hardpointId: 'gun', posBodyM: { x: 3, y: 0, z: 0 }, weapon: 'gun', maxCount: 220 }] };
+    const status = (s: ReturnType<typeof createWeaponsState>): CombatStatus => {
+      const out = { aimPointWorld: { x: 0, y: 0, z: 0 } } as CombatStatus;
+      writeCombatStatus(s, out);
+      return out;
+    };
+    expect((status(createWeaponsState({ ...loadout, jammer: POD }, 1)).podFlags ?? 0) & PodFlag.Jammer).toBe(PodFlag.Jammer);
+    expect((status(createWeaponsState(loadout, 1)).podFlags ?? 0) & PodFlag.Jammer).toBe(0);
   });
 
   test('in the running sim, a fit with the pod on the outer wing station weighs the pod more', () => {

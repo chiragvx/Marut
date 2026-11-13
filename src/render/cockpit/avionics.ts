@@ -8,7 +8,7 @@
  * actual fuel burn. Pure maths plus a little smoothing state; no Three.js.
  */
 
-import { AutopilotFlag, EntityFlag, MAX_STORE_SLOTS, SnapshotHud, SnapshotTrack, SNAPSHOT_TRACK_STRIDE, STORE_IDS, storeSlotAt, storeSlotCode, storeSlotCount, type QuatLike, type Vec3Like } from '../../contracts/core';
+import { AutopilotFlag, EntityFlag, MAX_STORE_SLOTS, PodFlag, SnapshotHud, SnapshotTrack, SNAPSHOT_TRACK_STRIDE, STORE_IDS, storeSlotAt, storeSlotCode, storeSlotCount, type QuatLike, type Vec3Like } from '../../contracts/core';
 import { storeInfo, type StoreInfo } from '../../catalog';
 import type { CockpitFlight } from './types';
 
@@ -68,6 +68,8 @@ export interface Avionics {
   selectedCount: number;
   gunRounds: number;
   chaff: number;
+  /** A self-protection jammer pod is carried and jamming (POD_FLAGS' Jammer bit). */
+  jamming: boolean;
   flares: number;
   /** Air-to-ground sight (SnapshotHud.AG_*): mode, predicted impact, designated point, time, cross-track error. */
   agMode: number;
@@ -102,7 +104,7 @@ export function createAvionics(): Avionics {
     nhPct: 0, nlPct: 0, ftitC: 0, nozzlePct: 0, oilPsi: 0, ffKgH: 0, ab: 0,
     fuelKg: 0, tankKg: -1, totalFuelKg: 0, enduranceMin: 0,
     gearPos: 1, gearDownCmd: true, onGround: true, airbrake: false, warnings: 0,
-    weaponIdx: 0, selectedStore: 0, selectedCount: 0, gunRounds: 0, chaff: 0, flares: 0, agMode: 0, ccip: { x: 0, y: 0, z: 0 }, spi: { x: 0, y: 0, z: 0 }, spiValid: false, agTimeSec: 0, agCrossM: 0, targetId: -1, targetRangeM: 0, closureMps: 0, lockState: 0, radarMode: 0, radarMaxRangeM: 0, radarScanAzRad: 0, trackCount: 0,
+    weaponIdx: 0, selectedStore: 0, selectedCount: 0, gunRounds: 0, jamming: false, chaff: 0, flares: 0, agMode: 0, ccip: { x: 0, y: 0, z: 0 }, spi: { x: 0, y: 0, z: 0 }, spiValid: false, agTimeSec: 0, agCrossM: 0, targetId: -1, targetRangeM: 0, closureMps: 0, lockState: 0, radarMode: 0, radarMaxRangeM: 0, radarScanAzRad: 0, trackCount: 0,
     apFlags: 0, apHdgDeg: 0, apAltFt: 0, apVsFpm: 0, apSpdKt: 0, ilsLoc: 0, ilsGs: 0,
   };
 }
@@ -270,6 +272,7 @@ export function updateAvionics(av: Avionics, st: AvionicsState, f: Readonly<Cock
   av.selectedCount = h[SnapshotHud.SELECTED_COUNT] ?? 0;
   av.gunRounds = h[SnapshotHud.GUN_ROUNDS] ?? 0;
   av.chaff = h[SnapshotHud.CHAFF] ?? 0;
+  av.jamming = ((h[SnapshotHud.POD_FLAGS] ?? 0) & PodFlag.Jammer) !== 0;
   av.flares = h[SnapshotHud.FLARES] ?? 0;
   av.agMode = h[SnapshotHud.AG_MODE] ?? 0;
   av.ccip.x = h[SnapshotHud.CCIP_X] ?? 0;

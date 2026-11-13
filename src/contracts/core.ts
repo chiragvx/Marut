@@ -1216,8 +1216,8 @@ export const HUD_EXT_FLOATS = SnapshotHudExt.GROUND_BASE + MAX_GROUND_CONTACTS *
 export const GCAS_NO_THREAT_M = 99999;
 export const HUD_BLOCK_FLOATS = HUD_EXT_BASE + HUD_EXT_FLOATS;
 
-/** SnapshotHud.POD_FLAGS bits. */
-export const PodFlag = { Carried: 1, PointValid: 2, PointTrack: 4, Designating: 8, Laser: 16, Masked: 32 } as const;
+/** SnapshotHud.POD_FLAGS bits (the targeting pod's; `Jammer`: a self-protection jammer pod is carried and jamming). */
+export const PodFlag = { Carried: 1, PointValid: 2, PointTrack: 4, Designating: 8, Laser: 16, Masked: 32, Jammer: 64 } as const;
 /** SnapshotHud.DLZ: no guided weapon selected / no designated point; out of range; in range. */
 export const DlzCode = { None: 0, OutOfRange: 1, InRange: 2 } as const;
 

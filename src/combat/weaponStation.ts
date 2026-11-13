@@ -190,7 +190,7 @@ export const writeCombatStatus: WriteCombatStatus = (state, out: CombatStatus) =
   out.agTimeSec = Number.isFinite(t) ? t : 0;
   out.agCrossTrackM = out.agMode === AgModeCode.Ccrp ? state.ccrpCrossTrackM : 0;
   const pod = state.pod;
-  out.podFlags = !pod ? 0 : PodFlag.Carried | (pod.pointValid ? PodFlag.PointValid : 0) | (pod.trackId !== NO_ENTITY_ID ? PodFlag.PointTrack : 0) | (pod.designating ? PodFlag.Designating : 0) | (pod.laser ? PodFlag.Laser : 0) | (pod.masked ? PodFlag.Masked : 0);
+  out.podFlags = (!pod ? 0 : PodFlag.Carried | (pod.pointValid ? PodFlag.PointValid : 0) | (pod.trackId !== NO_ENTITY_ID ? PodFlag.PointTrack : 0) | (pod.designating ? PodFlag.Designating : 0) | (pod.laser ? PodFlag.Laser : 0) | (pod.masked ? PodFlag.Masked : 0)) | (state.jammer ? PodFlag.Jammer : 0);
   if (!out.podPoint) out.podPoint = { x: 0, y: 0, z: 0 };
   if (pod) {
     out.podPoint.x = pod.point.x;
