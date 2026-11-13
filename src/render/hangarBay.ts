@@ -24,7 +24,7 @@ import { CASTER_LAYER, SUN_SHADOW_GLSL, getSunShadowUniforms } from './sunShadow
 type Bay = NonNullable<ShowcaseFrame['hangar']>;
 
 const P = { Floor: 0, Wall: 1, Roof: 2, Steel: 3, Lamp: 4, Door: 5, Chest: 6, Yellow: 7, Rubber: 8, Bench: 9 } as const;
-const MAX_LAMPS = 12;
+const MAX_LAMPS = 27;
 
 const VS = /* glsl */ `
   attribute float aPart;
@@ -157,7 +157,7 @@ const FS = /* glsl */ `
       lamp += vec3(1.0, 0.96, 0.88) * max(dot(nLoc, l), 0.0) * cone * 28.0 / (r2 + 6.0);
       if (gloss > 0.0) spec += vec3(1.0, 0.96, 0.88) * pow(max(dot(reflect(-l, nLoc), v), 0.0), 120.0) * cone * 2.5;
     }
-    col = col * (ambient + uAtmSunCol * sun + lamp * 0.8) + spec * gloss + glow;
+    col = col * (ambient + uAtmSunCol * sun + lamp * 0.42) + spec * gloss * 0.6 + glow;
     // The floor mirrors the bright doorway a little.
     if (part == 0) col += mix(uAtmAmbSky, uAtmAmbSky * 1.6, 0.5) * 0.08 * gloss * smoothstep(-0.3, -0.9, v.z) * exp(-fromDoor / 14.0);
     gl_FragColor = vec4(atmApply(col, vWorld), 1.0);

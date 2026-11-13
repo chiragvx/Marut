@@ -1577,6 +1577,7 @@ function openLoadoutView(fit: LoadoutFit): LoadoutView | undefined {
   return {
     setFit: (f) => scene.setFit(f),
     orbitBy: (a, b, z) => scene.orbitBy(a, b, z),
+    setDragging: (on) => scene.setDragging(on),
     close: () => {
       if (!open) return;
       open = false;

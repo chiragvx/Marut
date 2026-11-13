@@ -29,12 +29,15 @@ export interface HangarBayDef {
   heightM: number;
 }
 
-/** The base's smallest hangar a Tejas fits in with room round it (none: undefined). */
+/**
+ * The base's hangar for the view: the smallest roomy one (about 36 x 32 m or more: space to stand
+ * well back from the jet), else the smallest a Tejas fits in at all (none: undefined).
+ */
 export function findHangarBay(layout: AirportLayout): HangarBayDef | undefined {
-  const fits = (layout.structures ?? []).filter((s) => s.kind === 'hangar' && s.widthM >= 24 && s.lengthM >= 24 && s.heightM >= 8);
-  fits.sort((a, b) => a.widthM * a.lengthM - b.widthM * b.lengthM);
-  const s = fits[0];
-  return s ? { id: s.id, x: s.worldX, z: s.worldZ, headingRad: s.headingRad, widthM: Math.min(s.widthM, 40), lengthM: Math.min(s.lengthM, 40), heightM: Math.min(s.heightM, 12) } : undefined;
+  const all = (layout.structures ?? []).filter((s) => s.kind === 'hangar' && s.widthM >= 24 && s.lengthM >= 24 && s.heightM >= 8);
+  all.sort((a, b) => a.widthM * a.lengthM - b.widthM * b.lengthM);
+  const s = all.find((x) => x.widthM >= 36 && x.lengthM >= 32 && x.widthM <= 60 && x.lengthM <= 60) ?? all[0];
+  return s ? { id: s.id, x: s.worldX, z: s.worldZ, headingRad: s.headingRad, widthM: Math.min(s.widthM, 60), lengthM: Math.min(s.lengthM, 60), heightM: Math.min(s.heightM, 14) } : undefined;
 }
 
 /** The orbit: round the jet (yaw 0: straight ahead of its nose), up from level, and distance, m. */
@@ -44,7 +47,7 @@ export interface HangarOrbit {
   dist: number;
 }
 
-export const HANGAR_ORBIT_LIMITS = { pitchMin: -0.12, pitchMax: 1.05, distMin: 6, distMax: 18 } as const;
+export const HANGAR_ORBIT_LIMITS = { pitchMin: -0.12, pitchMax: 1.05, distMin: 6, distMax: 24 } as const;
 
 export function clampOrbit(o: HangarOrbit): HangarOrbit {
   o.pitch = Math.min(HANGAR_ORBIT_LIMITS.pitchMax, Math.max(HANGAR_ORBIT_LIMITS.pitchMin, o.pitch));
@@ -72,10 +75,15 @@ export interface HangarScene extends ShowcaseScene {
   setFit(fit: LoadoutFit): void;
   /** Turn round the jet (rad) and up/down (rad); zoom: distance factor (< 1 closer). */
   orbitBy(dYaw: number, dPitch: number, zoom: number): void;
+  /** The player has hold of the view (a finger or button down): no coasting until let go. */
+  setDragging(on: boolean): void;
   /** Where the jet sits across the screen (fraction of the width right of centre). */
   setOffsetX(x: number): void;
 }
 
+/** How quickly the camera follows the input (1/s), and how fast a flicked turn dies away (1/s). */
+const FOLLOW_RATE = 5;
+const SPIN_DECAY = 2.5;
 /** Idle (s) before the camera drifts round by itself, and how fast, rad/s. */
 const IDLE_SEC = 5;
 const DRIFT_RAD_S = 0.06;
@@ -113,6 +121,12 @@ export function createHangarScene(layout: AirportLayout, bay: HangarBayDef, def:
   const cur: HangarOrbit = { ...want };
   let lastT = 0;
   let idle = 0;
+  // Input since the last frame, and the turn rate it carries on with when let go (momentum).
+  let pendYaw = 0;
+  let pendPitch = 0;
+  let spinYaw = 0;
+  let spinPitch = 0;
+  let dragging = false;
   let offsetX = 0.2;
   // What the camera looks at: the jet's middle, a little over its origin (bay frame, floor-relative).
   const target = { x: 0, y: PARKED_ORIGIN_M + 0.3, z: JET_FWD_M };
@@ -135,11 +149,16 @@ export function createHangarScene(layout: AirportLayout, bay: HangarBayDef, def:
     caption: { title: 'Loadout', place: 'Hangar' },
     setFit,
     orbitBy(dYaw, dPitch, zoom) {
+      pendYaw += dYaw;
+      pendPitch += dPitch;
       want.yaw += dYaw;
       want.pitch += dPitch;
       want.dist *= zoom;
       clampOrbit(want);
       idle = 0;
+    },
+    setDragging(on) {
+      dragging = on;
     },
     setOffsetX(x) {
       offsetX = x;
@@ -148,8 +167,27 @@ export function createHangarScene(layout: AirportLayout, bay: HangarBayDef, def:
       const dt = Math.min(0.1, Math.max(0, t - lastT));
       lastT = t;
       idle += dt;
+      if (dt > 0) {
+        if (pendYaw !== 0 || pendPitch !== 0) {
+          // Dragging: the turn rate, smoothed over a few frames.
+          spinYaw += (pendYaw / dt - spinYaw) * 0.4;
+          spinPitch += (pendPitch / dt - spinPitch) * 0.4;
+        } else if (dragging) {
+          // Held still: no turn to carry on with.
+          spinYaw = spinPitch = 0;
+        } else {
+          // Let go: it carries on turning, slowing to a stop.
+          want.yaw += spinYaw * dt;
+          want.pitch += spinPitch * dt;
+          clampOrbit(want);
+          const d = Math.exp(-dt * SPIN_DECAY);
+          spinYaw *= d;
+          spinPitch *= d;
+        }
+        pendYaw = pendPitch = 0;
+      }
       if (idle > IDLE_SEC) want.yaw += DRIFT_RAD_S * dt * Math.min(1, (idle - IDLE_SEC) / 2);
-      const k = 1 - Math.exp(-dt * 8);
+      const k = 1 - Math.exp(-dt * FOLLOW_RATE);
       cur.yaw += (want.yaw - cur.yaw) * k;
       cur.pitch += (want.pitch - cur.pitch) * k;
       cur.dist += (want.dist - cur.dist) * k;

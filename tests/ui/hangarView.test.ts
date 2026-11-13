@@ -8,9 +8,11 @@ import { tejasDefinition as TEJAS_MK1A } from '../../src/aircraft';
 const hangar = (id: string, w: number, l: number, h: number) => ({ id, kind: 'hangar' as const, worldX: 0, worldZ: 0, headingRad: 0, widthM: w, lengthM: l, heightM: h });
 
 describe('loadout hangar view', () => {
-  it('picks the smallest hangar a Tejas fits in', () => {
-    const layout = { structures: [hangar('big', 90, 86, 17), hangar('small', 30, 28, 10.4), hangar('tiny', 18, 15, 6)] } as unknown as AirportLayout;
-    expect(findHangarBay(layout)?.id).toBe('small');
+  it('picks a roomy hangar, else the smallest a Tejas fits in', () => {
+    const layout = { structures: [hangar('big', 90, 86, 17), hangar('roomy', 41, 34, 11), hangar('small', 30, 28, 10.4), hangar('tiny', 18, 15, 6)] } as unknown as AirportLayout;
+    expect(findHangarBay(layout)?.id).toBe('roomy');
+    const tight = { structures: [hangar('big', 90, 86, 17), hangar('small', 30, 28, 10.4)] } as unknown as AirportLayout;
+    expect(findHangarBay(tight)?.id).toBe('small');
     expect(findHangarBay({ structures: [hangar('tiny', 18, 15, 6)] } as unknown as AirportLayout)).toBeUndefined();
   });
 

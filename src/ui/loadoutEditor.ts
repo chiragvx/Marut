@@ -104,6 +104,8 @@ export interface LoadoutView {
   setFit(fit: LoadoutFit): void;
   /** Turn round the jet and up/down (rad); zoom: distance factor (< 1 closer). */
   orbitBy(dYaw: number, dPitch: number, zoom: number): void;
+  /** A finger or button is down on the view (the turn carries on, slowing, once let go). */
+  setDragging(on: boolean): void;
   close(): void;
 }
 
@@ -121,6 +123,7 @@ function attachOrbit(el: HTMLElement, panel: HTMLElement, view: LoadoutView): ()
     pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
     el.setPointerCapture?.(e.pointerId);
     el.classList.add('tj-orbiting');
+    view.setDragging(true);
     pinch = 0;
   };
   const move = (e: PointerEvent): void => {
@@ -137,12 +140,16 @@ function attachOrbit(el: HTMLElement, panel: HTMLElement, view: LoadoutView): ()
       pinch = d;
       return;
     }
-    view.orbitBy(-dx * 0.008, dy * 0.006, 1);
+    // The jet turns the way it is dragged.
+    view.orbitBy(dx * 0.006, dy * 0.005, 1);
   };
   const up = (e: PointerEvent): void => {
     pts.delete(e.pointerId);
     pinch = 0;
-    if (pts.size === 0) el.classList.remove('tj-orbiting');
+    if (pts.size === 0) {
+      el.classList.remove('tj-orbiting');
+      view.setDragging(false);
+    }
   };
   const wheel = (e: WheelEvent): void => {
     if (!outside(e.target)) return;
