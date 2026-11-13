@@ -44,8 +44,7 @@ export function machConeState(rel: Vec3Like, vel: Vec3Like, c: number): 'subsoni
  * - the punch: a falling low thump (80 -> 56 Hz) at each shock, the "boom" a speaker can play;
  * - the ground reflection a few ms behind (wider apart in the two ears);
  * - the roar: straight after the cracks, a dense low-mid rumble (mostly 100-800 Hz) only a few dB
- *   under them, held for ~5 s like rolling thunder, wobbling slowly, with a few duller echoes off
- *   the terrain in it, then dying away.
+ *   under them, fading fast (gone by 1.5 s), with a couple of duller echoes off the terrain.
  * Further off it is duller. The buffer is driven to full scale (the master bus limits it).
  */
 export function createBoomBuffer(ac: BaseAudioContext, distM: number): AudioBuffer {
@@ -89,11 +88,10 @@ export function createBoomBuffer(ac: BaseAudioContext, distM: number): AudioBuff
   };
   // Echoes off the terrain inside the roar: [delay s, level, decay s].
   const echoes: readonly [number, number, number][] = [
-    [0.45 + d0 / 9000, 0.35, 0.35],
-    [1.1 + d0 / 6000, 0.25, 0.45],
-    [2.2 + d0 / 4000, 0.18, 0.6],
+    [0.28 + d0 / 20000, 0.3, 0.15],
+    [0.55 + d0 / 15000, 0.18, 0.18],
   ];
-  const fadeAt = BOOM_SEC - 1.0;
+  const fadeAt = BOOM_SEC - 0.5;
   const peaks = [0, 0];
   for (let ch = 0; ch < 2; ch++) {
     const d = buf.getChannelData(ch);
@@ -140,7 +138,7 @@ export function createBoomBuffer(ac: BaseAudioContext, distM: number): AudioBuff
       lfo += (lfoTo - lfo) * 0.0004;
       const rise = Math.min(1, Math.max(0, (t - nLen - 0.01) / 0.1));
       const fall = t < fadeAt ? 1 : Math.max(0, 1 - (t - fadeAt) / (BOOM_SEC - fadeAt));
-      s += ROAR * (roarRaw - rLow) * lfo * rise * Math.exp(-t / 9) * fall * fall;
+      s += ROAR * (roarRaw - rLow) * lfo * rise * Math.exp(-t / 0.5) * fall * fall;
       // Echoes: duller thumps arriving later.
       for (const [dl, a, dc] of echoes) s += a * thump(t, dl + ch * 0.011, dc);
       d[i] = s;
@@ -168,8 +166,8 @@ export function createBoomBuffer(ac: BaseAudioContext, distM: number): AudioBuff
   return buf;
 }
 
-/** The boom's length, s (the cracks, then ~5 s of roar). */
-const BOOM_SEC = 6.5;
+/** The boom's length, s (a burst: the cracks, then the roar fading fast). */
+const BOOM_SEC = 1.5;
 /** The cracks' level, their body's under them, and the roar's. */
 const CRACK = 2.6;
 const BODY = 3;
@@ -182,5 +180,5 @@ const BOOM_DRIVE = 3;
  * ~ distance^-3/4, eased). Over 1: it drives the master limiter, the rest of the mix ducking under it.
  */
 export function boomGain(distM: number): number {
-  return Math.min(4, 4 * Math.pow(700 / Math.max(50, distM), 0.6));
+  return Math.min(2, 2 * Math.pow(700 / Math.max(50, distM), 0.6));
 }

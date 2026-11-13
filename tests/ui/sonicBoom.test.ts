@@ -53,9 +53,9 @@ describe('createBoomBuffer / boomGain', () => {
   });
 
   it('is loud close by and falls off with distance', () => {
-    expect(boomGain(200)).toBeCloseTo(4);
+    expect(boomGain(200)).toBeCloseTo(2);
     expect(boomGain(1500)).toBeLessThan(boomGain(700));
     expect(boomGain(5000)).toBeLessThan(boomGain(1500));
-    expect(boomGain(5000)).toBeGreaterThan(0.2);
+    expect(boomGain(5000)).toBeGreaterThan(0.1);
   });
 });
