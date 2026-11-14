@@ -100,6 +100,7 @@ const terrainVS = /* glsl */ `
 
 const terrainFS = /* glsl */ `
   uniform vec3 uSun, uCam, uFog;
+  uniform vec2 uOrigin;
   uniform vec4 uStripA[${MAX_STRIPS}], uStripB[${MAX_STRIPS}];
   uniform int uStrips;
   uniform float uShowStrips;
@@ -112,6 +113,19 @@ const terrainFS = /* glsl */ `
     return mix(mix(hash2(i), hash2(i + vec2(1, 0)), u.x), mix(hash2(i + vec2(0, 1)), hash2(i + vec2(1, 1)), u.x), u.y);
   }
   vec3 lin(vec3 c) { return pow(c, vec3(2.2)); }
+  // --- Close-range detail: value noise with its gradient, from a hash with no sin() (stable at
+  // large coordinates); coordinates are relative to a camera-snapped origin (uOrigin) for precision.
+  float hashD(vec2 p) { vec3 p3 = fract(vec3(p.xyx) * 0.1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
+  // Periodic over per cells (per * cell = 4096 m). Each layer is turned by a 3-4-5 rotation (kills the
+  // grid look); a 20480 m origin snap is then a whole number of periods in the turned frame too.
+  vec3 vnoiseD(vec2 p, float per) {
+    vec2 i = floor(p), f = fract(p);
+    vec2 u = f * f * (3.0 - 2.0 * f), du = 6.0 * f * (1.0 - f);
+    vec2 i0 = mod(i, per), i1 = mod(i + 1.0, per);
+    float a = hashD(i0), b = hashD(vec2(i1.x, i0.y)), c = hashD(vec2(i0.x, i1.y)), d = hashD(i1);
+    float k = a - b - c + d;
+    return vec3(a + (b - a) * u.x + (c - a) * u.y + k * u.x * u.y, du * vec2(b - a + k * u.y, c - a + k * u.x));
+  }
   void main() {
     #include <logdepthbuf_fragment>
     vec3 n = normalize(vNormal);
@@ -171,6 +185,44 @@ const terrainFS = /* glsl */ `
       }
     }
 
+    // Close-range detail, LOD by pixel footprint: each layer fades out as its cells shrink below a
+    // pixel (fwidth), so far ground costs nothing and nothing shimmers. Bump (lighting) + albedo.
+    vec2 lp = vWorld.xz - uOrigin;
+    float rockW = smoothstep(0.20, 0.34, slope), snowW = snow, grassW = (1.0 - rockW) * (1.0 - snowW) * (1.0 - dry) * (1.0 - flatv);
+    float stoneW = (1.0 - rockW) * (1.0 - snowW) * max(dry, flatv);
+    vec3 nb = n;
+    float px = length(fwidth(lp));
+    float f1 = 1.0 - smoothstep(4.0, 12.0, px);   // 32 m layer: patches, boulders, rock ribs
+    float f2 = 1.0 - smoothstep(0.6, 2.0, px);    // 4 m layer: clumps, stones, cracks
+    float f3 = 1.0 - smoothstep(0.12, 0.4, px);   // 0.8 m layer: grit, tufts, pebbles
+    if (f1 > 0.0) {
+      vec3 d1 = vnoiseD(mat2(0.6, 0.8, -0.8, 0.6) * lp / 32.0, 128.0);
+      d1.yz = d1.yz * mat2(0.6, 0.8, -0.8, 0.6);
+      float bump = mix(mix(0.25, 0.9, rockW), 0.08, snowW);
+      nb = normalize(nb - vec3(d1.y, 0.0, d1.z) * bump * f1);
+      col *= 1.0 + (d1.x - 0.5) * 0.28 * f1 * (1.0 - snowW * 0.7);
+      // Rock strata: bands along the contours, broken by the noise.
+      col *= 1.0 - rockW * f1 * 0.18 * smoothstep(0.3, 0.7, fract(h / 9.0 + d1.x * 1.7));
+    }
+    if (f2 > 0.0) {
+      vec3 d2 = vnoiseD(mat2(0.8, -0.6, 0.6, 0.8) * lp / 4.0 + 17.0, 1024.0);
+      d2.yz = d2.yz * mat2(0.8, -0.6, 0.6, 0.8);
+      float bump = mix(mix(0.35, 0.8, rockW), 0.1, snowW);
+      nb = normalize(nb - vec3(d2.y, 0.0, d2.z) * bump * f2 * 0.6);
+      // Grass clumps darker, stones lighter, cracks in rock darker.
+      col *= 1.0 + f2 * ((d2.x - 0.5) * (0.35 * grassW + 0.3 * stoneW + 0.25 * rockW) - grassW * 0.06);
+    }
+    if (f3 > 0.0) {
+      vec3 d3 = vnoiseD(mat2(0.6, -0.8, 0.8, 0.6) * lp / 0.8 - 5.0, 5120.0);
+      d3.yz = d3.yz * mat2(0.6, -0.8, 0.8, 0.6);
+      nb = normalize(nb - vec3(d3.y, 0.0, d3.z) * 0.35 * f3 * (1.0 - snowW * 0.8));
+      float speck = smoothstep(0.72, 0.9, d3.x);
+      col *= 1.0 + f3 * ((d3.x - 0.5) * 0.25 + speck * 0.25 * stoneW - speck * 0.2 * grassW);
+      // Snow glints in the sun.
+      col += snowW * f3 * pow(smoothstep(0.93, 1.0, d3.x), 4.0) * 0.6 * max(dot(nb, uSun), 0.0);
+    }
+    n = nb;
+
     // Light: sun plus a sky/ground ambient.
     float diff = max(dot(n, uSun), 0.0);
     vec3 amb = mix(lin(vec3(0.42, 0.38, 0.33)), lin(vec3(0.62, 0.72, 0.88)), n.y * 0.5 + 0.5) * 0.36;
@@ -192,6 +244,7 @@ function terrainMaterial(): THREE.ShaderMaterial {
     uniforms: {
       uSun: { value: sunDir }, uCam: { value: new THREE.Vector3() }, uFog: { value: HORIZON },
       uHole: { value: new THREE.Vector3(0, 0, 0) },
+      uOrigin: { value: new THREE.Vector2() },
       uStripA: { value: stripA }, uStripB: { value: stripB }, uStrips: { value: Math.min(MAX_STRIPS, STRIPS.length) },
       uShowStrips: { value: 1 },
     },
@@ -461,7 +514,11 @@ function frame(now: number): void {
   updateRings();
   sky.position.copy(camera.position);
   (skyMat.uniforms.uCamAlt as { value: number }).value = camera.position.y;
-  for (const r of RINGS) (r.mat.uniforms.uCam.value as THREE.Vector3).copy(camera.position);
+  for (const r of RINGS) {
+    (r.mat.uniforms.uCam.value as THREE.Vector3).copy(camera.position);
+    // Detail origin snapped to 20480 m (a whole number of detail periods even in the rotated frames: no pattern jump).
+    (r.mat.uniforms.uOrigin.value as THREE.Vector2).set(Math.round(camera.position.x / 20480) * 20480, Math.round(camera.position.z / 20480) * 20480);
+  }
   (waterMat.uniforms.uCam.value as THREE.Vector3).copy(camera.position);
   renderer.render(scene, camera);
   lab.ready = RINGS.every((r) => r.mesh && !r.pending);
