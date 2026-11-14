@@ -185,6 +185,7 @@ class KindStore {
     if (state.flapPos !== undefined) {
       state.flapDetent = undefined;
       state.flapPos = undefined;
+      state.flapFrac = undefined;
       state.slatPos = undefined;
     }
     if (state.spoilerPos !== undefined) state.spoilerPos = undefined;

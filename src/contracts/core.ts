@@ -308,6 +308,8 @@ export interface EntityState {
   flapDetent?: number;
   /** Actual flap position in detent units (e.g. 2.5 = halfway from detent 2 to 3); see physics flapAngleDeg for degrees. */
   flapPos?: number;
+  /** Flap angle as a fraction of the last detent's (0..1), for drawing. */
+  flapFrac?: number;
   /** Slat extension, 0 (in) .. 1 (out). */
   slatPos?: number;
   /** Symmetric spoiler panel position, 0..1 of full travel (speedbrake ~ SpoilerDefinition.speedbrakeFrac, lift dump 1). Roll spoilers follow the roll command and are not included. */
@@ -1055,9 +1057,45 @@ export const SnapshotEntity = {
   STORES: 26,
   /** Aircraft: stations 4-7 of its stores (same packing). */
   STORES_B: 27,
+  /** Transports: flaps, slats, spoilers, ramp, 0..1 each (packUnits4); 0 on the fighters. */
+  HIGH_LIFT: 28,
+  /** Transports: per-engine N1 and reverser, up to 4 engines (packEngines); 0 on the fighters. */
+  ENGINES: 29,
 } as const;
-/** Floats per entity block. Keep in sync with the field count above (28). */
-export const ENTITY_STRIDE = 28;
+/** Floats per entity block. Keep in sync with the field count above (30). */
+export const ENTITY_STRIDE = 30;
+
+/** Four 0..1 values in one snapshot float (8 bits each; exact in a float64). */
+export function packUnits4(a: number, b: number, c: number, d: number): number {
+  const q = (v: number): number => Math.round(Math.min(1, Math.max(0, v)) * 255);
+  return q(a) + 256 * (q(b) + 256 * (q(c) + 256 * q(d)));
+}
+/** Inverse of packUnits4, into out[0..3]. */
+export function unpackUnits4(v: number, out: number[]): number[] {
+  let r = Math.max(0, Math.round(v));
+  for (let i = 0; i < 4; i++) { out[i] = (r % 256) / 255; r = Math.floor(r / 256); }
+  return out;
+}
+/** Up to four engines' N1 and reverser position (0..1, 6 bits each: 48 bits, exact in a float64). */
+export function packEngines(n1: readonly number[], rev: readonly number[]): number {
+  let v = 0, k = 1;
+  for (let i = 0; i < 4; i++) {
+    const q = (x: number | undefined): number => Math.round(Math.min(1, Math.max(0, x ?? 0)) * 63);
+    v += k * (q(n1[i]) + 64 * q(rev[i]));
+    k *= 4096;
+  }
+  return v;
+}
+/** Inverse of packEngines, into n1[0..3] and rev[0..3]. */
+export function unpackEngines(v: number, n1: number[], rev: number[]): void {
+  let r = Math.max(0, Math.round(v));
+  for (let i = 0; i < 4; i++) {
+    const e = r % 4096;
+    r = Math.floor(r / 4096);
+    n1[i] = (e % 64) / 63;
+    rev[i] = Math.floor(e / 64) / 63;
+  }
+}
 
 /**
  * Store ids (src/catalog) by code: the codes the snapshot's STORES field carries. 0 = nothing.

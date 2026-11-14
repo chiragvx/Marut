@@ -150,6 +150,7 @@ function copyEntityState(src: EntityState, dst: EntityState): void {
   if (src.flapPos !== undefined || dst.flapPos !== undefined) {
     dst.flapDetent = src.flapDetent;
     dst.flapPos = src.flapPos;
+    dst.flapFrac = src.flapFrac;
     dst.slatPos = src.slatPos;
   }
   if (src.spoilerPos !== undefined || dst.spoilerPos !== undefined) dst.spoilerPos = src.spoilerPos;

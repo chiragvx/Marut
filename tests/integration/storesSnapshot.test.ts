@@ -77,7 +77,7 @@ describe('snapshot STORES field', () => {
     }
     expect(storeSlotTwin(packStoreSlot(3, 2, StoreRack.TwinRail))).toBe(true);
     expect(storeSlotTwin(packStoreSlot(3, 2, StoreRack.MultiRack))).toBe(false);
-    expect(ENTITY_STRIDE).toBe(28);
+    expect(ENTITY_STRIDE).toBe(30);
     expect(entityFieldOffset(0, SnapshotEntity.STORES)).toBe(HEADER_FLOATS + 26);
     expect(entityFieldOffset(0, SnapshotEntity.STORES_B)).toBe(HEADER_FLOATS + 27);
   });

@@ -10,7 +10,7 @@ import * as THREE from 'three';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 
-import { AIRCRAFT_MODEL_MASK, AIRCRAFT_MODEL_SHIFT, AircraftModel, aircraftModelOf, EntityFlag, EntityKindCode, HUD_BLOCK_START, ServiceStateCode, SnapshotHud, type QualityTier } from '../contracts/core';
+import { AIRCRAFT_MODEL_MASK, AIRCRAFT_MODEL_SHIFT, AircraftModel, aircraftModelOf, EntityFlag, EntityKindCode, HUD_BLOCK_START, ServiceStateCode, SnapshotHud, unpackEngines, unpackUnits4, type QualityTier } from '../contracts/core';
 import {
   AntiAliasMode,
   CAMERA_FAR_M,
@@ -117,7 +117,7 @@ const DEV_CAMREL = ((): number[] | undefined => {
   return v && v.length >= 3 && v.every(Number.isFinite) ? v : undefined;
 })();
 /** Tejas wheel contact below its CG (aircraft/tejasGeometry.ts gear y) less the C-17's (c17Model.ts C17_FIT), m. */
-const DEV_C17_LIFT_M = 3.36 - 1.7;
+const DEV_C17_LIFT_M = 4.25 - 1.7;
 /** Tejas length, m: the outside cameras scale with a model's length against it. */
 const TEJAS_LENGTH_M = 13.2;
 /** Each model's length against the Tejas's (cameraModes.ts subjectScale). */
@@ -291,6 +291,7 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
   /** Dev (?model=): the player's flags with the model swapped. */
   const devFlags = (flags: number): number => (DEV_MODEL === undefined ? flags : (flags & ~AIRCRAFT_MODEL_MASK) | (DEV_MODEL << AIRCRAFT_MODEL_SHIFT));
   const devLiftedPos = { x: 0, y: 0, z: 0 };
+  const hlScratch = [0, 0, 0, 0], n1Scratch = [0, 0, 0, 0], revScratch = [0, 0, 0, 0];
 
   const terrainRoot = new THREE.Group();
   scene.add(terrainRoot);
@@ -986,13 +987,15 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
           st.flags = flags;
           // The player's ground height (from the HUD's height above ground) lights the runway ahead.
           st.groundY = i === playerSlot ? interpEntity.pos.y - (curr.hud[SnapshotHud.ALT_AGL_M] ?? 0) : undefined;
-          // C-17 HOOKUP (the C-17 flight model's snapshot fields, one line each; meshAircraftRenderer.ts
-          // MeshAircraftState, aircraftModels/c17Pose.ts). Until then these parts rest stowed, the
-          // spoilers follow AirbrakeOut and the fans the throttle:
-          //   st.flaps = <flap position 0..1>;          st.slats = <slat position 0..1>;
-          //   st.spoilers = <spoiler deflection 0..1>;  st.reversers = <per-engine reverser 0..1, engines 1..4>;
-          //   st.ramp = <ramp/aft door 0..1>;           st.troopDoors / st.crewDoor = <door 0..1>;
-          //   st.n1 = <per-engine N1 0..1>;
+          // Transports' moving parts from the flight model (SnapshotEntity.HIGH_LIFT / ENGINES).
+          if (curr.highLift[i]! !== 0) {
+            unpackUnits4(curr.highLift[i]!, hlScratch);
+            st.flaps = hlScratch[0]; st.slats = hlScratch[1]; st.spoilers = hlScratch[2]; st.ramp = hlScratch[3];
+          }
+          if (curr.engines[i]! !== 0) {
+            unpackEngines(curr.engines[i]!, n1Scratch, revScratch);
+            st.n1 = n1Scratch; st.reversers = revScratch;
+          }
           let drawPos = interpEntity.pos;
           if (i === playerSlot && DEV_MODEL === AircraftModel.C17) {
             const pose = devPoseNow();

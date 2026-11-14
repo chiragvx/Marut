@@ -5,10 +5,10 @@
  * and a transport FCS. All flight data is in c17Data.ts with its sources.
  *
  * No weapons stations (self-protection flares only: IAF fit, AN/ALE-47 + AN/AAR-47 [P] DSCA; the
- * flare count is the pack's 120 [E], section 7). Drawn with the default model until the C-17 GLB is
- * wired to the renderer (renderModel absent).
+ * flare count is the pack's 120 [E], section 7). Drawn with its own model (AircraftModel.C17).
  */
 import type { AircraftDefinition } from '../contracts/aircraft';
+import { AircraftModel } from '../contracts/core';
 import { tejasDefinition } from './tejasDefinition';
 import {
   c17Aero,
@@ -32,6 +32,7 @@ import {
 } from './c17Data';
 
 export const c17Definition: AircraftDefinition = {
+  renderModel: AircraftModel.C17,
   id: 'c-17',
   displayName: 'Boeing C-17A Globemaster III',
   stations: [],

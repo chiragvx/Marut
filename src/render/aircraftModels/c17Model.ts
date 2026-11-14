@@ -48,7 +48,9 @@ export const C17_GLB_URL = new URL(`../models/c17.glb?v=${C17_GLB_HASH}`, docume
  * points, set this so the model's wheels sit on them (one line).
  */
 export const C17_FIT = {
-  modelToBody: [-6.5, -4.5, 0] as V3,
+  // Matched to the flight model (aircraft/c17Data.ts c17Gear): nose x 18.2, mains x -1.8, the wheel
+  // bottoms 4.25 m below the CG at rest (contacts at y -4.5, ~0.25 m static compression).
+  modelToBody: [-5.6, -5.38, 0] as V3,
   /** Lamps, model frame: navigation lights on the wingtips' leading edges (under the winglets),
    *  white strobes just aft of them, the tail light on the tailplane's trailing edge, the
    *  landing/taxi lamp on the nose leg (it rides on the leg's rig node). */

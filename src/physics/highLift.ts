@@ -163,7 +163,7 @@ export function configuredCoefficients(def: AircraftDefinition, alpha: number, m
 
 /** Moves the flaps (one detent per flapSecPerDetent) and slats toward the lever, in place. */
 export function stepFlapsAndSlats(
-  state: { flapDetent?: number; flapPos?: number; slatPos?: number },
+  state: { flapDetent?: number; flapPos?: number; flapFrac?: number; slatPos?: number },
   hl: HighLiftDefinition,
   flapLever: number | undefined,
   hydraulicsOk: boolean,
@@ -174,6 +174,8 @@ export function stepFlapsAndSlats(
   state.flapDetent = lever;
   if (!hydraulicsOk) return;
   state.flapPos = rateLimitStep(state.flapPos ?? 0, lever, 1 / hl.flapSecPerDetent, dtSub);
+  const fullDeg = hl.detents[maxDetent]!.flapDeg;
+  state.flapFrac = fullDeg > 0 ? blendDetent(hl, state.flapPos, scratchBlend).flapDeg / fullDeg : 0;
   const slatTarget = detentAt(hl, lever).slats || detentAt(hl, Math.ceil(state.flapPos - 1e-9)).slats ? 1 : 0;
   state.slatPos = rateLimitStep(state.slatPos ?? 0, slatTarget, 1 / hl.slatTransitSec, dtSub);
 }
