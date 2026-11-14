@@ -57,4 +57,6 @@ Airbase layouts for Bhisiana and Shahbaz are based on OpenStreetMap data, © Ope
 
 The Tejas 3D model (`public/models/tejas.glb`) is based on ["HAL Tejas"](https://sketchfab.com/3d-models/hal-tejas-fd95c85e2452490cbe32f80175498441) by [dimal965](https://sketchfab.com/dimal965), licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). Changes: repainted grey, split into moving parts, canopy and airbrakes closed, rescaled to the game frame (`tools/models/build_tejas.py`).
 
+The JF-17 3D model (`public/models/jf17.glb`) is based on ["JF-17"](https://sketchfab.com/3d-models/jf-17-b57660f346314df1877e15b85d6e74be) by [dimal965](https://sketchfab.com/dimal965), licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). Changes: canopy closed, gear split, hinges and pylons rigged, nozzle replaced, moved to the game frame (`tools/models/build_jf17.py`).
+
 Marut is an independent project and is not affiliated with HAL, the Indian Air Force or the Indian Navy.

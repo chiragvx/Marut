@@ -202,6 +202,18 @@ export const EntityFlag = {
   Drone: 1 << 9,
 } as const;
 
+/**
+ * Which 3D model draws an aircraft (contracts/aircraft.ts AircraftDefinition.renderModel), carried
+ * in EntityFlags bits AIRCRAFT_MODEL_SHIFT.. (set at spawn): the renderer picks the model by it.
+ * Types without a model of their own are drawn as the Tejas.
+ */
+export const AircraftModel = { Tejas: 0, Jf17: 1 } as const;
+export type AircraftModelCode = (typeof AircraftModel)[keyof typeof AircraftModel];
+export const AIRCRAFT_MODEL_SHIFT = 12;
+export const AIRCRAFT_MODEL_MASK = 0xf << AIRCRAFT_MODEL_SHIFT;
+/** The model code in an aircraft's EntityFlags. */
+export const aircraftModelOf = (flags: number): number => (flags & AIRCRAFT_MODEL_MASK) >> AIRCRAFT_MODEL_SHIFT;
+
 /** All exterior-light bits of EntityFlags. */
 export const LIGHT_FLAGS_MASK = EntityFlag.Lights | EntityFlag.LightsStrobe | EntityFlag.LightsLanding | EntityFlag.LightsFormation;
 

@@ -272,6 +272,8 @@ export interface AircraftDefinition {
   maxFuelKg: number;
   /** Maximum take-off weight, kg (the loadout screen shows the fit against it; nothing enforces it). */
   maxTakeoffMassKg?: number;
+  /** Its 3D model (contracts/core.ts AircraftModel code); absent = the Tejas's. */
+  renderModel?: number;
   /**
    * External drop tank carried on each `type: 'fuel_tank'` hardpoint (all identical). Optional:
    * absent means the aircraft carries none. Fuel is burned from the tanks before internal fuel.

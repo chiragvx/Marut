@@ -953,7 +953,7 @@ function buildTank(t: { len: number; dia: number; noseLen: number; tailLen: numb
 /** Launcher depth below its attach point (the pylon's base), m; missiles hang on short hangers
  *  just below it. As in photos of the Tejas's R-73 / ASRAAM / Derby stations: a slab-sided beam
  *  about two-thirds of the missile's length, as deep as the missile is thick. */
-const RAIL_DEPTH = 0.13;
+export const RAIL_DEPTH = 0.13;
 /** Gap between the launcher's underside and the missile's body (its launch shoes fill it). */
 const HANGER = 0.014;
 /** Twin launcher: a wide adapter beam under the pylon with a rail canted out from each lower edge.

@@ -774,6 +774,8 @@ export interface Pylon {
   z: number;
   len: number;
   attachY: number;
+  /** false: the model's own launcher is here (a wingtip rail); missiles hang from attachY without one of ours. */
+  rail?: boolean;
 }
 
 const WING_PYLONS = [
@@ -949,7 +951,7 @@ export function buildFlame(): THREE.BufferGeometry {
 // -----------------------------------------------------------------------------
 
 /** How a moving part is driven (see meshAircraftRenderer.ts). */
-export type PartDriver = 'elevonL' | 'elevonR' | 'rudder' | 'gear' | 'slat' | 'airbrake' | 'wheel' | 'oleo' | 'brace';
+export type PartDriver = 'elevonL' | 'elevonR' | 'aileronL' | 'aileronR' | 'rudder' | 'gear' | 'slat' | 'airbrake' | 'wheel' | 'oleo' | 'brace';
 
 export interface ArticulatedPart {
   name: string;

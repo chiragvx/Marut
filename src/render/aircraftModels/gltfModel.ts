@@ -1,7 +1,9 @@
 /**
  * src/render/aircraftModels/gltfModel.ts — an AircraftModelTemplate from an imported glTF model
  * (tools/models/build_tejas.py makes public/models/tejas.glb from the CC BY Sketchfab "HAL Tejas"
- * by dimal965).
+ * by dimal965; tools/models/build_jf17.py makes public/models/jf17.glb from his "JF-17").
+ * What the GLB can't say about itself (the wing's planform for the vapour, formation strips, the
+ * navigation lights' lens) is per model: TEJAS_FIT, JF17_FIT.
  *
  * The GLB is authored for this loader: vertices already in the body frame (x forward, y up,
  * z right; same datums as the procedural model), meshes named for their role —
@@ -18,11 +20,14 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import { cap, circle, loft, PART, range } from './meshBuild';
 import type { V3 } from './meshBuild';
 import { TEJAS_GLB_HASH } from './tejasGlbVersion';
+import { JF17_GLB_HASH } from './jf17GlbVersion';
 import { buildFlame, INTAKE_STATION, NOZZLE_AXIS_Y, NOZZLE_EXIT_X, type AircraftModelTemplate, type ArticulatedPart, type FormationLamp, type LIGHTS, type PartDriver, type Pylon, type VapourCone, type VapourWing } from './tejasModel';
 
 /** The imported Tejas (relative to the page, so it works under /play/ and in the Android build);
  *  versioned by content so a rebuilt model is never served from a stale cache. */
 export const TEJAS_GLB_URL = new URL(`../models/tejas.glb?v=${TEJAS_GLB_HASH}`, document.baseURI).href;
+/** The imported JF-17 (as TEJAS_GLB_URL). */
+export const JF17_GLB_URL = new URL(`../models/jf17.glb?v=${JF17_GLB_HASH}`, document.baseURI).href;
 
 interface SceneExtras {
   pylons: Pylon[];
@@ -35,7 +40,7 @@ interface SceneExtras {
   credit?: string;
 }
 
-const DRIVERS: readonly PartDriver[] = ['elevonL', 'elevonR', 'rudder', 'gear', 'slat', 'airbrake', 'wheel', 'oleo', 'brace'];
+const DRIVERS: readonly PartDriver[] = ['elevonL', 'elevonR', 'aileronL', 'aileronR', 'rudder', 'gear', 'slat', 'airbrake', 'wheel', 'oleo', 'brace'];
 
 /** A mesh's geometry in its node's frame baked out, with the attributes the aircraft shader reads. */
 function prepare(mesh: THREE.Mesh, part: number): THREE.BufferGeometry {
@@ -84,15 +89,18 @@ const NAV_LIGHT_POINT: V3 = [-2.61, -0.01, 3.915];
 
 /**
  * The lamps' lenses the source model lacks: strobes on the wingtips, the tail light on the fin's
- * trailing edge (the navigation lights use the model's own wingtip fairings, NAV_LENS_TRI). Each sits
- * just inboard of the light's point so it is half buried in the tip.
+ * trailing edge, and (models without a lens of their own, GltfFit.nav) the navigation lights. Each
+ * sits just inboard of the light's point so it is half buried in the tip.
  */
-function lampLenses(L: SceneExtras['lights']): THREE.BufferGeometry[] {
+function lampLenses(L: SceneExtras['lights'], navLens: boolean): THREE.BufferGeometry[] {
   const inboard = (p: readonly number[], dz: number): number[] => [p[0]!, p[1]!, p[2]! - Math.sign(p[2]!) * dz];
   return [
     lens(inboard(L.strobeLeft, 0.012), [0.04, 0.017, 0.022], PART.lightStrobe),
     lens(inboard(L.strobeRight, 0.012), [0.04, 0.017, 0.022], PART.lightStrobe),
     lens([L.navTail[0]! + 0.008, L.navTail[1]!, 0], [0.02, 0.03, 0.022], PART.lightWhite),
+    ...(navLens
+      ? []
+      : [lens(inboard(L.navLeft, 0.01), [0.05, 0.025, 0.025], PART.lightRed), lens(inboard(L.navRight, 0.01), [0.05, 0.025, 0.025], PART.lightGreen)]),
   ];
 }
 
@@ -109,6 +117,7 @@ const FORMATION_STRIPS: readonly { a: V3; b: V3; ray: V3 }[] = [
   { a: [-3.25, 1.6, 2], b: [-3.75, 2.0, 2], ray: [0, 0, -1] },
   { a: [-1.49, 3, 3.05], b: [-2.01, 3, 3.35], ray: [0, -1, 0] },
 ];
+type FormationStrip = { a: V3; b: V3; ray: V3 };
 const FORMATION_WIDTH_M = 0.05;
 const FORMATION_STANDOFF_M = 0.004;
 const FORMATION_SAMPLES = 7;
@@ -151,7 +160,7 @@ function castOnto(pos: THREE.BufferAttribute | THREE.InterleavedBufferAttribute,
  * it), and a lamp at each strip's centre for its glow. A strip whose rays miss the skin is left out
  * (a reshaped model loses that strip rather than getting one floating in the air).
  */
-function formationStrips(body: THREE.BufferGeometry): { geometry: THREE.BufferGeometry[]; lamps: FormationLamp[] } {
+function formationStrips(body: THREE.BufferGeometry, strips: readonly FormationStrip[]): { geometry: THREE.BufferGeometry[]; lamps: FormationLamp[] } {
   const pos = body.getAttribute('position');
   const index = body.getIndex();
   const vertCount = index ? index.count : pos.count;
@@ -160,7 +169,7 @@ function formationStrips(body: THREE.BufferGeometry): { geometry: THREE.BufferGe
   const lamps: FormationLamp[] = [];
   const o = new THREE.Vector3(), d = new THREE.Vector3(), along = new THREE.Vector3(), across = new THREE.Vector3();
   for (const side of [1, -1]) {
-    for (const st of FORMATION_STRIPS) {
+    for (const st of strips) {
       const m = (v: V3): THREE.Vector3 => new THREE.Vector3(v[0], v[1], v[2] * side);
       const A = m(st.a), B = m(st.b);
       d.copy(m(st.ray)).normalize();
@@ -237,30 +246,43 @@ function formationStrips(body: THREE.BufferGeometry): { geometry: THREE.BufferGe
 
 /**
  * The starboard wing's planform for the vapour sheet (body frame of the imported model): the leading
- * edge as (z, x) points with the slats (the compound delta: steep inboard, then the main sweep), the
- * trailing edge at a constant x, root and tip stations.
+ * edge as (z, x) points with the slats, the trailing edge at a constant x, root and tip stations; the
+ * wing's upper surface lies between yMin and yMax (a ray hitting outside is a store or the spine), and
+ * where nothing is hit it is y0 + slope * (z - rootZ).
  */
-const WING_LE: readonly [number, number][] = [
-  [0.9, 2.35],
-  [1.2, 2.0],
-  [1.7, 1.6],
-  [3.95, -2.7],
-];
-const WING_TE_X = -2.95;
-const WING_ROOT_Z = 0.9;
-const WING_TIP_Z = 3.95;
+interface WingFit {
+  le: readonly [number, number][];
+  teX: number;
+  rootZ: number;
+  tipZ: number;
+  yMin: number;
+  yMax: number;
+  y0: number;
+  slope: number;
+}
+
+/** What an imported model's GLB doesn't carry: its wing, formation strips and navigation light lens. */
+export interface GltfFit {
+  wing: WingFit;
+  formation: readonly FormationStrip[];
+  vapourCone: VapourCone;
+  /** The navigation lights: the model's own lens (a triangle of body (x, z) on the starboard tip) and
+   *  the light's point; absent = small red/green lenses at the scene extras' navLeft/navRight. */
+  nav?: { lens: readonly (readonly number[])[]; point: V3 };
+}
+
 const VAPOUR_NU = 20;
 const VAPOUR_NV = 12;
 /** The sheet runs on past the trailing edge (over the elevons and a little behind): u up to this. */
 const VAPOUR_U_MAX = 1.3;
 
-function leX(z: number): number {
-  for (let i = 1; i < WING_LE.length; i++) {
-    const [z0, x0] = WING_LE[i - 1]!;
-    const [z1, x1] = WING_LE[i]!;
-    if (z <= z1 || i === WING_LE.length - 1) return x0 + ((x1 - x0) * (z - z0)) / (z1 - z0);
+function leX(le: WingFit['le'], z: number): number {
+  for (let i = 1; i < le.length; i++) {
+    const [z0, x0] = le[i - 1]!;
+    const [z1, x1] = le[i]!;
+    if (z <= z1 || i === le.length - 1) return x0 + ((x1 - x0) * (z - z0)) / (z1 - z0);
   }
-  return WING_LE[0]![1];
+  return le[0]![1];
 }
 
 /**
@@ -269,7 +291,7 @@ function leX(z: number): number {
  * fixed airframe has nothing (slats and elevons are moving parts; behind the trailing edge), the
  * height carries on from the nearest hit along the chord.
  */
-function vapourWing(body: THREE.BufferGeometry, tipTe: V3): VapourWing {
+function vapourWing(body: THREE.BufferGeometry, tipTe: V3, W: WingFit): VapourWing {
   const pos = body.getAttribute('position');
   const index = body.getIndex();
   const vertCount = index ? index.count : pos.count;
@@ -292,31 +314,77 @@ function vapourWing(body: THREE.BufferGeometry, tipTe: V3): VapourWing {
   const o = new THREE.Vector3();
   const surf = new Float32Array(VAPOUR_NU * VAPOUR_NV * 3);
   for (let j = 0; j < VAPOUR_NV; j++) {
-    const z = WING_ROOT_Z + ((WING_TIP_Z - WING_ROOT_Z) * j) / (VAPOUR_NV - 1);
-    const xl = leX(z);
+    const z = W.rootZ + ((W.tipZ - W.rootZ) * j) / (VAPOUR_NV - 1);
+    const xl = leX(W.le, z);
     const ys: (number | undefined)[] = [];
     for (let i = 0; i < VAPOUR_NU; i++) {
       const u = (VAPOUR_U_MAX * i) / (VAPOUR_NU - 1);
-      const x = xl + u * (WING_TE_X - xl);
+      const x = xl + u * (W.teX - xl);
       surf[(j * VAPOUR_NU + i) * 3] = x;
       surf[(j * VAPOUR_NU + i) * 3 + 2] = z;
       const cx = Math.floor((x - x0) / CELL), cz = Math.floor((z - z0) / CELL);
       const bin = cx >= 0 && cx < nx && cz >= 0 && cz < nz ? bins[cz * nx + cx]! : [];
       const h = u <= 1 ? castOnto(pos, new Uint32Array(bin), o.set(x, 2, z), down) : undefined;
       // Only the wing (and its blend into the fuselage), not a store or the spine.
-      ys.push(h && h.p.y > -0.1 && h.p.y < 0.45 ? h.p.y : undefined);
+      ys.push(h && h.p.y > W.yMin && h.p.y < W.yMax ? h.p.y : undefined);
     }
     for (let i = 0; i < VAPOUR_NU; i++) {
       let y = ys[i];
       for (let d = 1; y === undefined && d < VAPOUR_NU; d++) y = ys[i - d] ?? ys[i + d];
-      surf[(j * VAPOUR_NU + i) * 3 + 1] = y ?? 0.25 - 0.065 * (z - WING_ROOT_Z);
+      surf[(j * VAPOUR_NU + i) * 3 + 1] = y ?? W.y0 + W.slope * (z - W.rootZ);
     }
   }
   return { nu: VAPOUR_NU, nv: VAPOUR_NV, uMax: VAPOUR_U_MAX, surf, tipTe };
 }
 
-/** The vapour cone round the imported Tejas: from the cockpit, flaring to its shock at about mid-wing. */
-const VAPOUR_CONE: VapourCone = { x0: 2.6, length: 3.5, r0: 0.9, r1: 4.6, axisY: 0.35 };
+/** The imported Tejas. */
+export const TEJAS_FIT: GltfFit = {
+  wing: {
+    // The compound delta: steep inboard, then the main sweep.
+    le: [
+      [0.9, 2.35],
+      [1.2, 2.0],
+      [1.7, 1.6],
+      [3.95, -2.7],
+    ],
+    teX: -2.95,
+    rootZ: 0.9,
+    tipZ: 3.95,
+    yMin: -0.1,
+    yMax: 0.45,
+    y0: 0.25,
+    slope: -0.065,
+  },
+  formation: FORMATION_STRIPS,
+  // From the cockpit, flaring to its shock at about mid-wing.
+  vapourCone: { x0: 2.6, length: 3.5, r0: 0.9, r1: 4.6, axisY: 0.35 },
+  nav: { lens: NAV_LENS_TRI, point: NAV_LIGHT_POINT },
+};
+
+/**
+ * The imported JF-17 (body frame of tools/models/blender_jf17.py): the wing from its leading-edge
+ * flaps (the LERX blend at the root, then the main sweep) back to the flaperons' trailing edge; no
+ * formation strips (an AI type, never in formation with the player).
+ */
+export const JF17_FIT: GltfFit = {
+  wing: {
+    le: [
+      [1.05, 1.5],
+      [1.6, 0.79],
+      [2.86, -0.44],
+      [4.25, -1.72],
+    ],
+    teX: -2.6,
+    rootZ: 1.05,
+    tipZ: 4.25,
+    yMin: -0.45,
+    yMax: 0.1,
+    y0: -0.1,
+    slope: -0.03,
+  },
+  formation: [],
+  vapourCone: { x0: 2.6, length: 3.5, r0: 0.9, r1: 4.6, axisY: 0.1 },
+};
 
 /** The nose leg with the landing/taxi lamp's lens on it, facing along the light. */
 function withLandingLens(leg: THREE.BufferGeometry, L: SceneExtras['lights']): THREE.BufferGeometry {
@@ -357,7 +425,7 @@ function v3(a: unknown): V3 {
 }
 
 /** Builds the template from a parsed GLB (exported for tests and the dev preview). */
-export function templateFromGltf(scene: THREE.Object3D): AircraftModelTemplate {
+export function templateFromGltf(scene: THREE.Object3D, fit: GltfFit = TEJAS_FIT): AircraftModelTemplate {
   const extras = (scene.userData as { marut?: SceneExtras }).marut;
   if (!extras) throw new Error('aircraft GLB has no "marut" scene extras');
   const meshes = new Map<string, THREE.Mesh>();
@@ -371,13 +439,13 @@ export function templateFromGltf(scene: THREE.Object3D): AircraftModelTemplate {
   };
   const bodyMesh = need('body');
   const fixed = [prepare(bodyMesh, PART.textured)];
-  const formation = formationStrips(fixed[0]!);
-  if (formation.lamps.length < 2 * FORMATION_STRIPS.length) console.warn(`aircraft GLB: ${2 * FORMATION_STRIPS.length - formation.lamps.length} formation light strip(s) missed the skin`);
+  const formation = formationStrips(fixed[0]!, fit.formation);
+  if (formation.lamps.length < 2 * fit.formation.length) console.warn(`aircraft GLB: ${2 * fit.formation.length - formation.lamps.length} formation light strip(s) missed the skin`);
   if (meshes.has('cockpit')) fixed.push(prepare(meshes.get('cockpit')!, PART.texturedCockpit));
   if (meshes.has('glass')) fixed.push(prepare(meshes.get('glass')!, PART.canopy));
   const nz = extras.nozzle;
   if (nz.hingeX !== undefined && nz.hingeR !== undefined && nz.exitR !== undefined) fixed.push(buildNozzle(nz as Required<SceneExtras['nozzle']>));
-  fixed.push(...lampLenses(extras.lights), ...formation.geometry);
+  fixed.push(...lampLenses(extras.lights, !!fit.nav), ...formation.geometry);
   const body = mergeGeometries(fixed);
   if (!body) throw new Error('aircraft GLB: body geometries do not merge');
 
@@ -425,9 +493,9 @@ export function templateFromGltf(scene: THREE.Object3D): AircraftModelTemplate {
     pylons: extras.pylons,
     podMounts: [extras.podMount ? v3(extras.podMount) : INTAKE_STATION],
     lights: {
-      navLeft: [NAV_LIGHT_POINT[0], NAV_LIGHT_POINT[1], -NAV_LIGHT_POINT[2]],
-      navRight: NAV_LIGHT_POINT,
-      navLens: NAV_LENS_TRI,
+      navLeft: fit.nav ? [fit.nav.point[0], fit.nav.point[1], -fit.nav.point[2]] : v3(L.navLeft),
+      navRight: fit.nav ? fit.nav.point : v3(L.navRight),
+      ...(fit.nav ? { navLens: fit.nav.lens } : {}),
       navTail: v3(L.navTail),
       strobeLeft: v3(L.strobeLeft),
       strobeRight: v3(L.strobeRight),
@@ -437,15 +505,15 @@ export function templateFromGltf(scene: THREE.Object3D): AircraftModelTemplate {
     },
     landingPart: 'noseGear',
     // The tip vortex leaves the wingtip's trailing edge (just aft of the nav light).
-    vapourWing: vapourWing(fixed[0]!, [Number(L.navRight[0]) - 0.05, Number(L.navRight[1]), Number(L.navRight[2])]),
-    vapourCone: VAPOUR_CONE,
+    vapourWing: vapourWing(fixed[0]!, [Number(L.navRight[0]) - 0.05, Number(L.navRight[1]), Number(L.navRight[2])], fit.wing),
+    vapourCone: fit.vapourCone,
     canopyInterior: { min: v3(extras.canopyInterior.min), max: v3(extras.canopyInterior.max) },
     textures: { base: mat.map, metalRough: mat.metalnessMap, normal: mat.normalMap },
   };
 }
 
 /** Loads and builds an imported aircraft model. */
-export async function loadGltfAircraftModel(url: string): Promise<AircraftModelTemplate> {
+export async function loadGltfAircraftModel(url: string, fit: GltfFit = TEJAS_FIT): Promise<AircraftModelTemplate> {
   const gltf = await new GLTFLoader().loadAsync(url);
-  return templateFromGltf(gltf.scene);
+  return templateFromGltf(gltf.scene, fit);
 }

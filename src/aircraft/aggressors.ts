@@ -1,14 +1,16 @@
 /**
  * src/aircraft/aggressors.ts — the hostile aircraft types: the PAF's JF-17 Thunder (Block II/III
  * fits) and F-16 (Block 52 fits). Each has its own weapon fits, radar, countermeasures and radar
- * signature; the airframe (flight model, gear, 3D model) is the Tejas's until these types get their
- * own, so they fly like a Tejas and are drawn as the grey hostile Tejas. Swap `aero`/`engine`/
- * geometry here when a real model exists; nothing else needs to change.
+ * signature; the flight model is the Tejas's until these types get their own, so they fly like a
+ * Tejas. The JF-17 has its own 3D model (public/models/jf17.glb, tools/models/build_jf17.py: its
+ * main wheels sit on the Tejas's main legs, its nose leg is moved to its own nose wheel); the F-16
+ * is still drawn as the grey hostile Tejas. Swap `aero`/`engine` here when real data exists.
  *
  * Stations reuse the Tejas pylon positions (the render model hangs stores there): outboard = the
  * wingtip-rail missiles, middle = BVR missiles, inboard = tanks or BVR missiles, centreline = tank.
  */
-import type { AircraftDefinition, LoadoutPreset, StationDef } from '../contracts/aircraft';
+import type { AircraftDefinition, GearDefinition, LoadoutPreset, StationDef } from '../contracts/aircraft';
+import { AircraftModel } from '../contracts/core';
 import { tejasDefinition } from './tejasDefinition';
 import { hardpointsFor } from './tejasGeometry';
 
@@ -97,6 +99,14 @@ const jf17Loadouts: readonly LoadoutPreset[] = [
   },
 ];
 
+/** The JF-17 model's nose wheel contact, body x (tools/models/blender_jf17.py: NOSE CONTACT; its main wheels sit on the Tejas's main legs). */
+const JF17_NOSE_GEAR_X = 4.0;
+
+function jf17Gear(): GearDefinition[] {
+  const main = tejasDefinition.gear.find((g) => g.id === 'mainLeft')!;
+  return tejasDefinition.gear.map((g) => (g.id === 'nose' ? { ...g, posBodyM: { ...g.posBodyM, x: JF17_NOSE_GEAR_X }, steeringWheelbaseM: JF17_NOSE_GEAR_X - main.posBodyM.x } : g));
+}
+
 export const jf17Definition: AircraftDefinition = {
   ...tejasDefinition,
   id: 'jf-17',
@@ -106,6 +116,8 @@ export const jf17Definition: AircraftDefinition = {
   defaultLoadoutId: 'bvr',
   hardpoints: hardpointsFor(jf17Stations, jf17Loadouts[0]!),
   sensors: { radar: 'klj-7a', iff: true, rwr: 'jf17-rwr', maws: true, countermeasures: { chaff: 60, flares: 60 } },
+  renderModel: AircraftModel.Jf17,
+  gear: jf17Gear(),
   // Bigger than the Tejas (conventional intakes, less composite): ~3 m^2 nose-on.
   signature: { rcsNoseOnM2: 3.0, rcsBroadsideM2: 9.0, hitEllipsoidBodyM: { x: 7.1, y: 2.4, z: 4.6 } },
 };

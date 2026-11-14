@@ -49,6 +49,10 @@ export const flightModelAdapter: FlightModelPort = {
     return def ? def.maxFuelKg : 0;
   },
 
+  renderModel(aircraftDefId: string): number {
+    return getAircraftDefinition(aircraftDefId)?.renderModel ?? 0;
+  },
+
   dropTankLoad(aircraftDefId: string): { count: number; fuelKg: number } {
     const def = getAircraftDefinition(aircraftDefId);
     if (!def || !def.dropTank) return { count: 0, fuelKg: 0 };

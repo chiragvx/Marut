@@ -22,7 +22,7 @@ import * as THREE from 'three';
 import { StoreRack, storeSlotAt, storeSlotCode, storeSlotCount, storeSlotRack, storeSlotTwin, type QuatLike, type Vec3Like } from '../contracts/core';
 import { AIRCRAFT_SHADOW_LAYER } from './sunShadows';
 import type { AircraftModelTemplate, ArticulatedPart } from './aircraftModels/tejasModel';
-import { buildStoreModels, BOMB_RACK_Z, TWIN_RAIL_FRAMES, type StoreModel } from './aircraftModels/stores';
+import { buildStoreModels, BOMB_RACK_Z, RAIL_DEPTH as RAIL_DEPTH_M, TWIN_RAIL_FRAMES, type StoreModel } from './aircraftModels/stores';
 import { createAircraftLights } from './aircraftLights';
 import { buildShockConeGeometry, buildVapourConeGeometry, buildVapourWingGeometry, createVapourDrive, DEV_VAPOUR_FORCE, createVapourMeshes, createVapourTrails, vapourDrive, type VapourMeshes } from './vapour';
 import { EntityFlag } from '../contracts/core';
@@ -280,6 +280,12 @@ export function createMeshAircraftRenderer(root: THREE.Object3D, template: Aircr
         continue;
       }
       if (!storeSlotTwin(slot)) {
+        if (template.pylons[k]?.rail === false) {
+          // The model's own launcher: the missile hangs from it where it would from ours.
+          mC.makeTranslation(0, RAIL_DEPTH_M, 0).premultiply(mA);
+          if (count > 0) put(storeBatches[code], mB.multiplyMatrices(mC, model.mount));
+          continue;
+        }
         put(railBatch, mA);
         if (count > 0) put(storeBatches[code], mB.multiplyMatrices(mA, model.mount));
         continue;
@@ -425,6 +431,13 @@ export function createMeshAircraftRenderer(root: THREE.Object3D, template: Aircr
             break;
           case 'elevonR':
             angle = s.elevonR;
+            break;
+          // Ailerons (the JF-17's flaperons): the roll part of the elevon commands only.
+          case 'aileronL':
+            angle = (s.elevonL - s.elevonR) / 2;
+            break;
+          case 'aileronR':
+            angle = (s.elevonR - s.elevonL) / 2;
             break;
           case 'rudder':
             angle = s.rudder;

@@ -95,7 +95,7 @@ import { buildPavementGeometry } from './airport/pavementGeometry';
 import { buildAirfieldMask } from './airport/airfieldMask';
 import { buildAirfieldAids } from './airport/airfieldAids';
 import { activeRunway, buildTaxiGraph, routeToRunway, routeToStand, type TaxiGraph } from './airport/taxiGraph';
-import { tejasDefinition } from './aircraft';
+import { getAircraftDefinition, tejasDefinition } from './aircraft';
 import { isBuiltinMissionId, resolveBuiltinMission, type BuiltinMissionId } from './core/missions/index';
 import { GROUND_UNIT_TYPES } from './catalog';
 import { readSnapshotEntity, readSnapshotHeader } from './core/snapshotReader';
@@ -1118,17 +1118,21 @@ function buildSceneEnvironment(terrainParams: TerrainParams, airportLayouts: rea
 
 /**
  * Dev aid: `?start=x,y,z,headingDeg,speedMps` spawns the player airborne there instead of on the
- * runway (for checking scenery anywhere on a map). Only acts when the parameter is present.
+ * runway (for checking scenery anywhere on a map). Only acts when the parameter is present. With it,
+ * `&jet=<aircraft id>` (e.g. jf-17) flies another type (to see its 3D model from outside).
  */
 function applyDevStart(mission: Mission): Mission {
-  const raw = new URLSearchParams(location.search).get('start');
+  const params = new URLSearchParams(location.search);
+  const raw = params.get('start');
   if (!raw) return mission;
   const v = raw.split(',').map(Number);
   if (v.length < 3 || v.some((n) => !Number.isFinite(n))) return mission;
+  const jet = params.get('jet');
+  const aircraftId = jet && getAircraftDefinition(jet) ? jet : mission.playerStart.aircraftId;
   return {
     ...mission,
     playerStart: {
-      ...(mission.playerStart.aircraftId ? { aircraftId: mission.playerStart.aircraftId } : {}),
+      ...(aircraftId ? { aircraftId } : {}),
       ...(mission.playerStart.loadoutId ? { loadoutId: mission.playerStart.loadoutId } : {}),
       ...(mission.playerStart.loadout ? { loadout: mission.playerStart.loadout } : {}),
       ...(mission.playerStart.fuelFrac !== undefined ? { fuelFrac: mission.playerStart.fuelFrac } : {}),

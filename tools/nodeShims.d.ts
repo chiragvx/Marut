@@ -33,6 +33,7 @@ declare const global: {
 
 declare module 'node:fs' {
   export function readFileSync(path: string, encoding: 'utf-8' | 'utf8'): string;
+  export function readFileSync(path: string): Uint8Array;
   export function writeFileSync(path: string, data: string, encoding?: 'utf-8' | 'utf8'): void;
   export function existsSync(path: string): boolean;
   export function readdirSync(path: string): string[];

@@ -10,7 +10,7 @@ import * as THREE from 'three';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 
-import { EntityFlag, EntityKindCode, HUD_BLOCK_START, ServiceStateCode, SnapshotHud, type QualityTier } from '../contracts/core';
+import { AircraftModel, aircraftModelOf, EntityFlag, EntityKindCode, HUD_BLOCK_START, ServiceStateCode, SnapshotHud, type QualityTier } from '../contracts/core';
 import {
   AntiAliasMode,
   CAMERA_FAR_M,
@@ -76,14 +76,14 @@ import {
 import { createGrade } from './postGrade';
 import { createSunShadows } from './sunShadows';
 import { TERRAIN_QUALITY_PROFILES, TERRAIN_WORLD_EXTENT_M } from '../contracts/terrain';
-import { createMeshAircraftRenderer } from './meshAircraftRenderer';
+import { createMeshAircraftRenderer, type MeshAircraftRenderer } from './meshAircraftRenderer';
 import { airHumidity } from './vapour';
 
 /** Dev: ?humid=0..1 overrides the air's humidity (to see the vapour effects in any weather). */
 const DEV_HUMIDITY = import.meta.env.DEV ? Number(new URLSearchParams(location.search).get('humid') ?? NaN) : NaN;
 import { createDroneRenderer } from './droneModel';
 import { buildTejasModel } from './aircraftModels/tejasModel';
-import { loadGltfAircraftModel, TEJAS_GLB_URL } from './aircraftModels/gltfModel';
+import { JF17_FIT, JF17_GLB_URL, loadGltfAircraftModel, TEJAS_GLB_URL } from './aircraftModels/gltfModel';
 import { LIVERY_MAP, tejasLiveryTexture } from './aircraftModels/tejasLivery';
 
 /** The Tejas with its livery (markings, panel lines). */
@@ -164,7 +164,8 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
   const drones = createDroneRenderer(aircraftRoot);
   let sceneDisposed = false;
   let modelReady = true;
-  if (typeof location === 'undefined' || new URLSearchParams(location.search).get('jetmodel') !== 'classic') {
+  const importedModels = typeof location === 'undefined' || new URLSearchParams(location.search).get('jetmodel') !== 'classic';
+  if (importedModels) {
     modelReady = false;
     loadGltfAircraftModel(TEJAS_GLB_URL)
       .then((template) => {
@@ -176,6 +177,40 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
       .finally(() => {
         modelReady = true;
       });
+  }
+  // Other types' models (contracts/core.ts AircraftModel, from the entity's flags), by model code:
+  // each loads the first time one is seen (drawn as the Tejas until then, or if it fails).
+  let lastHumidity = 0.45;
+  const typeRenderers: (MeshAircraftRenderer | undefined)[] = [];
+  const typeRequested: boolean[] = [];
+  const TYPE_MODELS: Partial<Record<number, () => Promise<MeshAircraftRenderer>>> = {
+    [AircraftModel.Jf17]: () => loadGltfAircraftModel(JF17_GLB_URL, JF17_FIT).then((t) => createMeshAircraftRenderer(aircraftRoot, t)),
+  };
+  function rendererFor(flags: number): MeshAircraftRenderer {
+    const code = aircraftModelOf(flags);
+    if (code === AircraftModel.Tejas) return aircraftRenderer;
+    const r = typeRenderers[code];
+    if (r) return r;
+    const load = TYPE_MODELS[code];
+    if (load && importedModels && !typeRequested[code]) {
+      typeRequested[code] = true;
+      load()
+        .then((made) => {
+          if (sceneDisposed) {
+            made.dispose();
+            return;
+          }
+          made.setHumidity(lastHumidity);
+          typeRenderers[code] = made;
+        })
+        .catch((err: unknown) => console.warn(`[aircraft] model ${code} failed to load; drawn as the Tejas`, err));
+    }
+    return aircraftRenderer;
+  }
+  /** Every aircraft renderer (the Tejas's first). */
+  function eachRenderer(fn: (r: MeshAircraftRenderer) => void): void {
+    fn(aircraftRenderer);
+    for (const r of typeRenderers) if (r) fn(r);
   }
   const aircraftState = {
     elevonL: 0,
@@ -361,7 +396,8 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
     const below = 1 - Math.max(0, Math.min(1, (camY - deckBase) / (deckTop - deckBase)));
     Object.assign(effWeather, w0);
     // Condensation over the wings wants humid air (vapour.ts): the weather itself, not the view of it.
-    aircraftRenderer.setHumidity(Number.isFinite(DEV_HUMIDITY) ? DEV_HUMIDITY : airHumidity(w0, style));
+    lastHumidity = Number.isFinite(DEV_HUMIDITY) ? DEV_HUMIDITY : airHumidity(w0, style);
+    eachRenderer((r) => r.setHumidity(lastHumidity));
     effWeather.deck = w0.deck * below;
     effWeather.grey = w0.grey * (0.3 + 0.7 * below);
     const w = effWeather;
@@ -533,7 +569,7 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
       }
       if (!frame) {
         setHangar(null);
-        aircraftRenderer.setFillLight(0, 0, 0);
+        eachRenderer((r) => r.setFillLight(0, 0, 0));
       }
       showcase = frame;
     },
@@ -669,7 +705,7 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
         const origin = floatingOrigin.originWorld;
         camera.fov = fovDeg;
         camera.updateProjectionMatrix();
-        aircraftRenderer.setViewport(sizeH, camera.projectionMatrix.elements[5]!);
+        eachRenderer((r) => r.setViewport(sizeH, camera.projectionMatrix.elements[5]!));
         camera.position.set(cameraPose.pos.x - origin.x, cameraPose.pos.y - origin.y, cameraPose.pos.z - origin.z);
         setAtmosphereCamera(cameraPose.pos);
         skyFog.followCamera(camera.position);
@@ -700,8 +736,8 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
         shadowFocus.set(sc.aircraft[0]?.pos.x ?? sc.lookAt.x, sc.aircraft[0]?.pos.y ?? sc.lookAt.y, sc.aircraft[0]?.pos.z ?? sc.lookAt.z);
         structures.setServiceVehicles(null);
         setHangar(sc.hangar ?? null);
-        if (sc.hangar) aircraftRenderer.setFillLight(HANGAR_FILL[0], HANGAR_FILL[1], HANGAR_FILL[2]);
-        else aircraftRenderer.setFillLight(0, 0, 0);
+        if (sc.hangar) eachRenderer((r) => r.setFillLight(HANGAR_FILL[0], HANGAR_FILL[1], HANGAR_FILL[2]));
+        else eachRenderer((r) => r.setFillLight(0, 0, 0));
         // Subject off-centre (clear of the menu): shift the frustum, not the camera.
         if (sc.offsetX) camera.setViewOffset(sizeW, sizeH, -sc.offsetX * sizeW, 0, sizeW, sizeH);
         else if (camera.view) camera.clearViewOffset();
@@ -728,7 +764,7 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
           showcaseLastT = sc.timeSec;
           showTime = sc.timeSec;
         }
-        aircraftRenderer.beginFrame(showDt, origin, cameraPose.pos, showTime);
+        eachRenderer((r) => r.beginFrame(showDt, origin, cameraPose.pos, showTime));
         for (const st of sc.stores ?? []) aircraftRenderer.updateMissile(st.code, st.pos, st.vel, st.rot, origin, st.flags ?? 0);
         for (const a of sc.aircraft) {
           const st = aircraftState;
@@ -747,9 +783,9 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
           st.storesB = a.storesB;
           st.flags = a.flags;
           st.groundY = a.groundY;
-          aircraftRenderer.updateEntity(a.id, a.pos, a.rot, st, origin);
+          rendererFor(a.flags).updateEntity(a.id, a.pos, a.rot, st, origin);
         }
-        aircraftRenderer.endFrame();
+        eachRenderer((r) => r.endFrame());
         renderer.getDrawingBufferSize(viewSize);
         effects.setView(viewSize.x, viewSize.y);
         effects.syncShowcase(sc, origin);
@@ -837,7 +873,7 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
         if (camera.view) camera.clearViewOffset();
         const origin = placeCamera(fovDeg);
 
-        aircraftRenderer.beginFrame(frameDtSec, origin, cameraPose.pos, nowMs / 1000);
+        eachRenderer((r) => r.beginFrame(frameDtSec, origin, cameraPose.pos, nowMs / 1000));
         drones.beginFrame();
         for (let i = 0; i < curr.entityCount; i++) {
           if (curr.alive[i] === 1 && curr.kind[i] === EntityKindCode.aircraft && (curr.flags[i]! & EntityFlag.Drone) !== 0) {
@@ -877,10 +913,10 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
           st.flags = flags;
           // The player's ground height (from the HUD's height above ground) lights the runway ahead.
           st.groundY = i === playerSlot ? interpEntity.pos.y - (curr.hud[SnapshotHud.ALT_AGL_M] ?? 0) : undefined;
-          aircraftRenderer.updateEntity(curr.id[i]!, interpEntity.pos, interpEntity.rot, st, origin);
+          rendererFor(flags).updateEntity(curr.id[i]!, interpEntity.pos, interpEntity.rot, st, origin);
         }
         drones.endFrame();
-        aircraftRenderer.endFrame();
+        eachRenderer((r) => r.endFrame());
 
         // Ground units (static for now: drawn at their current snapshot pose).
         groundUnits.beginFrame();
@@ -979,7 +1015,7 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
     dispose() {
       sceneDisposed = true;
       cockpit?.dispose();
-      aircraftRenderer.dispose();
+      eachRenderer((r) => r.dispose());
       drones.dispose();
       terrainConsumer.dispose();
       urbanCache.dispose();

@@ -203,6 +203,8 @@ export interface FlightModelPort {
   maxFuelKg(aircraftDefId: string): number;
   /** Full drop-tank load for `aircraftDefId`: tanks carried and total fuel in them, kg (0/0 if it carries none). Optional so minimal test ports need not implement it; absent means no tanks. */
   dropTankLoad?(aircraftDefId: string): { count: number; fuelKg: number };
+  /** The 3D model `aircraftDefId` is drawn with (contracts/core.ts AircraftModel; absent = the Tejas's). */
+  renderModel?(aircraftDefId: string): number;
 }
 
 /**

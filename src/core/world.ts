@@ -8,6 +8,8 @@
 
 import { Quat } from '../math';
 import {
+  AIRCRAFT_MODEL_MASK,
+  AIRCRAFT_MODEL_SHIFT,
   EntityFlag,
   ServiceStateCode,
   MAX_SNAPSHOT_TRACKS,
@@ -801,6 +803,9 @@ class WorldImpl implements World {
       pilotCtx: undefined,
     };
     this.aircraft.set(id, rec);
+    // Which 3D model draws it (the renderer reads it off the flags).
+    const model = this.deps.flightModel.renderModel?.(aircraftDefId) ?? 0;
+    state.flags = (state.flags & ~AIRCRAFT_MODEL_MASK) | ((model << AIRCRAFT_MODEL_SHIFT) & AIRCRAFT_MODEL_MASK);
     return id;
   }
 
