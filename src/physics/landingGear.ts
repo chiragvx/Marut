@@ -28,8 +28,9 @@ import {
 } from '../contracts/flight';
 import { Vec3, Quat, clamp, lerp, sign, rateLimitStep, clamp01 } from '../math';
 
-/** Gear fully transitions (0<->1) in 2 s. */
-const GEAR_TRAVEL_RATE_PER_SEC = 0.5;
+/** Gear fully transitions (0<->1) in 2 s unless the aircraft says otherwise (AircraftDefinition.gearTransitSec). */
+export const DEFAULT_GEAR_TRANSIT_SEC = 2;
+const GEAR_TRAVEL_RATE_PER_SEC = 1 / DEFAULT_GEAR_TRANSIT_SEC;
 
 export interface GearLegOutput {
   legForceWorld: Vec3Like;
@@ -171,8 +172,9 @@ export function computeGearLeg(
  * stays locked down whatever the lever says, as on the real jet. A lever raised on the ground
  * retracts the gear once the aircraft is airborne.
  */
-export function stepGearPos(out: EntityState, inputs: PilotInputs, gearHealthPct: number, dtSub: number): void {
+export function stepGearPos(out: EntityState, inputs: PilotInputs, gearHealthPct: number, dtSub: number, transitSec?: number): void {
   const weightOnWheels = (out.flags & EntityFlag.OnGround) !== 0;
   const target = gearHealthPct <= 0 ? 0 : inputs.gearDown || weightOnWheels ? 1 : 0;
-  out.gearPos = clamp01(rateLimitStep(out.gearPos, target, GEAR_TRAVEL_RATE_PER_SEC, dtSub));
+  const rate = transitSec === undefined ? GEAR_TRAVEL_RATE_PER_SEC : 1 / transitSec;
+  out.gearPos = clamp01(rateLimitStep(out.gearPos, target, rate, dtSub));
 }

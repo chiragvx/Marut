@@ -167,6 +167,16 @@ export const LogicalButton = {
   PodZoom: 'podZoom',
   PodTrack: 'podTrack',
   Laser: 'laser',
+  /**
+   * Transport controls (aircraft with AircraftDefinition.highLift / engine reversers / a ramp;
+   * nothing on the fighters). Flaps up / down move PilotInputs.flapLever one detent per press
+   * (0 UP .. FLAP_LEVER_MAX FULL); the reverser is held (PilotInputs.reverseThrust, raw held state);
+   * the ramp toggles PilotInputs.rampOpen.
+   */
+  FlapsUp: 'flapsUp',
+  FlapsDown: 'flapsDown',
+  ThrustReverse: 'thrustReverse',
+  RampToggle: 'rampToggle',
 } as const;
 export type LogicalButton = (typeof LogicalButton)[keyof typeof LogicalButton];
 

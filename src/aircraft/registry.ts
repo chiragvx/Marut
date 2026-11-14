@@ -5,17 +5,21 @@
 import type { AircraftDefinition, LoadoutPreset } from '../contracts/aircraft';
 import { tejasDefinition } from './tejasDefinition';
 import { f16Definition, jf17Definition, targetDroneDefinition } from './aggressors';
+import { c17Definition } from './c17Definition';
 
 const DEFINITIONS: Readonly<Record<string, AircraftDefinition>> = {
   [tejasDefinition.id]: tejasDefinition,
   [jf17Definition.id]: jf17Definition,
   [f16Definition.id]: f16Definition,
   [targetDroneDefinition.id]: targetDroneDefinition,
+  [c17Definition.id]: c17Definition,
 };
 
 /** Older ids still accepted (missions and saves from before the Mk1A). */
 const ALIASES: Readonly<Record<string, string>> = {
   'tejas-mk1': 'tejas-mk1a',
+  c17: 'c-17',
+  c17a: 'c-17',
 };
 
 export function getAircraftDefinition(id: string): AircraftDefinition | undefined {

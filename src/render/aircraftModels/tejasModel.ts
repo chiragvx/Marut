@@ -1008,6 +1008,14 @@ export interface AircraftModelTemplate {
   livery?: import('../aircraftMaterial').AircraftLivery;
   /** Imported models: their texture set (parts drawn as PART.textured sample it). */
   textures?: import('../aircraftMaterial').AircraftTextures;
+  /** Normal map strength (glTF normalTexture.scale), default 1. */
+  normalScale?: number;
+  /** No afterburner (transports): the flame is never drawn. */
+  noAfterburner?: boolean;
+  /** Overall length, m (absent = the Tejas's): the outside cameras keep their distance in proportion. */
+  lengthM?: number;
+  /** Parts moved by the model's own keyframes (c17Model.ts AircraftRig, trackRig.ts), posed by c17Pose.ts. */
+  rig?: import('./trackRig').AircraftRig;
 }
 
 function unit(v: V3): V3 {

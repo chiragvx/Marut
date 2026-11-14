@@ -34,7 +34,7 @@
  */
 
 import type { Vec3Like, WeaponKind } from './core';
-import type { Table2D } from './math';
+import type { Table1D, Table2D } from './math';
 
 // -----------------------------------------------------------------------------
 // 1. Weapon stations and the placeholder wireframe visual model.
@@ -111,6 +111,9 @@ export interface AeroTables {
   CD_gear?: number;
   /** Drag coefficient increment with the airbrake extended (scaled by airbrake position). Optional: absent means 0. */
   CD_airbrake?: number;
+  /** Drag and pitching-moment increments with the cargo ramp/door fully open (scaled by EntityState.rampPos). Optional: absent means 0. */
+  CD_ramp?: number;
+  Cm_ramp?: number;
   /** Per rad symmetric elevon. MUST be negative — see the sign rule above. */
   Cm_elevon: number;
   /** Per rad (elevonL - elevonR). */
@@ -147,6 +150,148 @@ export interface EngineTables {
   idleFuelFlowKgS: number;
   /** First-order lag time constant, throttle response, s. */
   spoolTimeConstantSec: number;
+  /**
+   * False for an engine with no reheat (the afterburner tables are then ignored and the
+   * afterburner input does nothing). Absent = true (the fighters). Only read by the
+   * multi-engine model (AircraftDefinition.engines).
+   */
+  hasAfterburner?: boolean;
+  /**
+   * Thrust at idle, fraction of `militaryThrustN` (flight idle). Absent = 0 (thrust is
+   * throttle x military, today's single-engine model). Multi-engine model only.
+   */
+  idleThrustFrac?: number;
+  /**
+   * Two-rate N1 spool model (multi-engine model only): spool-up time constant below / above
+   * `breakN1Frac` of N1, spool-down time constant. Absent = `spoolTimeConstantSec` throughout.
+   */
+  spool?: { upLowTauSec: number; upHighTauSec: number; breakN1Frac: number; downTauSec: number };
+  /** Thrust reversers (multi-engine model only). Absent = none. */
+  reverser?: ReverserDefinition;
+  /**
+   * Hot-day derating: thrust x (1 - thrustLossPerK x (ISA deviation - flatRateIsaDevK)) above the
+   * flat-rate temperature. Absent = no temperature effect. Multi-engine model only.
+   */
+  hotDay?: { flatRateIsaDevK: number; thrustLossPerK: number };
+}
+
+/** Cascade thrust reversers. */
+export interface ReverserDefinition {
+  /** Reverse thrust as a fraction of the forward thrust at the same N1 (ground, full reverse). */
+  thrustFrac: number;
+  /** In-flight/ram drag of a deployed reverser: D = ramDragCoeff x rho x V^2 x fanAreaM2, per engine, N. */
+  ramDragCoeff: number;
+  fanAreaM2: number;
+  /** Deploy or stow time, s. */
+  transitSec: number;
+  /** In flight the engine logic holds reverse at idle (true for the C-17). */
+  idleOnlyInFlight: boolean;
+  /** Placard: highest airspeed (IAS, m/s) for ground reverse; exceeding it only raises a telemetry warning. */
+  maxGroundIasMps?: number;
+}
+
+/**
+ * One engine of a multi-engine aircraft (AircraftDefinition.engines). The thrust acts along body
+ * +x through `posBodyM`, so an engine off the centreline makes a yawing moment when its thrust
+ * differs from its opposite number's (engine-out yaw comes from position, nothing else).
+ */
+export interface EngineInstanceDefinition {
+  id: string;
+  /** Thrust line position, body frame relative to the reference CG, m. */
+  posBodyM: Vec3Like;
+}
+
+/** One flap-lever detent (AircraftDefinition.highLift). Increments are added to the clean tables. */
+export interface FlapDetentDefinition {
+  /** HUD/telemetry name, e.g. 'UP', 'SLATS', '1/2', '3/4', 'FULL'. */
+  name: string;
+  /** Slats extended in this detent. */
+  slats: boolean;
+  /** Aft flap segment angle, deg (for the renderer and the jet-turning angle). */
+  flapDeg: number;
+  /** Lift increment at a given alpha (in the linear range), unpowered. */
+  dCL0: number;
+  /** Stall-alpha shift of the lift curve, rad: CLmax rises by dCL0 + CLalpha x dAlphaStallRad. */
+  dAlphaStallRad: number;
+  dCD0: number;
+  /** Pitching-moment increment about the reference CG, before trim. */
+  dCm0: number;
+  /** Externally blown flap efficiency: dCL_EBF = ebfEta x F(Cmu). 0 = no powered lift. */
+  ebfEta: number;
+  /** Placard: highest IAS, m/s, and Mach with the lever in this detent (exceeding it only warns). */
+  maxIasMps: number;
+  maxMach: number;
+}
+
+/** Slats/flaps and powered lift. Absent = a clean wing (the fighters). */
+export interface HighLiftDefinition {
+  detents: readonly FlapDetentDefinition[];
+  /** Seconds for the flaps to travel one detent; slats take `slatTransitSec` in or out. */
+  flapSecPerDetent: number;
+  slatTransitSec: number;
+  /** Lift-dependent drag factor K (CD_i = K CL^2), used to correct the clean table's induced drag for the extra lift. */
+  inducedDragK: number;
+  /** Static margin (fraction of the mean chord) the clean Cm table was built with. */
+  staticMargin: number;
+  /** Clean-wing stall alpha (ys, rad) vs Mach (xs): the lift curve's peak in the clean table. */
+  cleanStallAlpha: Table1D;
+  /** Externally blown flap powered lift. Absent = none. */
+  ebf?: {
+    /** F(Cmu): lift increment per unit flap efficiency (ys) vs thrust coefficient Cmu = T/(q S/2) per wing half (xs). */
+    lift: Table1D;
+    /**
+     * The stall alpha rises by stallAlphaRadPerDCL x dCL_EBF, so CLmax rises by
+     * (1 + CLalpha x stallAlphaRadPerDCL) x dCL_EBF.
+     */
+    stallAlphaRadPerDCL: number;
+    /** dCm = cmPerDCL x dCL_EBF (nose-down flap loads). */
+    cmPerDCL: number;
+    /** Spanwise arm of each wing half's blown lift, m: an engine out rolls the jet. */
+    rollArmM: number;
+    /** Jet-turning angle = turnFrac x aft flap angle: the blown engines lose cos(angle) of axial thrust. */
+    turnFrac: number;
+    /** Ground effect fades to zero at this Cmu (jet impingement). */
+    groundEffectZeroCmu: number;
+  };
+}
+
+/** Spoiler panels: in-flight speedbrake and ground lift dump. Absent = the plain `CD_airbrake` airbrake. */
+export interface SpoilerDefinition {
+  /** Panel position (0..1 of full travel) the in-flight speedbrake uses; lift dump uses 1. */
+  speedbrakeFrac: number;
+  /** Full in-flight speedbrake increments. */
+  speedbrake: { dCL: number; dCD: number; dCm: number };
+  /** Full ground lift dump increments: dCL with the wing clean and with landing flaps (flap detent >= `liftDumpFlapsFromDetent`). */
+  liftDump: { dCLClean: number; dCLFlaps: number; dCD: number; dCm: number; liftDumpFlapsFromDetent: number };
+  extendSec: number;
+  retractSec: number;
+}
+
+/**
+ * Mass distribution for aircraft whose mass changes a lot (fuel, cargo). Absent = the fighters'
+ * rule (inertia scaled with mass by a fixed sensitivity, CG fixed).
+ */
+export interface MassModelDefinition {
+  /** Inertia added per kg of fuel / of cargo (the k^2 of each about the CG), m^2 per axis. */
+  fuelInertiaM2: { xx: number; yy: number; zz: number };
+  cargoInertiaM2: { xx: number; yy: number; zz: number };
+  /** Body x of the empty aircraft's CG, the fuel's CG and the default cargo CG, m (reference CG = 0). */
+  emptyCgBodyX: number;
+  fuelCgBodyX: number;
+  cargoCgBodyX: number;
+  /** Largest cargo load, kg (the loader clamps to it). */
+  maxCargoKg: number;
+}
+
+/** Speed placards that only raise telemetry warnings when exceeded. */
+export interface PlacardDefinition {
+  /** Highest IAS, m/s, with the gear down or moving. */
+  gearMaxIasMps?: number;
+  /** Vmo (IAS, m/s) and Mmo. */
+  vmoIasMps?: number;
+  mmo?: number;
+  /** Highest IAS, m/s, with the cargo ramp/door open or moving. */
+  rampMaxIasMps?: number;
 }
 
 /** One landing-gear leg. `AircraftDefinition.gear` has exactly three entries: ids `'nose'`, `'mainLeft'`, `'mainRight'`. */
@@ -193,6 +338,54 @@ export interface FcsLimits {
   alphaLimitGain: number;
   /** Kg, g-command loop proportional gain. */
   gLoadGain: number;
+  // --- Optional transport-FCS extensions. Absent = the fighters' behaviour, unchanged. ---
+  /** g limits with the flaps or slats out (replace maxGLoadPos/maxGLoadNeg there). */
+  flapsDownMaxGLoadPos?: number;
+  flapsDownMaxGLoadNeg?: number;
+  /** Bank protection: the roll-rate command tapers to `highBankRollRateRadS` past `bankRateReduceAboveRad` and to 0 at `maxBankRad`. */
+  maxBankRad?: number;
+  bankRateReduceAboveRad?: number;
+  highBankRollRateRadS?: number;
+  /** Ground-law rotation rate at full aft stick, rad/s (default GROUND_LAW_MAX_ROTATION_RATE_RAD_S). */
+  groundRotationRateRadS?: number;
+  /** Trim-integral authority, rad of elevator (default ~12 deg); a transport's trimmable stabiliser adds to it. */
+  trimIntegralMaxRad?: number;
+  /** Ceiling on the commanded pitch rate, rad/s (default 60 deg/s). */
+  maxPitchRateCmdRadS?: number;
+  /**
+   * The alpha limit as a fraction of the configured stall alpha (flaps, slats, powered lift):
+   * used instead of maxAlphaRad when the aircraft has AircraftDefinition.highLift.
+   */
+  alphaLimitStallFrac?: number;
+  /** Sideslip-command yaw law: rudder integral gain, rad of rudder per (rad of sideslip x s). Absent = the direct rudder law. */
+  sideslipIntegralGain?: number;
+  /**
+   * Pitch-attitude protection, rad: the commanded pitch rate tapers to hold the nose between these
+   * (a transport's +25/-15 deg envelope). Absent = no attitude limit.
+   */
+  maxPitchAttitudeRad?: number;
+  minPitchAttitudeRad?: number;
+  /**
+   * Pitch-rate ceiling for the alpha limiter's own path, rad/s. The g path's ceiling is sized so the
+   * elevator never saturates in steady state, which at low dynamic pressure leaves the limiter too
+   * little nose-down rate to follow a falling flight path; a transport lets the limiter use this
+   * instead. Absent = the g path's ceiling (the fighters).
+   */
+  alphaPathMaxPitchRateRadS?: number;
+  /**
+   * Roll-rate command / attitude hold: an integral on the roll-rate error, rad of differential
+   * elevon per rad of bank error, 1/s, so the bank stays where the pilot left it against a steady
+   * rolling moment (an engine failure's blown-flap lift asymmetry). Absent = pure rate command.
+   */
+  rollIntegralGain?: number;
+  /**
+   * Ground-law rotation integral, 1/s: while the stick is pulled on the ground the rotation-rate
+   * error is integrated into the elevator (a heavy transport's nose-gear load needs most of the
+   * elevator to rotate, which a proportional rate loop alone never reaches). The integral carries
+   * into the air law at lift-off as its pitch trim and bleeds off when the stick is released.
+   * Absent = the fighters' proportional ground law.
+   */
+  groundRotationIntegralGain?: number;
 }
 
 // -----------------------------------------------------------------------------
@@ -274,6 +467,8 @@ export interface AircraftDefinition {
   maxTakeoffMassKg?: number;
   /** Its 3D model (contracts/core.ts AircraftModel code); absent = the Tejas's. */
   renderModel?: number;
+  /** Landing gear's full up<->down travel time, s (physics/landingGear.ts); absent = 2 s (the fighters'). */
+  gearTransitSec?: number;
   /**
    * External drop tank carried on each `type: 'fuel_tank'` hardpoint (all identical). Optional:
    * absent means the aircraft carries none. Fuel is burned from the tanks before internal fuel.
@@ -297,4 +492,18 @@ export interface AircraftDefinition {
    * wheels may touch it. Optional: without them, only the terrain-impact fallback applies.
    */
   airframeContactPointsBodyM?: readonly Vec3Like[];
+  /**
+   * Multi-engine aircraft: one entry per engine (each with its own spool, failure flag and
+   * reverser, `EntityState.engines`). `engine` is then the per-engine table. Absent = one engine
+   * on the centreline through the CG (the fighters' original model, unchanged).
+   */
+  engines?: readonly EngineInstanceDefinition[];
+  /** Slats, flap detents and powered lift. Absent = clean wing only. */
+  highLift?: HighLiftDefinition;
+  /** Spoilers (speedbrake + ground lift dump) in place of the plain airbrake. */
+  spoilers?: SpoilerDefinition;
+  /** Fuel/cargo mass distribution (inertia and CG move with them). */
+  massModel?: MassModelDefinition;
+  /** Speed placards (telemetry warnings). */
+  placards?: PlacardDefinition;
 }

@@ -15,6 +15,7 @@ import { MIN_AIRSPEED_FOR_AERO_MPS } from '../contracts/flight';
 import { Vec3, Quat, clamp, smoothstep } from '../math';
 import { bodyRateP, bodyRateQ, bodyRateR } from '../math';
 import { interpolate2D } from '../math';
+import { configuredCoefficients, type AeroConfig, type ConfiguredCoefficients } from './highLift';
 
 export interface AirspeedFrame {
   alpha: number;
@@ -26,6 +27,7 @@ export interface AirspeedFrame {
 
 const scratchVAirWorld: Vec3Like = { x: 0, y: 0, z: 0 };
 const scratchVAirBody: Vec3Like = { x: 0, y: 0, z: 0 };
+const scratchConfigured: ConfiguredCoefficients = { CL: 0, CD: 0, Cm: 0, Cl: 0, groundEffectScale: 1 };
 
 /**
  * Computes airspeed/alpha/beta/dynamic-pressure/mach from a velocity,
@@ -76,17 +78,34 @@ export function computeAeroForceMoment(
   altAglM: number,
   def: AircraftDefinition,
   out: AeroOutput,
-  configDragCoeff = 0
+  configDragCoeff = 0,
+  /** High-lift/spoiler configuration (aircraft with AircraftDefinition.highLift only). */
+  cfg?: Readonly<AeroConfig>
 ): AeroOutput {
   const aero = def.aero;
   const elevonSym = (elevonL + elevonR) / 2;
 
   // 4.4 — force buildup.
-  const groundEffectMultiplier = 1 + aero.groundEffectMaxDeltaCL * (1 - smoothstep(0, 1, altAglM / def.wingSpanM));
-  const CL = (interpolate2D(aero.CL, frame.alpha, frame.mach) + aero.CL_elevon * elevonSym) * groundEffectMultiplier;
-  // configDragCoeff: gear/airbrake/external-stores drag, already referenced to wingAreaM2 (see
-  // integrator.ts's runSubstep, which owns the aircraft configuration this depends on).
-  const CD = interpolate2D(aero.CD, frame.alpha, frame.mach) + aero.CD_elevon * Math.abs(elevonSym) + configDragCoeff;
+  let CL: number;
+  let CD: number;
+  let CmBase: number;
+  let ClConfig = 0;
+  if (cfg === undefined || def.highLift === undefined) {
+    const groundEffectMultiplier = 1 + aero.groundEffectMaxDeltaCL * (1 - smoothstep(0, 1, altAglM / def.wingSpanM));
+    CL = (interpolate2D(aero.CL, frame.alpha, frame.mach) + aero.CL_elevon * elevonSym) * groundEffectMultiplier;
+    // configDragCoeff: gear/airbrake/external-stores drag, already referenced to wingAreaM2 (see
+    // integrator.ts's runSubstep, which owns the aircraft configuration this depends on).
+    CD = interpolate2D(aero.CD, frame.alpha, frame.mach) + aero.CD_elevon * Math.abs(elevonSym) + configDragCoeff;
+    CmBase = interpolate2D(aero.Cm, frame.alpha, frame.mach);
+  } else {
+    // Slats, flaps, powered lift and spoilers (src/physics/highLift.ts).
+    const c = configuredCoefficients(def, frame.alpha, frame.mach, cfg, scratchConfigured);
+    const groundEffectMultiplier = 1 + aero.groundEffectMaxDeltaCL * c.groundEffectScale * (1 - smoothstep(0, 1, altAglM / def.wingSpanM));
+    CL = (c.CL + aero.CL_elevon * elevonSym) * groundEffectMultiplier;
+    CD = c.CD + aero.CD_elevon * Math.abs(elevonSym) + configDragCoeff;
+    CmBase = c.Cm;
+    ClConfig = c.Cl;
+  }
   const CY = aero.CY_beta * frame.beta + aero.CY_rudder * rudder;
 
   const D = CD * frame.qBar * def.wingAreaM2;
@@ -117,8 +136,9 @@ export function computeAeroForceMoment(
   }
   const elevonDiff = elevonL - elevonR;
 
-  const ClStd = aero.Cl_beta * frame.beta + aero.Cl_p * pHat + aero.Cl_r * rHat + aero.Cl_elevon * elevonDiff + aero.Cl_rudder * rudder;
-  const CmStd = interpolate2D(aero.Cm, frame.alpha, frame.mach) + aero.Cm_elevon * elevonSym + aero.Cm_q * qHat;
+  let ClStd = aero.Cl_beta * frame.beta + aero.Cl_p * pHat + aero.Cl_r * rHat + aero.Cl_elevon * elevonDiff + aero.Cl_rudder * rudder;
+  if (ClConfig !== 0) ClStd += ClConfig;
+  const CmStd = CmBase + aero.Cm_elevon * elevonSym + aero.Cm_q * qHat;
   const CnStd = aero.Cn_beta * frame.beta + aero.Cn_p * pHat + aero.Cn_r * rHat + aero.Cn_elevon * elevonDiff + aero.Cn_rudder * rudder;
 
   const Lmom = ClStd * frame.qBar * def.wingAreaM2 * def.wingSpanM;

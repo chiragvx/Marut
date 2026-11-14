@@ -207,7 +207,7 @@ export const EntityFlag = {
  * in EntityFlags bits AIRCRAFT_MODEL_SHIFT.. (set at spawn): the renderer picks the model by it.
  * Types without a model of their own are drawn as the Tejas.
  */
-export const AircraftModel = { Tejas: 0, Jf17: 1 } as const;
+export const AircraftModel = { Tejas: 0, Jf17: 1, C17: 2 } as const;
 export type AircraftModelCode = (typeof AircraftModel)[keyof typeof AircraftModel];
 export const AIRCRAFT_MODEL_SHIFT = 12;
 export const AIRCRAFT_MODEL_MASK = 0xf << AIRCRAFT_MODEL_SHIFT;
@@ -302,8 +302,40 @@ export interface EntityState {
   stores?: number;
   storesB?: number;
 
+  // --- Transport state (aircraft with AircraftDefinition.highLift/spoilers/engines). Absent on
+  // the fighters. Written by src/physics; the renderer reads them to pose the model. ---
+  /** Flap lever detent the flaps are travelling to (index into AircraftDefinition.highLift.detents). */
+  flapDetent?: number;
+  /** Actual flap position in detent units (e.g. 2.5 = halfway from detent 2 to 3); see physics flapAngleDeg for degrees. */
+  flapPos?: number;
+  /** Flap angle as a fraction of the last detent's (0..1), for drawing. */
+  flapFrac?: number;
+  /** Slat extension, 0 (in) .. 1 (out). */
+  slatPos?: number;
+  /** Symmetric spoiler panel position, 0..1 of full travel (speedbrake ~ SpoilerDefinition.speedbrakeFrac, lift dump 1). Roll spoilers follow the roll command and are not included. */
+  spoilerPos?: number;
+  /** One per AircraftDefinition.engines entry. */
+  engines?: EngineRunState[];
+  /** Cargo carried, kg, and its CG along body x, m (reference CG = 0). The airdrop hook: change these and mass, CG and inertia follow. */
+  cargoMassKg?: number;
+  cargoCgBodyX?: number;
+  /** Cargo ramp and door, 0 (closed) .. 1 (airdrop position). */
+  rampPos?: number;
+
   /** Bitmask of EntityFlag. */
   flags: EntityFlags;
+}
+
+/** One engine of a multi-engine aircraft (EntityState.engines). */
+export interface EngineRunState {
+  /** Fan speed N1, fraction of 100% (idle ~0.26). */
+  n1: number;
+  /** Thrust reverser: 0 stowed .. 1 deployed. */
+  reverserPos: number;
+  /** Failed (no thrust, windmilling). */
+  failed: boolean;
+  /** Net axial thrust this engine is making, N (negative in reverse). */
+  thrustN: number;
 }
 
 // -----------------------------------------------------------------------------
@@ -411,7 +443,22 @@ export interface PilotInputs {
   pitchRateScale?: number;
   rollRateScale?: number;
   yawRateScale?: number;
+  /**
+   * Flap lever position, 0 (up) .. FLAP_LEVER_MAX; clamped to the aircraft's detents. Aircraft
+   * without flaps ignore it. Absent = 0.
+   */
+  flapLever?: number;
+  /**
+   * Thrust reverse held (aircraft with reversers). On the ground the reversers deploy and the
+   * engines go to full reverse once deployed; in flight they go to idle reverse. Absent = false.
+   */
+  reverseThrust?: boolean;
+  /** Cargo ramp/door commanded open. Absent = closed. */
+  rampOpen?: boolean;
 }
+
+/** Highest flap lever position (PilotInputs.flapLever): five positions, UP .. FULL. */
+export const FLAP_LEVER_MAX = 4;
 
 /** Aerodynamic/engine/nav telemetry for the aircraft a Pilot is flying, recomputed by src/physics every SIM_DT_SEC and handed to Pilot.update via PilotContext. */
 export interface AircraftTelemetry {
@@ -446,7 +493,21 @@ export interface AircraftTelemetry {
   onGround: boolean;
   /** True when alphaRad has exceeded the aircraft's stall AoA (see 02/03's spec for the exact threshold and hysteresis). */
   stalled: boolean;
+  /** Aircraft with configurable high lift: stall warning (stick shaker) — alpha past the 1.1 Vs alpha for the current flaps/slats/power. Absent on the fighters. */
+  stallWarning?: boolean;
+  /** Bitmask of TransportWarning (placard exceedances). Absent/0 = none. */
+  limitWarnings?: number;
 }
+
+/** AircraftTelemetry.limitWarnings bits: placards exceeded. Warnings only; nothing breaks. */
+export const TransportWarning = {
+  FlapOverspeed: 1,
+  GearOverspeed: 2,
+  Overspeed: 4,
+  ReverserOverspeed: 8,
+  RampOverspeed: 16,
+  OverG: 32,
+} as const;
 
 export const LockState = {
   None: 'none',
@@ -783,6 +844,12 @@ export interface WeatherConfig {
   gustMps: number;
   /** 0..1 turbulence intensity scalar (see 02's spec for how it perturbs the flight model). */
   turbulence: number;
+  /**
+   * Air temperature offset from ISA, K (ISA+dT): the same pressure at each altitude, a different
+   * temperature, so a hot day has thinner air (density altitude) and a higher speed of sound.
+   * Absent = 0 (standard day).
+   */
+  isaDeviationK?: number;
 }
 
 export const MissionObjectiveKind = {
@@ -868,6 +935,10 @@ export interface MissionPlayerStart {
   loadout?: Readonly<Record<string, { store: string; count: number }>>;
   /** Internal fuel at the start, 0..1 of `maxFuelKg` (drop tanks always start full). Absent = full. */
   fuelFrac?: number;
+  /** Cargo carried at the start, kg (aircraft with AircraftDefinition.massModel; clamped to its maxCargoKg). Absent = none. */
+  cargoKg?: number;
+  /** Engines failed at the start (indices into AircraftDefinition.engines), for engine-out practice. Absent = none. */
+  failedEngines?: readonly number[];
   pos?: Vec3Like;
   headingRad?: number;
   speedMps?: number;
@@ -986,9 +1057,45 @@ export const SnapshotEntity = {
   STORES: 26,
   /** Aircraft: stations 4-7 of its stores (same packing). */
   STORES_B: 27,
+  /** Transports: flaps, slats, spoilers, ramp, 0..1 each (packUnits4); 0 on the fighters. */
+  HIGH_LIFT: 28,
+  /** Transports: per-engine N1 and reverser, up to 4 engines (packEngines); 0 on the fighters. */
+  ENGINES: 29,
 } as const;
-/** Floats per entity block. Keep in sync with the field count above (28). */
-export const ENTITY_STRIDE = 28;
+/** Floats per entity block. Keep in sync with the field count above (30). */
+export const ENTITY_STRIDE = 30;
+
+/** Four 0..1 values in one snapshot float (8 bits each; exact in a float64). */
+export function packUnits4(a: number, b: number, c: number, d: number): number {
+  const q = (v: number): number => Math.round(Math.min(1, Math.max(0, v)) * 255);
+  return q(a) + 256 * (q(b) + 256 * (q(c) + 256 * q(d)));
+}
+/** Inverse of packUnits4, into out[0..3]. */
+export function unpackUnits4(v: number, out: number[]): number[] {
+  let r = Math.max(0, Math.round(v));
+  for (let i = 0; i < 4; i++) { out[i] = (r % 256) / 255; r = Math.floor(r / 256); }
+  return out;
+}
+/** Up to four engines' N1 and reverser position (0..1, 6 bits each: 48 bits, exact in a float64). */
+export function packEngines(n1: readonly number[], rev: readonly number[]): number {
+  let v = 0, k = 1;
+  for (let i = 0; i < 4; i++) {
+    const q = (x: number | undefined): number => Math.round(Math.min(1, Math.max(0, x ?? 0)) * 63);
+    v += k * (q(n1[i]) + 64 * q(rev[i]));
+    k *= 4096;
+  }
+  return v;
+}
+/** Inverse of packEngines, into n1[0..3] and rev[0..3]. */
+export function unpackEngines(v: number, n1: number[], rev: number[]): void {
+  let r = Math.max(0, Math.round(v));
+  for (let i = 0; i < 4; i++) {
+    const e = r % 4096;
+    r = Math.floor(r / 4096);
+    n1[i] = (e % 64) / 63;
+    rev[i] = Math.floor(e / 64) / 63;
+  }
+}
 
 /**
  * Store ids (src/catalog) by code: the codes the snapshot's STORES field carries. 0 = nothing.

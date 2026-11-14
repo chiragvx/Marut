@@ -43,7 +43,7 @@ interface SceneExtras {
 const DRIVERS: readonly PartDriver[] = ['elevonL', 'elevonR', 'aileronL', 'aileronR', 'rudder', 'gear', 'slat', 'airbrake', 'wheel', 'oleo', 'brace'];
 
 /** A mesh's geometry in its node's frame baked out, with the attributes the aircraft shader reads. */
-function prepare(mesh: THREE.Mesh, part: number): THREE.BufferGeometry {
+export function prepare(mesh: THREE.Mesh, part: number): THREE.BufferGeometry {
   mesh.updateWorldMatrix(true, false);
   const g = mesh.geometry.clone();
   g.applyMatrix4(mesh.matrixWorld);
@@ -62,7 +62,7 @@ function prepare(mesh: THREE.Mesh, part: number): THREE.BufferGeometry {
 }
 
 /** A lamp lens: a small ellipsoid (radii, m) at c, as part `part` (the shader lights it). */
-function lens(c: readonly number[], r: V3, part: number): THREE.BufferGeometry {
+export function lens(c: readonly number[], r: V3, part: number): THREE.BufferGeometry {
   const g = new THREE.SphereGeometry(1, 14, 10);
   g.scale(r[0], r[1], r[2]);
   g.translate(c[0]!, c[1]!, c[2]!);

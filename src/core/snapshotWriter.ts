@@ -25,6 +25,9 @@ import {
 import type { EntityId } from '../contracts/core';
 import type { EntityPool, SnapshotHudView, WriteSnapshot } from '../contracts/sim';
 import { afterburnerStage } from '../physics/engine';
+import { packEngines, packUnits4 } from '../contracts/core';
+
+const engN1 = [0, 0, 0, 0], engRev = [0, 0, 0, 0];
 
 export const writeSnapshot: WriteSnapshot = (
   pool: EntityPool,
@@ -76,6 +79,13 @@ export const writeSnapshot: WriteSnapshot = (
     out[entityFieldOffset(i, SnapshotEntity.FLAGS)] = e.flags;
     out[entityFieldOffset(i, SnapshotEntity.STORES)] = e.stores ?? 0;
     out[entityFieldOffset(i, SnapshotEntity.STORES_B)] = e.storesB ?? 0;
+    // Transports' moving parts (0 on the fighters).
+    out[entityFieldOffset(i, SnapshotEntity.HIGH_LIFT)] = e.flapPos !== undefined || e.spoilerPos !== undefined || e.rampPos !== undefined
+      ? packUnits4(e.flapFrac ?? 0, e.slatPos ?? 0, e.spoilerPos ?? 0, e.rampPos ?? 0) : 0;
+    if (e.engines !== undefined) {
+      for (let k = 0; k < 4; k++) { engN1[k] = e.engines[k]?.n1 ?? 0; engRev[k] = e.engines[k]?.reverserPos ?? 0; }
+      out[entityFieldOffset(i, SnapshotEntity.ENGINES)] = packEngines(engN1, engRev);
+    } else out[entityFieldOffset(i, SnapshotEntity.ENGINES)] = 0;
   }
   // Zero any stale trailing entity blocks beyond entityCount is not required
   // (readers must only read [0, entityCount)), so no further writes needed.

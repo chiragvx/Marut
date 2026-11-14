@@ -67,6 +67,8 @@ export interface Environment {
    * slope-aware gear contact without changing the function signature.
    */
   groundNormalWorld: Vec3Like;
+  /** ISA temperature deviation, K (WeatherConfig.isaDeviationK) — for engine hot-day derating; density/sound speed above already include it. Absent = 0. */
+  isaDeviationK?: number;
 }
 
 // -----------------------------------------------------------------------------

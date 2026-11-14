@@ -5,6 +5,7 @@
  */
 
 import type { PilotContext, PilotInputs } from '../contracts/core';
+import { FLAP_LEVER_MAX } from '../contracts/core';
 import type {
   ControlRates,
   PlayerInputConfig,
@@ -75,7 +76,7 @@ const KEYBOARD_REBIND_CANDIDATES: readonly KeyboardCode[] = [
   'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight',
   'Space', 'Enter', 'Escape', 'Tab', 'ShiftLeft', 'ShiftRight', 'PageUp', 'PageDown',
   'Digit0', 'Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5', 'Digit6', 'Digit7', 'Digit8', 'Digit9',
-  'Minus', 'Equal', 'Comma', 'Period', 'BracketLeft', 'BracketRight',
+  'Minus', 'Equal', 'Comma', 'Period', 'Slash', 'Semicolon', 'Quote', 'BracketLeft', 'BracketRight',
 ];
 
 /** Autopilot meta actions; the bug adjusters repeat while held (after AP_REPEAT_DELAY_SEC, every AP_REPEAT_INTERVAL_SEC). */
@@ -153,11 +154,17 @@ export function createPlayerInputSystem(config: PlayerInputConfig): PlayerInputS
   // player who never touches the gear key ends up in the safe state, not the unsafe one.
   let gearDownState = true;
   let airbrakeState = false;
+  // Transport controls: flap lever detent (0 UP .. FLAP_LEVER_MAX FULL) and the ramp toggle.
+  let flapLeverState = 0;
+  let rampOpenState = false;
   let alphaLimiterDisabledState = false;
   const controlRates: ControlRates = { pitch: 1, roll: 1, yaw: 1 };
 
   const gearEdge = createEdgeDetector();
   const airbrakeEdge = createEdgeDetector();
+  const flapsUpEdge = createEdgeDetector();
+  const flapsDownEdge = createEdgeDetector();
+  const rampEdge = createEdgeDetector();
   const cameraCycleEdge = createEdgeDetector();
   const menuToggleEdge = createEdgeDetector();
   const taxiGuideEdge = createEdgeDetector();
@@ -472,6 +479,10 @@ export function createPlayerInputSystem(config: PlayerInputConfig): PlayerInputS
       if (gearEdge.risingEdge(rawGear)) gearDownState = !gearDownState;
       const rawAirbrake = rawButtonHeld(LogicalButton.AirbrakeToggle, scheme);
       if (airbrakeEdge.risingEdge(rawAirbrake)) airbrakeState = !airbrakeState;
+      if (flapsUpEdge.risingEdge(rawButtonHeld(LogicalButton.FlapsUp, scheme))) flapLeverState = Math.max(0, flapLeverState - 1);
+      if (flapsDownEdge.risingEdge(rawButtonHeld(LogicalButton.FlapsDown, scheme))) flapLeverState = Math.min(FLAP_LEVER_MAX, flapLeverState + 1);
+      if (rampEdge.risingEdge(rawButtonHeld(LogicalButton.RampToggle, scheme))) rampOpenState = !rampOpenState;
+      const rawReverse = rawButtonHeld(LogicalButton.ThrustReverse, scheme);
 
       // Meta actions (not in PilotInputs).
       const rawCameraCycle = rawButtonHeld(MetaAction.CameraCycle, scheme);
@@ -533,6 +544,9 @@ export function createPlayerInputSystem(config: PlayerInputConfig): PlayerInputS
       out.brakes = rawBrakes || airbrakeState ? 1 : 0;
       out.gearDown = gearDownState;
       out.airbrake = airbrakeState;
+      out.flapLever = flapLeverState;
+      out.reverseThrust = rawReverse;
+      out.rampOpen = rampOpenState;
       out.jettisonTanks = rawJettison;
       out.requestService = rawService;
       out.radarModeCycle = rawRadarMode;
