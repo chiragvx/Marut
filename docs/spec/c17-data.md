@@ -1018,3 +1018,93 @@ export const C17_PERFORMANCE_TARGETS: readonly PerformanceTarget[] = [
 | 8 | **Airdrop speeds/altitudes per method for the C-17 specifically; door timing** | Mission scripting | AFMAN 11-231 and AFMAN 11-2C-17V3 (e-publishing.af.mil) hold these; they are public but blocked to scripted fetches. Fetch them manually in a browser. Until then use FM 3-21.38 (section 6.2) and 20 s / 8 s door times |
 | 9 | **Ladakh runway data from the AIP; DBO strip length** | Mission geometry | AAI eAIP AD 2 VILH (manual download); for DBO use satellite imagery measurement (strip ≈ 1.5–2 km is a guess [E]) |
 | 10 | **Flare load and IAF self-protection details** | Escort mission | DSCA confirms ALE-47/AAR-47/flares only. Size the flare load from ALE-47 magazine capacity (30 × 1×1 in or equivalent per magazine) × an assumed 4 dispensers = 120 [E] |
+
+---
+
+## 12. Thrust and STOL performance: published figures vs the sim (2026-11-14)
+
+Measured headlessly by `tests/integration/c17Stol.test.ts` (it prints every number below; ~3 s to run).
+The harness flies `stepAircraft` at 60 Hz on a flat runway with an autopilot in place of the pilot:
+
+- **Take-off:** brakes held at TOGA until 95% N1 (or the jet creeps), release, full aft stick at VR to within
+  2° of a 10° attitude, then hold it; gear up at 50 ft. VR = 1.05 × the model's power-off stall speed in the
+  take-off flap (flaps ½); the minimum-run case uses flaps ¾ and VR = 0.85 × that.
+- **Landing:** FULL flaps, gear down, from 3.5 km out on a 3° or 5° path. The stick flies the path (the FCS is
+  pitch-rate command / flight-path hold); an auto-throttle PI holds Vapp = 115 KIAS × √(W/160 t) (pack 5.2).
+  Power stays on into the flare (it holds the blown lift); the stick arrests the sink to about 1.5 m/s; the
+  throttles close at 1.5 m. At touchdown: full reverse after 0.5 s, maximum braking after 1 s, automatic
+  lift dump.
+
+### 12.1 New sources
+
+| Key | Source |
+|---|---|
+| FAI00 | FAI CASI agenda 2000, Sporting Code Section 2 proposal: "To qualify as a STOL aircraft, the take-off and landing of the record must be completed within a measured maximum distance of 500 metres", https://www-demo.fai.org/sites/default/files/documents/agenda2000-sc2.doc (search excerpt; it does not say whether this is the ground run or the distance over an obstacle) |
+| ALZ | Altus AFB, "Landing zone cameras mean major improvements in C-17 training", 2014: the 3,500 ft assault strip, touchdown required in the first 500 ft, https://www.altus.af.mil/News/Article-Display/Article/619945/ |
+| MIG | migflug.com, "The C-17 Eats the Runway…": approach ≈ 130 kt, landing ≈ 4,500 ft on concrete / 6,200 ft on dirt "at the same weight" (weight and basis not given) [U], https://migflug.com/afterburner/c-17-globemaster-dirt-runway-semi-prepared-operations/ |
+
+The USAF fact-sheet pages (af.mil, dover.af.mil) again returned HTTP 403, so their wording is as quoted in
+sections 2 and 5. GAO/NSIAD-93-288R is a scanned PDF with no text layer. Its summary says only that the 1993
+flight-manual supplement used longer distances than the contractor's predictions.
+
+### 12.2 Comparison
+
+The sim runs at ISA, zero wind, on dry concrete. Within about 10–15% is judged good.
+
+| Metric | Real (source, confidence) | Sim | Delta / verdict |
+|---|---|---|---|
+| SLS thrust per engine | 40,440 lbf = 179.9 kN ([P] AF, BOE); 40,900 lbf FAS, 182 kN EDB | 179.9 kN | 0%. Good |
+| Total SLS thrust / T/W at MTOW | 161,760 lbf / 585,000 lb = 0.277 ([P] arithmetic) | 720 kN, 0.277 | 0%. Good |
+| Thrust lapse, SL: 60 / 120 / 160 kt | not published; Bartel & Young high-BPR model ([E], ±1% to M0.4 against engine decks) | 92% / 84% / 80% | As modelled; typical for BPR 6 |
+| Static thrust at 4,270 m, ISA+15 | not published; δ = 0.585 ([E]) | 128.5 kN (71% of SLS); flat-rated, so no hot-day loss at ISA+15 | Plausible ([E]) |
+| Take-off at MTOW 265 t: ground roll | run 8,200 ft = 2,499 m ([S] WIKI/Jane's) | 2,132 m (lift-off 165 KIAS) | −15%. Borderline good |
+| Take-off at MTOW: distance to 50 ft | take-off field length 7,740 ft = 2,359 m ([S] BCA, VT09; definition not stated) | 2,514 m | +7%. Good. The two published figures conflict: the run is longer than the field length |
+| Take-off at 395,000 lb (179 t): run | 3,000 ft = 914 m ([S] WIKI/Jane's) | 1,020 m (50 ft at 1,247 m) | +12%. Good |
+| Take-off at 200 t / 150 t (flaps ½) | not published | 1,247 / 744 m roll; 1,500 / 953 m to 50 ft | — |
+| Minimum-run take-off, light | FAI STOL class: take-off and landing within 500 m with 19,997 kg payload, 3 Jun 1994 ([P] FAI 1540 + [S] FAI00 rule); "less than 1,400 ft" (427 m) with 44,000 lb ([S] AVN). Weight not given (~150–160 t likely [E]). Conflicts with the unloaded "shortest take-off 3,700 ft" ([S] VT09) | 150 t, flaps ¾: 560 m roll, 760 m to 50 ft | +12% vs 500 m, +31% vs 427 m. **Long; see 12.3** |
+| Initial climb after take-off (10° attitude, flaps ½, gear up) | no official figure; FAI 0–3 km in 3:55 at 150–200 t = 12.8 m/s average including the take-off ([P] FAI 722) | 6.6 m/s at MTOW, 10.0 at 200 t, 14.1 at 150 t | Consistent with FAI (the record profile accelerates and cleans up) |
+| Approach speed | 115 kt headline, no weight given ([S] VT09); ≈ 130 kt ([U] MIG) | trims at 115 KIAS at 160 t (throttle 0.18 on 5°); 132 KIAS at 210 t (throttle 0.42 on 3°, 0.27 on 5°) | Matches 115 kt at 160 t and 130 kt at 210 t |
+| Steep approach | angle not public; 5° assault [E] (pack 5.4) | 5° flown at 16–27% throttle; touchdown sink 600–630 fpm (limit 750 [U] FC3) | Works. About 6–7° would reach idle at light weights |
+| Landing, 160,000 lb payload (210 t), 50 ft to stop | landing field length 3,000 ft = 914 m ([S] BCA, VT09) | 926 m on 3°; 826 m on 5° | +1% / −10%. Good |
+| … ground roll of that landing | ≈ 600–700 m implied (pack 5.4 [E]) | 607 m (3°), 632 m (5°) | Good |
+| Runway minimum 3,500 ft × 90 ft | [P] AF, FAS | max full-flap weight 227.7 t: 971 m (3,186 ft) from 50 ft | Fits. Good |
+| Touchdown zone on a 3,500 ft strip | first 500 ft ([P] ALZ) | air distance from 50 ft to touchdown: 180–195 m on 5°, 310–320 m on 3° | With the 50 ft point at the threshold, a 5° approach touches down at ~600 ft. Aim a little further in |
+| Landing, light (STOL) | FAI STOL class within 500 m (above); < 1,400 ft ([S] AVN) | 160 t: 467 m roll (654 m from 50 ft); 145 t: 417 m roll | Inside 500 m. Good |
+| Landing at Ngari 4,270 m, ISA+15, 154 t (340 klb) | no data; theatre study (himalaya-theatre.md 4.3) roll ≈ 720–800 m calibrated, ≈ 530–650 m nominal [E] | 741 m roll, 1,008 m from 50 ft (touchdown 113 KIAS = 144 KTAS) | Inside the study's band |
+| Take-off at Ngari 4,270 m, ISA+15, 160 t | no data | 1,763 m roll, 2,091 m to 50 ft (Ngari runway 4,500 m) | — |
+| Roll deceleration, reverse + max brakes | not published; pack assumed 0.30–0.35 g (5.4 [E]) | 0.41–0.44 g | Higher than the pack's guess, but the 3,000 ft landing field length still matches. Within dry anti-skid values for transports |
+| Without reversers (210 t) | theatre study: reverse worth ~15% of the roll [E] | roll 798 m vs 607 m (+31%), decel 0.30 g | Reverse is a bit stronger than the study's 30%-of-static guess |
+| Full reverse, static | not published; 0.40 × forward thrust at the same N1 [E] (pack 2.4) | 259 kN total (36% of SLS) | As modelled |
+| Backing up a 2% slope fully loaded | "back up a fully loaded aircraft up a 2% slope" ([P] AF; [S] VT07; LANG says 2°) | at MTOW: 0.84 m/s² from rest on the flat, enough for up to an 8.6% slope (15% at 160 t) | Passes. The claim is a lower bound; it needs only 14% of forward thrust in reverse |
+| Reverse alone (no brakes), 160 t roll | not published | 0.20 g | — |
+
+### 12.3 Findings
+
+1. **Thrust is right where data exists.** The sea-level static rating, the T/W at MTOW and the cruise check
+   (section 2.2) all match. The lapse with speed and altitude is the Bartel & Young model. No published F117
+   lapse exists to test it against.
+2. **The heavy take-off and the 160,000 lb landing match within about 15%.** The two published MTOW figures
+   conflict (an 8,200 ft "run" against a 7,740 ft "field length"), and the sim sits between them. Nothing here
+   justifies changing the engines, the aero or the brakes.
+3. **The minimum-run take-off at light weight is 12–31% long** against the FAI STOL record. The cause is
+   rotation, not thrust:
+   - With flaps ¾ the jet reaches the record's likely lift-off band (~105–110 kt) inside ~430–480 m, but the
+     nose will not come up much below ~110 kt.
+   - Elevator authority (±25°, elevator and stabiliser lumped together) only just beats the nose-down
+     moments: the blown flaps (dCm per ΔCL_EBF), the flap dCm0, the thrust line above the CG and the
+     main-gear load behind the CG. Rotating at 86 kt still lifts off at 115 kt.
+   - Doubling or tripling the FCS ground-rotation integral (`groundRotationIntegralGain` 2 → 4 or 6)
+     shortens the rolls by only 3–6%.
+
+   **Not changed.** The record's weight and its distance definition (ground run, or over an obstacle) are
+   unknown, and the real stabiliser trim range is not public. If better data shows the C-17 rotates near
+   90–100 kt at ~150 t, look at pitch-control authority (a separate stabiliser trim range in `FcsLimits`),
+   not thrust.
+4. **The brakes do not hold TOGA at light weights.** Above roughly T/W 0.35 (below ~200 t) the jet creeps
+   with the brakes on. The tyre model has kinetic friction only (μ 0.38 on the mains, no static friction).
+   This barely changes the distances, because the harness releases the brakes when the jet creeps. Not
+   changed.
+5. **The deceleration (0.41–0.44 g with reverse and brakes) is higher than the pack's 0.30–0.35 g guess.**
+   The landing distances still match the only published figure, so it is not changed.
+6. **Initial climb** at a fixed 10° attitude runs from 6.6 m/s at MTOW to 14 m/s at 150 t. That is
+   consistent with the FAI 0–3 km record (12.8 m/s average including the take-off run).
