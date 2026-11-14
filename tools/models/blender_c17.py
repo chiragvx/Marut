@@ -14,7 +14,10 @@ game-weight GLB, keeping its animation:
   the game samples each part's tracks itself (render/aircraftModels/c17Model.ts);
 - with an atlas layout (build_c17.py makes it): moves each material's UVs into its tile of one
   texture set and gives every surface but the glass one material, 'c17' (the game's aircraft shader
-  samples a single set); exports tangents for the normal map.
+  samples a single set); exports tangents for the normal map;
+- with the layout's livery cuts: cuts the patches of skin under the asymmetric IAF markings (titles,
+  serials) out of the mirrored-UV skin, gives each its own atlas space and runs livery_c17.py, which
+  paints the Indian Air Force livery into the atlas (livery_cut, livery_atlas).
 
 Usage: blender -b --factory-startup --python blender_c17.py -- <scene.gltf> <out.glb> [atlas.json]
 """
@@ -304,6 +307,72 @@ for side, sgn in (('R', -1), ('L', 1)):
     y0, y1, y2 = ELEV_Y
     cut_surface('elevator' + side + 'In', 'elevator', ea, eb, e_no, region, e_cuts, lambda p, s=sgn: y0 < s * p.y < y1)
     cut_surface('elevator' + side + 'Out', 'elevator', ea, eb, e_no, region, e_cuts, lambda p, s=sgn: y1 < s * p.y < y2)
+
+# Livery patches (livery_c17.py): the source maps its left side onto the right side's texture
+# (mirrored UVs), so a marking that reads differently on each side (titles, serials) cannot be painted
+# into it. Cut each one's patch of skin out along its box (only that side's sideways-facing airframe
+# faces) and tag the faces with the patch's slot (face attribute 'livery'); the atlas step gives each
+# patch texture space of its own.
+LAYOUT = None
+if ATLAS:
+    with open(ATLAS, encoding='utf-8') as f:
+        LAYOUT = json.load(f)
+
+
+def livery_cut(slot, cut):
+    x0, x1, z0, z1 = cut['box']
+    s, ymax = cut['side'], cut['ymax']
+    eps = 1e-4
+
+    def near(M, Mn, f, strict):
+        ps = [M @ v.co for v in f.verts]
+        c = sum(ps, Vector()) / len(ps)
+        if not (s * c.y > 0 and abs(c.y) < ymax and abs((Mn @ f.normal).normalized().y) > 0.2):
+            return False
+        if strict:
+            return x0 - eps < c.x < x1 + eps and z0 - eps < c.z < z1 + eps
+        return max(p.x for p in ps) > x0 and min(p.x for p in ps) < x1 and max(p.z for p in ps) > z0 and min(p.z for p in ps) < z1
+
+    made = 0
+    for o in [o for o in sc.objects if o.type == 'MESH']:
+        idx = {i for i, m in enumerate(o.data.materials) if m and m.name == 'airframemap'}
+        if not idx:
+            continue
+        M = o.matrix_world
+        Minv = M.inverted()
+        N3 = M.to_3x3().transposed()
+        Mn = M.to_3x3().inverted().transposed()
+        bm = bmesh.new()
+        bm.from_mesh(o.data)
+        region = lambda: [f for f in bm.faces if f.material_index in idx and near(M, Mn, f, False)]  # noqa: E731
+        if not region():
+            bm.free()
+            continue
+        if o.name not in SNAPSHOTS:
+            SNAPSHOTS[o.name] = normals_snapshot(o)
+        for co, no in ((Vector((x0, 0, 0)), Vector((1, 0, 0))), (Vector((x1, 0, 0)), Vector((1, 0, 0))),
+                       (Vector((0, 0, z0)), Vector((0, 0, 1))), (Vector((0, 0, z1)), Vector((0, 0, 1)))):
+            fs = region()
+            geom = list({e for f in fs for e in f.edges}) + list({v for f in fs for v in f.verts}) + fs
+            bmesh.ops.bisect_plane(bm, geom=geom, plane_co=Minv @ co, plane_no=(N3 @ no).normalized())
+        bmesh.ops.dissolve_degenerate(bm, dist=1e-4, edges=bm.edges[:])
+        bmesh.ops.triangulate(bm, faces=[f for f in bm.faces if len(f.verts) > 4])
+        layer = bm.faces.layers.int.get('livery') or bm.faces.layers.int.new('livery')
+        n = 0
+        for f in bm.faces:
+            if f.material_index in idx and near(M, Mn, f, True):
+                f[layer] = slot
+                n += 1
+        bm.to_mesh(o.data)
+        bm.free()
+        RESTORE.setdefault(o.name, (SNAPSHOTS[o.name], []))[1].append(
+            lambda p: x0 - 0.3 < p.x < x1 + 0.3 and z0 - 0.3 < p.z < z1 + 0.3 and s * p.y > 0 and abs(p.y) < ymax)
+        made += n
+    print('LIVERY patch', slot, cut['name'], 'faces', made)
+
+
+for k, cut in enumerate(LAYOUT.get('liveryCuts', []) if LAYOUT else [], 1):
+    livery_cut(k, cut)
 bpy.context.view_layer.update()
 for oname, (snap, regions) in RESTORE.items():
     restore_normals(bpy.data.objects[oname], lambda p, rs=regions: any(r(p) for r in rs), snap)
@@ -321,11 +390,139 @@ root['c17'] = json.dumps({
     'note': 'nose +X, up +Y (glTF), wheel bottoms at y 0 with the gear down (frame 0)',
 })
 
+def livery_atlas(layout):
+    """Gives each livery patch (the faces livery_cut tagged) texture space of its own: each UV island of
+    a patch moves, uniformly scaled (k >= 1, towards layout['density'] px/m), into the spare rect
+    layout['spare'] (base-colour px, y down). Then dumps the airframe's triangles (world positions,
+    atlas px, normals, slot) and runs livery_c17.py, which copies the texture under each island's old
+    rect R to its new one S and paints the livery into atlas_*_iaf.png."""
+    import subprocess
+    import numpy as np
+    B = 4096
+    PADR = 6  # source px kept round each island (bleed for filtering)
+    GAP = 6
+    islands = []
+    for o in [o for o in sc.objects if o.type == 'MESH']:
+        me = o.data
+        attr = me.attributes.get('livery')
+        if attr is None:
+            continue
+        assert me.users == 1, me.name
+        M = o.matrix_world
+        uv = me.uv_layers[0].data
+        vals = [a.value for a in attr.data]
+        polys = [p for p in me.polygons if vals[p.index] > 0]
+        parent = {p.index: p.index for p in polys}
+
+        def find(i):
+            while parent[i] != i:
+                parent[i] = parent[parent[i]]
+                i = parent[i]
+            return i
+        seen = {}
+        for p in polys:
+            li = list(p.loop_indices)
+            for a, b in zip(li, li[1:] + li[:1]):
+                ka = (me.loops[a].vertex_index, round(uv[a].uv[0], 6), round(uv[a].uv[1], 6))
+                kb = (me.loops[b].vertex_index, round(uv[b].uv[0], 6), round(uv[b].uv[1], 6))
+                key = (vals[p.index],) + tuple(sorted((ka, kb)))
+                if key in seen:
+                    ra, rb = find(seen[key]), find(p.index)
+                    if ra != rb:
+                        parent[ra] = rb
+                else:
+                    seen[key] = p.index
+        groups = {}
+        for p in polys:
+            groups.setdefault(find(p.index), []).append(p)
+        for g in groups.values():
+            pts = [(uv[li].uv[0] * B, (1 - uv[li].uv[1]) * B) for p in g for li in p.loop_indices]
+            a2 = a3 = 0.0
+            for p in g:
+                q = [(uv[li].uv[0] * B, (1 - uv[li].uv[1]) * B) for li in p.loop_indices]
+                a2 += abs(sum(q[i][0] * q[i - 1][1] - q[i - 1][0] * q[i][1] for i in range(len(q)))) / 2
+                w = [M @ me.vertices[v].co for v in p.vertices]
+                a3 += sum(((w[i] - w[0]).cross(w[i + 1] - w[0])).length / 2 for i in range(1, len(w) - 1))
+            x0 = min(x for x, _ in pts) - PADR
+            y0 = min(y for _, y in pts) - PADR
+            islands.append({'slot': vals[g[0].index], 'mesh': me, 'polys': [p.index for p in g],
+                            'R': [x0, y0, max(x for x, _ in pts) + PADR - x0, max(y for _, y in pts) + PADR - y0],
+                            'dens': math.sqrt(a2 / max(a3, 1e-9))})
+    sx0, sy0, sw, sh = layout['spare']
+    sx0, sy0, sw, sh = sx0 + GAP, sy0 + GAP, sw - 2 * GAP, sh - 2 * GAP
+    target = layout['density']
+
+    def pack(gain):
+        ks = [max(1.0, gain * target / isl['dens']) for isl in islands]
+        place = {}
+        x = y = shelf = 0
+        for i in sorted(range(len(islands)), key=lambda i: -islands[i]['R'][3] * ks[i]):
+            w = math.ceil(islands[i]['R'][2] * ks[i]) + 1
+            h = math.ceil(islands[i]['R'][3] * ks[i]) + 1
+            if x + w > sw:
+                x, y, shelf = 0, y + shelf + GAP, 0
+            if w > sw or y + h > sh:
+                return None
+            place[i] = (sx0 + x, sy0 + y, ks[i])
+            x += w + GAP + (w + GAP) % 2
+            shelf = max(shelf, h + h % 2)
+        return place
+    gain = 1.0
+    place = pack(gain)
+    while place is None:
+        gain *= 0.97
+        assert gain > 0.05, 'livery patches do not fit the spare atlas space'
+        place = pack(gain)
+    out = []
+    for i, isl in enumerate(islands):
+        sx, sy, k = place[i]
+        rx, ry = isl['R'][:2]
+        me = isl['mesh']
+        uv = me.uv_layers[0].data
+        for pi in isl['polys']:
+            for li in me.polygons[pi].loop_indices:
+                px = sx + (uv[li].uv[0] * B - rx) * k
+                py = sy + ((1 - uv[li].uv[1]) * B - ry) * k
+                uv[li].uv = (px / B, 1 - py / B)
+        out.append({'slot': isl['slot'], 'R': isl['R'], 'S': [sx, sy], 'k': k})
+        print(f"LIVERY island slot {isl['slot']}: {len(isl['polys'])} faces, R {[round(v) for v in isl['R']]} "
+              f"-> S {sx},{sy} x{k:.2f} ({isl['dens']:.0f} -> {isl['dens'] * k:.0f} px/m)")
+    # The airframe's triangles for the painter.
+    P, UV, NN, SL = [], [], [], []
+    for o in [o for o in sc.objects if o.type == 'MESH']:
+        me = o.data
+        idx = {i for i, m in enumerate(me.materials) if m and m.name == 'airframemap'}
+        if not idx:
+            continue
+        M = o.matrix_world
+        Mn = M.to_3x3().inverted().transposed()
+        uv = me.uv_layers[0].data
+        cn = me.corner_normals
+        attr = me.attributes.get('livery')
+        vals = [a.value for a in attr.data] if attr else None
+        me.calc_loop_triangles()
+        for lt in me.loop_triangles:
+            if lt.material_index not in idx:
+                continue
+            P.append([tuple(M @ me.vertices[v].co) for v in lt.vertices])
+            UV.append([(uv[li].uv[0] * B, (1 - uv[li].uv[1]) * B) for li in lt.loops])
+            n = sum((Mn @ cn[li].vector for li in lt.loops), Vector())
+            NN.append(tuple(n.normalized()) if n.length > 1e-9 else (0.0, 0.0, 0.0))
+            SL.append(vals[lt.polygon_index] if vals else 0)
+        if attr:
+            me.attributes.remove(attr)
+    d = layout['dir']
+    np.savez(d + '/livery.npz', P=np.array(P, np.float32), UV=np.array(UV, np.float64), N=np.array(NN, np.float32),
+             slot=np.array(SL, np.int32))
+    with open(d + '/livery.json', 'w', encoding='utf-8') as f:
+        json.dump({'islands': out, 'paint': layout['paint']}, f)
+    subprocess.run([layout['python'], '-I', layout['livery'], d + '/livery.npz', d + '/livery.json', d], check=True)
+
+
 if ATLAS:
     # One texture set: each material's UVs into its tile (flat-colour materials onto a cell's centre),
     # then one material for everything but the glass.
-    with open(ATLAS, encoding='utf-8') as f:
-        layout = json.load(f)
+    layout = LAYOUT
     rects = layout['rects']
     done = set()
     for o in [o for o in sc.objects if o.type == 'MESH']:
@@ -346,6 +543,10 @@ if ATLAS:
             for li in p.loop_indices:
                 u, v = uv[li].uv
                 uv[li].uv = (r[0] + min(1, max(0, u)) * r[2], r[1] + min(1, max(0, v)) * r[3])
+    suffix = ''
+    if layout.get('liveryCuts'):
+        livery_atlas(layout)
+        suffix = '_iaf'
     mat = bpy.data.materials.new('c17')
     mat.use_nodes = True
     nt = mat.node_tree
@@ -358,14 +559,14 @@ if ATLAS:
             n.image.colorspace_settings.name = 'Non-Color'
         return n
 
-    nt.links.new(tex('atlas_baseColor.png', False).outputs['Color'], bsdf.inputs['Base Color'])
-    mr = tex('atlas_metallicRoughness.png', True)
+    nt.links.new(tex(f'atlas_baseColor{suffix}.png', False).outputs['Color'], bsdf.inputs['Base Color'])
+    mr = tex(f'atlas_metallicRoughness{suffix}.png', True)
     sep = nt.nodes.new('ShaderNodeSeparateColor')
     nt.links.new(mr.outputs['Color'], sep.inputs['Color'])
     nt.links.new(sep.outputs['Green'], bsdf.inputs['Roughness'])
     nt.links.new(sep.outputs['Blue'], bsdf.inputs['Metallic'])
     nm = nt.nodes.new('ShaderNodeNormalMap')
-    nt.links.new(tex('atlas_normal.png', True).outputs['Color'], nm.inputs['Color'])
+    nt.links.new(tex(f'atlas_normal{suffix}.png', True).outputs['Color'], nm.inputs['Color'])
     nt.links.new(nm.outputs['Normal'], bsdf.inputs['Normal'])
     mat.use_backface_culling = True
     for me in bpy.data.meshes:

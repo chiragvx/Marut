@@ -14,12 +14,15 @@ Steps:
 2. Blender headless on blender_c17.py: strip, thin, scale and turn the model, move each material's
    UVs into its tile, one material ('c17') plus the glass, cut the rudders and elevators out of the
    tail, keep the 10 s animation, export.
+   With the livery (livery_c17.py): the titles' and serials' patches of skin are cut out and given
+   their own texture space, then livery_c17.py paints the Indian Air Force markings (atlas_*_iaf.png).
 3. Wind every triangle to face its own normals (fix_winding: the source's left side is inside out).
 4. Hash the GLB for the cache-busting URL (src/render/aircraftModels/c17GlbVersion.ts).
 
 Usage: python -I tools/models/build_c17.py [path to blender.exe] [source dir] [build dir]
 """
 import hashlib
+import importlib.util
 import json
 import math
 import os
@@ -162,12 +165,12 @@ def fix_winding(path: str) -> None:
     print(f'winding: {flipped} of {total} triangles turned to face their normals')
 
 
-# Paint: the source airframe is a dark slate blue-grey; Indian Air Force C-17s are a light neutral
-# grey with a faint green cast. Pixels of the paint's hue (any shade: panel lines, weathering) are
-# moved to the IAF grey at the same relative brightness; markings, roundels, text, tyres and other
+# Paint: the source airframe is a dark slate blue-grey; Indian Air Force C-17s wear the C-17's
+# standard grey, FS 36173 (AMC Gray, ~#70787F; docs/spec/c17-iaf-livery.md). Pixels of the paint's
+# hue (any shade: panel lines, weathering) are moved to the IAF grey at the same relative brightness; markings, roundels, text, tyres and other
 # colours are left alone. Applied to the tiles that carry the outer paint, and the flat airframe cell.
 PAINT_SRC = (72, 88, 99)
-PAINT_IAF = (126, 131, 127)
+PAINT_IAF = (112, 120, 127)
 PAINT_TILES = ('airframemap', 'edge', 'envelope', 'engine')
 FLAT['airframeblue'] = (tuple(((c / 255 + 0.055) / 1.055) ** 2.4 for c in PAINT_IAF), 0.0, 0.5)
 
@@ -210,9 +213,19 @@ def main() -> None:
         rects[name] = [cx / BASE, 1 - cy / BASE, 0, 0]
     rects['landgear.001'] = rects['landgear']
     layout = os.path.join(BUILD, 'atlas.json')
+    # The livery (livery_c17.py, run by blender_c17.py with this Python): the patches to cut out and the
+    # spare atlas space they move to (base-colour px: x, y, w, h; nothing else uses it).
+    sys.dont_write_bytecode = True  # no __pycache__ in tools/models
+    spec = importlib.util.spec_from_file_location('livery_c17', os.path.join(HERE, 'livery_c17.py'))
+    livery = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(livery)
     with open(layout, 'w', encoding='utf-8') as f:
-        json.dump({'rects': rects, 'dir': BUILD.replace(os.sep, '/')}, f)
-    subprocess.run([BLENDER, '-b', '--factory-startup', '--python', os.path.join(HERE, 'blender_c17.py'), '--',
+        json.dump({'rects': rects, 'dir': BUILD.replace(os.sep, '/'), 'liveryCuts': livery.unique_cuts(),
+                   'spare': [3072, 2560, 1024, 512], 'density': 110, 'paint': PAINT_IAF,
+                   'python': sys.executable, 'livery': os.path.join(HERE, 'livery_c17.py')}, f)
+    # (A Python error in the Blender script fails the build.)
+    subprocess.run([BLENDER, '-b', '--factory-startup', '--python-exit-code', '1',
+                    '--python', os.path.join(HERE, 'blender_c17.py'), '--',
                     os.path.join(SRC, 'scene.gltf'), OUT, layout], check=True)
     fix_winding(OUT)
     digest = hashlib.sha256(open(OUT, 'rb').read()).hexdigest()[:12]
