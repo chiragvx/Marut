@@ -59,4 +59,6 @@ The Tejas 3D model (`public/models/tejas.glb`) is based on ["HAL Tejas"](https:/
 
 The JF-17 3D model (`public/models/jf17.glb`) is based on ["JF-17"](https://sketchfab.com/3d-models/jf-17-b57660f346314df1877e15b85d6e74be) by [dimal965](https://sketchfab.com/dimal965), licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). Changes: canopy closed, gear split, hinges and pylons rigged, nozzle replaced, moved to the game frame (`tools/models/build_jf17.py`).
 
+The C-17 3D model (`public/models/c17.glb`) is based on ["c17 Globemaster with animation"](https://sketchfab.com/3d-models/c17-globemaster-with-animation-809e3e068f324db6b9cfe57611a69726) by [pilotcandle5470](https://sketchfab.com/runzew68), licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). Changes: cargo-bay wiring, pipes and fittings and the hidden engine internals removed, landing gear thinned, rescaled to the real airframe (`tools/models/blender_c17.py`).
+
 Marut is an independent project and is not affiliated with HAL, the Indian Air Force or the Indian Navy.

@@ -249,7 +249,9 @@ export function computeChasePose(
   frameDtSec: number,
   out: CameraPose,
   /** Lowest the camera may be relative to the aircraft, m (the ground below plus a margin). */
-  minOffsetY = -Infinity
+  minOffsetY = -Infinity,
+  /** The aircraft's size against the Tejas's (a C-17 is ~4x): the default offset and the zoom scale with it. */
+  scale = 1
 ): CameraPose {
   // After a while without looking around, ease the view back behind the aircraft.
   state.lookIdleSec += frameDtSec;
@@ -266,9 +268,9 @@ export function computeChasePose(
   const fx = scratchChaseForward.x;
   const fy = scratchChaseForward.y;
   const fz = scratchChaseForward.z;
-  const ox = -fx * CHASE_CAM_DISTANCE_M;
-  const oy = -fy * CHASE_CAM_DISTANCE_M + CHASE_CAM_HEIGHT_M;
-  const oz = -fz * CHASE_CAM_DISTANCE_M;
+  const ox = -fx * CHASE_CAM_DISTANCE_M * scale;
+  const oy = (-fy * CHASE_CAM_DISTANCE_M + CHASE_CAM_HEIGHT_M) * scale;
+  const oz = -fz * CHASE_CAM_DISTANCE_M * scale;
   let dx: number;
   let dy: number;
   let dz: number;
@@ -280,7 +282,7 @@ export function computeChasePose(
     const r0 = Math.hypot(ox, oy, oz);
     const azimuth = Math.atan2(ox, oz) + state.lookYawRad;
     const elevation = clamp(Math.asin(clamp(oy / r0, -1, 1)) + state.lookPitchRad, -CHASE_LOOK_ELEVATION_LIMIT_RAD, CHASE_LOOK_ELEVATION_LIMIT_RAD);
-    const r = r0 + state.lookZoomM;
+    const r = r0 + state.lookZoomM * scale;
     const h = r * Math.cos(elevation);
     dx = h * Math.sin(azimuth);
     dy = r * Math.sin(elevation);
@@ -332,7 +334,7 @@ export function computeChasePose(
   out.pos.y = playerPos.y + o.y;
   out.pos.z = playerPos.z + o.z;
   out.lookAt.x = playerPos.x;
-  out.lookAt.y = playerPos.y + 1;
+  out.lookAt.y = playerPos.y + scale;
   out.lookAt.z = playerPos.z;
   // Lean with the bank a little (the horizon tilts as the jet rolls), smoothed; upright when
   // inverted rather than flipping.
@@ -403,7 +405,9 @@ export function computeExternalPose(
   out: CameraPose,
   minOffsetY = -Infinity,
   playerRot?: Readonly<QuatLike>,
-  frameDtSec = 0
+  frameDtSec = 0,
+  /** The aircraft's size against the Tejas's: the orbit's radius scales with it. */
+  scale = 1
 ): CameraPose {
   // The jet's heading (forward = (sin h, -cos h) in x, z), smoothed so a turn sweeps the camera
   // round; held while the nose points nearly straight up or down.
@@ -419,7 +423,7 @@ export function computeExternalPose(
     }
   }
   const heading = Number.isNaN(state.headingRad) ? 0 : state.headingRad;
-  const r = state.radiusM;
+  const r = state.radiusM * scale;
   // Straight behind is the heading + pi; yaw + swings round the left side.
   const az = heading + Math.PI + state.yawRad;
   // Never below the ground: the orbit stops at the lowest pitch the ground allows (and stays
@@ -474,7 +478,9 @@ export function computeFlybyPose(
   playerVelWorld: Readonly<Vec3Like>,
   state: FlybyState,
   out: CameraPose,
-  frameDtSec = 0
+  frameDtSec = 0,
+  /** The aircraft's size against the Tejas's: the camera stands off and frames in proportion. */
+  scale = 1
 ): CameraPose {
   const speed = vec3Length(playerVelWorld);
   if (speed < 1) {
@@ -512,10 +518,10 @@ export function computeFlybyPose(
       sz = 0;
     }
     const lead = clamp(speed * 4, FLYBY_PLACEMENT_DISTANCE_M * 0.3, Math.max(FLYBY_PLACEMENT_DISTANCE_M, Math.min(FLYBY_MAX_LEAD_M, speed * 4)));
-    const side = FLYBY_SIDE_OFFSET_M * clamp(speed / 250, 1, 2.5);
+    const side = FLYBY_SIDE_OFFSET_M * scale * clamp(speed / 250, 1, 2.5);
     state.leadM = lead;
     state.fixedPos.x = playerPos.x + v.x * lead + sx * side * state.side;
-    state.fixedPos.y = playerPos.y + v.y * lead + FLYBY_HEIGHT_OFFSET_M;
+    state.fixedPos.y = playerPos.y + v.y * lead + FLYBY_HEIGHT_OFFSET_M * scale;
     state.fixedPos.z = playerPos.z + v.z * lead + sz * side * state.side;
     state.side = state.side === 1 ? -1 : 1;
     state.initialized = true;
@@ -533,7 +539,7 @@ export function computeFlybyPose(
   out.up.z = 0;
   // Telephoto: frame about FLYBY_FRAME_M x zoom round the jet, whatever its distance.
   const dist = Math.hypot(playerPos.x - state.fixedPos.x, playerPos.y - state.fixedPos.y, playerPos.z - state.fixedPos.z);
-  const want = clamp((2 * Math.atan((FLYBY_FRAME_M * state.zoom) / 2 / Math.max(dist, 1)) * 180) / Math.PI, 2.5, 75);
+  const want = clamp((2 * Math.atan((FLYBY_FRAME_M * scale * state.zoom) / 2 / Math.max(dist, 1)) * 180) / Math.PI, 2.5, 75);
   state.fovDeg = Number.isNaN(state.fovDeg) ? want : expSmooth(state.fovDeg, want, 0.12, frameDtSec);
   out.fovDeg = state.fovDeg;
   out.useLookAt = true;
@@ -549,6 +555,8 @@ export interface CameraModeState {
   chase: ChaseCameraState;
   external: ExternalOrbitState;
   flyby: FlybyState;
+  /** The followed aircraft's length against the Tejas's (1; a C-17 ~4): the outside views keep their framing. */
+  subjectScale: number;
 }
 
 export function createCameraModeState(): CameraModeState {
@@ -557,6 +565,7 @@ export function createCameraModeState(): CameraModeState {
     chase: createChaseCameraState(),
     external: createExternalOrbitState(),
     flyby: createFlybyState(),
+    subjectScale: 1,
   };
 }
 
@@ -596,11 +605,11 @@ export function computeCameraPose(
     case CameraMode.Cockpit:
       return computeCockpitPose(playerPos, playerRot, out, state.cockpit, frameDtSec);
     case CameraMode.Chase:
-      return computeChasePose(playerPos, playerRot, state.chase, frameDtSec, out, minOffsetY);
+      return computeChasePose(playerPos, playerRot, state.chase, frameDtSec, out, minOffsetY, state.subjectScale);
     case CameraMode.External:
-      return computeExternalPose(playerPos, state.external, out, minOffsetY, playerRot, frameDtSec);
+      return computeExternalPose(playerPos, state.external, out, minOffsetY, playerRot, frameDtSec, state.subjectScale);
     case CameraMode.Flyby:
-      return computeFlybyPose(playerPos, playerRot, playerVelWorld, state.flyby, out, frameDtSec);
+      return computeFlybyPose(playerPos, playerRot, playerVelWorld, state.flyby, out, frameDtSec, state.subjectScale);
     default:
       return computeCockpitPose(playerPos, playerRot, out);
   }
