@@ -42,7 +42,7 @@ export const createDebriefScreen: CreateDebriefScreen = (container, stats, callb
   const replay = button(free ? 'Fly again' : 'Fly again', () => callbacks.onReplay(), next ? 'default' : 'primary', { 'data-action': 'replay' });
   const panel = h(
     'div',
-    { className: 'tj-panel', attrs: { style: 'width: min(720px, 100%)' } },
+    { className: 'tj-panel', attrs: { style: 'width: min(calc(714px + var(--pr, 0px)), 100%)' } },
     crumb('Debrief'),
     h('div', { className: 'tj-head' }, h('div', { className: 'tj-eyebrow', text: options.title ?? '' }), h('h1', { className: 'tj-title', text: outcomeTitle(stats, free) })),
     h('div', { className: 'tj-stats' }, ...tiles),

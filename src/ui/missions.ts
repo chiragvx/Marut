@@ -43,7 +43,9 @@ export function createMissionList(
   const open = opts.missions.filter((m) => !missionLocked(m.id) && !opts.bases.find((b) => b.id === m.baseId)?.locked);
   const locked = opts.missions.filter((m) => !open.includes(m));
   const s = shell({ title: 'Missions', eyebrow: 'Punjab · Himalaya', sub: 'Take off from Bhisiana, the enemy already on its way, or fly a C-17 into the Himalaya.', back: { onClick: () => cb.onBack() } });
-  s.root.classList.add('tj-missions');
+  // Not 'tj-missions': that is the loadout's preset-tile grid (ui.css), and on the screen root it
+  // turned the whole screen into a four-column grid with the panel squeezed into the first column.
+  s.root.classList.add('tj-mission-select');
   const tiles = open.map((m, i) => {
     const base = opts.bases.find((b) => b.id === m.baseId);
     const p = opts.progress[m.id];

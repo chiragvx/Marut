@@ -35,7 +35,7 @@ export const createPauseMenu: CreatePauseMenu = (container, callbacks, options =
 
   const panel = h(
     'div',
-    { className: 'tj-panel', attrs: { style: 'width: min(460px, 100%)' } },
+    { className: 'tj-panel', attrs: { style: 'width: min(calc(454px + var(--pr, 0px)), 100%)' } },
     crumb('Flight', 'Paused'),
     h('div', { className: 'tj-head' }, h('h1', { className: 'tj-title', text: 'Paused' }), options.subtitle ? h('p', { className: 'tj-sub', text: options.subtitle }) : false),
     list,
