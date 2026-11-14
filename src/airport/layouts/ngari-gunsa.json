@@ -3,209 +3,209 @@
  "name": "Ngari Gunsa (Ali Kunsha) Airport, PLAAF",
  "side": "hostile",
  "attribution": "Base layout from OpenStreetMap data, (c) OpenStreetMap contributors (ODbL); shelter compound, door directions, tower and magazines are interpretation or generic.",
- "referenceWorldX": -39688,
- "referenceWorldZ": -83395.3,
+ "referenceWorldX": -30488,
+ "referenceWorldZ": -68695.3,
  "elevationM": 4274,
  "flattenZones": [
   {
-   "centerWorldX": -39688,
-   "centerWorldZ": -83395.3,
+   "centerWorldX": -30488,
+   "centerWorldZ": -68695.3,
    "elevationM": 4274,
    "flatRadiusM": 300,
    "blendRadiusM": 0
   },
   {
-   "centerWorldX": -38638,
-   "centerWorldZ": -81413.3,
+   "centerWorldX": -29438,
+   "centerWorldZ": -66713.3,
    "elevationM": 4274,
    "flatRadiusM": 300,
    "blendRadiusM": 0
   },
   {
-   "centerWorldX": -39163,
-   "centerWorldZ": -82404.3,
+   "centerWorldX": -29963,
+   "centerWorldZ": -67704.3,
    "elevationM": 4274,
    "flatRadiusM": 300,
    "blendRadiusM": 0
   },
   {
-   "centerWorldX": -40213.1,
-   "centerWorldZ": -84386.3,
+   "centerWorldX": -31013.1,
+   "centerWorldZ": -69686.3,
    "elevationM": 4274,
    "flatRadiusM": 300,
    "blendRadiusM": 0
   },
   {
-   "centerWorldX": -40738.1,
-   "centerWorldZ": -85377.4,
+   "centerWorldX": -31538.1,
+   "centerWorldZ": -70677.4,
    "elevationM": 4274,
    "flatRadiusM": 300,
    "blendRadiusM": 0
   },
   {
-   "centerWorldX": -40370.3,
-   "centerWorldZ": -85212.5,
+   "centerWorldX": -31170.3,
+   "centerWorldZ": -70512.5,
    "elevationM": 4274,
    "flatRadiusM": 295,
    "blendRadiusM": 0
   },
   {
-   "centerWorldX": -40063.1,
-   "centerWorldZ": -85171.3,
+   "centerWorldX": -30863.1,
+   "centerWorldZ": -70471.3,
    "elevationM": 4274,
    "flatRadiusM": 295,
    "blendRadiusM": 0
   },
   {
-   "centerWorldX": -39410.2,
-   "centerWorldZ": -83912,
+   "centerWorldX": -30210.2,
+   "centerWorldZ": -69212,
    "elevationM": 4274,
    "flatRadiusM": 295,
    "blendRadiusM": 0
   },
   {
-   "centerWorldX": -38979.3,
-   "centerWorldZ": -83371.4,
+   "centerWorldX": -29779.3,
+   "centerWorldZ": -68671.4,
    "elevationM": 4274,
    "flatRadiusM": 295,
    "blendRadiusM": 0
   },
   {
-   "centerWorldX": -39655,
-   "centerWorldZ": -84418.2,
+   "centerWorldX": -30455,
+   "centerWorldZ": -69718.2,
    "elevationM": 4274,
    "flatRadiusM": 295,
    "blendRadiusM": 0
   },
   {
-   "centerWorldX": -39938.4,
-   "centerWorldZ": -84551.8,
+   "centerWorldX": -30738.4,
+   "centerWorldZ": -69851.8,
    "elevationM": 4274,
    "flatRadiusM": 295,
    "blendRadiusM": 0
   },
   {
-   "centerWorldX": -39701.9,
-   "centerWorldZ": -84831.8,
+   "centerWorldX": -30501.9,
+   "centerWorldZ": -70131.8,
    "elevationM": 4274,
    "flatRadiusM": 295,
    "blendRadiusM": 0
   },
   {
-   "centerWorldX": -39158.7,
-   "centerWorldZ": -84532.4,
+   "centerWorldX": -29958.7,
+   "centerWorldZ": -69832.4,
    "elevationM": 4274,
    "flatRadiusM": 84,
    "blendRadiusM": 0
   },
   {
-   "centerWorldX": -39200.9,
-   "centerWorldZ": -84611.9,
+   "centerWorldX": -30000.9,
+   "centerWorldZ": -69911.9,
    "elevationM": 4274,
    "flatRadiusM": 84,
    "blendRadiusM": 0
   },
   {
-   "centerWorldX": -39243,
-   "centerWorldZ": -84691.4,
+   "centerWorldX": -30043,
+   "centerWorldZ": -69991.4,
    "elevationM": 4274,
    "flatRadiusM": 84,
    "blendRadiusM": 0
   },
   {
-   "centerWorldX": -39285.1,
-   "centerWorldZ": -84770.9,
+   "centerWorldX": -30085.1,
+   "centerWorldZ": -70070.9,
    "elevationM": 4274,
    "flatRadiusM": 84,
    "blendRadiusM": 0
   },
   {
-   "centerWorldX": -38798.3,
-   "centerWorldZ": -81667.7,
+   "centerWorldX": -29598.3,
+   "centerWorldZ": -66967.7,
    "elevationM": 4274,
    "flatRadiusM": 295,
    "blendRadiusM": 0
   },
   {
-   "centerWorldX": -38895.1,
-   "centerWorldZ": -81946.7,
+   "centerWorldX": -29695.1,
+   "centerWorldZ": -67246.7,
    "elevationM": 4274,
    "flatRadiusM": 295,
    "blendRadiusM": 0
   },
   {
-   "centerWorldX": -39324.2,
-   "centerWorldZ": -82660.5,
+   "centerWorldX": -30124.2,
+   "centerWorldZ": -67960.5,
    "elevationM": 4274,
    "flatRadiusM": 295,
    "blendRadiusM": 0
   },
   {
-   "centerWorldX": -39421.1,
-   "centerWorldZ": -82939.5,
+   "centerWorldX": -30221.1,
+   "centerWorldZ": -68239.5,
    "elevationM": 4274,
    "flatRadiusM": 295,
    "blendRadiusM": 0
   },
   {
-   "centerWorldX": -39848.3,
-   "centerWorldZ": -83649.8,
+   "centerWorldX": -30648.3,
+   "centerWorldZ": -68949.8,
    "elevationM": 4274,
    "flatRadiusM": 295,
    "blendRadiusM": 0
   },
   {
-   "centerWorldX": -39945.2,
-   "centerWorldZ": -83928.8,
+   "centerWorldX": -30745.2,
+   "centerWorldZ": -69228.8,
    "elevationM": 4274,
    "flatRadiusM": 295,
    "blendRadiusM": 0
   },
   {
-   "centerWorldX": -40374.3,
-   "centerWorldZ": -84642.6,
+   "centerWorldX": -31174.3,
+   "centerWorldZ": -69942.6,
    "elevationM": 4274,
    "flatRadiusM": 295,
    "blendRadiusM": 0
   },
   {
-   "centerWorldX": -40471.1,
-   "centerWorldZ": -84921.5,
+   "centerWorldX": -31271.1,
+   "centerWorldZ": -70221.5,
    "elevationM": 4274,
    "flatRadiusM": 295,
    "blendRadiusM": 0
   },
   {
-   "centerWorldX": -39939.2,
-   "centerWorldZ": -84254.5,
+   "centerWorldX": -30739.2,
+   "centerWorldZ": -69554.5,
    "elevationM": 4274,
    "flatRadiusM": 295,
    "blendRadiusM": 0
   },
   {
-   "centerWorldX": -39415.3,
-   "centerWorldZ": -83264.7,
+   "centerWorldX": -30215.3,
+   "centerWorldZ": -68564.7,
    "elevationM": 4274,
    "flatRadiusM": 295,
    "blendRadiusM": 0
   },
   {
-   "centerWorldX": -38891.4,
-   "centerWorldZ": -82274.9,
+   "centerWorldX": -29691.4,
+   "centerWorldZ": -67574.9,
    "elevationM": 4274,
    "flatRadiusM": 295,
    "blendRadiusM": 0
   },
   {
-   "centerWorldX": -40573.8,
-   "centerWorldZ": -85630,
+   "centerWorldX": -31373.8,
+   "centerWorldZ": -70930,
    "elevationM": 4274,
    "flatRadiusM": 295,
    "blendRadiusM": 0
   },
   {
-   "centerWorldX": -40177.8,
-   "centerWorldZ": -84886,
+   "centerWorldX": -30977.8,
+   "centerWorldZ": -70186,
    "elevationM": 4274,
    "flatRadiusM": 295,
    "blendRadiusM": 0
@@ -214,8 +214,8 @@
  "runways": [
   {
    "id": "33",
-   "thresholdWorldX": -38638,
-   "thresholdWorldZ": -81413.3,
+   "thresholdWorldX": -29438,
+   "thresholdWorldZ": -66713.3,
    "elevationM": 4274,
    "headingRad": 5.795997,
    "lengthM": 4486,
@@ -231,8 +231,8 @@
   },
   {
    "id": "15",
-   "thresholdWorldX": -40738,
-   "thresholdWorldZ": -85377.3,
+   "thresholdWorldX": -31538,
+   "thresholdWorldZ": -70677.3,
    "elevationM": 4274,
    "headingRad": 2.654404,
    "lengthM": 4486,
@@ -253,40 +253,40 @@
    "widthM": 23,
    "points": [
     {
-     "worldX": -40578,
-     "worldZ": -85436.8
+     "worldX": -31378,
+     "worldZ": -70736.8
     },
     {
-     "worldX": -38518,
-     "worldZ": -81544.9
+     "worldX": -29318,
+     "worldZ": -66844.9
     },
     {
-     "worldX": -38518.2,
-     "worldZ": -81518.8
+     "worldX": -29318.2,
+     "worldZ": -66818.8
     },
     {
-     "worldX": -38530.9,
-     "worldZ": -81496.4
+     "worldX": -29330.9,
+     "worldZ": -66796.4
     },
     {
-     "worldX": -38611.8,
-     "worldZ": -81451.4
+     "worldX": -29411.8,
+     "worldZ": -66751.4
     },
     {
-     "worldX": -38621.2,
-     "worldZ": -81449.4
+     "worldX": -29421.2,
+     "worldZ": -66749.4
     },
     {
-     "worldX": -38635.6,
-     "worldZ": -81451.4
+     "worldX": -29435.6,
+     "worldZ": -66751.4
     },
     {
-     "worldX": -38656.1,
-     "worldZ": -81459
+     "worldX": -29456.1,
+     "worldZ": -66759
     },
     {
-     "worldX": -38666.5,
-     "worldZ": -81466.5
+     "worldX": -29466.5,
+     "worldZ": -66766.5
     }
    ]
   },
@@ -295,32 +295,32 @@
    "widthM": 23,
    "points": [
     {
-     "worldX": -39269.2,
-     "worldZ": -82604.3
+     "worldX": -30069.2,
+     "worldZ": -67904.3
     },
     {
-     "worldX": -39228,
-     "worldZ": -82556.1
+     "worldX": -30028,
+     "worldZ": -67856.1
     },
     {
-     "worldX": -39203.7,
-     "worldZ": -82534.1
+     "worldX": -30003.7,
+     "worldZ": -67834.1
     },
     {
-     "worldX": -39027.8,
-     "worldZ": -82400.9
+     "worldX": -29827.8,
+     "worldZ": -67700.9
     },
     {
-     "worldX": -38995.5,
-     "worldZ": -82380.7
+     "worldX": -29795.5,
+     "worldZ": -67680.7
     },
     {
-     "worldX": -38966.1,
-     "worldZ": -82358.3
+     "worldX": -29766.1,
+     "worldZ": -67658.3
     },
     {
-     "worldX": -38932.8,
-     "worldZ": -82328.1
+     "worldX": -29732.8,
+     "worldZ": -67628.1
     }
    ]
   },
@@ -329,28 +329,28 @@
    "widthM": 23,
    "points": [
     {
-     "worldX": -40122,
-     "worldZ": -84214.1
+     "worldX": -30922,
+     "worldZ": -69514.1
     },
     {
-     "worldX": -40135.8,
-     "worldZ": -84324.1
+     "worldX": -30935.8,
+     "worldZ": -69624.1
     },
     {
-     "worldX": -40138.7,
-     "worldZ": -84497.5
+     "worldX": -30938.7,
+     "worldZ": -69797.5
     },
     {
-     "worldX": -40142.3,
-     "worldZ": -84581.2
+     "worldX": -30942.3,
+     "worldZ": -69881.2
     },
     {
-     "worldX": -40150.7,
-     "worldZ": -84622.5
+     "worldX": -30950.7,
+     "worldZ": -69922.5
     },
     {
-     "worldX": -40161.3,
-     "worldZ": -84649.5
+     "worldX": -30961.3,
+     "worldZ": -69949.5
     }
    ]
   },
@@ -359,28 +359,28 @@
    "widthM": 23,
    "points": [
     {
-     "worldX": -39870.2,
-     "worldZ": -83738.8
+     "worldX": -30670.2,
+     "worldZ": -69038.8
     },
     {
-     "worldX": -39855.4,
-     "worldZ": -83717.7
+     "worldX": -30655.4,
+     "worldZ": -69017.7
     },
     {
-     "worldX": -39845,
-     "worldZ": -83709.9
+     "worldX": -30645,
+     "worldZ": -69009.9
     },
     {
-     "worldX": -39820.2,
-     "worldZ": -83704.5
+     "worldX": -30620.2,
+     "worldZ": -69004.5
     },
     {
-     "worldX": -39798.9,
-     "worldZ": -83709.4
+     "worldX": -30598.9,
+     "worldZ": -69009.4
     },
     {
-     "worldX": -39523.4,
-     "worldZ": -83856.3
+     "worldX": -30323.4,
+     "worldZ": -69156.3
     }
    ]
   },
@@ -389,24 +389,24 @@
    "widthM": 23,
    "points": [
     {
-     "worldX": -39798.9,
-     "worldZ": -83709.4
+     "worldX": -30598.9,
+     "worldZ": -69009.4
     },
     {
-     "worldX": -39809.4,
-     "worldZ": -83700.3
+     "worldX": -30609.4,
+     "worldZ": -69000.3
     },
     {
-     "worldX": -39821.5,
-     "worldZ": -83681.7
+     "worldX": -30621.5,
+     "worldZ": -68981.7
     },
     {
-     "worldX": -39824.1,
-     "worldZ": -83665
+     "worldX": -30624.1,
+     "worldZ": -68965
     },
     {
-     "worldX": -39822.5,
-     "worldZ": -83648.9
+     "worldX": -30622.5,
+     "worldZ": -68948.9
     }
    ]
   },
@@ -415,32 +415,32 @@
    "widthM": 23,
    "points": [
     {
-     "worldX": -39061.3,
-     "worldZ": -82426.4
+     "worldX": -29861.3,
+     "worldZ": -67726.4
     },
     {
-     "worldX": -39049.5,
-     "worldZ": -82425.6
+     "worldX": -29849.5,
+     "worldZ": -67725.6
     },
     {
-     "worldX": -39023.9,
-     "worldZ": -82436.3
+     "worldX": -29823.9,
+     "worldZ": -67736.3
     },
     {
-     "worldX": -39016.7,
-     "worldZ": -82443.8
+     "worldX": -29816.7,
+     "worldZ": -67743.8
     },
     {
-     "worldX": -39013.4,
-     "worldZ": -82452.2
+     "worldX": -29813.4,
+     "worldZ": -67752.2
     },
     {
-     "worldX": -39011,
-     "worldZ": -82461.7
+     "worldX": -29811,
+     "worldZ": -67761.7
     },
     {
-     "worldX": -39011.8,
-     "worldZ": -82477.1
+     "worldX": -29811.8,
+     "worldZ": -67777.1
     }
    ]
   },
@@ -449,32 +449,32 @@
    "widthM": 23,
    "points": [
     {
-     "worldX": -40138,
-     "worldZ": -84446.6
+     "worldX": -30938,
+     "worldZ": -69746.6
     },
     {
-     "worldX": -40135,
-     "worldZ": -84459.2
+     "worldX": -30935,
+     "worldZ": -69759.2
     },
     {
-     "worldX": -40128.7,
-     "worldZ": -84470.7
+     "worldX": -30928.7,
+     "worldZ": -69770.7
     },
     {
-     "worldX": -40114.3,
-     "worldZ": -84481.3
+     "worldX": -30914.3,
+     "worldZ": -69781.3
     },
     {
-     "worldX": -40089.7,
-     "worldZ": -84482
+     "worldX": -30889.7,
+     "worldZ": -69782
     },
     {
-     "worldX": -40073.3,
-     "worldZ": -84475.5
+     "worldX": -30873.3,
+     "worldZ": -69775.5
     },
     {
-     "worldX": -40064.7,
-     "worldZ": -84465.6
+     "worldX": -30864.7,
+     "worldZ": -69765.6
     }
    ]
   },
@@ -483,40 +483,40 @@
    "widthM": 23,
    "points": [
     {
-     "worldX": -40708.8,
-     "worldZ": -85321.7
+     "worldX": -31508.8,
+     "worldZ": -70621.7
     },
     {
-     "worldX": -40710.2,
-     "worldZ": -85350.4
+     "worldX": -31510.2,
+     "worldZ": -70650.4
     },
     {
-     "worldX": -40706.7,
-     "worldZ": -85360
+     "worldX": -31506.7,
+     "worldZ": -70660
     },
     {
-     "worldX": -40698.1,
-     "worldZ": -85372
+     "worldX": -31498.1,
+     "worldZ": -70672
     },
     {
-     "worldX": -40687.4,
-     "worldZ": -85379.6
+     "worldX": -31487.4,
+     "worldZ": -70679.6
     },
     {
-     "worldX": -40610.5,
-     "worldZ": -85418.8
+     "worldX": -31410.5,
+     "worldZ": -70718.8
     },
     {
-     "worldX": -40586.8,
-     "worldZ": -85418.5
+     "worldX": -31386.8,
+     "worldZ": -70718.5
     },
     {
-     "worldX": -40576.1,
-     "worldZ": -85414.5
+     "worldX": -31376.1,
+     "worldZ": -70714.5
     },
     {
-     "worldX": -40560.3,
-     "worldZ": -85403.4
+     "worldX": -31360.3,
+     "worldZ": -70703.4
     }
    ]
   },
@@ -525,16 +525,16 @@
    "widthM": 15,
    "points": [
     {
-     "worldX": -39968,
-     "worldZ": -84895.8
+     "worldX": -30768,
+     "worldZ": -70195.8
     },
     {
-     "worldX": -40225.5,
-     "worldZ": -85381.8
+     "worldX": -31025.5,
+     "worldZ": -70681.8
     },
     {
-     "worldX": -40322.2,
-     "worldZ": -85387.1
+     "worldX": -31122.2,
+     "worldZ": -70687.1
     }
    ]
   }
@@ -545,32 +545,32 @@
    "kind": "apron",
    "points": [
     {
-     "worldX": -39356.9,
-     "worldZ": -83753.4
+     "worldX": -30156.9,
+     "worldZ": -69053.4
     },
     {
-     "worldX": -39388.6,
-     "worldZ": -83736.6
+     "worldX": -30188.6,
+     "worldZ": -69036.6
     },
     {
-     "worldX": -39550.8,
-     "worldZ": -83651.1
+     "worldX": -30350.8,
+     "worldZ": -68951.1
     },
     {
-     "worldX": -39695.1,
-     "worldZ": -83925
+     "worldX": -30495.1,
+     "worldZ": -69225
     },
     {
-     "worldX": -39536.2,
-     "worldZ": -84007.7
+     "worldX": -30336.2,
+     "worldZ": -69307.7
     },
     {
-     "worldX": -39585.7,
-     "worldZ": -84101.3
+     "worldX": -30385.7,
+     "worldZ": -69401.3
     },
     {
-     "worldX": -39552,
-     "worldZ": -84118.6
+     "worldX": -30352,
+     "worldZ": -69418.6
     }
    ]
   },
@@ -579,76 +579,76 @@
    "kind": "apron",
    "points": [
     {
-     "worldX": -40431.8,
-     "worldZ": -85513.1
+     "worldX": -31231.8,
+     "worldZ": -70813.1
     },
     {
-     "worldX": -40259.3,
-     "worldZ": -85187.3
+     "worldX": -31059.3,
+     "worldZ": -70487.3
     },
     {
-     "worldX": -40173.2,
-     "worldZ": -85018
+     "worldX": -30973.2,
+     "worldZ": -70318
     },
     {
-     "worldX": -40148,
-     "worldZ": -85027.9
+     "worldX": -30948,
+     "worldZ": -70327.9
     },
     {
-     "worldX": -39951.8,
-     "worldZ": -84659.5
+     "worldX": -30751.8,
+     "worldZ": -69959.5
     },
     {
-     "worldX": -40094,
-     "worldZ": -84581.3
+     "worldX": -30894,
+     "worldZ": -69881.3
     },
     {
-     "worldX": -40158.5,
-     "worldZ": -84553.7
+     "worldX": -30958.5,
+     "worldZ": -69853.7
     },
     {
-     "worldX": -40166.4,
-     "worldZ": -84604.8
+     "worldX": -30966.4,
+     "worldZ": -69904.8
     },
     {
-     "worldX": -40183.2,
-     "worldZ": -84647.5
+     "worldX": -30983.2,
+     "worldZ": -69947.5
     },
     {
-     "worldX": -40570.4,
-     "worldZ": -85383.2
+     "worldX": -31370.4,
+     "worldZ": -70683.2
     },
     {
-     "worldX": -40606.2,
-     "worldZ": -85391.8
+     "worldX": -31406.2,
+     "worldZ": -70691.8
     },
     {
-     "worldX": -40627.9,
-     "worldZ": -85435.3
+     "worldX": -31427.9,
+     "worldZ": -70735.3
     },
     {
-     "worldX": -40649.8,
-     "worldZ": -85476.8
+     "worldX": -31449.8,
+     "worldZ": -70776.8
     },
     {
-     "worldX": -40633.9,
-     "worldZ": -85534.1
+     "worldX": -31433.9,
+     "worldZ": -70834.1
     },
     {
-     "worldX": -40559.2,
-     "worldZ": -85654
+     "worldX": -31359.2,
+     "worldZ": -70954
     },
     {
-     "worldX": -40417.5,
-     "worldZ": -85567.6
+     "worldX": -31217.5,
+     "worldZ": -70867.6
     },
     {
-     "worldX": -40447,
-     "worldZ": -85520.2
+     "worldX": -31247,
+     "worldZ": -70820.2
     },
     {
-     "worldX": -40445.4,
-     "worldZ": -85509.2
+     "worldX": -31245.4,
+     "worldZ": -70809.2
     }
    ]
   },
@@ -657,20 +657,20 @@
    "kind": "shelter_pad",
    "points": [
     {
-     "worldX": -40143.2,
-     "worldZ": -85382.4
+     "worldX": -30943.2,
+     "worldZ": -70682.4
     },
     {
-     "worldX": -40158.2,
-     "worldZ": -85410.7
+     "worldX": -30958.2,
+     "worldZ": -70710.7
     },
     {
-     "worldX": -40215.6,
-     "worldZ": -85380.2
+     "worldX": -31015.6,
+     "worldZ": -70680.2
     },
     {
-     "worldX": -40200.6,
-     "worldZ": -85352
+     "worldX": -31000.6,
+     "worldZ": -70652
     }
    ]
   },
@@ -679,20 +679,20 @@
    "kind": "shelter_pad",
    "points": [
     {
-     "worldX": -40118.7,
-     "worldZ": -85329.7
+     "worldX": -30918.7,
+     "worldZ": -70629.7
     },
     {
-     "worldX": -40133.7,
-     "worldZ": -85358
+     "worldX": -30933.7,
+     "worldZ": -70658
     },
     {
-     "worldX": -40191.1,
-     "worldZ": -85327.6
+     "worldX": -30991.1,
+     "worldZ": -70627.6
     },
     {
-     "worldX": -40176.1,
-     "worldZ": -85299.3
+     "worldX": -30976.1,
+     "worldZ": -70599.3
     }
    ]
   },
@@ -701,20 +701,20 @@
    "kind": "shelter_pad",
    "points": [
     {
-     "worldX": -40037.9,
-     "worldZ": -85166.6
+     "worldX": -30837.9,
+     "worldZ": -70466.6
     },
     {
-     "worldX": -40052.9,
-     "worldZ": -85194.8
+     "worldX": -30852.9,
+     "worldZ": -70494.8
     },
     {
-     "worldX": -40110.3,
-     "worldZ": -85164.4
+     "worldX": -30910.3,
+     "worldZ": -70464.4
     },
     {
-     "worldX": -40095.4,
-     "worldZ": -85136.1
+     "worldX": -30895.4,
+     "worldZ": -70436.1
     }
    ]
   },
@@ -723,20 +723,20 @@
    "kind": "shelter_pad",
    "points": [
     {
-     "worldX": -40009.1,
-     "worldZ": -85120.7
+     "worldX": -30809.1,
+     "worldZ": -70420.7
     },
     {
-     "worldX": -40024.1,
-     "worldZ": -85149
+     "worldX": -30824.1,
+     "worldZ": -70449
     },
     {
-     "worldX": -40081.5,
-     "worldZ": -85118.6
+     "worldX": -30881.5,
+     "worldZ": -70418.6
     },
     {
-     "worldX": -40066.5,
-     "worldZ": -85090.3
+     "worldX": -30866.5,
+     "worldZ": -70390.3
     }
    ]
   },
@@ -745,20 +745,20 @@
    "kind": "shelter_pad",
    "points": [
     {
-     "worldX": -39949.7,
-     "worldZ": -85010.7
+     "worldX": -30749.7,
+     "worldZ": -70310.7
     },
     {
-     "worldX": -39964.7,
-     "worldZ": -85039
+     "worldX": -30764.7,
+     "worldZ": -70339
     },
     {
-     "worldX": -40022.1,
-     "worldZ": -85008.6
+     "worldX": -30822.1,
+     "worldZ": -70308.6
     },
     {
-     "worldX": -40007.1,
-     "worldZ": -84980.3
+     "worldX": -30807.1,
+     "worldZ": -70280.3
     }
    ]
   },
@@ -767,20 +767,20 @@
    "kind": "shelter_pad",
    "points": [
     {
-     "worldX": -39920.8,
-     "worldZ": -84960.4
+     "worldX": -30720.8,
+     "worldZ": -70260.4
     },
     {
-     "worldX": -39935.8,
-     "worldZ": -84988.7
+     "worldX": -30735.8,
+     "worldZ": -70288.7
     },
     {
-     "worldX": -39993.2,
-     "worldZ": -84958.3
+     "worldX": -30793.2,
+     "worldZ": -70258.3
     },
     {
-     "worldX": -39978.2,
-     "worldZ": -84930
+     "worldX": -30778.2,
+     "worldZ": -70230
     }
    ]
   }
@@ -788,183 +788,183 @@
  "parkingSpots": [
   {
    "id": "STAND-1",
-   "worldX": -39593.2,
-   "worldZ": -83919.8,
+   "worldX": -30393.2,
+   "worldZ": -69219.8,
    "headingRad": 4.2252,
    "type": "transport"
   },
   {
    "id": "STAND-2",
-   "worldX": -39530.4,
-   "worldZ": -83893.3,
+   "worldX": -30330.4,
+   "worldZ": -69193.3,
    "headingRad": 4.2252,
    "type": "transport"
   },
   {
    "id": "STAND-3",
-   "worldX": -39544.2,
-   "worldZ": -83808.7,
+   "worldX": -30344.2,
+   "worldZ": -69108.7,
    "headingRad": 4.2252,
    "type": "transport"
   },
   {
    "id": "STAND-4",
-   "worldX": -39510.9,
-   "worldZ": -83754.4,
+   "worldX": -30310.9,
+   "worldZ": -69054.4,
    "headingRad": 4.2252,
    "type": "transport"
   },
   {
    "id": "AS-1",
-   "worldX": -40370.3,
-   "worldZ": -85212.5,
+   "worldX": -31170.3,
+   "worldZ": -70512.5,
    "headingRad": 4.2214,
    "type": "fighter"
   },
   {
    "id": "AS-2",
-   "worldX": -40383.3,
-   "worldZ": -85237,
+   "worldX": -31183.3,
+   "worldZ": -70537,
    "headingRad": 4.2711,
    "type": "fighter"
   },
   {
    "id": "AS-3",
-   "worldX": -40394.9,
-   "worldZ": -85259,
+   "worldX": -31194.9,
+   "worldZ": -70559,
    "headingRad": 4.2826,
    "type": "fighter"
   },
   {
    "id": "AS-4",
-   "worldX": -40404.7,
-   "worldZ": -85278,
+   "worldX": -31204.7,
+   "worldZ": -70578,
    "headingRad": 4.2452,
    "type": "fighter"
   },
   {
    "id": "AS-5",
-   "worldX": -40415.6,
-   "worldZ": -85298.3,
+   "worldX": -31215.6,
+   "worldZ": -70598.3,
    "headingRad": 4.2339,
    "type": "fighter"
   },
   {
    "id": "AS-6",
-   "worldX": -40426.5,
-   "worldZ": -85320,
+   "worldX": -31226.5,
+   "worldZ": -70620,
    "headingRad": 4.2628,
    "type": "fighter"
   },
   {
    "id": "AS-7",
-   "worldX": -40437.9,
-   "worldZ": -85342.6,
+   "worldX": -31237.9,
+   "worldZ": -70642.6,
    "headingRad": 4.2706,
    "type": "fighter"
   },
   {
    "id": "AS-8",
-   "worldX": -40452,
-   "worldZ": -85364.5,
+   "worldX": -31252,
+   "worldZ": -70664.5,
    "headingRad": 4.2518,
    "type": "fighter"
   },
   {
    "id": "AS-9",
-   "worldX": -40463.1,
-   "worldZ": -85384.9,
+   "worldX": -31263.1,
+   "worldZ": -70684.9,
    "headingRad": 4.2665,
    "type": "fighter"
   },
   {
    "id": "AS-10",
-   "worldX": -40472.3,
-   "worldZ": -85404.6,
+   "worldX": -31272.3,
+   "worldZ": -70704.6,
    "headingRad": 4.2711,
    "type": "fighter"
   },
   {
    "id": "AS-11",
-   "worldX": -40482.3,
-   "worldZ": -85425.6,
+   "worldX": -31282.3,
+   "worldZ": -70725.6,
    "headingRad": 4.2702,
    "type": "fighter"
   },
   {
    "id": "AS-12",
-   "worldX": -40492.8,
-   "worldZ": -85449.1,
+   "worldX": -31292.8,
+   "worldZ": -70749.1,
    "headingRad": 4.2702,
    "type": "fighter"
   },
   {
    "id": "AS-13",
-   "worldX": -40496,
-   "worldZ": -85537.3,
+   "worldX": -31296,
+   "worldZ": -70837.3,
    "headingRad": 3.6618,
    "type": "fighter"
   },
   {
    "id": "AS-14",
-   "worldX": -40519.6,
-   "worldZ": -85551.6,
+   "worldX": -31319.6,
+   "worldZ": -70851.6,
    "headingRad": 3.6618,
    "type": "fighter"
   },
   {
    "id": "AS-15",
-   "worldX": -40539,
-   "worldZ": -85561.9,
+   "worldX": -31339,
+   "worldZ": -70861.9,
    "headingRad": 3.7616,
    "type": "fighter"
   },
   {
    "id": "AS-16",
-   "worldX": -40559,
-   "worldZ": -85574.7,
+   "worldX": -31359,
+   "worldZ": -70874.7,
    "headingRad": 3.7243,
    "type": "fighter"
   },
   {
    "id": "HAS-1",
-   "worldX": -40168.4,
-   "worldZ": -85387.2,
+   "worldX": -30968.4,
+   "worldZ": -70687.2,
    "headingRad": 4.2252,
    "type": "fighter"
   },
   {
    "id": "HAS-2",
-   "worldX": -40143.9,
-   "worldZ": -85334.5,
+   "worldX": -30943.9,
+   "worldZ": -70634.5,
    "headingRad": 4.2252,
    "type": "fighter"
   },
   {
    "id": "HAS-3",
-   "worldX": -40063.1,
-   "worldZ": -85171.3,
+   "worldX": -30863.1,
+   "worldZ": -70471.3,
    "headingRad": 4.2252,
    "type": "fighter"
   },
   {
    "id": "HAS-4",
-   "worldX": -40034.3,
-   "worldZ": -85125.5,
+   "worldX": -30834.3,
+   "worldZ": -70425.5,
    "headingRad": 4.2252,
    "type": "fighter"
   },
   {
    "id": "HAS-5",
-   "worldX": -39974.9,
-   "worldZ": -85015.5,
+   "worldX": -30774.9,
+   "worldZ": -70315.5,
    "headingRad": 4.2252,
    "type": "fighter"
   },
   {
    "id": "HAS-6",
-   "worldX": -39945.9,
-   "worldZ": -84965.2,
+   "worldX": -30745.9,
+   "worldZ": -70265.2,
    "headingRad": 4.2252,
    "type": "fighter"
   }
@@ -973,8 +973,8 @@
   {
    "id": "APRON-SHELTER-1",
    "kind": "shelter",
-   "worldX": -40370.3,
-   "worldZ": -85212.5,
+   "worldX": -31170.3,
+   "worldZ": -70512.5,
    "headingRad": 4.2214,
    "widthM": 22,
    "lengthM": 38.4,
@@ -984,8 +984,8 @@
   {
    "id": "APRON-SHELTER-2",
    "kind": "shelter",
-   "worldX": -40383.3,
-   "worldZ": -85237,
+   "worldX": -31183.3,
+   "worldZ": -70537,
    "headingRad": 4.2711,
    "widthM": 22,
    "lengthM": 37.2,
@@ -995,8 +995,8 @@
   {
    "id": "APRON-SHELTER-3",
    "kind": "shelter",
-   "worldX": -40394.9,
-   "worldZ": -85259,
+   "worldX": -31194.9,
+   "worldZ": -70559,
    "headingRad": 4.2826,
    "widthM": 22,
    "lengthM": 37.5,
@@ -1006,8 +1006,8 @@
   {
    "id": "APRON-SHELTER-4",
    "kind": "shelter",
-   "worldX": -40404.7,
-   "worldZ": -85278,
+   "worldX": -31204.7,
+   "worldZ": -70578,
    "headingRad": 4.2452,
    "widthM": 22,
    "lengthM": 37.5,
@@ -1017,8 +1017,8 @@
   {
    "id": "APRON-SHELTER-5",
    "kind": "shelter",
-   "worldX": -40415.6,
-   "worldZ": -85298.3,
+   "worldX": -31215.6,
+   "worldZ": -70598.3,
    "headingRad": 4.2339,
    "widthM": 22,
    "lengthM": 38.2,
@@ -1028,8 +1028,8 @@
   {
    "id": "APRON-SHELTER-6",
    "kind": "shelter",
-   "worldX": -40426.5,
-   "worldZ": -85320,
+   "worldX": -31226.5,
+   "worldZ": -70620,
    "headingRad": 4.2628,
    "widthM": 22,
    "lengthM": 38.2,
@@ -1039,8 +1039,8 @@
   {
    "id": "APRON-SHELTER-7",
    "kind": "shelter",
-   "worldX": -40437.9,
-   "worldZ": -85342.6,
+   "worldX": -31237.9,
+   "worldZ": -70642.6,
    "headingRad": 4.2706,
    "widthM": 22,
    "lengthM": 38.9,
@@ -1050,8 +1050,8 @@
   {
    "id": "APRON-SHELTER-8",
    "kind": "shelter",
-   "worldX": -40452,
-   "worldZ": -85364.5,
+   "worldX": -31252,
+   "worldZ": -70664.5,
    "headingRad": 4.2518,
    "widthM": 22,
    "lengthM": 38.1,
@@ -1061,8 +1061,8 @@
   {
    "id": "APRON-SHELTER-9",
    "kind": "shelter",
-   "worldX": -40463.1,
-   "worldZ": -85384.9,
+   "worldX": -31263.1,
+   "worldZ": -70684.9,
    "headingRad": 4.2665,
    "widthM": 22,
    "lengthM": 36.1,
@@ -1072,8 +1072,8 @@
   {
    "id": "APRON-SHELTER-10",
    "kind": "shelter",
-   "worldX": -40472.3,
-   "worldZ": -85404.6,
+   "worldX": -31272.3,
+   "worldZ": -70704.6,
    "headingRad": 4.2711,
    "widthM": 21.3,
    "lengthM": 35.8,
@@ -1083,8 +1083,8 @@
   {
    "id": "APRON-SHELTER-11",
    "kind": "shelter",
-   "worldX": -40482.3,
-   "worldZ": -85425.6,
+   "worldX": -31282.3,
+   "worldZ": -70725.6,
    "headingRad": 4.2702,
    "widthM": 22,
    "lengthM": 36.4,
@@ -1094,8 +1094,8 @@
   {
    "id": "APRON-SHELTER-12",
    "kind": "shelter",
-   "worldX": -40492.8,
-   "worldZ": -85449.1,
+   "worldX": -31292.8,
+   "worldZ": -70749.1,
    "headingRad": 4.2702,
    "widthM": 22,
    "lengthM": 37.6,
@@ -1105,8 +1105,8 @@
   {
    "id": "APRON-SHELTER-13",
    "kind": "shelter",
-   "worldX": -40496,
-   "worldZ": -85537.3,
+   "worldX": -31296,
+   "worldZ": -70837.3,
    "headingRad": 3.6618,
    "widthM": 22,
    "lengthM": 36.1,
@@ -1116,8 +1116,8 @@
   {
    "id": "APRON-SHELTER-14",
    "kind": "shelter",
-   "worldX": -40519.6,
-   "worldZ": -85551.6,
+   "worldX": -31319.6,
+   "worldZ": -70851.6,
    "headingRad": 3.6618,
    "widthM": 22,
    "lengthM": 34.6,
@@ -1127,8 +1127,8 @@
   {
    "id": "APRON-SHELTER-15",
    "kind": "shelter",
-   "worldX": -40539,
-   "worldZ": -85561.9,
+   "worldX": -31339,
+   "worldZ": -70861.9,
    "headingRad": 3.7616,
    "widthM": 22,
    "lengthM": 36.8,
@@ -1138,8 +1138,8 @@
   {
    "id": "APRON-SHELTER-16",
    "kind": "shelter",
-   "worldX": -40559,
-   "worldZ": -85574.7,
+   "worldX": -31359,
+   "worldZ": -70874.7,
    "headingRad": 3.7243,
    "widthM": 22,
    "lengthM": 35.4,
@@ -1149,8 +1149,8 @@
   {
    "id": "HAS-1",
    "kind": "shelter",
-   "worldX": -40168.4,
-   "worldZ": -85387.2,
+   "worldX": -30968.4,
+   "worldZ": -70687.2,
    "headingRad": 4.2252,
    "widthM": 26,
    "lengthM": 36,
@@ -1160,8 +1160,8 @@
   {
    "id": "HAS-2",
    "kind": "shelter",
-   "worldX": -40143.9,
-   "worldZ": -85334.5,
+   "worldX": -30943.9,
+   "worldZ": -70634.5,
    "headingRad": 4.2252,
    "widthM": 26,
    "lengthM": 36,
@@ -1171,8 +1171,8 @@
   {
    "id": "HAS-3",
    "kind": "shelter",
-   "worldX": -40063.1,
-   "worldZ": -85171.3,
+   "worldX": -30863.1,
+   "worldZ": -70471.3,
    "headingRad": 4.2252,
    "widthM": 26,
    "lengthM": 36,
@@ -1182,8 +1182,8 @@
   {
    "id": "HAS-4",
    "kind": "shelter",
-   "worldX": -40034.3,
-   "worldZ": -85125.5,
+   "worldX": -30834.3,
+   "worldZ": -70425.5,
    "headingRad": 4.2252,
    "widthM": 26,
    "lengthM": 36,
@@ -1193,8 +1193,8 @@
   {
    "id": "HAS-5",
    "kind": "shelter",
-   "worldX": -39974.9,
-   "worldZ": -85015.5,
+   "worldX": -30774.9,
+   "worldZ": -70315.5,
    "headingRad": 4.2252,
    "widthM": 26,
    "lengthM": 36,
@@ -1204,8 +1204,8 @@
   {
    "id": "HAS-6",
    "kind": "shelter",
-   "worldX": -39945.9,
-   "worldZ": -84965.2,
+   "worldX": -30745.9,
+   "worldZ": -70265.2,
    "headingRad": 4.2252,
    "widthM": 26,
    "lengthM": 36,
@@ -1215,8 +1215,8 @@
   {
    "id": "HANGAR-1",
    "kind": "hangar",
-   "worldX": -40172,
-   "worldZ": -85120.9,
+   "worldX": -30972,
+   "worldZ": -70420.9,
    "headingRad": 4.2252,
    "widthM": 65.6,
    "lengthM": 24.6,
@@ -1226,8 +1226,8 @@
   {
    "id": "HANGAR-2",
    "kind": "hangar",
-   "worldX": -40208.9,
-   "worldZ": -85197.1,
+   "worldX": -31008.9,
+   "worldZ": -70497.1,
    "headingRad": 4.2252,
    "widthM": 65.7,
    "lengthM": 24,
@@ -1237,8 +1237,8 @@
   {
    "id": "HANGAR-3",
    "kind": "hangar",
-   "worldX": -40277.2,
-   "worldZ": -85326.3,
+   "worldX": -31077.2,
+   "worldZ": -70626.3,
    "headingRad": 4.2252,
    "widthM": 51.1,
    "lengthM": 25.3,
@@ -1248,8 +1248,8 @@
   {
    "id": "HANGAR-4",
    "kind": "hangar",
-   "worldX": -40314.2,
-   "worldZ": -85394.4,
+   "worldX": -31114.2,
+   "worldZ": -70694.4,
    "headingRad": 4.2252,
    "widthM": 64.3,
    "lengthM": 25.5,
@@ -1259,8 +1259,8 @@
   {
    "id": "TERMINAL",
    "kind": "building",
-   "worldX": -39410.2,
-   "worldZ": -83912,
+   "worldX": -30210.2,
+   "worldZ": -69212,
    "headingRad": 2.6501,
    "widthM": 48.7,
    "lengthM": 97.4,
@@ -1270,8 +1270,8 @@
   {
    "id": "TOWER",
    "kind": "control_tower",
-   "worldX": -39354.8,
-   "worldZ": -83930.5,
+   "worldX": -30154.8,
+   "worldZ": -69230.5,
    "headingRad": 4.2252,
    "widthM": 9,
    "lengthM": 9,
@@ -1281,8 +1281,8 @@
   {
    "id": "BUILDING-1",
    "kind": "building",
-   "worldX": -38979.3,
-   "worldZ": -83371.4,
+   "worldX": -29779.3,
+   "worldZ": -68671.4,
    "headingRad": 1.0502,
    "widthM": 19.3,
    "lengthM": 93.4,
@@ -1292,8 +1292,8 @@
   {
    "id": "BUILDING-2",
    "kind": "building",
-   "worldX": -39655,
-   "worldZ": -84418.2,
+   "worldX": -30455,
+   "worldZ": -69718.2,
    "headingRad": 2.6502,
    "widthM": 24.9,
    "lengthM": 94.5,
@@ -1303,8 +1303,8 @@
   {
    "id": "BUILDING-3",
    "kind": "building",
-   "worldX": -39938.4,
-   "worldZ": -84551.8,
+   "worldX": -30738.4,
+   "worldZ": -69851.8,
    "headingRad": 5.8278,
    "widthM": 34.8,
    "lengthM": 71.7,
@@ -1314,8 +1314,8 @@
   {
    "id": "BUILDING-4",
    "kind": "building",
-   "worldX": -39701.9,
-   "worldZ": -84831.8,
+   "worldX": -30501.9,
+   "worldZ": -70131.8,
    "headingRad": 5.7741,
    "widthM": 38.8,
    "lengthM": 98,
@@ -1325,8 +1325,8 @@
   {
    "id": "BUILDING-5",
    "kind": "building",
-   "worldX": -39756.4,
-   "worldZ": -84949.4,
+   "worldX": -30556.4,
+   "worldZ": -70249.4,
    "headingRad": 1.1109,
    "widthM": 29.6,
    "lengthM": 86.6,
@@ -1336,8 +1336,8 @@
   {
    "id": "BUILDING-6",
    "kind": "building",
-   "worldX": -39806.5,
-   "worldZ": -84752.6,
+   "worldX": -30606.5,
+   "worldZ": -70052.6,
    "headingRad": 2.6337,
    "widthM": 49.8,
    "lengthM": 58.7,
@@ -1347,8 +1347,8 @@
   {
    "id": "BUILDING-7",
    "kind": "building",
-   "worldX": -39730.9,
-   "worldZ": -84900.9,
+   "worldX": -30530.9,
+   "worldZ": -70200.9,
    "headingRad": 1.0731,
    "widthM": 27,
    "lengthM": 88,
@@ -1358,8 +1358,8 @@
   {
    "id": "MAG-1",
    "kind": "magazine",
-   "worldX": -39158.7,
-   "worldZ": -84532.4,
+   "worldX": -29958.7,
+   "worldZ": -69832.4,
    "headingRad": 4.2252,
    "widthM": 14,
    "lengthM": 24,
@@ -1369,8 +1369,8 @@
   {
    "id": "MAG-2",
    "kind": "magazine",
-   "worldX": -39200.9,
-   "worldZ": -84611.9,
+   "worldX": -30000.9,
+   "worldZ": -69911.9,
    "headingRad": 4.2252,
    "widthM": 14,
    "lengthM": 24,
@@ -1380,8 +1380,8 @@
   {
    "id": "MAG-3",
    "kind": "magazine",
-   "worldX": -39243,
-   "worldZ": -84691.4,
+   "worldX": -30043,
+   "worldZ": -69991.4,
    "headingRad": 4.2252,
    "widthM": 14,
    "lengthM": 24,
@@ -1391,8 +1391,8 @@
   {
    "id": "MAG-4",
    "kind": "magazine",
-   "worldX": -39285.1,
-   "worldZ": -84770.9,
+   "worldX": -30085.1,
+   "worldZ": -70070.9,
    "headingRad": 4.2252,
    "widthM": 14,
    "lengthM": 24,

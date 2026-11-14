@@ -18,13 +18,30 @@ export const MAP_SCALE = 0.6;
 const M_PER_DEG_LAT = 111_200;
 const M_PER_DEG_LON = 95_600; // at 30.85 N
 
-/** World (x east, z south, metres) of a latitude/longitude. */
-export function geo(lat: number, lon: number): [number, number] {
+/**
+ * Where the game world's centre sits in the map frame (metres from ORIGIN_LAT/LON, compressed): the
+ * middle of the box round Fukche, Ngari Gunsa and Simikot, so the three bases sit ~27 km or more
+ * inside the 200 km world's edges (with the world centred on the projection origin, Fukche and
+ * Ngari were 12-17 km from the north edge). The terrain is built in the map frame (geoMap); the
+ * exported height functions (height.ts) and geo() take and give world coordinates.
+ */
+export const MAP_SHIFT_X = -9200;
+export const MAP_SHIFT_Z = -14700;
+
+/** Map frame (x east, z south, metres from the projection origin) of a latitude/longitude. */
+export function geoMap(lat: number, lon: number): [number, number] {
   return [(lon - ORIGIN_LON) * M_PER_DEG_LON * MAP_SCALE, -(lat - ORIGIN_LAT) * M_PER_DEG_LAT * MAP_SCALE];
 }
 
+/** World (x east, z south, metres) of a latitude/longitude. */
+export function geo(lat: number, lon: number): [number, number] {
+  const [x, z] = geoMap(lat, lon);
+  return [x - MAP_SHIFT_X, z - MAP_SHIFT_Z];
+}
+
 export function toGeo(x: number, z: number): [number, number] {
-  return [ORIGIN_LAT - z / (M_PER_DEG_LAT * MAP_SCALE), ORIGIN_LON + x / (M_PER_DEG_LON * MAP_SCALE)];
+  const mx = x + MAP_SHIFT_X, mz = z + MAP_SHIFT_Z;
+  return [ORIGIN_LAT - mz / (M_PER_DEG_LAT * MAP_SCALE), ORIGIN_LON + mx / (M_PER_DEG_LON * MAP_SCALE)];
 }
 
 /** Half-size of the playable map, metres. */

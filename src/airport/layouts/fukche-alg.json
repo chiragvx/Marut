@@ -3,83 +3,83 @@
  "name": "Fukche Advanced Landing Ground (IAF)",
  "side": "friendly",
  "attribution": "Runway from OpenStreetMap data, (c) OpenStreetMap contributors (ODbL); dispersal, camp and stands are interpretation or generic. Runway, taxiway and dispersal are unpaved (graded earth), as the real strip is.",
- "referenceWorldX": -80017.2,
- "referenceWorldZ": -88070.4,
+ "referenceWorldX": -70817.2,
+ "referenceWorldZ": -73370.4,
  "elevationM": 4176,
  "flattenZones": [
   {
-   "centerWorldX": -80017.2,
-   "centerWorldZ": -88070.4,
+   "centerWorldX": -70817.2,
+   "centerWorldZ": -73370.4,
    "elevationM": 4176,
    "flatRadiusM": 300,
    "blendRadiusM": 0
   },
   {
-   "centerWorldX": -80904.2,
-   "centerWorldZ": -89016.5,
+   "centerWorldX": -71704.2,
+   "centerWorldZ": -74316.5,
    "elevationM": 4176,
    "flatRadiusM": 300,
    "blendRadiusM": 0
   },
   {
-   "centerWorldX": -80460.7,
-   "centerWorldZ": -88543.4,
+   "centerWorldX": -71260.7,
+   "centerWorldZ": -73843.4,
    "elevationM": 4176,
    "flatRadiusM": 300,
    "blendRadiusM": 0
   },
   {
-   "centerWorldX": -79573.7,
-   "centerWorldZ": -87597.3,
+   "centerWorldX": -70373.7,
+   "centerWorldZ": -72897.3,
    "elevationM": 4176,
    "flatRadiusM": 300,
    "blendRadiusM": 0
   },
   {
-   "centerWorldX": -79130.2,
-   "centerWorldZ": -87124.2,
+   "centerWorldX": -69930.2,
+   "centerWorldZ": -72424.2,
    "elevationM": 4176,
    "flatRadiusM": 300,
    "blendRadiusM": 0
   },
   {
-   "centerWorldX": -80074.1,
-   "centerWorldZ": -86785.2,
+   "centerWorldX": -70874.1,
+   "centerWorldZ": -72085.2,
    "elevationM": 4176,
    "flatRadiusM": 196,
    "blendRadiusM": 0
   },
   {
-   "centerWorldX": -79955.4,
-   "centerWorldZ": -86608.8,
+   "centerWorldX": -70755.4,
+   "centerWorldZ": -71908.8,
    "elevationM": 4176,
    "flatRadiusM": 162,
    "blendRadiusM": 0
   },
   {
-   "centerWorldX": -80682.8,
-   "centerWorldZ": -88813.2,
+   "centerWorldX": -71482.8,
+   "centerWorldZ": -74113.2,
    "elevationM": 4176,
    "flatRadiusM": 295,
    "blendRadiusM": 0
   },
   {
-   "centerWorldX": -80237.2,
-   "centerWorldZ": -88338,
+   "centerWorldX": -71037.2,
+   "centerWorldZ": -73638,
    "elevationM": 4176,
    "flatRadiusM": 295,
    "blendRadiusM": 0
   },
   {
-   "centerWorldX": -79794.4,
-   "centerWorldZ": -87865.6,
+   "centerWorldX": -70594.4,
+   "centerWorldZ": -73165.6,
    "elevationM": 4176,
    "flatRadiusM": 295,
    "blendRadiusM": 0
   },
   {
-   "centerWorldX": -79351.6,
-   "centerWorldZ": -87393.3,
+   "centerWorldX": -70151.6,
+   "centerWorldZ": -72693.3,
    "elevationM": 4176,
    "flatRadiusM": 295,
    "blendRadiusM": 0
@@ -88,8 +88,8 @@
  "runways": [
   {
    "id": "14",
-   "thresholdWorldX": -80904.2,
-   "thresholdWorldZ": -89016.5,
+   "thresholdWorldX": -71704.2,
+   "thresholdWorldZ": -74316.5,
    "elevationM": 4176,
    "headingRad": 2.388437,
    "lengthM": 2593.8,
@@ -105,8 +105,8 @@
   },
   {
    "id": "32",
-   "thresholdWorldX": -79130.2,
-   "thresholdWorldZ": -87124.3,
+   "thresholdWorldX": -69930.2,
+   "thresholdWorldZ": -72424.3,
    "elevationM": 4176,
    "headingRad": 5.53003,
    "lengthM": 2593.8,
@@ -127,12 +127,12 @@
    "widthM": 18,
    "points": [
     {
-     "worldX": -79623.1,
-     "worldZ": -87650
+     "worldX": -70423.1,
+     "worldZ": -72950
     },
     {
-     "worldX": -79672.4,
-     "worldZ": -87603.8
+     "worldX": -70472.4,
+     "worldZ": -72903.8
     }
    ],
    "surface": "dirt"
@@ -144,20 +144,20 @@
    "kind": "apron",
    "points": [
     {
-     "worldX": -79727.1,
-     "worldZ": -87662.1
+     "worldX": -70527.1,
+     "worldZ": -72962.1
     },
     {
-     "worldX": -79617.7,
-     "worldZ": -87545.4
+     "worldX": -70417.7,
+     "worldZ": -72845.4
     },
     {
-     "worldX": -79697.9,
-     "worldZ": -87470.2
+     "worldX": -70497.9,
+     "worldZ": -72770.2
     },
     {
-     "worldX": -79807.4,
-     "worldZ": -87586.9
+     "worldX": -70607.4,
+     "worldZ": -72886.9
     }
    ],
    "surface": "dirt"
@@ -166,22 +166,22 @@
  "parkingSpots": [
   {
    "id": "STAND-1",
-   "worldX": -79754.3,
-   "worldZ": -87588.7,
+   "worldX": -70554.3,
+   "worldZ": -72888.7,
    "headingRad": 0.8176,
    "type": "transport"
   },
   {
    "id": "STAND-2",
-   "worldX": -79723.5,
-   "worldZ": -87555.9,
+   "worldX": -70523.5,
+   "worldZ": -72855.9,
    "headingRad": 0.8176,
    "type": "transport"
   },
   {
    "id": "STAND-3",
-   "worldX": -79692.7,
-   "worldZ": -87523,
+   "worldX": -70492.7,
+   "worldZ": -72823,
    "headingRad": 0.8176,
    "type": "helicopter"
   }
@@ -190,8 +190,8 @@
   {
    "id": "CAMP-1",
    "kind": "building",
-   "worldX": -80074.1,
-   "worldZ": -86785.2,
+   "worldX": -70874.1,
+   "worldZ": -72085.2,
    "headingRad": 3.8007,
    "widthM": 7.6,
    "lengthM": 19.2,
@@ -201,8 +201,8 @@
   {
    "id": "CAMP-2",
    "kind": "building",
-   "worldX": -80052.6,
-   "worldZ": -86792.9,
+   "worldX": -70852.6,
+   "worldZ": -72092.9,
    "headingRad": 5.3646,
    "widthM": 7.5,
    "lengthM": 18.4,
@@ -212,8 +212,8 @@
   {
    "id": "CAMP-3",
    "kind": "building",
-   "worldX": -80031.6,
-   "worldZ": -86751.9,
+   "worldX": -70831.6,
+   "worldZ": -72051.9,
    "headingRad": 3.9729,
    "widthM": 7.5,
    "lengthM": 19.6,
@@ -223,8 +223,8 @@
   {
    "id": "CAMP-4",
    "kind": "building",
-   "worldX": -80051.6,
-   "worldZ": -86744.9,
+   "worldX": -70851.6,
+   "worldZ": -72044.9,
    "headingRad": 2.2912,
    "widthM": 5.9,
    "lengthM": 22.6,
@@ -234,8 +234,8 @@
   {
    "id": "CAMP-5",
    "kind": "building",
-   "worldX": -80041.6,
-   "worldZ": -86763.8,
+   "worldX": -70841.6,
+   "worldZ": -72063.8,
    "headingRad": 3.823,
    "widthM": 7.2,
    "lengthM": 21.7,
@@ -245,8 +245,8 @@
   {
    "id": "CAMP-6",
    "kind": "building",
-   "worldX": -80027.4,
-   "worldZ": -86739.3,
+   "worldX": -70827.4,
+   "worldZ": -72039.3,
    "headingRad": 5.3714,
    "widthM": 6.5,
    "lengthM": 9.3,
@@ -256,8 +256,8 @@
   {
    "id": "CAMP-7",
    "kind": "building",
-   "worldX": -80027.3,
-   "worldZ": -86723.5,
+   "worldX": -70827.3,
+   "worldZ": -72023.5,
    "headingRad": 5.452,
    "widthM": 7.2,
    "lengthM": 31.6,
@@ -267,8 +267,8 @@
   {
    "id": "CAMP-8",
    "kind": "building",
-   "worldX": -80005.4,
-   "worldZ": -86755.4,
+   "worldX": -70805.4,
+   "worldZ": -72055.4,
    "headingRad": 2.3314,
    "widthM": 7.9,
    "lengthM": 22.5,
@@ -278,8 +278,8 @@
   {
    "id": "CAMP-9",
    "kind": "building",
-   "worldX": -79993.4,
-   "worldZ": -86714.4,
+   "worldX": -70793.4,
+   "worldZ": -72014.4,
    "headingRad": 4.0158,
    "widthM": 10.5,
    "lengthM": 30.9,
@@ -289,8 +289,8 @@
   {
    "id": "CAMP-10",
    "kind": "building",
-   "worldX": -79974.4,
-   "worldZ": -86623.4,
+   "worldX": -70774.4,
+   "worldZ": -71923.4,
    "headingRad": 5.5972,
    "widthM": 10.8,
    "lengthM": 19.3,
@@ -300,8 +300,8 @@
   {
    "id": "CAMP-11",
    "kind": "building",
-   "worldX": -79955.4,
-   "worldZ": -86608.8,
+   "worldX": -70755.4,
+   "worldZ": -71908.8,
    "headingRad": 4.0135,
    "widthM": 9.7,
    "lengthM": 16.9,
@@ -311,8 +311,8 @@
   {
    "id": "CAMP-12",
    "kind": "building",
-   "worldX": -79943.4,
-   "worldZ": -86595.1,
+   "worldX": -70743.4,
+   "worldZ": -71895.1,
    "headingRad": 3.9877,
    "widthM": 9.1,
    "lengthM": 17,
@@ -322,8 +322,8 @@
   {
    "id": "CAMP-13",
    "kind": "building",
-   "worldX": -80094.2,
-   "worldZ": -86581.2,
+   "worldX": -70894.2,
+   "worldZ": -71881.2,
    "headingRad": 5.3933,
    "widthM": 10.4,
    "lengthM": 18.5,
@@ -333,8 +333,8 @@
   {
    "id": "CAMP-14",
    "kind": "building",
-   "worldX": -80075.2,
-   "worldZ": -86590.9,
+   "worldX": -70875.2,
+   "worldZ": -71890.9,
    "headingRad": 5.4919,
    "widthM": 10.1,
    "lengthM": 23.9,
@@ -344,8 +344,8 @@
   {
    "id": "CAMP-15",
    "kind": "building",
-   "worldX": -80066.5,
-   "worldZ": -86610.2,
+   "worldX": -70866.5,
+   "worldZ": -71910.2,
    "headingRad": 3.9593,
    "widthM": 10.1,
    "lengthM": 11,
@@ -355,8 +355,8 @@
   {
    "id": "CAMP-16",
    "kind": "building",
-   "worldX": -80052,
-   "worldZ": -86594.1,
+   "worldX": -70852,
+   "worldZ": -71894.1,
    "headingRad": 0.8108,
    "widthM": 9.6,
    "lengthM": 10.1,
@@ -366,8 +366,8 @@
   {
    "id": "CAMP-17",
    "kind": "building",
-   "worldX": -80030.3,
-   "worldZ": -86572.7,
+   "worldX": -70830.3,
+   "worldZ": -71872.7,
    "headingRad": 2.3663,
    "widthM": 8.8,
    "lengthM": 11.1,
@@ -377,8 +377,8 @@
   {
    "id": "CAMP-18",
    "kind": "building",
-   "worldX": -80009.4,
-   "worldZ": -86551.2,
+   "worldX": -70809.4,
+   "worldZ": -71851.2,
    "headingRad": 2.434,
    "widthM": 8.9,
    "lengthM": 11.9,
@@ -388,8 +388,8 @@
   {
    "id": "CAMP-19",
    "kind": "building",
-   "worldX": -79973.5,
-   "worldZ": -86535.4,
+   "worldX": -70773.5,
+   "worldZ": -71835.4,
    "headingRad": 0.8289,
    "widthM": 5,
    "lengthM": 6.6,
@@ -399,8 +399,8 @@
   {
    "id": "CAMP-20",
    "kind": "building",
-   "worldX": -79988.7,
-   "worldZ": -86531.5,
+   "worldX": -70788.7,
+   "worldZ": -71831.5,
    "headingRad": 3.9564,
    "widthM": 8.3,
    "lengthM": 11.7,
@@ -410,8 +410,8 @@
   {
    "id": "CAMP-21",
    "kind": "building",
-   "worldX": -79964.2,
-   "worldZ": -86555.4,
+   "worldX": -70764.2,
+   "worldZ": -71855.4,
    "headingRad": 0.7911,
    "widthM": 10.2,
    "lengthM": 19.1,

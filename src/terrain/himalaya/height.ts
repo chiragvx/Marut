@@ -9,7 +9,9 @@
  */
 
 import { Noise2, gullies } from './noise';
-import { AIRFIELDS, BASINS, CONTROL, LAKES, PEAKS, VALLEYS, geo } from './layout';
+// Everything below is built in the map frame (geoMap); the exported functions take and give world
+// coordinates (world = map - MAP_SHIFT, layout.ts).
+import { AIRFIELDS, BASINS, CONTROL, LAKES, MAP_SHIFT_X as SX, MAP_SHIFT_Z as SZ, PEAKS, VALLEYS, geoMap as geo } from './layout';
 
 const N = new Noise2(1729);
 const N2 = new Noise2(4242);
@@ -104,9 +106,9 @@ export function strips(): Strip[] {
   const out: Strip[] = [];
   for (const f of fields) {
     const tag = { id: f.id, ...(f.layoutId ? { layoutId: f.layoutId } : {}) };
-    out.push({ ...tag, cx: f.x, cz: f.z, dx: f.dx, dz: f.dz, halfL: f.lengthM / 2, halfW: f.widthM / 2, taxi: false });
+    out.push({ ...tag, cx: f.x - SX, cz: f.z - SZ, dx: f.dx, dz: f.dz, halfL: f.lengthM / 2, halfW: f.widthM / 2, taxi: false });
     if (f.taxiway) {
-      out.push({ ...tag, cx: f.x + f.rx * f.taxiway.offsetM, cz: f.z + f.rz * f.taxiway.offsetM, dx: f.dx, dz: f.dz, halfL: f.lengthM / 2 - 100, halfW: f.taxiway.widthM / 2, taxi: true });
+      out.push({ ...tag, cx: f.x - SX + f.rx * f.taxiway.offsetM, cz: f.z - SZ + f.rz * f.taxiway.offsetM, dx: f.dx, dz: f.dz, halfL: f.lengthM / 2 - 100, halfW: f.taxiway.widthM / 2, taxi: true });
     }
   }
   return out;
@@ -117,7 +119,7 @@ export interface PadBox { id: string; layoutId?: string; x: number; z: number; d
 
 export function padBoxes(): PadBox[] {
   return fields.map((f) => ({
-    id: f.id, ...(f.layoutId ? { layoutId: f.layoutId } : {}), x: f.x, z: f.z, dx: f.dx, dz: f.dz, rx: f.rx, rz: f.rz,
+    id: f.id, ...(f.layoutId ? { layoutId: f.layoutId } : {}), x: f.x - SX, z: f.z - SZ, dx: f.dx, dz: f.dz, rx: f.rx, rz: f.rz,
     halfAlong: f.padL, c0: f.c0, c1: f.c1, blend: f.blend, elev: f.elev,
   }));
 }
@@ -191,6 +193,10 @@ export interface SurfaceInfo { flat: number; river: number; dry: number }
 
 /** Terrain height (m above sea level) at world (x, z); surface hints into `info` if given. */
 export function heightAt(x: number, z: number, info?: SurfaceInfo): number {
+  return heightAtMap(x + SX, z + SZ, info);
+}
+
+function heightAtMap(x: number, z: number, info?: SurfaceInfo): number {
   if (fBase.length === 0) buildFields();
   const base = field(fBase, x, z);
   const relief = field(fRelief, x, z);
@@ -355,17 +361,17 @@ function lakeAt(x: number, z: number): { level: number; el: number } | undefined
  * wherever heightAt is below it), or -Infinity where there is no lake.
  */
 export function waterLevelAt(x: number, z: number): number {
-  const l = lakeAt(x, z);
+  const l = lakeAt(x + SX, z + SZ);
   return l ? l.level : -Infinity;
 }
 
 /** The lakes for the renderer: centre, radii, rotation (rad, from east toward south) and level. */
 export function lakeShapes(): { x: number; z: number; rx: number; rz: number; rotRad: number; level: number }[] {
-  return lakes.map((l) => ({ x: l.x, z: l.z, rx: l.rx, rz: l.rz, rotRad: (l.rot * Math.PI) / 180, level: l.level }));
+  return lakes.map((l) => ({ x: l.x - SX, z: l.z - SZ, rx: l.rx, rz: l.rz, rotRad: (l.rot * Math.PI) / 180, level: l.level }));
 }
 
 /** The regional dryness field (0 monsoon-wet south .. 1 rain-shadow plateau) at (x, z). */
 export function dryAt(x: number, z: number): number {
   if (fBase.length === 0) buildFields();
-  return field(fDry, x, z);
+  return field(fDry, x + SX, z + SZ);
 }
