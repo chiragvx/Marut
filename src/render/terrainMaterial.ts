@@ -99,7 +99,13 @@ const NOISE_GLSL = /* glsl */ `
 // w = headland weight. The shoreline comes from a table of samples along Z (uShore/uHead, built
 // from the same landform the terrain uses — src/terrain/terrainHeight.ts buildCoastProfile).
 const VERTEX_SHADER = /* glsl */ `
+  // The theatre's style is compiled in (TERRAIN_STYLE, set by applyTerrainEnvironment), so the
+  // other styles' code is dropped: a smaller shader, fewer registers, more pixels in flight.
+  #ifdef TERRAIN_STYLE
+  const int uStyle = TERRAIN_STYLE;
+  #else
   uniform int uStyle;
+  #endif
   uniform int uCoastCount;
   uniform vec2 uCoastZ; // z0, dz
   uniform vec4 uShore[${COAST_VEC4S}];
@@ -143,7 +149,13 @@ const VERTEX_SHADER = /* glsl */ `
 
 const FRAGMENT_SHADER = /* glsl */ `
   precision highp float;
+  // The theatre's style is compiled in (TERRAIN_STYLE, set by applyTerrainEnvironment), so the
+  // other styles' code is dropped: a smaller shader, fewer registers, more pixels in flight.
+  #ifdef TERRAIN_STYLE
+  const int uStyle = TERRAIN_STYLE;
+  #else
   uniform int uStyle;
+  #endif
   uniform vec3 uFogColor;
   uniform vec3 uGroundColor;
   uniform float uFogStart;
@@ -845,6 +857,10 @@ export function createTerrainMaterial(): THREE.ShaderMaterial {
 export function applyTerrainEnvironment(material: THREE.ShaderMaterial, env: Readonly<SceneEnvironment>): void {
   const u = material.uniforms;
   u['uStyle']!.value = STYLE_CODE[env.surfaceStyle];
+  if (material.defines['TERRAIN_STYLE'] !== STYLE_CODE[env.surfaceStyle]) {
+    material.defines['TERRAIN_STYLE'] = STYLE_CODE[env.surfaceStyle];
+    material.needsUpdate = true;
+  }
   u['uHasWater']!.value = env.waterLevelM !== undefined ? 1 : 0;
   u['uWaterLevel']!.value = env.waterLevelM ?? 0;
   (u['uWaterColor']!.value as THREE.Vector3).set(...WATER_COLOR[env.surfaceStyle]);
