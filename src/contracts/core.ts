@@ -1339,8 +1339,12 @@ export const SnapshotHudExt = {
   AG_CUE_FLAGS: 9,
   /** The ground-map radar's list (air-to-ground stores selected): count, then MAX_GROUND_CONTACTS
    *  entries of SNAPSHOT_GROUND_STRIDE floats (SnapshotGround) from GROUND_BASE. */
-  GROUND_COUNT: 10,
-  GROUND_BASE: 11,
+  /** Transports: the flap lever (detent index, 0 = UP) and the flaps' position in detent units
+   *  (fractional while travelling); -1 for both on aircraft without flaps. */
+  FLAP_LEVER: 10,
+  FLAP_POS: 11,
+  GROUND_COUNT: 12,
+  GROUND_BASE: 13,
 } as const;
 /** The ground-map list carried in the HUD block: briefed aim points first, then contacts nearest first. */
 export const MAX_GROUND_CONTACTS = 16;

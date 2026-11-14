@@ -1,7 +1,8 @@
 /**
  * src/ui/actionBar.ts — the on-screen buttons in flight (on by default; Settings -> Gameplay): a
  * column on the left edge with the controls people hunt for on the keyboard. Camera, the radar's
- * mode, range and target, weapon, flares and chaff, gear, airbrake and taxi guidance. Each button
+ * mode, range and target, weapon, flares and chaff, gear, airbrake, flaps − / + (aircraft with flaps)
+ * and taxi guidance. Each button
  * shows its key and its state (GEAR DOWN, RWS, GUN...). Flight School lights up the button it is
  * asking for (highlight()).
  *
@@ -10,7 +11,7 @@
  */
 import { h } from './kit';
 
-export type ActionId = 'camera' | 'radarMode' | 'radarRangeDown' | 'radarRangeUp' | 'target' | 'weapon' | 'flare' | 'chaff' | 'gear' | 'airbrake' | 'taxi';
+export type ActionId = 'camera' | 'radarMode' | 'radarRangeDown' | 'radarRangeUp' | 'target' | 'weapon' | 'flare' | 'chaff' | 'gear' | 'airbrake' | 'flapsUp' | 'flapsDown' | 'taxi';
 
 export interface ActionBarState {
   camera: string;
@@ -20,6 +21,8 @@ export interface ActionBarState {
   airbrake: string;
   /** Show the taxi-guide button (on the ground only). */
   onGround: boolean;
+  /** The flap setting for the Flaps − / + row (e.g. 'UP', '1/2 ↓' while moving); absent = no flaps (row hidden). */
+  flaps?: string;
 }
 
 export interface ActionBar {
@@ -41,10 +44,12 @@ interface Def {
   icon: string;
 }
 
-/** Two small buttons on one labelled row (Range - +, Decoys flare chaff). */
+/** Two small buttons on one labelled row (Range - +, Decoys flare chaff, Flaps - +). */
 interface Row {
   row: string;
   items: readonly [Def, Def];
+  /** A row only some aircraft have (hidden until setState gives it a value), its label showing that value. */
+  optional?: 'flaps';
 }
 
 /** The groups, top to bottom. */
@@ -82,6 +87,14 @@ const GROUPS: readonly { title: string; items: readonly (Def | Row)[] }[] = [
     items: [
       { id: 'gear', label: 'Gear', icon: '⊥' },
       { id: 'airbrake', label: 'Airbrake', icon: '⫼' },
+      {
+        row: 'Flaps',
+        optional: 'flaps',
+        items: [
+          { id: 'flapsUp', label: 'Flaps up one step', icon: '−' },
+          { id: 'flapsDown', label: 'Flaps down one step', icon: '+' },
+        ],
+      },
       { id: 'taxi', label: 'Taxi guide', icon: '↱' },
     ],
   },
@@ -89,6 +102,7 @@ const GROUPS: readonly { title: string; items: readonly (Def | Row)[] }[] = [
 
 export function createActionBar(container: HTMLElement, onAction: (id: ActionId) => void): ActionBar {
   const buttons = new Map<ActionId, { el: HTMLButtonElement; key: HTMLElement; state: HTMLElement | null }>();
+  const optionalRows = new Map<'flaps', { row: HTMLElement; label: HTMLElement; base: string }>();
 
   const make = (d: Def, compact: boolean): HTMLButtonElement => {
     const key = h('span', { className: 'tj-ab-key' });
@@ -114,13 +128,20 @@ export function createActionBar(container: HTMLElement, onAction: (id: ActionId)
     return el;
   };
 
+  const makeRow = (it: Row): HTMLElement => {
+    const label = h('span', { className: 'tj-ab-rowlabel', text: it.row });
+    const row = h('div', { className: `tj-ab-pair${it.optional ? ' tj-hidden' : ''}` }, label, make(it.items[0], true), make(it.items[1], true));
+    if (it.optional) optionalRows.set(it.optional, { row, label, base: it.row });
+    return row;
+  };
+
   const groups = GROUPS.map((g) =>
     h(
       'div',
       { className: 'tj-ab-group', attrs: { role: 'group', 'aria-label': g.title } },
       h('div', { className: 'tj-ab-title', text: g.title }),
       ...g.items.map((it) =>
-        'row' in it ? h('div', { className: 'tj-ab-pair' }, h('span', { className: 'tj-ab-rowlabel', text: it.row }), make(it.items[0], true), make(it.items[1], true)) : make(it, false)
+        'row' in it ? makeRow(it) : make(it, false)
       )
     )
   );
@@ -153,7 +174,7 @@ export function createActionBar(container: HTMLElement, onAction: (id: ActionId)
       for (const [id, b] of buttons) b.key.textContent = keys[id] ?? '';
     },
     setState(s) {
-      const k = `${s.camera}|${s.radarMode}|${s.weapon}|${s.gear}|${s.airbrake}|${s.onGround}`;
+      const k = `${s.camera}|${s.radarMode}|${s.weapon}|${s.gear}|${s.airbrake}|${s.onGround}|${s.flaps ?? '-'}`;
       if (k === stateKey) return;
       stateKey = k;
       const set = (id: ActionId, text: string): void => {
@@ -170,6 +191,14 @@ export function createActionBar(container: HTMLElement, onAction: (id: ActionId)
       buttons.get('gear')?.el.classList.toggle('tj-ab-btn--on', s.gear === 'DOWN');
       buttons.get('airbrake')?.el.classList.toggle('tj-ab-btn--on', s.airbrake === 'OUT');
       buttons.get('taxi')?.el.classList.toggle('tj-ab-btn--dim', !s.onGround);
+      const fr = optionalRows.get('flaps');
+      if (fr) {
+        const had = !fr.row.classList.contains('tj-hidden');
+        fr.row.classList.toggle('tj-hidden', s.flaps === undefined);
+        fr.label.textContent = s.flaps === undefined ? fr.base : `${fr.base} ${s.flaps}`;
+        // The bar's width is measured once per window size; a row appearing can widen it.
+        if (had !== (s.flaps !== undefined)) width = -1;
+      }
     },
     highlight(ids) {
       const k = ids.join(',');

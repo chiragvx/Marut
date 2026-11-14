@@ -18,7 +18,7 @@
 
 import { drawAirbaseMarkers, drawAirbaseTape } from './airbaseMarkers';
 import { drawAutopilotBugs, drawAutopilotStatus } from './autopilotHud';
-import { AimingHelp, EntityFlag, SnapshotEntity, SnapshotHud, SpeedUnit, WarningBit, WeaponKindByCode, entityFieldOffset, isAirToGroundKind, type QualityTier } from '../contracts/core';
+import { AimingHelp, EntityFlag, HUD_EXT_BASE, SnapshotEntity, SnapshotHud, SnapshotHudExt, SpeedUnit, WarningBit, WeaponKindByCode, entityFieldOffset, isAirToGroundKind, type QualityTier } from '../contracts/core';
 import { RENDER_QUALITY_TABLE, type CameraState, type CreateHudRenderer, type HudAirbase, type HudRenderer, type HudRoutePoint, type HudSteerpoint } from '../contracts/render';
 import { drawRouteCaret, drawRouteData, drawRouteMarker } from './routeDisplay';
 import { drawSteerpointMarkers, drawSteerpointTape } from './steerpoints';
@@ -47,6 +47,7 @@ import { drawRwrScope } from './rwrDisplay';
 const agPos = { x: 0, y: 0, z: 0 };
 const agVel = { x: 0, y: 0, z: 0 };
 import { drawWarnings } from './warnings';
+import { drawFlapIndicator } from './flapStatus';
 
 /**
  * True if a world point is within the aircraft HUD's field of view (a 12 deg cone round its optical
@@ -122,6 +123,8 @@ export const createHudRenderer: CreateHudRenderer = (canvas, initialTier) => {
 
   /** Space on the left taken by the on-screen buttons, CSS px. */
   let leftInset = 0;
+  /** The player's aircraft's flap detent names (undefined: no flaps). */
+  let flapNames: readonly string[] | undefined;
 
   const api: HudRenderer = {
     setOverlayMode(m) {
@@ -129,6 +132,9 @@ export const createHudRenderer: CreateHudRenderer = (canvas, initialTier) => {
     },
     setLeftInset(px) {
       leftInset = px;
+    },
+    setFlapDetents(names) {
+      flapNames = names;
     },
 
     resize(widthPxArg, heightPxArg, devicePixelRatio) {
@@ -283,6 +289,7 @@ export const createHudRenderer: CreateHudRenderer = (canvas, initialTier) => {
       drawPowerIndicator(ctx, playerThrottleFrac, playerAfterburnerOn, 100, heightPx - 44);
       drawGearIndicator(ctx, hud[SnapshotHud.GEAR_POS]!, 184, heightPx - 44);
       drawAirbrakeIndicator(ctx, playerAirbrakeOut, nowMs - airbrakeToggledAtMs, 184, heightPx - 60);
+      drawFlapIndicator(ctx, flapNames, hud[HUD_EXT_BASE + SnapshotHudExt.FLAP_LEVER] ?? -1, hud[HUD_EXT_BASE + SnapshotHudExt.FLAP_POS] ?? -1, 184, heightPx - 76);
       drawFuelIndicator(ctx, hud[SnapshotHud.FUEL_KG]!, (hud[SnapshotHud.WARNING_BITS]! & WarningBit.LowFuel) !== 0, hud[SnapshotHud.TANK_FUEL_KG]!, 184, heightPx - 28);
       drawIlsNeedles(ctx, hud, widthPx, heightPx);
       drawServiceStatus(ctx, hud, widthPx * 0.5, heightPx * 0.78);

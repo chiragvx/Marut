@@ -8,7 +8,7 @@
  * exports of modules 04/08/09/11 rather than a contracts/*.ts file).
  */
 
-import { AimingHelp, AutopilotFlag, EntityFlag, HUD_BLOCK_START, HUD_EXT_BASE, LIGHT_MODES, LockStateCode, NO_ENTITY_ID, PodFlag, RadarModeCode, ServiceStateCode, SnapshotHud, SnapshotHudExt, SpeedUnit, WarningBit, WeaponKindCode, WeatherMode, type AutopilotAction } from './contracts/core';
+import { AimingHelp, AutopilotFlag, EntityFlag, HUD_BLOCK_START, SnapshotEntity, entityFieldOffset, unpackEngines, unpackUnits4, HUD_EXT_BASE, LIGHT_MODES, LockStateCode, NO_ENTITY_ID, PodFlag, RadarModeCode, ServiceStateCode, SnapshotHud, SnapshotHudExt, SpeedUnit, WarningBit, WeaponKindCode, WeatherMode, type AutopilotAction } from './contracts/core';
 import type {
   AiDifficulty,
   EntityId,
@@ -84,6 +84,9 @@ import { createFlightOverlay, hintText, pickHint, type FlightOverlay, type HintI
 import { DEFAULT_INPUT_MAP_DATA } from './input/inputMap';
 import { BASES, MISSIONS, TRAINING, baseInfo, freeFlightMission, isFreeFlightAircraft, isTraining, missionEntry, missionLocked, playableMissions, trainingEntry, type BaseId } from './core/missions/catalogue';
 import { createActionBar, type ActionBar, type ActionId } from './ui/actionBar';
+import { createToastStack, type ToastStack } from './ui/toasts';
+import { createSystemNotices } from './ui/systemNotices';
+import { flapSetting } from './hud/flapStatus';
 import { createLessonBriefing, createTrainingList } from './ui/training';
 import type { PromptControl } from './script';
 import { createChunkManager } from './terrain';
@@ -561,7 +564,7 @@ function controlGroups(): ControlGroup[] {
         { keys: [L(b.gearToggle)], label: 'Landing gear' },
         { keys: [L(b.airbrakeToggle)], label: 'Airbrake and wheel brakes' },
         { keys: [L(b.jettisonTanks)], label: 'Drop tanks' },
-        { keys: [L(b.flapsUp), L(b.flapsDown)], label: 'Flaps up / down (C-17)' },
+        { keys: [L(b.flapsUp), L(b.flapsDown)], label: 'Flaps up / down one step (C-17; − and + also work)' },
         { keys: [L(b.thrustReverse), L(b.rampToggle)], label: 'Reverse thrust (hold), cargo ramp (C-17)' },
         { keys: [L(b.service)], label: 'Refuel and rearm (stopped on a stand)' },
         { keys: [L(m.taxiGuide)], label: 'Taxi guidance' },
@@ -1395,6 +1398,30 @@ function tickMissionScript(view: Float64Array, entityCount: number, playerIndex:
   }
 }
 
+/** The small system notices: what the player's gear, airbrake, flaps, spoilers, ramp and reversers just did (the snapshot's state). */
+function updateSystemNotices(view: Float64Array, flapLever: number, flapPos: number): void {
+  const pi = readSnapshotHeader(view).playerIndex;
+  if (pi < 0 || !systemToasts) return;
+  if (appState !== 'gameplay') {
+    // Paused / menus: the state keeps being recorded so nothing is announced late.
+    systemNotices.reset();
+    return;
+  }
+  unpackUnits4(view[entityFieldOffset(pi, SnapshotEntity.HIGH_LIFT)] ?? 0, hlScratch);
+  unpackEngines(view[entityFieldOffset(pi, SnapshotEntity.ENGINES)] ?? 0, n1Scratch, revScratch);
+  const flags = view[entityFieldOffset(pi, SnapshotEntity.FLAGS)] ?? 0;
+  for (const text of systemNotices.update({
+    gearPos: view[entityFieldOffset(pi, SnapshotEntity.GEAR_POS)] ?? 1,
+    airbrake: (flags & EntityFlag.AirbrakeOut) !== 0,
+    flapLever,
+    flapPos,
+    slats: hlScratch[1]!,
+    spoilers: hlScratch[2]!,
+    ramp: hlScratch[3]!,
+    reverser: Math.max(...revScratch),
+  })) systemToasts.show(text);
+}
+
 /** Objective tracker, warnings-as-messages and hints, from the latest snapshot's HUD block. */
 function updateFlightOverlay(view: Float64Array): void {
   lastPodFlags = view[HUD_BLOCK_START + SnapshotHud.POD_FLAGS] ?? 0;
@@ -1402,8 +1429,13 @@ function updateFlightOverlay(view: Float64Array): void {
   const flight = currentFlight;
   if (!o || !currentMission || (appState !== 'gameplay' && appState !== 'paused')) return;
   const hudv = (f: number): number => view[HUD_BLOCK_START + f] ?? 0;
+  const flapLever = view[HUD_BLOCK_START + HUD_EXT_BASE + SnapshotHudExt.FLAP_LEVER] ?? -1;
+  const flapPos = view[HUD_BLOCK_START + HUD_EXT_BASE + SnapshotHudExt.FLAP_POS] ?? -1;
+  const flaps = flapSetting(playerFlapNames, flapLever, flapPos);
+  updateSystemNotices(view, flapLever, flapPos);
 
   actionBar?.setState({
+    ...(flaps ? { flaps: flaps.transit ? `${flaps.name} ${flaps.extending ? '↓' : '↑'}` : flaps.name } : {}),
     camera: podView ? 'Pod' : CAMERA_MODE_NAMES[CAMERA_MODE_CYCLE[cameraModeIndex]!],
     radarMode: hudv(SnapshotHud.RADAR_MODE) === RadarModeCode.acm ? 'ACM · dogfight' : 'RWS · search',
     weapon: WEAPON_SHORT[hudv(SnapshotHud.WEAPON_IDX)] ?? '',
@@ -1762,6 +1794,13 @@ function launchMission(missionIn: Mission, opts: { title: string; airStart: bool
   banditsTotal = missionIn.aiFlights.filter((f) => f.team === 1).reduce((n, f) => n + (f.count ?? 1), 0);
   // Gear lever and throttle to suit the start (the gear lever otherwise keeps the last flight's).
   inputSystem.setGearDown(!airStart);
+  // Flaps up for every new flight; the HUD's flap cue and the notices learn the aircraft's detents.
+  inputSystem.setFlapLever(0);
+  const playerDef = getAircraftDefinition(mission.playerStart.aircraftId ?? tejasDefinition.id) ?? tejasDefinition;
+  playerFlapNames = playerDef.highLift?.detents.map((d) => d.name);
+  hud.setFlapDetents?.(playerFlapNames);
+  systemNotices.reset({ transport: playerDef.highLift !== undefined, ...(playerFlapNames ? { flapNames: playerFlapNames } : {}) });
+  systemToasts?.clear();
   lightMode = DEFAULT_LIGHT_MODE;
   masterArm = true;
   if (podView) togglePodView();
@@ -1844,6 +1883,7 @@ async function boot(): Promise<void> {
   orientationPrompt = mountOrientationPrompt(uiRoot);
   flightOverlay = createFlightOverlay(uiRoot);
   actionBar = createActionBar(flightOverlay.root, doBarAction);
+  systemToasts = createToastStack(flightOverlay.root);
   actionBarEnabled = persisted?.actionBar ?? true;
 
   loading.setProgress(0.3, 'Starting simulation…');
@@ -2263,6 +2303,14 @@ function autopilotKey(action: string, held: boolean): void {
   else if (action.startsWith('apSpd')) post({ type: 'adjust', target: 'spd', delta: sign * (kt ? (held ? 10 : 5) * 0.514444 : held ? 5 : 2) });
 }
 
+/** Small system notices (gear, flaps, ramp...: src/ui/systemNotices.ts) and the player's flap detent names (undefined: no flaps). */
+let systemToasts: ToastStack | undefined;
+const systemNotices = createSystemNotices();
+let playerFlapNames: readonly string[] | undefined;
+const hlScratch = [0, 0, 0, 0];
+const n1Scratch = [0, 0, 0, 0];
+const revScratch = [0, 0, 0, 0];
+
 /** The player's gear lever and airbrake as of the latest snapshot (cockpit controls toggle them). */
 let lastPlayerGearCmd = true;
 let lastPlayerAirbrake = false;
@@ -2552,6 +2600,12 @@ function doBarAction(id: ActionId): void {
       return doCockpitAction({ kind: 'gear' });
     case 'airbrake':
       return doCockpitAction({ kind: 'airbrake' });
+    case 'flapsUp':
+      inputSystem.stepFlaps(-1);
+      return;
+    case 'flapsDown':
+      inputSystem.stepFlaps(1);
+      return;
     case 'taxi':
       return doCockpitAction({ kind: 'taxiGuide' });
   }
@@ -2572,6 +2626,8 @@ function pushActionKeys(): void {
     chaff: keyLabel(k.buttons.chaff),
     gear: keyLabel(k.buttons.gearToggle),
     airbrake: keyLabel(k.buttons.airbrakeToggle),
+    flapsUp: keyLabel(k.buttons.flapsUp),
+    flapsDown: keyLabel(k.buttons.flapsDown),
     taxi: keyLabel(k.meta.taxiGuide),
   });
 }

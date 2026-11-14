@@ -513,6 +513,10 @@ export interface PlayerInputSystem extends Pilot {
   setGearDown(down: boolean): void;
   /** Sets the airbrake (the B key toggles it; the wheel brakes follow it). */
   setAirbrake(out: boolean): void;
+  /** Sets the flap lever (PilotInputs.flapLever, 0 = UP .. FLAP_LEVER_MAX), e.g. UP for a new flight. */
+  setFlapLever(detent: number): void;
+  /** Moves the flap lever one detent: -1 up (less flap), +1 down (more), as the flap keys and the on-screen Flaps − / + buttons do. */
+  stepFlaps(dir: -1 | 1): void;
   setAlphaLimiterDisabled(disabled: boolean): void;
 
   /** Subscribes to meta actions (camera cycle, menu toggle). Returns an unsubscribe function. Fires at most once per rising edge, regardless of source device. */

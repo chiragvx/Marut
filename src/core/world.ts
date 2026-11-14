@@ -662,6 +662,9 @@ class WorldImpl implements World {
     const combat = this.aircraft.get(this.playerEntityIdInternal)?.combat;
     out[o + SnapshotHudExt.AG_CUE] = combat?.agCue ?? 0;
     out[o + SnapshotHudExt.AG_CUE_FLAGS] = combat?.agCueFlags ?? 0;
+    const flapPos = state?.flapPos;
+    out[o + SnapshotHudExt.FLAP_LEVER] = flapPos !== undefined ? (state?.flapDetent ?? 0) : -1;
+    out[o + SnapshotHudExt.FLAP_POS] = flapPos ?? -1;
     this.writeGroundMap(out, o);
     if (!route || !wp || !state) return;
     // Distance along the route to the next steerpoint with a planned time.

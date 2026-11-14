@@ -112,6 +112,29 @@ interface PendingRebind {
   deviceKind: RebindDeviceKindType;
 }
 
+
+/**
+ * Fixed second keys for the flap lever, besides the bindable ones (, and .): − and + (the main
+ * row's Minus / Equal, and the numeric keypad's). They work only while the player has not bound
+ * that key to another action.
+ */
+export const FLAPS_UP_ALT_KEYS: readonly KeyboardCode[] = ['Minus', 'NumpadSubtract'];
+export const FLAPS_DOWN_ALT_KEYS: readonly KeyboardCode[] = ['Equal', 'NumpadAdd'];
+
+/** One flap lever detent up (-1) or down (+1), within 0..FLAP_LEVER_MAX. */
+export function stepFlapLever(lever: number, dir: -1 | 1): number {
+  return Math.max(0, Math.min(FLAP_LEVER_MAX, Math.round(lever) + dir));
+}
+
+/** Whether `code` is bound to any keyboard action in the map (axes, buttons, meta). */
+export function keyBoundElsewhere(d: Readonly<InputMapData>, code: KeyboardCode): boolean {
+  const k = d.keyboard;
+  for (const a of Object.values(k.axes)) if (a.negative === code || a.positive === code) return true;
+  for (const v of Object.values(k.buttons)) if (v === code) return true;
+  for (const v of Object.values(k.meta)) if (v === code) return true;
+  return false;
+}
+
 export function createPlayerInputSystem(config: PlayerInputConfig): PlayerInputSystem {
   const win = config.window;
   const storage: StorageLike = config.storage ?? win.localStorage;
@@ -237,6 +260,13 @@ export function createPlayerInputSystem(config: PlayerInputConfig): PlayerInputS
   // ---- raw button-held lookup, per control scheme ----
   function rawKeyboardHeldFor(code: KeyboardCode | null): boolean {
     return code !== null && keyboardReader.isDown(code);
+  }
+  /** Fixed second keys (the flaps' − and +), held: keyboard scheme only, and only while the player
+   *  has not bound that key to something else. */
+  function altKeyHeld(codes: readonly KeyboardCode[], scheme: InputControlSchemeType): boolean {
+    if (scheme !== InputControlScheme.KeyboardMouse) return false;
+    for (const c of codes) if (keyboardReader.isDown(c) && !keyBoundElsewhere(data(), c)) return true;
+    return false;
   }
   function rawButtonHeld(action: LogicalButtonType | MetaActionType, scheme: InputControlSchemeType): boolean {
     const d = data();
@@ -479,8 +509,8 @@ export function createPlayerInputSystem(config: PlayerInputConfig): PlayerInputS
       if (gearEdge.risingEdge(rawGear)) gearDownState = !gearDownState;
       const rawAirbrake = rawButtonHeld(LogicalButton.AirbrakeToggle, scheme);
       if (airbrakeEdge.risingEdge(rawAirbrake)) airbrakeState = !airbrakeState;
-      if (flapsUpEdge.risingEdge(rawButtonHeld(LogicalButton.FlapsUp, scheme))) flapLeverState = Math.max(0, flapLeverState - 1);
-      if (flapsDownEdge.risingEdge(rawButtonHeld(LogicalButton.FlapsDown, scheme))) flapLeverState = Math.min(FLAP_LEVER_MAX, flapLeverState + 1);
+      if (flapsUpEdge.risingEdge(rawButtonHeld(LogicalButton.FlapsUp, scheme) || altKeyHeld(FLAPS_UP_ALT_KEYS, scheme))) flapLeverState = stepFlapLever(flapLeverState, -1);
+      if (flapsDownEdge.risingEdge(rawButtonHeld(LogicalButton.FlapsDown, scheme) || altKeyHeld(FLAPS_DOWN_ALT_KEYS, scheme))) flapLeverState = stepFlapLever(flapLeverState, 1);
       if (rampEdge.risingEdge(rawButtonHeld(LogicalButton.RampToggle, scheme))) rampOpenState = !rampOpenState;
       const rawReverse = rawButtonHeld(LogicalButton.ThrustReverse, scheme);
 
@@ -603,6 +633,14 @@ export function createPlayerInputSystem(config: PlayerInputConfig): PlayerInputS
 
     setAirbrake(out: boolean): void {
       airbrakeState = out;
+    },
+
+    setFlapLever(detent: number): void {
+      flapLeverState = clamp(Math.round(detent), 0, FLAP_LEVER_MAX);
+    },
+
+    stepFlaps(dir: -1 | 1): void {
+      flapLeverState = stepFlapLever(flapLeverState, dir);
     },
 
     onMetaAction(handler: (action: MetaActionType, repeat?: boolean) => void): () => void {
