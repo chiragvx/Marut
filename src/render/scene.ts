@@ -997,11 +997,13 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
             st.n1 = n1Scratch; st.reversers = revScratch;
           }
           let drawPos = interpEntity.pos;
-          if (i === playerSlot && DEV_MODEL === AircraftModel.C17) {
+          if (import.meta.env.DEV && i === playerSlot && aircraftModelOf(flags) === AircraftModel.C17) {
             const pose = devPoseNow();
             if (pose?.cycle) c17PoseCycle(nowMs / 1000, st);
             else if (pose) applyC17PoseOverride(pose, st);
-            // On the Tejas's physics: lifted so its own wheels meet the ground.
+          }
+          if (i === playerSlot && DEV_MODEL === AircraftModel.C17 && aircraftModelOf(curr.flags[i]!) !== AircraftModel.C17) {
+            // The C-17 drawn on another aircraft's physics: lifted so its own wheels meet the ground.
             devLiftedPos.x = interpEntity.pos.x;
             devLiftedPos.y = interpEntity.pos.y + DEV_C17_LIFT_M;
             devLiftedPos.z = interpEntity.pos.z;

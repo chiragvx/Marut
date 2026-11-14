@@ -467,6 +467,8 @@ export interface AircraftDefinition {
   maxTakeoffMassKg?: number;
   /** Its 3D model (contracts/core.ts AircraftModel code); absent = the Tejas's. */
   renderModel?: number;
+  /** Landing gear's full up<->down travel time, s (physics/landingGear.ts); absent = 2 s (the fighters'). */
+  gearTransitSec?: number;
   /**
    * External drop tank carried on each `type: 'fuel_tank'` hardpoint (all identical). Optional:
    * absent means the aircraft carries none. Fuel is burned from the tanks before internal fuel.

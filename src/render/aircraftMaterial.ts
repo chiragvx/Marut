@@ -113,6 +113,8 @@ const FS = /* glsl */ `
    *  B metal, glTF), tangent-space normal map; uHotX = body x aft of which the airframe is engine-hot (FLIR). */
   uniform sampler2D uBaseMap;
   uniform sampler2D uMrMap;
+  // Normal map strength (glTF normalTexture.scale; 1 for the fighters' own maps).
+  uniform float uNormalScale;
   uniform sampler2D uNormalMap;
   uniform float uHotX;
   /** Exterior lamps, body frame: left (red) and right (green) navigation, tail (white), left and
@@ -194,6 +196,7 @@ const FS = /* glsl */ `
       vec3 base = pow(texture2D(uBaseMap, vUv).rgb, vec3(2.2));
       vec3 mr = texture2D(uMrMap, vUv).rgb;
       vec3 tn = texture2D(uNormalMap, vUv).rgb * 2.0 - 1.0;
+      tn.xy *= uNormalScale;
       vec3 t = vTangentW.xyz - n * dot(n, vTangentW.xyz);
       if (dot(t, t) > 1e-8) {
         t = normalize(t);
@@ -452,6 +455,7 @@ export function createAircraftBodyMaterial(
   textures?: AircraftTextures,
   hotX = -1e9,
   lamps?: AircraftLampPositions,
+  normalScale = 1,
 ): THREE.ShaderMaterial & { uniforms: AircraftBodyUniforms } {
   const far = new THREE.Vector3(0, -1e4, 0);
   const lamp = (p: readonly number[] | undefined): THREE.Vector3 => (p ? new THREE.Vector3(p[0]!, p[1]!, p[2]!) : far.clone());
@@ -470,6 +474,7 @@ export function createAircraftBodyMaterial(
       uBaseMap: { value: textures?.base ?? null },
       uMrMap: { value: textures?.metalRough ?? null },
       uNormalMap: { value: textures?.normal ?? null },
+      uNormalScale: { value: normalScale },
       uHotX: { value: hotX },
       uLampNavL: { value: lamp(lamps?.navLeft) },
       uLampNavR: { value: lamp(lamps?.navRight) },

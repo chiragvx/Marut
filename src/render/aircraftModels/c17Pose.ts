@@ -6,7 +6,7 @@
  *
  * Inputs, from MeshAircraftState (meshAircraftRenderer.ts):
  * - wired now: gear (gearPos), spoilers (the AirbrakeOut flag, until a deflection exists), ailerons
- *   (the roll part of elevonL/R), fans (throttle, until N1 exists);
+ *   (the roll part of elevonL/R), elevators (their pitch part, the mean), rudder (rudder), fans (throttle, until N1 exists);
  * - waiting for the C-17 flight model: MeshAircraftState's optional `flaps`, `slats`, `spoilers`,
  *   `reversers`, `ramp`, `troopDoors`, `crewDoor`, `n1`. Each is one line in render/scene.ts where
  *   the snapshot is copied into the state (search "C-17 HOOKUP"); until then they rest stowed.
@@ -35,6 +35,9 @@ export interface C17Pose {
   /** Ailerons, rad, + = trailing edge down. */
   aileronL: number;
   aileronR: number;
+  /** Elevators (all four segments), rad, + = trailing edge down; rudder (both segments), rad, + = trailing edge left. */
+  elevator: number;
+  rudder: number;
   /** Per engine fan speed (N1), 0..1, and the fan's angle, rad (accumulated). */
   n1: number[];
   fanAngle: number[];
@@ -52,6 +55,8 @@ export function createC17Pose(): C17Pose {
     crewDoor: 0,
     aileronL: 0,
     aileronR: 0,
+    elevator: 0,
+    rudder: 0,
     n1: [0, 0, 0, 0],
     fanAngle: [0, 0, 0, 0],
   };
@@ -79,6 +84,9 @@ export function c17PoseTarget(s: Readonly<MeshAircraftState>, out: C17Pose): C17
   // Ailerons: the roll part of the elevon commands (as the JF-17's flaperons).
   out.aileronL = (s.elevonL - s.elevonR) / 2;
   out.aileronR = (s.elevonR - s.elevonL) / 2;
+  // Elevators: the pitch part (the mean); rudder as the snapshot's (as the Tejas's).
+  out.elevator = (s.elevonL + s.elevonR) / 2;
+  out.rudder = s.rudder;
   return out;
 }
 
@@ -102,6 +110,8 @@ export function stepC17Pose(cur: C17Pose, target: Readonly<C17Pose>, dt: number,
   cur.gear = target.gear;
   cur.aileronL = target.aileronL;
   cur.aileronR = target.aileronR;
+  cur.elevator = target.elevator;
+  cur.rudder = target.rudder;
   const k = snap ? 1e9 : dt;
   cur.flaps = approach(cur.flaps, target.flaps, C17_TRAVEL_SEC.flaps, k);
   cur.slats = approach(cur.slats, target.slats, C17_TRAVEL_SEC.slats, k);
@@ -118,7 +128,7 @@ export function stepC17Pose(cur: C17Pose, target: Readonly<C17Pose>, dt: number,
 
 /**
  * A rig group's value in the pose: deployed fraction for keyframed groups, an angle (rad) for
- * 'aileronL'/'aileronR' and 'fan0'..'fan3'. Unknown groups rest stowed (0).
+ * 'aileronL'/'aileronR', 'elevator', 'rudder' and 'fan0'..'fan3'. Unknown groups rest stowed (0).
  */
 export function c17GroupValue(p: Readonly<C17Pose>, group: string): number {
   switch (group) {
@@ -140,6 +150,10 @@ export function c17GroupValue(p: Readonly<C17Pose>, group: string): number {
       return p.aileronL;
     case 'aileronR':
       return p.aileronR;
+    case 'elevator':
+      return p.elevator;
+    case 'rudder':
+      return p.rudder;
     default: {
       const m = /^(reverser|fan)(\d)$/.exec(group);
       if (!m) return 0;
@@ -184,6 +198,9 @@ export interface C17PoseOverride {
   troopDoors?: number;
   crewDoor?: number;
   n1?: number;
+  /** Elevators and rudder, rad (+ = trailing edge down / left). */
+  elevator?: number;
+  rudder?: number;
   /** Run every group through its travel in turn (see c17PoseCycle). */
   cycle?: boolean;
 }
@@ -201,11 +218,15 @@ const OVERRIDE_KEYS: Record<string, keyof C17PoseOverride> = {
   door: 'crewDoor',
   crewdoor: 'crewDoor',
   n1: 'n1',
+  elev: 'elevator',
+  elevator: 'elevator',
+  rud: 'rudder',
+  rudder: 'rudder',
 };
 
 /**
  * Dev aid: `?pose=flaps:1,ramp:1,gear:0` (values 0..1; keys gear, flaps, slats, spoilers, rev,
- * ramp, troop, door, n1) or `?pose=cycle`. Unknown keys and bad numbers are ignored.
+ * ramp, troop, door, n1; elev and rud in rad, + = trailing edge down / left) or `?pose=cycle`. Unknown keys and bad numbers are ignored.
  */
 export function parseC17PoseOverride(raw: string | null | undefined): C17PoseOverride | undefined {
   if (!raw) return undefined;
@@ -220,13 +241,14 @@ export function parseC17PoseOverride(raw: string | null | undefined): C17PoseOve
     const field = OVERRIDE_KEYS[key];
     const n = Number(v);
     if (!field || field === 'cycle' || v === undefined || !Number.isFinite(n)) continue;
-    out[field] = clamp01(n);
+    // Surface angles, rad (within +-0.6); the rest are fractions 0..1.
+    out[field] = field === 'elevator' || field === 'rudder' ? Math.max(-0.6, Math.min(0.6, n)) : clamp01(n);
   }
   return Object.keys(out).length ? out : undefined;
 }
 
 /** The cycle's steps: each group runs out and back in over STEP_SEC, one after another. */
-export const C17_CYCLE_STEPS = ['gear', 'flaps', 'slats', 'spoilers', 'reversers', 'ramp', 'troopDoors', 'crewDoor', 'ailerons', 'n1'] as const;
+export const C17_CYCLE_STEPS = ['gear', 'flaps', 'slats', 'spoilers', 'reversers', 'ramp', 'troopDoors', 'crewDoor', 'ailerons', 'elevators', 'rudder', 'n1'] as const;
 export const C17_CYCLE_STEP_SEC = 6;
 
 /** Dev cycle at time t (s): writes the step's group into `s` (others stowed, gear down). Returns the step's name. */
@@ -246,8 +268,10 @@ export function c17PoseCycle(t: number, s: MeshAircraftState): string {
   s.troopDoors = step === 'troopDoors' ? v : 0;
   s.crewDoor = step === 'crewDoor' ? v : 0;
   const ail = step === 'ailerons' ? 0.35 * Math.sin(ph * 2 * Math.PI) : 0;
-  s.elevonL = ail;
-  s.elevonR = -ail;
+  const elev = step === 'elevators' ? 0.35 * Math.sin(ph * 2 * Math.PI) : 0;
+  s.elevonL = ail + elev;
+  s.elevonR = -ail + elev;
+  s.rudder = step === 'rudder' ? 0.35 * Math.sin(ph * 2 * Math.PI) : 0;
   s.n1 = step === 'n1' ? [v, v, v, v] : [C17_IDLE_N1, C17_IDLE_N1, C17_IDLE_N1, C17_IDLE_N1];
   return step;
 }
@@ -263,4 +287,9 @@ export function applyC17PoseOverride(o: Readonly<C17PoseOverride>, s: MeshAircra
   if (o.troopDoors !== undefined) s.troopDoors = o.troopDoors;
   if (o.crewDoor !== undefined) s.crewDoor = o.crewDoor;
   if (o.n1 !== undefined) s.n1 = [o.n1, o.n1, o.n1, o.n1];
+  if (o.elevator !== undefined) {
+    s.elevonL = o.elevator;
+    s.elevonR = o.elevator;
+  }
+  if (o.rudder !== undefined) s.rudder = o.rudder;
 }

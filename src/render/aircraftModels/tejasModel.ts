@@ -1008,6 +1008,8 @@ export interface AircraftModelTemplate {
   livery?: import('../aircraftMaterial').AircraftLivery;
   /** Imported models: their texture set (parts drawn as PART.textured sample it). */
   textures?: import('../aircraftMaterial').AircraftTextures;
+  /** Normal map strength (glTF normalTexture.scale), default 1. */
+  normalScale?: number;
   /** No afterburner (transports): the flame is never drawn. */
   noAfterburner?: boolean;
   /** Overall length, m (absent = the Tejas's): the outside cameras keep their distance in proportion. */

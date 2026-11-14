@@ -136,6 +136,8 @@ describe('C-17 pose', () => {
   it('parses the dev pose override', () => {
     expect(parseC17PoseOverride('flaps:1,ramp:0.5,gear:0,rev:1,bogus:3,door:x')).toEqual({ flaps: 1, ramp: 0.5, gear: 0, reversers: 1 });
     expect(parseC17PoseOverride('cycle')).toEqual({ cycle: true });
+    // Surface angles in rad, within +-0.6.
+    expect(parseC17PoseOverride('elev:-0.4,rud:0.9')).toEqual({ elevator: -0.4, rudder: 0.6 });
     expect(parseC17PoseOverride('')).toBeUndefined();
     const s = state();
     applyC17PoseOverride({ gear: 0, reversers: 1 }, s);
@@ -186,5 +188,84 @@ describe('outside cameras and a big aircraft', () => {
     const b = computeChasePose(pos, rot, createChaseCameraState(), 1 / 60, createCameraPose(), -Infinity, 4);
     const db = Math.hypot(b.pos.x - pos.x, b.pos.y - pos.y, b.pos.z - pos.z);
     expect(db / da).toBeCloseTo(4, 5);
+  });
+});
+
+describe('C-17 tail surfaces and pitch/yaw pose', () => {
+  it('drives the elevators by the elevons\' pitch part and the rudders by the rudder', () => {
+    const p = c17PoseTarget(state({ elevonL: 0.3, elevonR: 0.1, rudder: -0.2 }), createC17Pose());
+    expect(p.elevator).toBeCloseTo(0.2);
+    expect(p.rudder).toBeCloseTo(-0.2);
+    expect(c17GroupValue(p, 'elevator')).toBeCloseTo(0.2);
+    expect(c17GroupValue(p, 'rudder')).toBeCloseTo(-0.2);
+  });
+});
+
+describe('C-17 GLB geometry', () => {
+  const buf = readFileSync('public/models/c17.glb');
+  const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+  const jlen = dv.getUint32(12, true);
+  type Acc = { bufferView: number; byteOffset?: number; componentType: number; count: number; type: string };
+  const gltf = JSON.parse(new TextDecoder().decode(buf.subarray(20, 20 + jlen))) as {
+    nodes: { name?: string; extras?: { marut?: { group?: string; hinge?: number[] } } }[];
+    meshes: { primitives: { attributes: Record<string, number>; indices?: number }[] }[];
+    accessors: Acc[];
+    bufferViews: { byteOffset?: number; byteStride?: number }[];
+  };
+  const bin = 20 + jlen + 8;
+  const read = (i: number, n: number): number[] => {
+    const a = gltf.accessors[i]!;
+    const bv = gltf.bufferViews[a.bufferView]!;
+    const size = a.componentType === 5126 || a.componentType === 5125 ? 4 : a.componentType === 5123 ? 2 : 1;
+    const stride = bv.byteStride ?? size * n;
+    const off = bin + (bv.byteOffset ?? 0) + (a.byteOffset ?? 0);
+    const out: number[] = [];
+    for (let k = 0; k < a.count; k++)
+      for (let j = 0; j < n; j++) {
+        const o = off + k * stride + j * size;
+        out.push(a.componentType === 5126 ? dv.getFloat32(o, true) : size === 4 ? dv.getUint32(o, true) : size === 2 ? dv.getUint16(o, true) : dv.getUint8(o));
+      }
+    return out;
+  };
+
+  it('winds every face the way its normals face (the back-face-culled shader shows them all)', () => {
+    // The source's left side was wound inside out (its faces vanished); the build turns them round.
+    let total = 0;
+    let against = 0;
+    for (const m of gltf.meshes)
+      for (const p of m.primitives) {
+        if (p.indices === undefined || p.attributes['NORMAL'] === undefined) continue;
+        const pos = read(p.attributes['POSITION']!, 3);
+        const nor = read(p.attributes['NORMAL']!, 3);
+        const idx = read(p.indices, 1);
+        for (let t = 0; t + 2 < idx.length; t += 3) {
+          const [a, b, c] = [idx[t]! * 3, idx[t + 1]! * 3, idx[t + 2]! * 3];
+          const u = [pos[b]! - pos[a]!, pos[b + 1]! - pos[a + 1]!, pos[b + 2]! - pos[a + 2]!];
+          const v = [pos[c]! - pos[a]!, pos[c + 1]! - pos[a + 1]!, pos[c + 2]! - pos[a + 2]!];
+          const w = [u[1]! * v[2]! - u[2]! * v[1]!, u[2]! * v[0]! - u[0]! * v[2]!, u[0]! * v[1]! - u[1]! * v[0]!];
+          const s = [0, 1, 2].map((k) => nor[a + k]! + nor[b + k]! + nor[c + k]!);
+          const d = w[0]! * s[0]! + w[1]! * s[1]! + w[2]! * s[2]!;
+          const lw = Math.hypot(w[0]!, w[1]!, w[2]!);
+          const ls = Math.hypot(s[0]!, s[1]!, s[2]!);
+          if (lw < 1e-9 || ls < 1e-9) continue;
+          total++;
+          if (d < -0.3 * lw * ls) against++;
+        }
+      }
+    expect(total).toBeGreaterThan(50000);
+    expect(against).toBe(0);
+  });
+
+  it('has the four elevators and two rudders cut out of the tail, each with its hinge line', () => {
+    const surf = gltf.nodes.filter((n) => n.extras?.marut?.hinge);
+    const groups = surf.map((n) => n.extras!.marut!.group).sort();
+    expect(groups).toEqual(['elevator', 'elevator', 'elevator', 'elevator', 'rudder', 'rudder']);
+    for (const n of surf) {
+      const h = n.extras!.marut!.hinge!;
+      expect(h).toHaveLength(6);
+      // Model frame: the tail is aft (x < -15) and high (y > 8).
+      expect(h[0]!).toBeLessThan(-15);
+      expect(h[1]!).toBeGreaterThan(8);
+    }
   });
 });

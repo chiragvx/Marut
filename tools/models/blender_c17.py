@@ -22,8 +22,11 @@ import json
 import math
 import sys
 
+import bmesh
 import bpy
 from mathutils import Matrix, Vector
+from mathutils.bvhtree import BVHTree
+from mathutils.geometry import barycentric_transform, closest_point_on_tri
 
 args = sys.argv[sys.argv.index('--') + 1:]
 SRC, OUT = args[0], args[1]
@@ -120,6 +123,191 @@ root.matrix_world = Matrix.Rotation(math.radians(90), 4, 'Z') @ Matrix.Scale(sca
 lo, hi = bounds()
 root.matrix_world = Matrix.Translation(Vector((-(lo.x + hi.x) / 2, -(lo.y + hi.y) / 2, -lo.z))) @ root.matrix_world
 lo, hi = bounds()
+
+# Control surfaces. The source's tail is one piece (fin and tailplane in the body's meshes): cut the
+# rudder (upper and lower) and the four elevators out of it along their hinge lines, each its own
+# object carrying its hinge in its extras ('marut': group, hinge x0 y0 z0 x1 y1 z1 in glTF axes); the
+# game turns each about its hinge (render/aircraftModels/c17Model.ts). Measured on the scaled model
+# (Blender axes: nose +X, left +Y, up +Z):
+# - fin: leading edge x = -16.23 - 0.907 (z - 8.82), trailing edge x = -19.40 - 0.902 (z - 8.80),
+#   from its root fairing (z ~ 8.8) to the tailplane's (z ~ 14.5). Rudder: the aft 36% of the
+#   chord, z 9.0 .. 14.4, split at 11.7 (the C-17's upper and lower rudders);
+# - tailplane: leading edge (-17.8, |y| 0.5) .. (-23.94, 10.16), trailing edge ~ -25.6 .. -26.29,
+#   mid-thickness z ~ 15.28. Elevators: aft ~30% of the chord, |y| 1.2 .. 9.95, split at 5.6 (two
+#   per side).
+FIN_LE = lambda z: -16.23 - 0.9073 * (z - 8.82)  # noqa: E731
+FIN_TE = lambda z: -19.40 - 0.902 * (z - 8.80)  # noqa: E731
+RUDDER_CHORD = 0.36
+RUDDER_Z = (9.0, 11.7, 14.4)
+ELEV_HINGE = ((-23.45, 1.2), (-25.55, 10.0))  # (x, |y|) at its inboard and outboard ends
+ELEV_Z = 15.28
+ELEV_Y = (1.2, 5.6, 9.95)
+
+
+def rudder_x(z):
+    return FIN_LE(z) + (1 - RUDDER_CHORD) * (FIN_TE(z) - FIN_LE(z))
+
+
+def gltf_axes(v):
+    return [round(v.x, 5), round(v.z, 5), round(-v.y, 5)]
+
+
+def normals_snapshot(o):
+    """The mesh's surface before a cut, world frame: its triangles (for the nearest-face lookup),
+    their corners' positions and normals."""
+    me = o.data
+    M = o.matrix_world
+    Mn = M.to_3x3().inverted().transposed()
+    me.calc_loop_triangles()
+    verts = [M @ v.co for v in me.vertices]
+    cn = me.corner_normals
+    tris = [(tuple(lt.vertices), tuple(lt.loops)) for lt in me.loop_triangles]
+    normals = {li: (Mn @ cn[li].vector).normalized() for _, loops in tris for li in loops}
+    return BVHTree.FromPolygons(verts, [t[0] for t in tris]), verts, tris, normals
+
+
+def restore_normals(o, region, snap):
+    """The cut faces' corners get their normals interpolated from the uncut surface they lie on (the
+    cut itself interpolates the source's custom normals wrongly); every other corner keeps its own."""
+    bvh, verts, tris, normals = snap
+    me = o.data
+    M = o.matrix_world
+    Mt = M.to_3x3().transposed()
+    Mn = M.to_3x3().inverted().transposed()
+    keep = [Vector(n.vector) for n in me.corner_normals]
+    touched = set()
+    for p in me.polygons:
+        c = M @ p.center
+        if not region(c):
+            continue
+        pn = (Mn @ p.normal).normalized()
+        touched.update(p.edge_keys)
+        for li in p.loop_indices:
+            v = M @ me.vertices[me.loops[li].vertex_index].co
+            # A point just inside this face (from the corner towards the centre) finds the face it was cut from.
+            # Thin skins put other faces within millimetres: of those, the one in this face's plane
+            # (the face was cut from it), then the nearest.
+            best = None
+            score = -1e9
+            q = v + (c - v) * 0.05
+            for hit in bvh.find_nearest_range(v, 0.003):
+                (ia, ib, ic), _ = tris[hit[2]]
+                dq = (closest_point_on_tri(q, verts[ia], verts[ib], verts[ic]) - q).length
+                sc_hit = abs(hit[1].dot(pn)) - 20.0 * hit[3] - 5.0 * dq
+                if sc_hit <= score:
+                    continue
+                (ia, ib, ic), (la, lb, lc) = tris[hit[2]]
+                w = barycentric_transform(v, verts[ia], verts[ib], verts[ic], Vector((1, 0, 0)), Vector((0, 1, 0)), Vector((0, 0, 1)))
+                w = Vector([max(0.0, x) for x in w])
+                n = normals[la] * w[0] + normals[lb] * w[1] + normals[lc] * w[2]
+                if n.length < 1e-6:
+                    continue
+                n.normalize()
+                best = n
+                score = sc_hit
+            if best is not None:
+                keep[li] = (Mt @ best).normalized()
+    # Every restored corner its own normal (corners in a smooth fan would otherwise share one,
+    # averaged): the restored faces' edges sharp; the rest of the mesh keeps the normals it had.
+    sharp = me.attributes.get('sharp_edge') or me.attributes.new('sharp_edge', 'BOOLEAN', 'EDGE')
+    flags = [False] * len(me.edges)
+    sharp.data.foreach_get('value', flags)
+    key_to_edge = {e.key: e.index for e in me.edges}
+    for ek in touched:
+        flags[key_to_edge[ek]] = True
+    sharp.data.foreach_set('value', flags)
+    me.normals_split_custom_set(keep)
+
+# Where the cuts can reach (pieces of cut faces can end up a little outside the cut's own region):
+# the whole tail's faces are given their uncut normals back (an untouched face gets its own).
+TAIL_BOX = lambda p: p.x < -15.0 and p.z > 8.0  # noqa: E731
+SNAPSHOTS = {}
+# Object name -> (the source surface's snapshot, the regions whose corners to restore).
+RESTORE = {}
+
+
+def cut_surface(name, group, a, b, plane_no, region, cuts, keep):
+    """Bisects every mesh's faces in `region` (world point -> bool) along the hinge plane (through
+    a-b, normal plane_no) and the `cuts` planes, then moves the faces aft of the hinge with keep(p)
+    true into objects of their own, with the hinge as extras."""
+    aft = plane_no if plane_no.dot(Vector((-1, 0, 0))) > 0 else -plane_no
+    made = 0
+    for o in [o for o in sc.objects if o.type == 'MESH' and 'marut' not in o]:
+        M = o.matrix_world
+        Minv = M.inverted()
+        N3 = M.to_3x3().transposed()
+        bm = bmesh.new()
+        bm.from_mesh(o.data)
+        snap = None
+        inside = lambda: [f for f in bm.faces if region(M @ f.calc_center_median())]  # noqa: E731
+        if not inside():
+            bm.free()
+            continue
+        # The surface as the source has it (before any cut: later cuts would sample earlier ones' slivers).
+        if o.name not in SNAPSHOTS:
+            SNAPSHOTS[o.name] = normals_snapshot(o)
+        snap = SNAPSHOTS[o.name]
+        for co, no in [(a, aft)] + cuts:
+            fs = inside()
+            geom = list({e for f in fs for e in f.edges}) + list({v for f in fs for v in f.verts}) + fs
+            bmesh.ops.bisect_plane(bm, geom=geom, plane_co=Minv @ co, plane_no=(N3 @ no).normalized())
+        bm.faces.ensure_lookup_table()
+        sel = {f.index for f in bm.faces if region(M @ f.calc_center_median()) and (M @ f.calc_center_median() - a).dot(aft) > 0
+               and keep(M @ f.calc_center_median())}
+        if not sel:
+            bm.free()
+            continue
+        bm2 = bm.copy()
+        bm2.faces.ensure_lookup_table()
+        bmesh.ops.delete(bm2, geom=[f for f in bm2.faces if f.index not in sel], context='FACES')
+        bmesh.ops.delete(bm, geom=[f for f in bm.faces if f.index in sel], context='FACES')
+        # The cuts leave n-gons; the exporter's tangents need triangles or quads.
+        for m in (bm, bm2):
+            # (and slivers: zero-area faces hold no normal of their own)
+            bmesh.ops.dissolve_degenerate(m, dist=1e-4, edges=m.edges[:])
+            bmesh.ops.triangulate(m, faces=[f for f in m.faces if len(f.verts) > 4])
+        me2 = o.data.copy()
+        bm.to_mesh(o.data)
+        bm2.to_mesh(me2)
+        bm.free()
+        bm2.free()
+        piece = bpy.data.objects.new(f'{name}_{made}', me2)
+        for col in o.users_collection:
+            col.objects.link(piece)
+        piece.parent = o.parent
+        piece.matrix_parent_inverse = o.matrix_parent_inverse.copy()
+        piece.matrix_basis = o.matrix_basis.copy()
+        piece['marut'] = {'group': group, 'hinge': gltf_axes(a) + gltf_axes(b)}
+        # Normals are put right once all the cuts are made (a later cut on the same mesh would undo them).
+        RESTORE.setdefault(o.name, (snap, []))[1].append(TAIL_BOX)
+        RESTORE.setdefault(piece.name, (snap, []))[1].append(lambda p: True)
+        made += 1
+    print('SURFACE', name, 'pieces', made, 'hinge', gltf_axes(a), gltf_axes(b))
+    return made
+
+
+bpy.context.view_layer.update()
+z0, zm, z1 = RUDDER_Z
+up = Vector((0, 0, 1))
+fin_region = lambda p: p.x < -15.5 and abs(p.y) < 0.6 and 8.5 < p.z < 14.58  # noqa: E731
+ra, rb = Vector((rudder_x(z0), 0, z0)), Vector((rudder_x(z1), 0, z1))
+r_no = (rb - ra).cross(Vector((0, 1, 0))).normalized()
+r_cuts = [(Vector((0, 0, z)), up) for z in RUDDER_Z]
+cut_surface('rudderLower', 'rudder', ra, rb, r_no, fin_region, r_cuts, lambda p: z0 < p.z < zm)
+cut_surface('rudderUpper', 'rudder', ra, rb, r_no, fin_region, r_cuts, lambda p: zm < p.z < z1)
+for side, sgn in (('R', -1), ('L', 1)):
+    (xa, ya), (xb, yb) = ELEV_HINGE
+    ea, eb = Vector((xa, sgn * ya, ELEV_Z)), Vector((xb, sgn * yb, ELEV_Z))
+    e_no = (eb - ea).cross(up).normalized()
+    region = lambda p, s=sgn: p.x < -17 and 0.6 < s * p.y < 10.5 and 14.8 < p.z < 15.85  # noqa: E731
+    e_cuts = [(Vector((0, sgn * y, 0)), Vector((0, 1, 0))) for y in ELEV_Y]
+    y0, y1, y2 = ELEV_Y
+    cut_surface('elevator' + side + 'In', 'elevator', ea, eb, e_no, region, e_cuts, lambda p, s=sgn: y0 < s * p.y < y1)
+    cut_surface('elevator' + side + 'Out', 'elevator', ea, eb, e_no, region, e_cuts, lambda p, s=sgn: y1 < s * p.y < y2)
+bpy.context.view_layer.update()
+for oname, (snap, regions) in RESTORE.items():
+    restore_normals(bpy.data.objects[oname], lambda p, rs=regions: any(r(p) for r in rs), snap)
+meshes = [o for o in sc.objects if o.type == 'MESH']
 
 after = tris(meshes)
 print(f'C17 tris {before} -> {after} (gear decimated at export), scale x{scale:.4f}, '

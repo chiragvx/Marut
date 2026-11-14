@@ -33,6 +33,9 @@ import {
 
 export const c17Definition: AircraftDefinition = {
   renderModel: AircraftModel.C17,
+  // [E] No published figure found; the main gear's twist-and-lift into its pods is slow (a video
+  // estimate puts the whole cycle near 10 s). 12 s up or down.
+  gearTransitSec: 12,
   id: 'c-17',
   displayName: 'Boeing C-17A Globemaster III',
   stations: [],

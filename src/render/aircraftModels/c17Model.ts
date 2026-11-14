@@ -15,7 +15,8 @@
  * - troopDoors (the paratroop doors), crewDoor (the forward entry door);
  * - fan0..3: the fans, spun about their own axis by N1 (not the keyframes' speed);
  * - aileronL/R: hinges about the axis their keyframes droop them about, by the roll command.
- * The source has no separate elevators or rudder (its tail is one piece): they do not move.
+ * - elevator, rudder: the source's tail is one piece; the build cuts the four elevators and the two
+ *   rudder segments out of it, each with its hinge line in its extras (hinges, by pitch and rudder).
  *
  * Frames: the GLB is in its model frame (nose +x, up +y, right +z, wheel bottoms at y ≈ 1.13 with
  * the gear down, centred along x); C17_FIT.modelToBody moves it to the body frame (origin at the
@@ -66,6 +67,16 @@ export const C17_FIT = {
   /** Engine fan speed draws from N1; length overall, m (the outside cameras scale with it). */
   lengthM: 53.04,
 };
+
+/** A control surface cut out of the tail by the build: its group and hinge line (two points, model frame). */
+interface SurfaceExtras {
+  group: 'elevator' | 'rudder';
+  /** x0, y0, z0, x1, y1, z1. */
+  hinge: number[];
+}
+
+/** Normal map strength: the source airframe's normalTexture.scale (its edges' 0.2, the rest 1; the airframe dominates). */
+export const C17_NORMAL_SCALE = 0.5;
 
 /** The nose leg's rig node (the landing lamp rides on it). */
 const NOSE_LEG = /^frontlandgear1/i;
@@ -193,6 +204,7 @@ export function templateFromC17Gltf(scene: THREE.Object3D, clips: readonly THREE
   const bodyParts: THREE.BufferGeometry[] = [];
   const nodeParts: THREE.BufferGeometry[][] = nodes.map(() => []);
   let textures: AircraftModelTemplate['textures'];
+  const surfaces: { name: string; extras: SurfaceExtras; geometry: THREE.BufferGeometry }[] = [];
   scene.traverse((o) => {
     const mesh = o as THREE.Mesh;
     if (!mesh.isMesh) return;
@@ -208,6 +220,12 @@ export function templateFromC17Gltf(scene: THREE.Object3D, clips: readonly THREE
       textures = { base: mat.map, metalRough: mat.metalnessMap, normal: mat.normalMap };
     }
     const g = prepareBaked(mesh, glass ? PART.canopy : PART.textured, bodyFromModel);
+    // Elevators and rudders: cut out of the tail by the build (blender_c17.py), each with its hinge line.
+    const surf = (mesh.userData as { marut?: SurfaceExtras }).marut;
+    if (surf?.hinge?.length === 6) {
+      surfaces.push({ name: mesh.name, extras: surf, geometry: g });
+      return;
+    }
     const owner = nearestRig(mesh);
     (owner >= 0 ? nodeParts[owner]! : bodyParts).push(g);
   });
@@ -278,6 +296,34 @@ export function templateFromC17Gltf(scene: THREE.Object3D, clips: readonly THREE
     put(n.group === 'reverser' ? { ...n, group: `reverser${engineAt(z)}` } : n, geometry[i]);
   });
 
+  // The cut-out control surfaces: hinges about their hinge line (body frame), + = trailing edge down
+  // (elevators) / left (rudders), the sign picked by which way a small turn moves the surface.
+  for (const sf of surfaces) {
+    const h = sf.extras.hinge.map(Number);
+    const a = new THREE.Vector3(h[0], h[1], h[2]).add(new THREE.Vector3(...fit.modelToBody));
+    const b = new THREE.Vector3(h[3], h[4], h[5]).add(new THREE.Vector3(...fit.modelToBody));
+    const axis = b.clone().sub(a).normalize();
+    sf.geometry.computeBoundingSphere();
+    const c = sf.geometry.boundingSphere!.center.clone().sub(a);
+    const moved = c.clone().applyAxisAngle(axis, 0.1).sub(c);
+    const rudder = sf.extras.group === 'rudder';
+    if ((rudder ? moved.z : moved.y) > 0) axis.negate();
+    finalNodes.push({
+      name: sf.name,
+      group: rudder ? 'rudder' : 'elevator',
+      mode: 'hinge',
+      parent: -1,
+      base: new THREE.Matrix4(),
+      restT: a,
+      restR: new THREE.Quaternion(),
+      restS: new THREE.Vector3(1, 1, 1),
+      invRest: new THREE.Matrix4().makeTranslation(-a.x, -a.y, -a.z),
+      axis,
+      from: new THREE.Quaternion(),
+    });
+    finalGeom.push(sf.geometry);
+  }
+
   // Each keyframed group's window: the union of its nodes' active spans.
   const windows: Record<string, [number, number]> = {};
   nodes.forEach((n, i) => {
@@ -334,6 +380,9 @@ export function templateFromC17Gltf(scene: THREE.Object3D, clips: readonly THREE
     landingPart: noseLeg >= 0 ? finalNodes[noseLeg]!.name : '',
     canopyInterior: { min: toBody(fit.cockpit.min), max: toBody(fit.cockpit.max) },
     textures,
+    // The source's airframe normal map is authored at half strength (its normalTexture.scale 0.5);
+    // the atlas keeps the map as is, so the strength goes to the shader.
+    normalScale: C17_NORMAL_SCALE,
     lengthM: fit.lengthM,
     rig: { nodes: finalNodes, geometry: finalGeom, windows },
   };

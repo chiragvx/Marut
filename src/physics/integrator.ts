@@ -365,7 +365,7 @@ function runSubstep(
     integrateRigidBody(out, scratchTotalForce, scratchTotalMoment, massKg, inertia.I, inertia.Iinv, dtSub);
   }
 
-  stepGearPos(out, inputs, damage.gearHealthPct, dtSub);
+  stepGearPos(out, inputs, damage.gearHealthPct, dtSub, def.gearTransitSec);
   if (inputs.gearDown) out.flags |= EntityFlag.GearDownCommanded;
   else out.flags &= ~EntityFlag.GearDownCommanded;
   if (inputs.airbrake) out.flags |= EntityFlag.AirbrakeOut;
