@@ -1,11 +1,14 @@
 /**
- * terrain-lab/src/layout.ts - the Himalaya theatre as a hand-written outline (no elevation data):
+ * src/terrain/himalaya/layout.ts - the Himalaya theatre as a hand-written outline (no elevation data):
  * regional control points, named peaks, valley corridors, basins, lakes and airfield pads, placed
  * from real latitude/longitude (docs/spec/himalaya-theatre.md) on a map compressed to MAP_SCALE.
  *
  * Heights are real (density altitude is the point of the theatre); horizontal distances between
  * places are compressed so the 320 km box fits the game's 200 km world. Valley widths, runway
  * sizes and peak radii are given in world metres, not compressed.
+ *
+ * Shared by the game (src/terrain/theatreShapes.ts, kind 'himalaya') and the dev viewer
+ * (terrain-lab/), so both always show the same mountains.
  */
 
 export const ORIGIN_LAT = 30.85;
@@ -124,6 +127,13 @@ export const VALLEYS: Valley[] = [
     ],
   },
   {
+    // The ravine east of Simikot: the runway 28 final comes up it, over a drop just short of the
+    // threshold (docs/spec/himalaya-airfields.md section 2.5).
+    id: 'simikot-east', name: 'Simikot approach ravine', river: true, nodes: [
+      vn(29.9677, 81.8327, 2680, 70, 1.5), vn(29.9617, 81.8615, 2480, 140, 1.4), vn(29.90, 81.90, 2200, 150, 1.5),
+    ],
+  },
+  {
     id: 'kali', name: 'Kali / Mahakali (Gunji, Dharchula)', river: true, nodes: [
       vn(30.21, 80.99, 3600, 400, 1.2), vn(30.18, 80.86, 3180, 1500), vn(30.10, 80.80, 2900, 300, 1.5),
       vn(29.98, 80.72, 2100, 120, 1.9), vn(29.85, 80.54, 900, 150, 1.8), vn(29.72, 80.40, 600, 150, 1.6),
@@ -158,6 +168,8 @@ export interface Basin { id: string; lat: number; lon: number; rx: number; rz: n
 export const BASINS: Basin[] = [
   { id: 'lakes', lat: 30.67, lon: 81.36, rx: 19000, rz: 11000, rot: 0, level: 4600 },
   { id: 'purang', lat: 30.40, lon: 81.15, rx: 4500, rz: 6500, rot: -30, level: 4230 },
+  // Koyul Lungpa fan round Fukche (fictional placement, docs/spec/himalaya-airfields.md section 3.6).
+  { id: 'koyul', lat: 32.17, lon: 79.35, rx: 7000, rz: 3500, rot: 47, level: 4176 },
 ];
 
 /** Lakes: noisy ellipses carved below their own water level. */
@@ -168,21 +180,42 @@ export const LAKES: Lake[] = [
   { id: 'rakshastal', name: 'Rakshastal', lat: 30.69, lon: 81.24, rx: 4200, rz: 6500, rot: 25, level: 4575 },
 ];
 
-/** Airfields: a level pad with a perfectly flat strip (runway and parallel taxiway). */
+/**
+ * Airfields: a level pad. Inside the pad box (the strip, then `padAlongM` beyond its ends and
+ * `padLeftM` / `padRightM` beyond its sides) the ground is exactly `elev`, so the airport layout's
+ * pavement, shelters and buildings (src/airport/layouts, all at the layout's one elevation) sit
+ * exactly on it; it then blends back to the terrain over `blendM`.
+ */
 export interface Airfield {
-  id: string; name: string; lat: number; lon: number;
-  /** True heading of the runway (the direction of the higher-numbered end's reciprocal: x/z along). */
+  id: string; name: string;
+  /** Runway midpoint. */
+  lat: number; lon: number;
+  /** True heading of the runway axis (either direction; it sets the strip's along/across frame). */
   headingDeg: number; lengthM: number; widthM: number; elev: number;
   /** Parallel taxiway: offset to the right of `headingDeg` (m, negative = left) and width. */
   taxiway?: { offsetM: number; widthM: number };
+  /** The airport layout drawn on this pad (src/airport/layouts/<id>.json), if there is one. */
+  layoutId?: string;
+  /** Strip beyond each runway end (default 150 m), and the pad beyond it (default 450 m). */
+  stripEndM?: number; padAlongM?: number;
+  /** Pad beyond the strip's left / right edge (default 300 m each). */
+  padLeftM?: number; padRightM?: number;
+  /** Blend back to the terrain (default 700 m). */
+  blendM?: number;
 }
 
 export const AIRFIELDS: Airfield[] = [
-  { id: 'ngari', name: 'Ngari Gunsa', lat: 32.1086, lon: 80.0528, headingDeg: 332, lengthM: 4486, widthM: 45, elev: 4274, taxiway: { offsetM: 168, widthM: 23 } },
+  // Runway midpoint from OSM (the aerodrome reference point is ~1 km NNW of it); the NE side holds
+  // the parallel taxiway, aprons, shelters and the cantonment out to ~1 km.
+  { id: 'ngari', name: 'Ngari Gunsa', lat: 32.09993, lon: 80.05309, headingDeg: 332.0861, lengthM: 4486, widthM: 45, elev: 4274, taxiway: { offsetM: 168, widthM: 23 }, layoutId: 'ngari-gunsa', padRightM: 880 },
   { id: 'burang', name: 'Burang (Purang)', lat: 30.3975, lon: 81.1386, headingDeg: 329, lengthM: 4500, widthM: 50, elev: 4250, taxiway: { offsetM: 180, widthM: 23 } },
   { id: 'naini', name: 'Naini Saini (Pithoragarh)', lat: 29.5914, lon: 80.2400, headingDeg: 140, lengthM: 2400, widthM: 45, elev: 1500 },
   { id: 'gunji', name: 'Gunji ALG', lat: 30.178, lon: 80.868, headingDeg: 68, lengthM: 1450, widthM: 30, elev: 3250 },
-  { id: 'simikot', name: 'Simikot', lat: 29.9711, lon: 81.8189, headingDeg: 100, lengthM: 549, widthM: 20, elev: 2950 },
+  // A shelf above the Humla Karnali gorge: a small pad (town and apron to the north), short blend.
+  { id: 'simikot', name: 'Simikot', lat: 29.97047, lon: 81.81912, headingDeg: 103.6186, lengthM: 650, widthM: 20, elev: 2971, layoutId: 'simikot', stripEndM: 30, padAlongM: 30, padLeftM: 95, padRightM: 25, blendM: 260 },
+  // Fictional placement inside the map (real Fukche is 39 km beyond its north edge); the army camp
+  // is 0.9-1.1 km SW of the runway.
+  { id: 'fukche', name: 'Fukche ALG', lat: 32.17, lon: 79.35, headingDeg: 136.8473, lengthM: 2594, widthM: 45, elev: 4176, layoutId: 'fukche-alg', padRightM: 1060 },
 ];
 
 /** Named places for the viewer (markers and the jump list). */
@@ -199,7 +232,11 @@ export const PLACES: Place[] = [
 ];
 
 /** Viewer camera presets: look at a place from a bearing/distance (world metres) and altitude. */
-export interface ViewPreset { label: string; place: string; targetAlt: number; bearingDeg: number; distM: number; alt: number }
+export interface ViewPreset {
+  label: string; place: string; targetAlt: number; bearingDeg: number; distM: number; alt: number;
+  /** Look at this world offset (m, x east / z south) from the place instead of the place itself. */
+  offsetM?: readonly [number, number];
+}
 
 export const VIEWS: ViewPreset[] = [
   { label: 'Theatre overview', place: 'gurla', targetAlt: 3000, bearingDeg: 200, distM: 120_000, alt: 38_000 },
@@ -217,4 +254,12 @@ export const VIEWS: ViewPreset[] = [
   { label: 'Zanda canyon', place: 'zanda', targetAlt: 3800, bearingDeg: 120, distM: 9000, alt: 4600 },
   { label: 'Simikot gorge', place: 'simikot', targetAlt: 2700, bearingDeg: 255, distM: 7000, alt: 4900 },
   { label: 'Naini Saini (Pithoragarh)', place: 'naini', targetAlt: 1500, bearingDeg: 320, distM: 7000, alt: 2100 },
+  // Airfield close-ups (the layouts drawn from src/airport/layouts).
+  { label: 'Ngari Gunsa: north apron and shelters', place: 'ngari', offsetM: [-600, -1800], targetAlt: 4274, bearingDeg: 230, distM: 2200, alt: 4750 },
+  { label: 'Ngari Gunsa: runway 15 approach', place: 'ngari', targetAlt: 4274, bearingDeg: 332, distM: 9000, alt: 4800 },
+  { label: 'Simikot: runway 28 final, out of the gorge', place: 'simikot', targetAlt: 2971, bearingDeg: 104, distM: 3500, alt: 3250 },
+  { label: 'Simikot: the shelf from the south', place: 'simikot', targetAlt: 2971, bearingDeg: 190, distM: 2500, alt: 3300 },
+  { label: 'Fukche: runway 14 approach', place: 'fukche', targetAlt: 4176, bearingDeg: 317, distM: 8000, alt: 4650 },
+  { label: 'Fukche: runway 32 approach', place: 'fukche', targetAlt: 4176, bearingDeg: 137, distM: 8000, alt: 4650 },
+  { label: 'Fukche: dispersal and camp', place: 'fukche', offsetM: [150, 900], targetAlt: 4176, bearingDeg: 200, distM: 1600, alt: 4450 },
 ];

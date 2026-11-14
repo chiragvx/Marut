@@ -1,0 +1,427 @@
+{
+ "id": "simikot",
+ "name": "Simikot Airport (VNST), Humla",
+ "side": "friendly",
+ "attribution": "Base layout from OpenStreetMap data, (c) OpenStreetMap contributors (ODbL); runway size from the CAAN AIP; stands and building heights generic.",
+ "referenceWorldX": 61611.5,
+ "referenceWorldZ": 58682.2,
+ "elevationM": 2971,
+ "flattenZones": [
+  {
+   "centerWorldX": 61611.5,
+   "centerWorldZ": 58682.2,
+   "elevationM": 2971,
+   "flatRadiusM": 55,
+   "blendRadiusM": 0
+  },
+  {
+   "centerWorldX": 61295.6,
+   "centerWorldZ": 58605.7,
+   "elevationM": 2971,
+   "flatRadiusM": 55,
+   "blendRadiusM": 0
+  },
+  {
+   "centerWorldX": 61453.5,
+   "centerWorldZ": 58644,
+   "elevationM": 2971,
+   "flatRadiusM": 55,
+   "blendRadiusM": 0
+  },
+  {
+   "centerWorldX": 61769.4,
+   "centerWorldZ": 58720.5,
+   "elevationM": 2971,
+   "flatRadiusM": 55,
+   "blendRadiusM": 0
+  },
+  {
+   "centerWorldX": 61927.3,
+   "centerWorldZ": 58758.7,
+   "elevationM": 2971,
+   "flatRadiusM": 55,
+   "blendRadiusM": 0
+  },
+  {
+   "centerWorldX": 61561.9,
+   "centerWorldZ": 58572.4,
+   "elevationM": 2971,
+   "flatRadiusM": 44,
+   "blendRadiusM": 0
+  },
+  {
+   "centerWorldX": 61505.3,
+   "centerWorldZ": 58540.4,
+   "elevationM": 2971,
+   "flatRadiusM": 27,
+   "blendRadiusM": 0
+  }
+ ],
+ "runways": [
+  {
+   "id": "10",
+   "thresholdWorldX": 61295.6,
+   "thresholdWorldZ": 58605.7,
+   "elevationM": 2971,
+   "headingRad": 1.808486,
+   "lengthM": 650,
+   "widthM": 20,
+   "surface": "asphalt",
+   "reciprocalId": "28",
+   "lights": {
+    "edgeLights": false,
+    "thresholdLights": false,
+    "approachLights": false,
+    "papi": false
+   }
+  },
+  {
+   "id": "28",
+   "thresholdWorldX": 61927.4,
+   "thresholdWorldZ": 58758.7,
+   "elevationM": 2971,
+   "headingRad": 4.950078,
+   "lengthM": 650,
+   "widthM": 20,
+   "surface": "asphalt",
+   "reciprocalId": "10",
+   "lights": {
+    "edgeLights": false,
+    "thresholdLights": true,
+    "approachLights": false,
+    "papi": false
+   }
+  }
+ ],
+ "taxiways": [
+  {
+   "id": "TWY-1",
+   "widthM": 10,
+   "points": [
+    {
+     "worldX": 61558.6,
+     "worldZ": 58669.4
+    },
+    {
+     "worldX": 61567.9,
+     "worldZ": 58666.6
+    },
+    {
+     "worldX": 61571.9,
+     "worldZ": 58663.4
+    },
+    {
+     "worldX": 61573.8,
+     "worldZ": 58659.6
+    },
+    {
+     "worldX": 61578.9,
+     "worldZ": 58639.3
+    },
+    {
+     "worldX": 61578.6,
+     "worldZ": 58636.1
+    },
+    {
+     "worldX": 61573.9,
+     "worldZ": 58630.7
+    },
+    {
+     "worldX": 61561.8,
+     "worldZ": 58627
+    },
+    {
+     "worldX": 61559.5,
+     "worldZ": 58624.8
+    },
+    {
+     "worldX": 61558.4,
+     "worldZ": 58621.9
+    },
+    {
+     "worldX": 61557.9,
+     "worldZ": 58617.4
+    },
+    {
+     "worldX": 61559.8,
+     "worldZ": 58614.6
+    },
+    {
+     "worldX": 61563.3,
+     "worldZ": 58611.9
+    },
+    {
+     "worldX": 61569.9,
+     "worldZ": 58613
+    }
+   ]
+  },
+  {
+   "id": "TWY-2",
+   "widthM": 10,
+   "points": [
+    {
+     "worldX": 61561.8,
+     "worldZ": 58627
+    },
+    {
+     "worldX": 61533.9,
+     "worldZ": 58620.4
+    },
+    {
+     "worldX": 61529.6,
+     "worldZ": 58616.9
+    },
+    {
+     "worldX": 61528.7,
+     "worldZ": 58613.1
+    },
+    {
+     "worldX": 61529.6,
+     "worldZ": 58608.5
+    },
+    {
+     "worldX": 61532.6,
+     "worldZ": 58605.3
+    },
+    {
+     "worldX": 61536.6,
+     "worldZ": 58604.2
+    },
+    {
+     "worldX": 61541.4,
+     "worldZ": 58604.9
+    }
+   ]
+  },
+  {
+   "id": "TWY-3",
+   "widthM": 10,
+   "points": [
+    {
+     "worldX": 61573.8,
+     "worldZ": 58659.6
+    },
+    {
+     "worldX": 61574.9,
+     "worldZ": 58665
+    },
+    {
+     "worldX": 61577.1,
+     "worldZ": 58669.1
+    },
+    {
+     "worldX": 61580.1,
+     "worldZ": 58671.8
+    },
+    {
+     "worldX": 61587.8,
+     "worldZ": 58676.5
+    }
+   ]
+  },
+  {
+   "id": "TWY-4",
+   "widthM": 10,
+   "points": [
+    {
+     "worldX": 61578.9,
+     "worldZ": 58639.3
+    },
+    {
+     "worldX": 61584.2,
+     "worldZ": 58634.4
+    },
+    {
+     "worldX": 61588.4,
+     "worldZ": 58634.2
+    },
+    {
+     "worldX": 61599.9,
+     "worldZ": 58636.3
+    },
+    {
+     "worldX": 61602.8,
+     "worldZ": 58635.6
+    },
+    {
+     "worldX": 61605.3,
+     "worldZ": 58633.6
+    },
+    {
+     "worldX": 61606.7,
+     "worldZ": 58630.9
+    },
+    {
+     "worldX": 61607.2,
+     "worldZ": 58626.9
+    },
+    {
+     "worldX": 61605.8,
+     "worldZ": 58623.8
+    },
+    {
+     "worldX": 61603.4,
+     "worldZ": 58621.4
+    },
+    {
+     "worldX": 61598.8,
+     "worldZ": 58619.5
+    }
+   ]
+  }
+ ],
+ "aprons": [
+  {
+   "id": "APRON",
+   "kind": "apron",
+   "points": [
+    {
+     "worldX": 61523,
+     "worldZ": 58590.3
+    },
+    {
+     "worldX": 61515.8,
+     "worldZ": 58621.7
+    },
+    {
+     "worldX": 61563.4,
+     "worldZ": 58633
+    },
+    {
+     "worldX": 61569.8,
+     "worldZ": 58642.8
+    },
+    {
+     "worldX": 61588,
+     "worldZ": 58646.4
+    },
+    {
+     "worldX": 61592.3,
+     "worldZ": 58642.2
+    },
+    {
+     "worldX": 61613.8,
+     "worldZ": 58648.9
+    },
+    {
+     "worldX": 61620.5,
+     "worldZ": 58612.7
+    },
+    {
+     "worldX": 61559.2,
+     "worldZ": 58598.6
+    }
+   ]
+  },
+  {
+   "id": "HELI-PAD",
+   "kind": "apron",
+   "points": [
+    {
+     "worldX": 61500.9,
+     "worldZ": 58627
+    },
+    {
+     "worldX": 61472.7,
+     "worldZ": 58621.1
+    },
+    {
+     "worldX": 61481,
+     "worldZ": 58581.9
+    },
+    {
+     "worldX": 61509.3,
+     "worldZ": 58587.8
+    }
+   ]
+  }
+ ],
+ "parkingSpots": [
+  {
+   "id": "STAND-1",
+   "worldX": 61597.2,
+   "worldZ": 58628.2,
+   "headingRad": 3.3793,
+   "type": "transport"
+  },
+  {
+   "id": "STAND-2",
+   "worldX": 61568,
+   "worldZ": 58621.5,
+   "headingRad": 3.3793,
+   "type": "transport"
+  },
+  {
+   "id": "STAND-3",
+   "worldX": 61538.7,
+   "worldZ": 58614.8,
+   "headingRad": 3.3793,
+   "type": "transport"
+  },
+  {
+   "id": "HELI-1",
+   "worldX": 61491,
+   "worldZ": 58604.4,
+   "headingRad": 1.8085,
+   "type": "helicopter"
+  }
+ ],
+ "structures": [
+  {
+   "id": "BUILDING-1",
+   "kind": "building",
+   "worldX": 61561.9,
+   "worldZ": 58572.4,
+   "headingRad": 4.7407,
+   "widthM": 8.6,
+   "lengthM": 18.4,
+   "heightM": 6,
+   "group": "airport"
+  },
+  {
+   "id": "BUILDING-2",
+   "kind": "building",
+   "worldX": 61505.3,
+   "worldZ": 58540.4,
+   "headingRad": 4.9315,
+   "widthM": 12.8,
+   "lengthM": 19,
+   "heightM": 6,
+   "group": "airport"
+  },
+  {
+   "id": "BUILDING-3",
+   "kind": "building",
+   "worldX": 61531.3,
+   "worldZ": 58536,
+   "headingRad": 3.2822,
+   "widthM": 3.6,
+   "lengthM": 4.7,
+   "heightM": 6,
+   "group": "airport"
+  },
+  {
+   "id": "BUILDING-4",
+   "kind": "building",
+   "worldX": 61586.9,
+   "worldZ": 58539.8,
+   "headingRad": 5.0823,
+   "widthM": 8.3,
+   "lengthM": 16.3,
+   "heightM": 6,
+   "group": "airport"
+  },
+  {
+   "id": "BUILDING-5",
+   "kind": "building",
+   "worldX": 61596.7,
+   "worldZ": 58558.1,
+   "headingRad": 4.9213,
+   "widthM": 14,
+   "lengthM": 20.7,
+   "heightM": 6,
+   "group": "airport"
+  }
+ ]
+}

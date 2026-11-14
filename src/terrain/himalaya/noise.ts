@@ -1,5 +1,5 @@
 /**
- * terrain-lab/src/noise.ts - seeded 2D gradient noise with analytic derivatives, and the fractal
+ * src/terrain/himalaya/noise.ts - seeded 2D gradient noise with analytic derivatives, and the fractal
  * sums built on it (plain fbm, "eroded" fbm, ridged multifractal). Deterministic: the same seed
  * gives the same mountains on every machine and in every worker.
  */
@@ -23,9 +23,9 @@ export class Noise2 {
     for (let i = 0; i < 256; i++) p.push(i);
     for (let i = 255; i > 0; i--) {
       const j = Math.floor(rnd() * (i + 1));
-      const t = p[i]; p[i] = p[j]; p[j] = t;
+      const t = p[i]!; p[i] = p[j]!; p[j] = t;
     }
-    for (let i = 0; i < 512; i++) this.perm[i] = p[i & 255];
+    for (let i = 0; i < 512; i++) this.perm[i] = p[i & 255]!;
     for (let i = 0; i < 256; i++) {
       const a = rnd() * Math.PI * 2;
       this.gx[i] = Math.cos(a);
@@ -43,8 +43,8 @@ export class Noise2 {
     const duz = 30 * fz * fz * (fz * (fz - 2) + 1);
     const P = this.perm, GX = this.gx, GZ = this.gz;
     const xi = ix & 255, zi = iz & 255;
-    const a = P[P[xi] + zi], b = P[P[xi + 1] + zi], c = P[P[xi] + zi + 1], e = P[P[xi + 1] + zi + 1];
-    const gax = GX[a], gaz = GZ[a], gbx = GX[b], gbz = GZ[b], gcx = GX[c], gcz = GZ[c], gdx = GX[e], gdz = GZ[e];
+    const a = P[P[xi]! + zi]!, b = P[P[xi + 1]! + zi]!, c = P[P[xi]! + zi + 1]!, e = P[P[xi + 1]! + zi + 1]!;
+    const gax = GX[a]!, gaz = GZ[a]!, gbx = GX[b]!, gbz = GZ[b]!, gcx = GX[c]!, gcz = GZ[c]!, gdx = GX[e]!, gdz = GZ[e]!;
     const va = gax * fx + gaz * fz;
     const vb = gbx * (fx - 1) + gbz * fz;
     const vc = gcx * fx + gcz * (fz - 1);
@@ -84,8 +84,8 @@ export class Noise2 {
     let sum = 0, amp = 1, norm = 0, dx = 0, dz = 0, px = x, pz = z;
     for (let i = 0; i < octaves; i++) {
       const v = this.noised(px, pz, d);
-      dx += d[0];
-      dz += d[1];
+      dx += d[0]!;
+      dz += d[1]!;
       sum += amp * v / (1 + 0.7 * (dx * dx + dz * dz));
       norm += amp;
       amp *= 0.5;
@@ -177,8 +177,8 @@ export function gullies(x: number, z: number, gx: number, gz: number, cellM: num
   for (let o = 0; o < octaves; o++) {
     const val = gullyCell((x / cellM) * f, (z / cellM) * f, dirx + hdz * branch, dirz - hdx * branch, gd);
     v += val * a;
-    hdx += gd[0] * a * f;
-    hdz += gd[1] * a * f;
+    hdx += gd[0]! * a * f;
+    hdz += gd[1]! * a * f;
     norm += a;
     a *= 0.5;
     f *= 2;

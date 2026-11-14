@@ -3,8 +3,8 @@
  * the minimap off the main thread.
  */
 
-import { heightAt, type SurfaceInfo } from './height';
-import { MAP_HALF_M } from './layout';
+import { heightAt, type SurfaceInfo } from '../../src/terrain/himalaya/height';
+import { MAP_HALF_M } from '../../src/terrain/himalaya/layout';
 import { perimeter } from './grid';
 
 export interface RingRequest { type: 'ring'; id: number; level: number; cx: number; cz: number; n: number; step: number; skirt: number }

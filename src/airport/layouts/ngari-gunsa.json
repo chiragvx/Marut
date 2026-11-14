@@ -1,0 +1,1312 @@
+{
+ "id": "ngari-gunsa",
+ "name": "Ngari Gunsa (Ali Kunsha) Airport, PLAAF",
+ "side": "hostile",
+ "attribution": "Base layout from OpenStreetMap data, (c) OpenStreetMap contributors (ODbL); shelter compound, door directions, tower and magazines are interpretation or generic.",
+ "referenceWorldX": -39688,
+ "referenceWorldZ": -83395.3,
+ "elevationM": 4274,
+ "flattenZones": [
+  {
+   "centerWorldX": -39688,
+   "centerWorldZ": -83395.3,
+   "elevationM": 4274,
+   "flatRadiusM": 300,
+   "blendRadiusM": 0
+  },
+  {
+   "centerWorldX": -38638,
+   "centerWorldZ": -81413.3,
+   "elevationM": 4274,
+   "flatRadiusM": 300,
+   "blendRadiusM": 0
+  },
+  {
+   "centerWorldX": -39163,
+   "centerWorldZ": -82404.3,
+   "elevationM": 4274,
+   "flatRadiusM": 300,
+   "blendRadiusM": 0
+  },
+  {
+   "centerWorldX": -40213.1,
+   "centerWorldZ": -84386.3,
+   "elevationM": 4274,
+   "flatRadiusM": 300,
+   "blendRadiusM": 0
+  },
+  {
+   "centerWorldX": -40738.1,
+   "centerWorldZ": -85377.4,
+   "elevationM": 4274,
+   "flatRadiusM": 300,
+   "blendRadiusM": 0
+  },
+  {
+   "centerWorldX": -40370.3,
+   "centerWorldZ": -85212.5,
+   "elevationM": 4274,
+   "flatRadiusM": 295,
+   "blendRadiusM": 0
+  },
+  {
+   "centerWorldX": -40063.1,
+   "centerWorldZ": -85171.3,
+   "elevationM": 4274,
+   "flatRadiusM": 295,
+   "blendRadiusM": 0
+  },
+  {
+   "centerWorldX": -39410.2,
+   "centerWorldZ": -83912,
+   "elevationM": 4274,
+   "flatRadiusM": 295,
+   "blendRadiusM": 0
+  },
+  {
+   "centerWorldX": -38979.3,
+   "centerWorldZ": -83371.4,
+   "elevationM": 4274,
+   "flatRadiusM": 295,
+   "blendRadiusM": 0
+  },
+  {
+   "centerWorldX": -39655,
+   "centerWorldZ": -84418.2,
+   "elevationM": 4274,
+   "flatRadiusM": 295,
+   "blendRadiusM": 0
+  },
+  {
+   "centerWorldX": -39938.4,
+   "centerWorldZ": -84551.8,
+   "elevationM": 4274,
+   "flatRadiusM": 295,
+   "blendRadiusM": 0
+  },
+  {
+   "centerWorldX": -39701.9,
+   "centerWorldZ": -84831.8,
+   "elevationM": 4274,
+   "flatRadiusM": 295,
+   "blendRadiusM": 0
+  },
+  {
+   "centerWorldX": -39158.7,
+   "centerWorldZ": -84532.4,
+   "elevationM": 4274,
+   "flatRadiusM": 84,
+   "blendRadiusM": 0
+  },
+  {
+   "centerWorldX": -39200.9,
+   "centerWorldZ": -84611.9,
+   "elevationM": 4274,
+   "flatRadiusM": 84,
+   "blendRadiusM": 0
+  },
+  {
+   "centerWorldX": -39243,
+   "centerWorldZ": -84691.4,
+   "elevationM": 4274,
+   "flatRadiusM": 84,
+   "blendRadiusM": 0
+  },
+  {
+   "centerWorldX": -39285.1,
+   "centerWorldZ": -84770.9,
+   "elevationM": 4274,
+   "flatRadiusM": 84,
+   "blendRadiusM": 0
+  }
+ ],
+ "runways": [
+  {
+   "id": "33",
+   "thresholdWorldX": -38638,
+   "thresholdWorldZ": -81413.3,
+   "elevationM": 4274,
+   "headingRad": 5.795997,
+   "lengthM": 4486,
+   "widthM": 45,
+   "surface": "concrete",
+   "reciprocalId": "15",
+   "lights": {
+    "edgeLights": true,
+    "thresholdLights": true,
+    "approachLights": false,
+    "papi": true
+   }
+  },
+  {
+   "id": "15",
+   "thresholdWorldX": -40738,
+   "thresholdWorldZ": -85377.3,
+   "elevationM": 4274,
+   "headingRad": 2.654404,
+   "lengthM": 4486,
+   "widthM": 45,
+   "surface": "concrete",
+   "reciprocalId": "33",
+   "lights": {
+    "edgeLights": true,
+    "thresholdLights": true,
+    "approachLights": false,
+    "papi": true
+   }
+  }
+ ],
+ "taxiways": [
+  {
+   "id": "TWY-PARALLEL",
+   "widthM": 23,
+   "points": [
+    {
+     "worldX": -40578,
+     "worldZ": -85436.8
+    },
+    {
+     "worldX": -38518,
+     "worldZ": -81544.9
+    },
+    {
+     "worldX": -38518.2,
+     "worldZ": -81518.8
+    },
+    {
+     "worldX": -38530.9,
+     "worldZ": -81496.4
+    },
+    {
+     "worldX": -38611.8,
+     "worldZ": -81451.4
+    },
+    {
+     "worldX": -38621.2,
+     "worldZ": -81449.4
+    },
+    {
+     "worldX": -38635.6,
+     "worldZ": -81451.4
+    },
+    {
+     "worldX": -38656.1,
+     "worldZ": -81459
+    },
+    {
+     "worldX": -38666.5,
+     "worldZ": -81466.5
+    }
+   ]
+  },
+  {
+   "id": "TWY-RET-S",
+   "widthM": 23,
+   "points": [
+    {
+     "worldX": -39269.2,
+     "worldZ": -82604.3
+    },
+    {
+     "worldX": -39228,
+     "worldZ": -82556.1
+    },
+    {
+     "worldX": -39203.7,
+     "worldZ": -82534.1
+    },
+    {
+     "worldX": -39027.8,
+     "worldZ": -82400.9
+    },
+    {
+     "worldX": -38995.5,
+     "worldZ": -82380.7
+    },
+    {
+     "worldX": -38966.1,
+     "worldZ": -82358.3
+    },
+    {
+     "worldX": -38932.8,
+     "worldZ": -82328.1
+    }
+   ]
+  },
+  {
+   "id": "TWY-RET-N",
+   "widthM": 23,
+   "points": [
+    {
+     "worldX": -40122,
+     "worldZ": -84214.1
+    },
+    {
+     "worldX": -40135.8,
+     "worldZ": -84324.1
+    },
+    {
+     "worldX": -40138.7,
+     "worldZ": -84497.5
+    },
+    {
+     "worldX": -40142.3,
+     "worldZ": -84581.2
+    },
+    {
+     "worldX": -40150.7,
+     "worldZ": -84622.5
+    },
+    {
+     "worldX": -40161.3,
+     "worldZ": -84649.5
+    }
+   ]
+  },
+  {
+   "id": "TWY-CIVIL",
+   "widthM": 23,
+   "points": [
+    {
+     "worldX": -39870.2,
+     "worldZ": -83738.8
+    },
+    {
+     "worldX": -39855.4,
+     "worldZ": -83717.7
+    },
+    {
+     "worldX": -39845,
+     "worldZ": -83709.9
+    },
+    {
+     "worldX": -39820.2,
+     "worldZ": -83704.5
+    },
+    {
+     "worldX": -39798.9,
+     "worldZ": -83709.4
+    },
+    {
+     "worldX": -39523.4,
+     "worldZ": -83856.3
+    }
+   ]
+  },
+  {
+   "id": "TWY-CIVIL-FILLET",
+   "widthM": 23,
+   "points": [
+    {
+     "worldX": -39798.9,
+     "worldZ": -83709.4
+    },
+    {
+     "worldX": -39809.4,
+     "worldZ": -83700.3
+    },
+    {
+     "worldX": -39821.5,
+     "worldZ": -83681.7
+    },
+    {
+     "worldX": -39824.1,
+     "worldZ": -83665
+    },
+    {
+     "worldX": -39822.5,
+     "worldZ": -83648.9
+    }
+   ]
+  },
+  {
+   "id": "TWY-HOLD-S",
+   "widthM": 23,
+   "points": [
+    {
+     "worldX": -39061.3,
+     "worldZ": -82426.4
+    },
+    {
+     "worldX": -39049.5,
+     "worldZ": -82425.6
+    },
+    {
+     "worldX": -39023.9,
+     "worldZ": -82436.3
+    },
+    {
+     "worldX": -39016.7,
+     "worldZ": -82443.8
+    },
+    {
+     "worldX": -39013.4,
+     "worldZ": -82452.2
+    },
+    {
+     "worldX": -39011,
+     "worldZ": -82461.7
+    },
+    {
+     "worldX": -39011.8,
+     "worldZ": -82477.1
+    }
+   ]
+  },
+  {
+   "id": "TWY-HOLD-N",
+   "widthM": 23,
+   "points": [
+    {
+     "worldX": -40138,
+     "worldZ": -84446.6
+    },
+    {
+     "worldX": -40135,
+     "worldZ": -84459.2
+    },
+    {
+     "worldX": -40128.7,
+     "worldZ": -84470.7
+    },
+    {
+     "worldX": -40114.3,
+     "worldZ": -84481.3
+    },
+    {
+     "worldX": -40089.7,
+     "worldZ": -84482
+    },
+    {
+     "worldX": -40073.3,
+     "worldZ": -84475.5
+    },
+    {
+     "worldX": -40064.7,
+     "worldZ": -84465.6
+    }
+   ]
+  },
+  {
+   "id": "TWY-N-END",
+   "widthM": 23,
+   "points": [
+    {
+     "worldX": -40708.8,
+     "worldZ": -85321.7
+    },
+    {
+     "worldX": -40710.2,
+     "worldZ": -85350.4
+    },
+    {
+     "worldX": -40706.7,
+     "worldZ": -85360
+    },
+    {
+     "worldX": -40698.1,
+     "worldZ": -85372
+    },
+    {
+     "worldX": -40687.4,
+     "worldZ": -85379.6
+    },
+    {
+     "worldX": -40610.5,
+     "worldZ": -85418.8
+    },
+    {
+     "worldX": -40586.8,
+     "worldZ": -85418.5
+    },
+    {
+     "worldX": -40576.1,
+     "worldZ": -85414.5
+    },
+    {
+     "worldX": -40560.3,
+     "worldZ": -85403.4
+    }
+   ]
+  },
+  {
+   "id": "TWY-HAS-LANE",
+   "widthM": 15,
+   "points": [
+    {
+     "worldX": -39968,
+     "worldZ": -84895.8
+    },
+    {
+     "worldX": -40225.5,
+     "worldZ": -85381.8
+    },
+    {
+     "worldX": -40322.2,
+     "worldZ": -85387.1
+    }
+   ]
+  }
+ ],
+ "aprons": [
+  {
+   "id": "APRON-CIVIL",
+   "kind": "apron",
+   "points": [
+    {
+     "worldX": -39356.9,
+     "worldZ": -83753.4
+    },
+    {
+     "worldX": -39388.6,
+     "worldZ": -83736.6
+    },
+    {
+     "worldX": -39550.8,
+     "worldZ": -83651.1
+    },
+    {
+     "worldX": -39695.1,
+     "worldZ": -83925
+    },
+    {
+     "worldX": -39536.2,
+     "worldZ": -84007.7
+    },
+    {
+     "worldX": -39585.7,
+     "worldZ": -84101.3
+    },
+    {
+     "worldX": -39552,
+     "worldZ": -84118.6
+    }
+   ]
+  },
+  {
+   "id": "APRON-NORTH-MIL",
+   "kind": "apron",
+   "points": [
+    {
+     "worldX": -40431.8,
+     "worldZ": -85513.1
+    },
+    {
+     "worldX": -40259.3,
+     "worldZ": -85187.3
+    },
+    {
+     "worldX": -40173.2,
+     "worldZ": -85018
+    },
+    {
+     "worldX": -40148,
+     "worldZ": -85027.9
+    },
+    {
+     "worldX": -39951.8,
+     "worldZ": -84659.5
+    },
+    {
+     "worldX": -40094,
+     "worldZ": -84581.3
+    },
+    {
+     "worldX": -40158.5,
+     "worldZ": -84553.7
+    },
+    {
+     "worldX": -40166.4,
+     "worldZ": -84604.8
+    },
+    {
+     "worldX": -40183.2,
+     "worldZ": -84647.5
+    },
+    {
+     "worldX": -40570.4,
+     "worldZ": -85383.2
+    },
+    {
+     "worldX": -40606.2,
+     "worldZ": -85391.8
+    },
+    {
+     "worldX": -40627.9,
+     "worldZ": -85435.3
+    },
+    {
+     "worldX": -40649.8,
+     "worldZ": -85476.8
+    },
+    {
+     "worldX": -40633.9,
+     "worldZ": -85534.1
+    },
+    {
+     "worldX": -40559.2,
+     "worldZ": -85654
+    },
+    {
+     "worldX": -40417.5,
+     "worldZ": -85567.6
+    },
+    {
+     "worldX": -40447,
+     "worldZ": -85520.2
+    },
+    {
+     "worldX": -40445.4,
+     "worldZ": -85509.2
+    }
+   ]
+  },
+  {
+   "id": "HAS-PAD-1",
+   "kind": "shelter_pad",
+   "points": [
+    {
+     "worldX": -40143.2,
+     "worldZ": -85382.4
+    },
+    {
+     "worldX": -40158.2,
+     "worldZ": -85410.7
+    },
+    {
+     "worldX": -40215.6,
+     "worldZ": -85380.2
+    },
+    {
+     "worldX": -40200.6,
+     "worldZ": -85352
+    }
+   ]
+  },
+  {
+   "id": "HAS-PAD-2",
+   "kind": "shelter_pad",
+   "points": [
+    {
+     "worldX": -40118.7,
+     "worldZ": -85329.7
+    },
+    {
+     "worldX": -40133.7,
+     "worldZ": -85358
+    },
+    {
+     "worldX": -40191.1,
+     "worldZ": -85327.6
+    },
+    {
+     "worldX": -40176.1,
+     "worldZ": -85299.3
+    }
+   ]
+  },
+  {
+   "id": "HAS-PAD-3",
+   "kind": "shelter_pad",
+   "points": [
+    {
+     "worldX": -40037.9,
+     "worldZ": -85166.6
+    },
+    {
+     "worldX": -40052.9,
+     "worldZ": -85194.8
+    },
+    {
+     "worldX": -40110.3,
+     "worldZ": -85164.4
+    },
+    {
+     "worldX": -40095.4,
+     "worldZ": -85136.1
+    }
+   ]
+  },
+  {
+   "id": "HAS-PAD-4",
+   "kind": "shelter_pad",
+   "points": [
+    {
+     "worldX": -40009.1,
+     "worldZ": -85120.7
+    },
+    {
+     "worldX": -40024.1,
+     "worldZ": -85149
+    },
+    {
+     "worldX": -40081.5,
+     "worldZ": -85118.6
+    },
+    {
+     "worldX": -40066.5,
+     "worldZ": -85090.3
+    }
+   ]
+  },
+  {
+   "id": "HAS-PAD-5",
+   "kind": "shelter_pad",
+   "points": [
+    {
+     "worldX": -39949.7,
+     "worldZ": -85010.7
+    },
+    {
+     "worldX": -39964.7,
+     "worldZ": -85039
+    },
+    {
+     "worldX": -40022.1,
+     "worldZ": -85008.6
+    },
+    {
+     "worldX": -40007.1,
+     "worldZ": -84980.3
+    }
+   ]
+  },
+  {
+   "id": "HAS-PAD-6",
+   "kind": "shelter_pad",
+   "points": [
+    {
+     "worldX": -39920.8,
+     "worldZ": -84960.4
+    },
+    {
+     "worldX": -39935.8,
+     "worldZ": -84988.7
+    },
+    {
+     "worldX": -39993.2,
+     "worldZ": -84958.3
+    },
+    {
+     "worldX": -39978.2,
+     "worldZ": -84930
+    }
+   ]
+  }
+ ],
+ "parkingSpots": [
+  {
+   "id": "STAND-1",
+   "worldX": -39593.2,
+   "worldZ": -83919.8,
+   "headingRad": 4.2252,
+   "type": "transport"
+  },
+  {
+   "id": "STAND-2",
+   "worldX": -39530.4,
+   "worldZ": -83893.3,
+   "headingRad": 4.2252,
+   "type": "transport"
+  },
+  {
+   "id": "STAND-3",
+   "worldX": -39544.2,
+   "worldZ": -83808.7,
+   "headingRad": 4.2252,
+   "type": "transport"
+  },
+  {
+   "id": "STAND-4",
+   "worldX": -39510.9,
+   "worldZ": -83754.4,
+   "headingRad": 4.2252,
+   "type": "transport"
+  },
+  {
+   "id": "AS-1",
+   "worldX": -40370.3,
+   "worldZ": -85212.5,
+   "headingRad": 4.2214,
+   "type": "fighter"
+  },
+  {
+   "id": "AS-2",
+   "worldX": -40383.3,
+   "worldZ": -85237,
+   "headingRad": 4.2711,
+   "type": "fighter"
+  },
+  {
+   "id": "AS-3",
+   "worldX": -40394.9,
+   "worldZ": -85259,
+   "headingRad": 4.2826,
+   "type": "fighter"
+  },
+  {
+   "id": "AS-4",
+   "worldX": -40404.7,
+   "worldZ": -85278,
+   "headingRad": 4.2452,
+   "type": "fighter"
+  },
+  {
+   "id": "AS-5",
+   "worldX": -40415.6,
+   "worldZ": -85298.3,
+   "headingRad": 4.2339,
+   "type": "fighter"
+  },
+  {
+   "id": "AS-6",
+   "worldX": -40426.5,
+   "worldZ": -85320,
+   "headingRad": 4.2628,
+   "type": "fighter"
+  },
+  {
+   "id": "AS-7",
+   "worldX": -40437.9,
+   "worldZ": -85342.6,
+   "headingRad": 4.2706,
+   "type": "fighter"
+  },
+  {
+   "id": "AS-8",
+   "worldX": -40452,
+   "worldZ": -85364.5,
+   "headingRad": 4.2518,
+   "type": "fighter"
+  },
+  {
+   "id": "AS-9",
+   "worldX": -40463.1,
+   "worldZ": -85384.9,
+   "headingRad": 4.2665,
+   "type": "fighter"
+  },
+  {
+   "id": "AS-10",
+   "worldX": -40472.3,
+   "worldZ": -85404.6,
+   "headingRad": 4.2711,
+   "type": "fighter"
+  },
+  {
+   "id": "AS-11",
+   "worldX": -40482.3,
+   "worldZ": -85425.6,
+   "headingRad": 4.2702,
+   "type": "fighter"
+  },
+  {
+   "id": "AS-12",
+   "worldX": -40492.8,
+   "worldZ": -85449.1,
+   "headingRad": 4.2702,
+   "type": "fighter"
+  },
+  {
+   "id": "AS-13",
+   "worldX": -40496,
+   "worldZ": -85537.3,
+   "headingRad": 3.6618,
+   "type": "fighter"
+  },
+  {
+   "id": "AS-14",
+   "worldX": -40519.6,
+   "worldZ": -85551.6,
+   "headingRad": 3.6618,
+   "type": "fighter"
+  },
+  {
+   "id": "AS-15",
+   "worldX": -40539,
+   "worldZ": -85561.9,
+   "headingRad": 3.7616,
+   "type": "fighter"
+  },
+  {
+   "id": "AS-16",
+   "worldX": -40559,
+   "worldZ": -85574.7,
+   "headingRad": 3.7243,
+   "type": "fighter"
+  },
+  {
+   "id": "HAS-1",
+   "worldX": -40168.4,
+   "worldZ": -85387.2,
+   "headingRad": 4.2252,
+   "type": "fighter"
+  },
+  {
+   "id": "HAS-2",
+   "worldX": -40143.9,
+   "worldZ": -85334.5,
+   "headingRad": 4.2252,
+   "type": "fighter"
+  },
+  {
+   "id": "HAS-3",
+   "worldX": -40063.1,
+   "worldZ": -85171.3,
+   "headingRad": 4.2252,
+   "type": "fighter"
+  },
+  {
+   "id": "HAS-4",
+   "worldX": -40034.3,
+   "worldZ": -85125.5,
+   "headingRad": 4.2252,
+   "type": "fighter"
+  },
+  {
+   "id": "HAS-5",
+   "worldX": -39974.9,
+   "worldZ": -85015.5,
+   "headingRad": 4.2252,
+   "type": "fighter"
+  },
+  {
+   "id": "HAS-6",
+   "worldX": -39945.9,
+   "worldZ": -84965.2,
+   "headingRad": 4.2252,
+   "type": "fighter"
+  }
+ ],
+ "structures": [
+  {
+   "id": "APRON-SHELTER-1",
+   "kind": "shelter",
+   "worldX": -40370.3,
+   "worldZ": -85212.5,
+   "headingRad": 4.2214,
+   "widthM": 22,
+   "lengthM": 38.4,
+   "heightM": 9,
+   "group": "apron-shelters"
+  },
+  {
+   "id": "APRON-SHELTER-2",
+   "kind": "shelter",
+   "worldX": -40383.3,
+   "worldZ": -85237,
+   "headingRad": 4.2711,
+   "widthM": 22,
+   "lengthM": 37.2,
+   "heightM": 9,
+   "group": "apron-shelters"
+  },
+  {
+   "id": "APRON-SHELTER-3",
+   "kind": "shelter",
+   "worldX": -40394.9,
+   "worldZ": -85259,
+   "headingRad": 4.2826,
+   "widthM": 22,
+   "lengthM": 37.5,
+   "heightM": 9,
+   "group": "apron-shelters"
+  },
+  {
+   "id": "APRON-SHELTER-4",
+   "kind": "shelter",
+   "worldX": -40404.7,
+   "worldZ": -85278,
+   "headingRad": 4.2452,
+   "widthM": 22,
+   "lengthM": 37.5,
+   "heightM": 9,
+   "group": "apron-shelters"
+  },
+  {
+   "id": "APRON-SHELTER-5",
+   "kind": "shelter",
+   "worldX": -40415.6,
+   "worldZ": -85298.3,
+   "headingRad": 4.2339,
+   "widthM": 22,
+   "lengthM": 38.2,
+   "heightM": 9,
+   "group": "apron-shelters"
+  },
+  {
+   "id": "APRON-SHELTER-6",
+   "kind": "shelter",
+   "worldX": -40426.5,
+   "worldZ": -85320,
+   "headingRad": 4.2628,
+   "widthM": 22,
+   "lengthM": 38.2,
+   "heightM": 9,
+   "group": "apron-shelters"
+  },
+  {
+   "id": "APRON-SHELTER-7",
+   "kind": "shelter",
+   "worldX": -40437.9,
+   "worldZ": -85342.6,
+   "headingRad": 4.2706,
+   "widthM": 22,
+   "lengthM": 38.9,
+   "heightM": 9,
+   "group": "apron-shelters"
+  },
+  {
+   "id": "APRON-SHELTER-8",
+   "kind": "shelter",
+   "worldX": -40452,
+   "worldZ": -85364.5,
+   "headingRad": 4.2518,
+   "widthM": 22,
+   "lengthM": 38.1,
+   "heightM": 9,
+   "group": "apron-shelters"
+  },
+  {
+   "id": "APRON-SHELTER-9",
+   "kind": "shelter",
+   "worldX": -40463.1,
+   "worldZ": -85384.9,
+   "headingRad": 4.2665,
+   "widthM": 22,
+   "lengthM": 36.1,
+   "heightM": 9,
+   "group": "apron-shelters"
+  },
+  {
+   "id": "APRON-SHELTER-10",
+   "kind": "shelter",
+   "worldX": -40472.3,
+   "worldZ": -85404.6,
+   "headingRad": 4.2711,
+   "widthM": 21.3,
+   "lengthM": 35.8,
+   "heightM": 9,
+   "group": "apron-shelters"
+  },
+  {
+   "id": "APRON-SHELTER-11",
+   "kind": "shelter",
+   "worldX": -40482.3,
+   "worldZ": -85425.6,
+   "headingRad": 4.2702,
+   "widthM": 22,
+   "lengthM": 36.4,
+   "heightM": 9,
+   "group": "apron-shelters"
+  },
+  {
+   "id": "APRON-SHELTER-12",
+   "kind": "shelter",
+   "worldX": -40492.8,
+   "worldZ": -85449.1,
+   "headingRad": 4.2702,
+   "widthM": 22,
+   "lengthM": 37.6,
+   "heightM": 9,
+   "group": "apron-shelters"
+  },
+  {
+   "id": "APRON-SHELTER-13",
+   "kind": "shelter",
+   "worldX": -40496,
+   "worldZ": -85537.3,
+   "headingRad": 3.6618,
+   "widthM": 22,
+   "lengthM": 36.1,
+   "heightM": 9,
+   "group": "apron-shelters"
+  },
+  {
+   "id": "APRON-SHELTER-14",
+   "kind": "shelter",
+   "worldX": -40519.6,
+   "worldZ": -85551.6,
+   "headingRad": 3.6618,
+   "widthM": 22,
+   "lengthM": 34.6,
+   "heightM": 9,
+   "group": "apron-shelters"
+  },
+  {
+   "id": "APRON-SHELTER-15",
+   "kind": "shelter",
+   "worldX": -40539,
+   "worldZ": -85561.9,
+   "headingRad": 3.7616,
+   "widthM": 22,
+   "lengthM": 36.8,
+   "heightM": 9,
+   "group": "apron-shelters"
+  },
+  {
+   "id": "APRON-SHELTER-16",
+   "kind": "shelter",
+   "worldX": -40559,
+   "worldZ": -85574.7,
+   "headingRad": 3.7243,
+   "widthM": 22,
+   "lengthM": 35.4,
+   "heightM": 9,
+   "group": "apron-shelters"
+  },
+  {
+   "id": "HAS-1",
+   "kind": "shelter",
+   "worldX": -40168.4,
+   "worldZ": -85387.2,
+   "headingRad": 4.2252,
+   "widthM": 26,
+   "lengthM": 36,
+   "heightM": 11,
+   "group": "has-compound"
+  },
+  {
+   "id": "HAS-2",
+   "kind": "shelter",
+   "worldX": -40143.9,
+   "worldZ": -85334.5,
+   "headingRad": 4.2252,
+   "widthM": 26,
+   "lengthM": 36,
+   "heightM": 11,
+   "group": "has-compound"
+  },
+  {
+   "id": "HAS-3",
+   "kind": "shelter",
+   "worldX": -40063.1,
+   "worldZ": -85171.3,
+   "headingRad": 4.2252,
+   "widthM": 26,
+   "lengthM": 36,
+   "heightM": 11,
+   "group": "has-compound"
+  },
+  {
+   "id": "HAS-4",
+   "kind": "shelter",
+   "worldX": -40034.3,
+   "worldZ": -85125.5,
+   "headingRad": 4.2252,
+   "widthM": 26,
+   "lengthM": 36,
+   "heightM": 11,
+   "group": "has-compound"
+  },
+  {
+   "id": "HAS-5",
+   "kind": "shelter",
+   "worldX": -39974.9,
+   "worldZ": -85015.5,
+   "headingRad": 4.2252,
+   "widthM": 26,
+   "lengthM": 36,
+   "heightM": 11,
+   "group": "has-compound"
+  },
+  {
+   "id": "HAS-6",
+   "kind": "shelter",
+   "worldX": -39945.9,
+   "worldZ": -84965.2,
+   "headingRad": 4.2252,
+   "widthM": 26,
+   "lengthM": 36,
+   "heightM": 11,
+   "group": "has-compound"
+  },
+  {
+   "id": "HANGAR-1",
+   "kind": "hangar",
+   "worldX": -40172,
+   "worldZ": -85120.9,
+   "headingRad": 4.2252,
+   "widthM": 65.6,
+   "lengthM": 24.6,
+   "heightM": 12,
+   "group": "maintenance"
+  },
+  {
+   "id": "HANGAR-2",
+   "kind": "hangar",
+   "worldX": -40208.9,
+   "worldZ": -85197.1,
+   "headingRad": 4.2252,
+   "widthM": 65.7,
+   "lengthM": 24,
+   "heightM": 12,
+   "group": "maintenance"
+  },
+  {
+   "id": "HANGAR-3",
+   "kind": "hangar",
+   "worldX": -40277.2,
+   "worldZ": -85326.3,
+   "headingRad": 4.2252,
+   "widthM": 51.1,
+   "lengthM": 25.3,
+   "heightM": 12,
+   "group": "maintenance"
+  },
+  {
+   "id": "HANGAR-4",
+   "kind": "hangar",
+   "worldX": -40314.2,
+   "worldZ": -85394.4,
+   "headingRad": 4.2252,
+   "widthM": 64.3,
+   "lengthM": 25.5,
+   "heightM": 12,
+   "group": "maintenance"
+  },
+  {
+   "id": "TERMINAL",
+   "kind": "building",
+   "worldX": -39410.2,
+   "worldZ": -83912,
+   "headingRad": 2.6501,
+   "widthM": 48.7,
+   "lengthM": 97.4,
+   "heightM": 14,
+   "group": "terminal"
+  },
+  {
+   "id": "TOWER",
+   "kind": "control_tower",
+   "worldX": -39354.8,
+   "worldZ": -83930.5,
+   "headingRad": 4.2252,
+   "widthM": 9,
+   "lengthM": 9,
+   "heightM": 28,
+   "group": "atc"
+  },
+  {
+   "id": "BUILDING-1",
+   "kind": "building",
+   "worldX": -38979.3,
+   "worldZ": -83371.4,
+   "headingRad": 1.0502,
+   "widthM": 19.3,
+   "lengthM": 93.4,
+   "heightM": 8,
+   "group": "base-support"
+  },
+  {
+   "id": "BUILDING-2",
+   "kind": "building",
+   "worldX": -39655,
+   "worldZ": -84418.2,
+   "headingRad": 2.6502,
+   "widthM": 24.9,
+   "lengthM": 94.5,
+   "heightM": 8,
+   "group": "base-support"
+  },
+  {
+   "id": "BUILDING-3",
+   "kind": "building",
+   "worldX": -39938.4,
+   "worldZ": -84551.8,
+   "headingRad": 5.8278,
+   "widthM": 34.8,
+   "lengthM": 71.7,
+   "heightM": 8,
+   "group": "base-support"
+  },
+  {
+   "id": "BUILDING-4",
+   "kind": "building",
+   "worldX": -39701.9,
+   "worldZ": -84831.8,
+   "headingRad": 5.7741,
+   "widthM": 38.8,
+   "lengthM": 98,
+   "heightM": 8,
+   "group": "base-support"
+  },
+  {
+   "id": "BUILDING-5",
+   "kind": "building",
+   "worldX": -39756.4,
+   "worldZ": -84949.4,
+   "headingRad": 1.1109,
+   "widthM": 29.6,
+   "lengthM": 86.6,
+   "heightM": 8,
+   "group": "base-support"
+  },
+  {
+   "id": "BUILDING-6",
+   "kind": "building",
+   "worldX": -39806.5,
+   "worldZ": -84752.6,
+   "headingRad": 2.6337,
+   "widthM": 49.8,
+   "lengthM": 58.7,
+   "heightM": 8,
+   "group": "base-support"
+  },
+  {
+   "id": "BUILDING-7",
+   "kind": "building",
+   "worldX": -39730.9,
+   "worldZ": -84900.9,
+   "headingRad": 1.0731,
+   "widthM": 27,
+   "lengthM": 88,
+   "heightM": 8,
+   "group": "base-support"
+  },
+  {
+   "id": "MAG-1",
+   "kind": "magazine",
+   "worldX": -39158.7,
+   "worldZ": -84532.4,
+   "headingRad": 4.2252,
+   "widthM": 14,
+   "lengthM": 24,
+   "heightM": 6,
+   "group": "munitions-generic"
+  },
+  {
+   "id": "MAG-2",
+   "kind": "magazine",
+   "worldX": -39200.9,
+   "worldZ": -84611.9,
+   "headingRad": 4.2252,
+   "widthM": 14,
+   "lengthM": 24,
+   "heightM": 6,
+   "group": "munitions-generic"
+  },
+  {
+   "id": "MAG-3",
+   "kind": "magazine",
+   "worldX": -39243,
+   "worldZ": -84691.4,
+   "headingRad": 4.2252,
+   "widthM": 14,
+   "lengthM": 24,
+   "heightM": 6,
+   "group": "munitions-generic"
+  },
+  {
+   "id": "MAG-4",
+   "kind": "magazine",
+   "worldX": -39285.1,
+   "worldZ": -84770.9,
+   "headingRad": 4.2252,
+   "widthM": 14,
+   "lengthM": 24,
+   "heightM": 6,
+   "group": "munitions-generic"
+  }
+ ]
+}

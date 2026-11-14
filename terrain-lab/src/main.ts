@@ -5,9 +5,10 @@
  */
 
 import * as THREE from 'three';
-import { heightAt, strips } from './height';
-import { LAKES, MAP_HALF_M, PLACES, VIEWS, geo, toGeo, type ViewPreset } from './layout';
+import { heightAt, strips } from '../../src/terrain/himalaya/height';
+import { LAKES, MAP_HALF_M, PLACES, VIEWS, geo, toGeo, type ViewPreset } from '../../src/terrain/himalaya/layout';
 import { perimeter } from './grid';
+import { buildAirports } from './airports';
 import type { MinimapResult, RingRequest, RingResult } from './lab.worker';
 
 // --- Renderer, scene, camera. ---
@@ -75,7 +76,9 @@ sky.renderOrder = -1;
 scene.add(sky);
 
 // --- Terrain material. ---
-const STRIPS = strips();
+// Airfields with a game layout (Ngari, Simikot, Fukche) are drawn from that JSON (airports.ts);
+// the shader paints simple strips for the rest.
+const STRIPS = strips().filter((s) => !s.layoutId);
 const MAX_STRIPS = 16;
 const stripA: THREE.Vector4[] = [], stripB: THREE.Vector4[] = [];
 for (let i = 0; i < MAX_STRIPS; i++) {
@@ -387,8 +390,9 @@ function setCamera(x: number, y: number, z: number, yawRad: number, pitchRad: nu
 function applyView(v: ViewPreset): void {
   const p = PLACES.find((q) => q.id === v.place);
   if (!p) return;
-  const [tx, tz] = geo(p.lat, p.lon);
-  const b = (v.bearingDeg * Math.PI) / 180;
+  const [px, pz] = geo(p.lat, p.lon);
+  const tx = px + (v.offsetM?.[0] ?? 0), tz = pz + (v.offsetM?.[1] ?? 0);
+  const b =(v.bearingDeg * Math.PI) / 180;
   const x = tx + Math.sin(b) * v.distM, z = tz - Math.cos(b) * v.distM;
   lookFrom(x, Math.max(v.alt, heightAt(x, z) + 50), z, tx, v.targetAlt, tz);
 }
@@ -414,7 +418,15 @@ const stripsBox = document.getElementById('strips') as HTMLInputElement;
 const onSun = (): void => { sun.az = Number(sunAz.value); sun.el = Number(sunEl.value); updateSun(); };
 sunAz.addEventListener('input', onSun);
 sunEl.addEventListener('input', onSun);
-stripsBox.addEventListener('change', () => { for (const r of RINGS) r.mat.uniforms.uShowStrips.value = stripsBox.checked ? 1 : 0; });
+// The airports from the game's layout JSON, lit by the lab sun (buildings are boxes).
+const sunLight = new THREE.DirectionalLight(0xffffff, 2.2);
+const airports = buildAirports(new THREE.AmbientLight(0xb8c8e0, 0.9));
+airports.add(sunLight);
+scene.add(airports);
+stripsBox.addEventListener('change', () => {
+  for (const r of RINGS) r.mat.uniforms.uShowStrips.value = stripsBox.checked ? 1 : 0;
+  airports.visible = stripsBox.checked;
+});
 const readout = document.getElementById('readout')!;
 
 const mini = document.getElementById('minimap') as HTMLCanvasElement;
@@ -513,6 +525,7 @@ function frame(now: number): void {
 
   updateRings();
   sky.position.copy(camera.position);
+  sunLight.position.copy(sunDir);
   (skyMat.uniforms.uCamAlt as { value: number }).value = camera.position.y;
   for (const r of RINGS) {
     (r.mat.uniforms.uCam.value as THREE.Vector3).copy(camera.position);

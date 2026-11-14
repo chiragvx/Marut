@@ -1,8 +1,8 @@
 // Dev helper (npx vite-node terrain-lab/sample.ts geo <lat> <lon> <sizeKm> <n> <out.raw>): sample heights to a raw float32 file.
 import { writeFileSync } from 'node:fs';
-import { heightAt } from './src/height';
-import { geo } from './src/layout';
-import { Noise2 } from './src/noise';
+import { heightAt } from '../src/terrain/himalaya/height';
+import { geo } from '../src/terrain/himalaya/layout';
+import { Noise2 } from '../src/terrain/himalaya/noise';
 const [mode, a1, a2, a3, a4, out] = process.argv.slice(2);
 if (mode === 'stats') {
   const N = new Noise2(1729);
