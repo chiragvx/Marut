@@ -170,7 +170,10 @@ def fix_winding(path: str) -> None:
 # hue (any shade: panel lines, weathering) are moved to the IAF grey at the same relative brightness; markings, roundels, text, tyres and other
 # colours are left alone. Applied to the tiles that carry the outer paint, and the flat airframe cell.
 PAINT_SRC = (72, 88, 99)
-PAINT_IAF = (112, 120, 127)
+# The game's lighting is tuned to the Tejas's paint (albedo ~0.52 linear); FS 36173 itself (~0.17
+# linear) rendered nearly black-navy in flight, so the C-17 is painted a lighter grey that reads as
+# the photographed IAF jets do in daylight (the user's reference), keeping the hue.
+PAINT_IAF = (160, 167, 172)
 PAINT_TILES = ('airframemap', 'edge', 'envelope', 'engine')
 FLAT['airframeblue'] = (tuple(((c / 255 + 0.055) / 1.055) ** 2.4 for c in PAINT_IAF), 0.0, 0.5)
 
