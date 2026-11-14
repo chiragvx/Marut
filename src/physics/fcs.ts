@@ -712,10 +712,25 @@ export function stepFcs(
     // denominator, so the steady-state algebra (elevonSymCmd = innerGain*qCmdAir at q=0) actually
     // lands at `margin*maxElevonRad` against the gain the inner loop below actually applies.
     const innerSchedule = pitchInnerLoopSchedule(qBarPa);
+    // An aircraft's own pitch-rate ceiling (FcsLimits.maxPitchRateCmdRadS, the C-17) limits how
+    // fast the pilot can rotate the ATTITUDE; it must never stop the aircraft reaching its g limit
+    // in a turn. A banked turn at n g needs a steady body pitch rate of (n - cos(phi)) g/V, ~8-9
+    // deg/s at 2.5 g, 60 deg bank, 250 KIAS: capping that at a flat 5-6 deg/s held the C-17 to
+    // ~1.7-1.9 g at its corner speed and it sank in every steep turn. So the ceiling is raised to
+    // the pitch rate the g limits themselves need at this speed and bank, plus the outer loop's
+    // own reach for half a g of error: without that headroom the cap clamped the command exactly
+    // at the turn rate, froze the trim integral (gPathSaturated) and the inner loop's proportional
+    // error left a full pull at 300 KIAS / 60 deg bank short at ~2.05 g.
+    const ownCap = fcsLimits.maxPitchRateCmdRadS;
+    const gLimitHeadroomRadS = FCS_PITCH_OUTER_LOOP_GAIN * FCS_TRIM_INTEGRATE_MAX_ERROR_G;
+    const pitchRateCeiling =
+      ownCap === undefined
+        ? FCS_MAX_PITCH_RATE_CMD_RAD_S
+        : Math.max(ownCap, (fcsLimits.maxGLoadPos - bodyUpWorldY) * gOverV + gLimitHeadroomRadS, (bodyUpWorldY - fcsLimits.maxGLoadNeg) * gOverV + gLimitHeadroomRadS);
     const qCmdCapRadS = Math.min(
       (FCS_PITCH_RATE_CMD_SATURATION_MARGIN * fcsLimits.maxElevonRad) /
         (FCS_PITCH_INNER_LOOP_GAIN_MULT * innerSchedule * Math.abs(fcsLimits.pitchRateGain)),
-      fcsLimits.maxPitchRateCmdRadS ?? FCS_MAX_PITCH_RATE_CMD_RAD_S
+      pitchRateCeiling
     );
     // Feedforward: the pitch rate the COMMANDED load factor needs to hold a steady turn,
     // (gCmd - bodyUpWorldY)*g/V, so the proportional term only has to correct transients. Without

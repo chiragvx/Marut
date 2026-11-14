@@ -17,7 +17,7 @@
  *   max payload                 77,519 kg (170,900 lb)         [P] AF, FAS
  *   engines                     4 x F117-PW-100, 179.9 kN SLS  [P] AF, BOE
  *   thrust lapse                Bartel & Young high-BPR model  [E] pack 2.2 table
- *   g limits                    +2.25/-1 flaps up (brief; the pack's estimate was +2.5), 0..+2 flaps/slats out [U] FC1
+ *   g limits                    +2.5/-1 flaps up [E] (FC1's 2.25 is gear moving), 0..+2 flaps/slats out [U] FC1
  *   bank                        70 deg max, <= 10 deg/s roll beyond 60 deg   [U] FC1
  *   Vmo / Mmo                   350 KCAS / M0.825              [U] FC1
  */
@@ -68,6 +68,9 @@ export const c17MassModel: MassModelDefinition = {
   fuelCgBodyX: -0.5,
   cargoCgBodyX: 0,
   maxCargoKg: c17MaxPayloadKg,
+  /** Pack 1.3 [E]: nominal CG 0.30 MAC, range 0.20-0.40 MAC (a typical T-tail transport envelope). */
+  referenceCgMac: 0.3,
+  cgRangeMac: [0.2, 0.4],
 };
 
 // --- Engines: 4 x F117-PW-100 (PW2040), per-engine tables (pack 2.2). ---
@@ -328,13 +331,22 @@ export const c17FcsLimits: FcsLimits = {
   /** Clean fallback only: the live limit is alphaLimitStallFrac x the configured stall alpha. */
   maxAlphaRad: 0.9 * 14 * DEG,
   minAlphaRad: -6 * DEG,
-  /** +2.25 / -1.0 g flaps up (brief), 0 .. +2.0 g with flaps/slats out [U] FC1. */
-  maxGLoadPos: 2.25,
+  /**
+   * +2.5 / -1.0 g flaps up [E] (pack 4.3: the standard transport-category clean limit; FC1's 2.25 g
+   * is the gear-in-transit limit and its single-axle-cargo limit is 2.5 g, so the clean limit is at
+   * least that; the Elmendorf C-17 pulled ~2.4 g). 0 .. +2.0 g with flaps/slats out [U] FC1.
+   */
+  maxGLoadPos: 2.5,
   maxGLoadNeg: -1.0,
   flapsDownMaxGLoadPos: 2.0,
   flapsDownMaxGLoadNeg: 0,
-  /** 15 deg/s roll-rate command [E] pack 4.2; 10 deg/s past 60 deg bank, 70 deg max [U] FC1. */
-  maxRollRateRadS: 15 * DEG,
+  /**
+   * 20 deg/s roll-rate command at full stick [E] (pack 4.2 sketched 15; FC1 only limits it to
+   * 10 deg/s past 60 deg bank, which implies more below; display flying shows ~20 deg/s). The
+   * ailerons + roll spoilers reach it above ~150 KCAS; slower it is aero-limited (~15 deg/s at
+   * 115 KCAS). 10 deg/s past 60 deg bank, 70 deg max [U] FC1.
+   */
+  maxRollRateRadS: 20 * DEG,
   maxBankRad: 70 * DEG,
   bankRateReduceAboveRad: 60 * DEG,
   highBankRollRateRadS: 10 * DEG,
@@ -357,7 +369,10 @@ export const c17FcsLimits: FcsLimits = {
   groundRotationIntegralGain: 2.0,
   /** Elevator plus the auto-trimmed stabiliser [E]. */
   trimIntegralMaxRad: 25 * DEG,
-  /** ~5-6 deg/s at full stick [E] pack 4.2 sketch. */
+  /**
+   * ~5-6 deg/s of attitude rate at full stick [E] pack 4.2 sketch. The FCS raises it to whatever
+   * a turn at the g limit needs (fcs.ts pitchRateCeiling), so it never caps the load factor.
+   */
   maxPitchRateCmdRadS: 6 * DEG,
   /** ALS: alpha limit 0.9 x the configured stall alpha [E] pack 3.6. */
   alphaLimitStallFrac: 0.9,

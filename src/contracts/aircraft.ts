@@ -281,6 +281,10 @@ export interface MassModelDefinition {
   cargoCgBodyX: number;
   /** Largest cargo load, kg (the loader clamps to it). */
   maxCargoKg: number;
+  /** Where the reference CG (body origin) sits, fraction of the mean aerodynamic chord aft of its leading edge. */
+  referenceCgMac?: number;
+  /** The permitted CG range, fractions of MAC (forward, aft). */
+  cgRangeMac?: readonly [number, number];
 }
 
 /** Speed placards that only raise telemetry warnings when exceeded. */
