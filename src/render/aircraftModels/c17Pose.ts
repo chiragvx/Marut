@@ -14,8 +14,12 @@
  * Engines are numbered 0..3 from the left wingtip to the right (the C-17's engines 1..4).
  */
 import type { MeshAircraftState } from '../meshAircraftRenderer';
+import { NWS_FULL_AUTHORITY_BELOW_MPS, NWS_MAX_LATERAL_ACCEL_MPS2, NWS_MIN_AUTHORITY_ABOVE_MPS, NWS_MIN_AUTHORITY_FRAC } from '../../contracts/flight';
+import { c17FcsLimits, c17Gear } from '../../aircraft/c17Data';
 
 export const C17_ENGINES = 4;
+
+const clamp01 = (v: number): number => Math.min(1, Math.max(0, v));
 
 export interface C17Pose {
   /** 0 = up .. 1 = down (the sim's gearPos). */
@@ -41,6 +45,12 @@ export interface C17Pose {
   /** Per engine fan speed (N1), 0..1, and the fan's angle, rad (accumulated). */
   n1: number[];
   fanAngle: number[];
+  /** Nose wheel steering, rad (+ = turned left, about its leg). */
+  steer: number;
+  /** Distance the wheels have rolled, m (+ = forwards; each wheel turns by it over its own radius). */
+  rolled: number;
+  /** Oleo slide per gear leg's group ('oleoNose', 'oleo0'..), m: + = compressed above the modelled (static) pose. */
+  oleo: Record<string, number>;
 }
 
 export function createC17Pose(): C17Pose {
@@ -59,13 +69,55 @@ export function createC17Pose(): C17Pose {
     rudder: 0,
     n1: [0, 0, 0, 0],
     fanAngle: [0, 0, 0, 0],
+    steer: 0,
+    rolled: 0,
+    oleo: {},
   };
+}
+
+/** Nose gear: steering limit (the tiller's), the wheelbase for the lateral-acceleration cap, and the rudder's full throw (the pedals steer too). */
+const NOSE_LEG = c17Gear.find((g) => g.steerable)!;
+const NOSE_STEER_MAX_RAD = NOSE_LEG.maxSteerAngleRad;
+const NOSE_STEER_WHEELBASE_M = NOSE_LEG.steeringWheelbaseM ?? 20;
+const RUDDER_MAX_RAD = c17FcsLimits.maxRudderRad;
+
+/**
+ * Nose wheel angle, rad (+ = turned left), as the physics steers it (physics/landingGear.ts): the
+ * pedals' share of full rudder times the tiller's limit, the authority fading with ground speed and
+ * capped by the lateral acceleration it would make; centred in the air or with the gear unlocked.
+ */
+export function c17NoseSteerTarget(rudderRad: number, groundSpeedMps: number, onGround: boolean, gearPos: number): number {
+  if (!onGround || gearPos < 0.99) return 0;
+  const t = Math.min(1, Math.max(0, (groundSpeedMps - NWS_FULL_AUTHORITY_BELOW_MPS) / (NWS_MIN_AUTHORITY_ABOVE_MPS - NWS_FULL_AUTHORITY_BELOW_MPS)));
+  let max = NOSE_STEER_MAX_RAD * (1 - t * (1 - NWS_MIN_AUTHORITY_FRAC));
+  max = Math.min(max, Math.atan((NWS_MAX_LATERAL_ACCEL_MPS2 * NOSE_STEER_WHEELBASE_M) / Math.max(groundSpeedMps * groundSpeedMps, 1e-6)));
+  return Math.max(-1, Math.min(1, rudderRad / RUDDER_MAX_RAD)) * max;
+}
+
+/**
+ * Oleo travel drawn, m, about the modelled pose (the static compression, ~0.25 m; the flight model's
+ * contacts are its uncompressed tyre bottoms, 0.25 m lower): extended by up to C17_OLEO_EXTEND_M with
+ * no weight on the wheels, compressed by up to C17_OLEO_COMPRESS_M (the physics' strokes are 0.45 /
+ * 0.5 m from fully extended).
+ */
+export const C17_OLEO_EXTEND_M = 0.25;
+export const C17_OLEO_COMPRESS_M = 0.2;
+
+/**
+ * Oleo slide, m (+ = compressed up the leg), so the tyre sits on the ground: how far its bottom in
+ * the modelled pose would be below the ground. Airborne: fully extended, easing back to the modelled
+ * pose over the first fifth of a retraction (the keyframes retract the modelled pose). With no ground
+ * height known, the modelled pose on the ground.
+ */
+export function c17OleoTarget(tyreBottomY: number, groundY: number | undefined, onGround: boolean, gearPos: number): number {
+  if (gearPos < 0.99) return -C17_OLEO_EXTEND_M * clamp01((gearPos - 0.8) / 0.19);
+  if (groundY === undefined) return onGround ? 0 : -C17_OLEO_EXTEND_M;
+  return Math.max(-C17_OLEO_EXTEND_M, Math.min(C17_OLEO_COMPRESS_M, groundY - tyreBottomY));
 }
 
 /** Fan N1 at idle (fraction): ground idle on the PW F117 is about a quarter of full N1. */
 export const C17_IDLE_N1 = 0.25;
 
-const clamp01 = (v: number): number => Math.min(1, Math.max(0, v));
 
 /** The pose the renderer's state asks for (fan angles untouched). */
 export function c17PoseTarget(s: Readonly<MeshAircraftState>, out: C17Pose): C17Pose {
@@ -154,7 +206,12 @@ export function c17GroupValue(p: Readonly<C17Pose>, group: string): number {
       return p.elevator;
     case 'rudder':
       return p.rudder;
+    case 'steer':
+      return p.steer;
+    case 'wheel':
+      return p.rolled;
     default: {
+      if (group.startsWith('oleo')) return p.oleo[group] ?? 0;
       const m = /^(reverser|fan)(\d)$/.exec(group);
       if (!m) return 0;
       const e = Number(m[2]);
@@ -164,7 +221,7 @@ export function c17GroupValue(p: Readonly<C17Pose>, group: string): number {
 }
 
 /** A source node's pose group and how it is driven (trackRig.ts RigMode); `hide`: hidden when stowed; `split`: one mesh for all engines. */
-export type C17RigGroup = { group: string; mode: 'track' | 'spin' | 'hinge'; hide?: boolean; split?: boolean };
+export type C17RigGroup = { group: string; mode: 'track' | 'spin' | 'hinge' | 'slide'; hide?: boolean; split?: boolean };
 
 /** Pose group of a source node, by its (three.js-sanitised) name. Engine-specific groups get their
  *  engine number later (by position). */

@@ -7,11 +7,14 @@
  * animation tracks: each rig node keeps its translation / rotation / scale keyframes, and a pose
  * value 0..1 per group picks the time inside that group's window of the source's timeline.
  *
- * Three ways a node is driven:
+ * Four ways a node is driven:
  * - 'track': its keyframes at the group's time;
- * - 'spin':  its rest rotation turned about the axis its keyframes spin it about (engine fans), by an angle;
+ * - 'spin':  its rest rotation turned about the axis its keyframes spin it about (engine fans), by an
+ *            angle; also the wheels about their axles;
  * - 'hinge': its rest translation, rotated from its neutral key about the axis between its window's
- *            two ends, by a signed angle (control surfaces: + = trailing edge down / left).
+ *            two ends, by a signed angle (control surfaces: + = trailing edge down / left; the nose
+ *            wheel's steering about its leg);
+ * - 'slide': its rest pose moved along an axis (parent frame) by a distance (the gear's oleos).
  *
  * Matrices: every node's world matrix is in the aircraft's body frame; the parts' geometry is baked
  * in the body frame at the rest pose, so each part is drawn with W(t) * W(rest)^-1.
@@ -25,7 +28,7 @@ export interface RigTrack {
   values: Float32Array;
 }
 
-export type RigMode = 'track' | 'spin' | 'hinge';
+export type RigMode = 'track' | 'spin' | 'hinge' | 'slide';
 
 export interface RigNodeDef {
   name: string;
@@ -45,9 +48,11 @@ export interface RigNodeDef {
   s?: RigTrack;
   /** Inverse of the node's rest world matrix (body frame). */
   invRest: THREE.Matrix4;
-  /** 'spin' / 'hinge': the axis in the parent frame, and the rotation it turns from. */
+  /** 'spin' / 'hinge': the axis in the parent frame, and the rotation it turns from; 'slide': the direction (parent frame, per unit of the value). */
   axis?: THREE.Vector3;
   from?: THREE.Quaternion;
+  /** The group's value is scaled by this before it drives the node (a wheel: 1 / its radius, signed, turns metres rolled into its angle). */
+  gain?: number;
   /** Hidden at this group value (e.g. legs folded away, reverser vanes stowed). */
   hideAt?: number;
 }
@@ -59,6 +64,8 @@ export interface AircraftRig {
   geometry: (THREE.BufferGeometry | undefined)[];
   /** Each keyframed group's span of the source timeline, s: [fully out, clean]. */
   windows: Record<string, [number, number]>;
+  /** Oleo groups ('slide' nodes carrying wheels) and the lowest point of their tyres, body frame, rest pose. */
+  contacts?: { group: string; tyreBottom: THREE.Vector3 }[];
 }
 
 /** Linear sample of a 3-vector channel at time t (clamped to its ends). */
@@ -133,6 +140,7 @@ export function rigLocal(node: RigNodeDef, x: number, out: THREE.Matrix4): THREE
     else tS.copy(node.restS);
     return out.compose(tV, tQ, tS);
   }
+  if (node.mode === 'slide') return out.compose(tV.copy(node.restT).addScaledVector(node.axis!, x), node.from ?? node.restR, node.restS);
   tQ2.setFromAxisAngle(node.axis!, x);
   tQ.multiplyQuaternions(tQ2, node.from!);
   return out.compose(node.restT, tQ, node.restS);

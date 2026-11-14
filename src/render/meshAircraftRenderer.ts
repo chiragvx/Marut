@@ -32,7 +32,7 @@ import { buildShockConeGeometry, buildVapourConeGeometry, buildVapourWingGeometr
 import { EntityFlag } from '../contracts/core';
 import { createAircraftBodyMaterial, createAircraftFlameMaterial, createAircraftSharedUniforms, type AircraftBodyUniforms, type AircraftFlameUniforms } from './aircraftMaterial';
 import { rigWorld } from './aircraftModels/trackRig';
-import { c17GroupValue, c17PoseTarget, createC17Pose, stepC17Pose, type C17Pose } from './aircraftModels/c17Pose';
+import { c17GroupValue, c17NoseSteerTarget, c17OleoTarget, c17PoseTarget, createC17Pose, stepC17Pose, type C17Pose } from './aircraftModels/c17Pose';
 
 export const MAX_MESH_AIRCRAFT = 64;
 
@@ -189,6 +189,8 @@ interface RigInstance {
   moved: Uint8Array;
   pose: C17Pose;
   target: C17Pose;
+  /** Wheels' rolling speed, m/s, signed (+ = forwards; spins down in the air). */
+  rollSpeed: number;
 }
 
 const NO_ID = -1;
@@ -409,26 +411,50 @@ export function createMeshAircraftRenderer(root: THREE.Object3D, template: Aircr
         if (n.name === template.landingPart) rigLanding = node;
         return node;
       });
-      rigInst = { nodes, world: rig.nodes.map(() => new THREE.Matrix4()), lastX: new Float64Array(rig.nodes.length).fill(NaN), moved: new Uint8Array(rig.nodes.length), pose: createC17Pose(), target: createC17Pose() };
+      rigInst = { nodes, world: rig.nodes.map(() => new THREE.Matrix4()), lastX: new Float64Array(rig.nodes.length).fill(NaN), moved: new Uint8Array(rig.nodes.length), pose: createC17Pose(), target: createC17Pose(), rollSpeed: 0 };
     }
     const landingNode = parts.find((p) => p.part.name === template.landingPart)?.node ?? rigLanding;
     const vapour = createVapourMeshes(airframe, vapourWingGeom, vapourConeGeom, shared, shockConeGeom);
     return { root: group, parts, body, flameMat, flame, airframe, landingNode, assignedId: NO_ID, airbrake: 0, slat: 0, nozzle: 0, rolled: 0, rollSpeed: 0, steer: 0, oleo: {}, vapour, vapWing: 0, vapTip: 0, vapCone: 0, abVis: 0, abFlash: 0, abWasLit: false, ...(rigInst ? { rig: rigInst } : {}) };
   }
 
+  /**
+   * The rig's gear: the nose wheel steers as the physics does, each leg's oleo follows the ground
+   * under its tyres (smoothed, ~60 ms), the wheels roll with the forward ground speed (signed: they
+   * turn backwards when the jet backs up on reverse thrust) and spin down in the air.
+   */
+  function poseRigGear(ri: RigInstance, s: Readonly<MeshAircraftState>, pos: Readonly<Vec3Like>, rot: Readonly<QuatLike>, fresh: boolean): void {
+    const k = fresh ? 1 : 1 - Math.exp(-dt / 0.06);
+    const p = ri.pose;
+    p.steer += (c17NoseSteerTarget(s.rudder, Math.hypot(s.vel.x, s.vel.z), s.onGround, s.gearPos) - p.steer) * k;
+    scratchQ.set(rot.x, rot.y, rot.z, rot.w);
+    const fwd = scratchV2.set(1, 0, 0).applyQuaternion(scratchQ);
+    const vFwd = s.vel.x * fwd.x + s.vel.y * fwd.y + s.vel.z * fwd.z;
+    if (s.onGround) ri.rollSpeed = vFwd;
+    else ri.rollSpeed -= Math.sign(ri.rollSpeed) * Math.min(Math.abs(ri.rollSpeed), Math.max(15, Math.abs(ri.rollSpeed) * 0.8) * dt);
+    p.rolled = (p.rolled + ri.rollSpeed * dt) % 1e5;
+    for (const c of rig!.contacts ?? []) {
+      const tyreY = pos.y + scratchV3.copy(c.tyreBottom).applyQuaternion(scratchQ).y;
+      const target = c17OleoTarget(tyreY, s.groundY, s.onGround, s.gearPos);
+      const prev = p.oleo[c.group];
+      p.oleo[c.group] = prev === undefined || fresh ? target : prev + (target - prev) * k;
+    }
+  }
+
   /** Poses the keyframe rig for this frame (only the nodes whose value moved, and what rides on them). */
-  function poseRig(inst: Instance, s: Readonly<MeshAircraftState>, fresh: boolean): void {
+  function poseRig(inst: Instance, s: Readonly<MeshAircraftState>, pos: Readonly<Vec3Like>, rot: Readonly<QuatLike>, fresh: boolean): void {
     const ri = inst.rig!;
     const defs = rig!.nodes;
     c17PoseTarget(s, ri.target);
     if (fresh) ri.lastX.fill(NaN);
     stepC17Pose(ri.pose, ri.target, dt, fresh);
+    poseRigGear(ri, s, pos, rot, fresh);
     const moved = ri.moved;
     moved.fill(0);
     for (let i = 0; i < defs.length; i++) {
       const n = defs[i]!;
       const v = c17GroupValue(ri.pose, n.group);
-      let x = v;
+      let x = v * (n.gain ?? 1);
       if (n.mode === 'track') {
         const w = rig!.windows[n.group];
         // Keyframes run from fully out (window start) to clean (its end).
@@ -441,7 +467,8 @@ export function createMeshAircraftRenderer(root: THREE.Object3D, template: Aircr
       const node = ri.nodes[i]!;
       node.matrix.multiplyMatrices(ri.world[i]!, n.invRest);
       node.matrixWorldNeedsUpdate = true;
-      node.visible = n.hideAt === undefined || Math.abs(v - n.hideAt) > 1e-4;
+      // Hidden with what it rides on (a folded leg's wheels), or at its own stowed value.
+      node.visible = (n.parent < 0 || ri.nodes[n.parent]!.visible) && (n.hideAt === undefined || Math.abs(v - n.hideAt) > 1e-4);
     }
   }
 
@@ -506,7 +533,7 @@ export function createMeshAircraftRenderer(root: THREE.Object3D, template: Aircr
       inst.body.uniforms.uInterior.value = tmpCam.x > ci.min[0] && tmpCam.x < ci.max[0] && tmpCam.y > ci.min[1] && tmpCam.y < ci.max[1] && tmpCam.z > ci.min[2] && tmpCam.z < ci.max[2] ? 1 : 0;
       inst.root.position.set(pos.x - origin.x, pos.y - origin.y, pos.z - origin.z);
       inst.root.quaternion.set(rot.x, rot.y, rot.z, rot.w);
-      if (inst.rig) poseRig(inst, s, fresh);
+      if (inst.rig) poseRig(inst, s, pos, rot, fresh);
       for (const pn of inst.parts) {
         const p = pn.part;
         let angle = 0;

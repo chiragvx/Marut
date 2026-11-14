@@ -116,6 +116,12 @@ const DEV_CAMREL = ((): number[] | undefined => {
   const v = DEV_PARAMS?.get('camrel')?.split(',').map(Number);
   return v && v.length >= 3 && v.every(Number.isFinite) ? v : undefined;
 })();
+/** Dev: ?cambody=x,y,z,lookX,lookY,lookZ holds the camera at a point in the player's body frame (m;
+ *  x forward, y up, z right), looking at another (e.g. the C-17's nose wheel: cambody=26,-2.5,-7,18.2,-3.6,0). */
+const DEV_CAMBODY = ((): number[] | undefined => {
+  const v = DEV_PARAMS?.get('cambody')?.split(',').map(Number);
+  return v && v.length === 6 && v.every(Number.isFinite) ? v : undefined;
+})();
 /** Tejas wheel contact below its CG (aircraft/tejasGeometry.ts gear y) less the C-17's (c17Model.ts C17_FIT), m. */
 const DEV_C17_LIFT_M = 4.25 - 1.7;
 /** Tejas length, m: the outside cameras scale with a model's length against it. */
@@ -933,6 +939,18 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
           cameraPose.lookAt.x = interpEntity.pos.x;
           cameraPose.lookAt.y = interpEntity.pos.y + (DEV_CAMREL[3] ?? 0);
           cameraPose.lookAt.z = interpEntity.pos.z;
+          cameraPose.useLookAt = true;
+        }
+        if (DEV_CAMBODY) {
+          const b = DEV_CAMBODY;
+          rotateVecByQuat(interpEntity.rot, { x: b[0]!, y: b[1]!, z: b[2]! }, vEyeWorld);
+          cameraPose.pos.x = interpEntity.pos.x + vEyeWorld.x;
+          cameraPose.pos.y = interpEntity.pos.y + vEyeWorld.y;
+          cameraPose.pos.z = interpEntity.pos.z + vEyeWorld.z;
+          rotateVecByQuat(interpEntity.rot, { x: b[3]!, y: b[4]!, z: b[5]! }, vEyeWorld);
+          cameraPose.lookAt.x = interpEntity.pos.x + vEyeWorld.x;
+          cameraPose.lookAt.y = interpEntity.pos.y + vEyeWorld.y;
+          cameraPose.lookAt.z = interpEntity.pos.z + vEyeWorld.z;
           cameraPose.useLookAt = true;
         }
         if (debugCam) {

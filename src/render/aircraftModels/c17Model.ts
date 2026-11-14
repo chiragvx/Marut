@@ -80,6 +80,17 @@ export const C17_NORMAL_SCALE = 0.5;
 
 /** The nose leg's rig node (the landing lamp rides on it). */
 const NOSE_LEG = /^frontlandgear1/i;
+/**
+ * Gear parts (source node names). Every wheel ('frontwheel*', the mains' too) is its own node with
+ * its axle along its local y through its origin: each becomes a 'spin' rig node. The nose leg's
+ * lower half (the piston and fork, torque links and wheels: frontlandgear3..8 and its wheel) rides
+ * on two added nodes, an oleo 'slide' along the leg and a steering 'hinge' about it; each main leg's
+ * bogie (backlandgear3 and the stray backlandgear3.004 / backlandgear6 part) on an oleo 'slide'.
+ */
+const WHEEL = /^frontwheel/i;
+const NOSE_LOWER = /^(frontlandgear[3-8]|frontwheel)/i;
+const MAIN_LEG = /^backlandgear1/i;
+const MAIN_BOGIE = /^backlandgear[36]/i;
 
 /** Mirrored nodes (negative scale) bake inside out: turn their triangles and tangents round. */
 function prepareBaked(mesh: THREE.Mesh, part: number, bodyFromModel: THREE.Matrix4): THREE.BufferGeometry {
@@ -155,25 +166,48 @@ export function templateFromC17Gltf(scene: THREE.Object3D, clips: readonly THREE
 
   // Rig nodes, parents first (depth-first order).
   const nodes: RigNodeDef[] = [];
-  const objs: THREE.Object3D[] = [];
+  const objs: (THREE.Object3D | undefined)[] = [];
   const meta: Group[] = [];
   const index = new Map<THREE.Object3D, number>();
   const restWorld: THREE.Matrix4[] = [];
-  const nearestRig = (o: THREE.Object3D | null): number => {
-    for (let p = o; p; p = p.parent) {
-      const i = index.get(p);
-      if (i !== undefined) return i;
+  // The added gear nodes: a nose leg's steering node, a main leg's oleo node (by the leg's rig index).
+  const steerOf = new Map<number, number>();
+  const slideOf = new Map<number, number>();
+  /** The rig node `o` (a node or mesh) rides on: the nearest rig node above it (not `o` itself),
+   *  or the gear's added nodes for the parts below the oleos. */
+  const ownerOf = (o: THREE.Object3D): number => {
+    let noseLower = false;
+    let bogie = false;
+    for (let p: THREE.Object3D | null = o; p; p = p.parent) {
+      const i = p === o ? undefined : index.get(p);
+      if (i !== undefined) {
+        if (noseLower && steerOf.has(i)) return steerOf.get(i)!;
+        if (bogie && slideOf.has(i)) return slideOf.get(i)!;
+        return i;
+      }
+      if (NOSE_LOWER.test(p.name)) noseLower = true;
+      if (MAIN_BOGIE.test(p.name)) bogie = true;
     }
     return -1;
   };
+  const nearestRig = (o: THREE.Object3D): number => ownerOf(o);
+  const addNode = (def: RigNodeDef, w: THREE.Matrix4, m: Group): number => {
+    nodes.push(def);
+    objs.push(undefined);
+    meta.push(m);
+    restWorld.push(w);
+    return nodes.length - 1;
+  };
+  let mainLegs = 0;
   scene.traverse((o) => {
     const ch = channels.get(o);
-    if (!ch) return;
-    const g = c17GroupOf(o.name);
+    const wheel = !ch && WHEEL.test(o.name) && !(o as THREE.Mesh).isMesh;
+    if (!ch && !wheel) return;
+    const g: Group | undefined = wheel ? { group: 'wheel', mode: 'spin' } : c17GroupOf(o.name);
     if (!g) {
       console.warn(`C-17 GLB: moving node "${o.name}" has no pose group; held clean`);
     }
-    const parent = nearestRig(o.parent);
+    const parent = nearestRig(o);
     const w = new THREE.Matrix4().multiplyMatrices(bodyFromModel, o.matrixWorld);
     // Static chain from the parent rig node (or the body frame) to this node's parent.
     const parentWorld = o.parent ? new THREE.Matrix4().multiplyMatrices(bodyFromModel, o.parent.matrixWorld) : bodyFromModel.clone();
@@ -187,17 +221,51 @@ export function templateFromC17Gltf(scene: THREE.Object3D, clips: readonly THREE
       restT: o.position.clone(),
       restR: o.quaternion.clone(),
       restS: o.scale.clone(),
-      ...(ch.t ? { t: ch.t } : {}),
-      ...(ch.r ? { r: ch.r } : {}),
-      ...(ch.s ? { s: ch.s } : {}),
+      ...(ch?.t ? { t: ch.t } : {}),
+      ...(ch?.r ? { r: ch.r } : {}),
+      ...(ch?.s ? { s: ch.s } : {}),
       invRest: w.clone().invert(),
       ...(g?.hide ? { hideAt: 0 } : {}),
     };
-    index.set(o, nodes.length);
+    if (wheel) {
+      // Spins about its axle (its local y through its origin); the sign and radius come later.
+      def.axis = new THREE.Vector3(0, 1, 0).applyQuaternion(o.quaternion);
+      def.from = o.quaternion.clone();
+    }
+    const self = nodes.length;
+    index.set(o, self);
     nodes.push(def);
     objs.push(o);
     meta.push(g ?? { group: 'misc', mode: 'track' });
     restWorld.push(w);
+    const rot = new THREE.Matrix3().setFromMatrix4(w);
+    const toLocal = rot.clone().invert();
+    const legNode = (group: string, mode: 'slide' | 'hinge', parentIdx: number, axis: THREE.Vector3): RigNodeDef => ({
+      name: `${o.name}#${group}`,
+      group,
+      mode,
+      parent: parentIdx,
+      base: new THREE.Matrix4(),
+      restT: new THREE.Vector3(),
+      restR: new THREE.Quaternion(),
+      restS: new THREE.Vector3(1, 1, 1),
+      invRest: w.clone().invert(),
+      axis,
+      from: new THREE.Quaternion(),
+    });
+    if (NOSE_LEG.test(o.name)) {
+      // The leg runs along its local x: the oleo slides along it (per metre, upwards), the wheel steers about it.
+      const along = new THREE.Vector3(1, 0, 0).applyMatrix3(rot);
+      const up = new THREE.Vector3(Math.sign(along.y) / along.length(), 0, 0);
+      const oleo = addNode(legNode('oleoNose', 'slide', self, up), w, { group: 'oleoNose', mode: 'slide' });
+      const steer = addNode(legNode('steer', 'hinge', oleo, new THREE.Vector3(1, 0, 0)), w, { group: 'steer', mode: 'hinge' });
+      steerOf.set(self, steer);
+    } else if (MAIN_LEG.test(o.name) && ch) {
+      // The bogie slides straight up the body (per metre).
+      const up = new THREE.Vector3(0, 1, 0).applyMatrix3(toLocal);
+      const group = `oleo${mainLegs++}`;
+      slideOf.set(self, addNode(legNode(group, 'slide', self, up), w, { group, mode: 'slide' }));
+    }
   });
 
   // Geometry: each mesh to its nearest rig node, the rest to the fixed airframe.
@@ -226,7 +294,7 @@ export function templateFromC17Gltf(scene: THREE.Object3D, clips: readonly THREE
       surfaces.push({ name: mesh.name, extras: surf, geometry: g });
       return;
     }
-    const owner = nearestRig(mesh);
+    const owner = ownerOf(mesh);
     (owner >= 0 ? nodeParts[owner]! : bodyParts).push(g);
   });
   if (!textures) throw new Error('C-17 GLB: no textured material (base colour, metal-roughness, normal)');
@@ -248,6 +316,17 @@ export function templateFromC17Gltf(scene: THREE.Object3D, clips: readonly THREE
   const finalNodes: RigNodeDef[] = [];
   const finalGeom: (THREE.BufferGeometry | undefined)[] = [];
   const remap: number[] = [];
+  /** A body-frame rest point carried by node `def` (index i) driven to `x`, its ancestors at rest. */
+  const movedAt = (def: RigNodeDef, i: number, x: number, p: THREE.Vector3, out: THREE.Vector3): THREE.Vector3 => {
+    tmpM.copy(def.parent >= 0 ? restWorld[def.parent]! : new THREE.Matrix4()).multiply(def.base).multiply(rigLocal(def, x, tmpL));
+    return out.copy(p).applyMatrix4(nodes[i]!.invRest).applyMatrix4(tmpM);
+  };
+  // Oleo groups' tyre bottoms (the lowest point of the wheels on each), body frame.
+  const contacts = new Map<string, THREE.Vector3>();
+  const oleoAbove = (i: number): string | undefined => {
+    for (let k = nodes[i]!.parent; k >= 0; k = nodes[k]!.parent) if (nodes[k]!.group.startsWith('oleo')) return nodes[k]!.group;
+    return undefined;
+  };
   nodes.forEach((n, i) => {
     const m = meta[i]!;
     const z = restWorld[i]!.elements[14]!;
@@ -255,6 +334,44 @@ export function templateFromC17Gltf(scene: THREE.Object3D, clips: readonly THREE
       finalNodes.push({ ...def, parent: def.parent >= 0 ? remap[def.parent]! : -1 });
       finalGeom.push(g);
     };
+    if (n.group === 'wheel') {
+      // Radius: the furthest vertex from the axle; gain: 1 / radius, signed so that rolling forwards
+      // (+ distance) moves the tyre's bottom aft.
+      const g = geometry[i];
+      const w = restWorld[i]!;
+      const o = new THREE.Vector3().setFromMatrixPosition(w);
+      const d = new THREE.Vector3(0, 1, 0).transformDirection(w);
+      let r = 0;
+      let low: THREE.Vector3 | undefined;
+      if (g) {
+        const pos = g.getAttribute('position');
+        for (let k = 0; k < pos.count; k++) {
+          tmpV.fromBufferAttribute(pos, k).sub(o);
+          r = Math.max(r, tmpV.addScaledVector(d, -tmpV.dot(d)).length());
+          const y = pos.getY(k);
+          if (!low || y < low.y) low = new THREE.Vector3(pos.getX(k), y, pos.getZ(k));
+        }
+      }
+      r = Math.max(r, 0.1);
+      const bottom = o.clone().add(new THREE.Vector3(0, -r, 0));
+      const sign = movedAt(n, i, 0.05, bottom, new THREE.Vector3()).x < bottom.x ? 1 : -1;
+      const group = oleoAbove(i);
+      if (group && low) {
+        const c = contacts.get(group);
+        if (!c || low.y < c.y) contacts.set(group, low);
+      }
+      remap[i] = finalNodes.length;
+      put({ ...n, gain: sign / r }, g);
+      return;
+    }
+    if (n.group === 'steer') {
+      // + = the wheel turned left: a point ahead of the leg moves to the left (-z).
+      const ahead = new THREE.Vector3().setFromMatrixPosition(restWorld[i]!).add(new THREE.Vector3(1, 0, 0));
+      const def = movedAt(n, i, 0.1, ahead, new THREE.Vector3()).z < ahead.z ? n : { ...n, axis: n.axis!.clone().negate() };
+      remap[i] = finalNodes.length;
+      put(def, geometry[i]);
+      return;
+    }
     if (n.group === 'fan') {
       // Spin: the axis the keyframes turn it about (between their first two keys), from its rest.
       const r = n.r!;
@@ -327,7 +444,9 @@ export function templateFromC17Gltf(scene: THREE.Object3D, clips: readonly THREE
   // Each keyframed group's window: the union of its nodes' active spans.
   const windows: Record<string, [number, number]> = {};
   nodes.forEach((n, i) => {
-    const span = channels.get(objs[i]!)!.span!;
+    const o = objs[i];
+    const span = o ? channels.get(o)?.span : undefined;
+    if (!span) return;
     for (const fn of finalNodes) {
       if (fn.name !== n.name || fn.mode !== 'track') continue;
       const w = windows[fn.group];
@@ -384,7 +503,7 @@ export function templateFromC17Gltf(scene: THREE.Object3D, clips: readonly THREE
     // the atlas keeps the map as is, so the strength goes to the shader.
     normalScale: C17_NORMAL_SCALE,
     lengthM: fit.lengthM,
-    rig: { nodes: finalNodes, geometry: finalGeom, windows },
+    rig: { nodes: finalNodes, geometry: finalGeom, windows, contacts: [...contacts].map(([group, tyreBottom]) => ({ group, tyreBottom })) },
   };
 }
 
