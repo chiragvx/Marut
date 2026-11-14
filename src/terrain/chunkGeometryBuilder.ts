@@ -28,7 +28,7 @@ export const WATER_DEPTH_ENCODE_MAX_M = 30;
 
 /**
  * Samples `sampler.heightAt` over a (gridQuads+1)x(gridQuads+1) grid covering `key`'s world-space
- * AABB (plus a one-cell border for the edge normals), plus a skirt ring. Allocates its typed arrays
+ * AABB (plus a border for the edge normals and the ring relief), plus a skirt ring. Allocates its typed arrays
  * fresh each call (not a hot-path violation — see 04-terrain.md section 6: this runs only in
  * terrain.worker.ts on new-chunk events).
  *
@@ -73,27 +73,42 @@ export function buildChunkGeometryAndSurface(
   const normals = new Float32Array(vertexCount * 3);
   const indices = new Uint32Array(indexCount);
 
-  // Heights on the grid plus a one-cell border, row-major, (res+3) per row.
-  const bw = res + 3;
+  // Heights on the grid plus a border of B cells (one for the edge normals; as many as the ring
+  // relief's radius needs), row-major, (res + 1 + 2B) per row. The four B x B corner blocks are
+  // never read and are not sampled. The ring relief reads this grid (linear along a row or
+  // column) instead of sampling the terrain 4 more times per vertex: about half the cost of a
+  // fine chunk, and a fifth of a coarse one.
+  const r = OCCLUSION_RADIUS_M;
+  const B = Math.max(1, Math.ceil(r / step - 1e-9));
+  const bw = res + 1 + 2 * B;
   const heights = new Float64Array(bw * bw);
   // Lakes with their own levels (sampler.waterLevelAt): the mesh is the lake BED, and the ground
   // shader draws the water where the view ray meets each lake's level, so the shore is the smooth
   // line where the bed crosses it at any LOD rather than the stair-step of whole flat triangles.
   const meshHeightAt = sampler.waterLevelAt && sampler.groundHeightAt ? sampler.groundHeightAt : sampler.heightAt;
-  for (let j = -1; j <= res + 1; j++) {
-    for (let i = -1; i <= res + 1; i++) {
-      heights[(j + 1) * bw + (i + 1)] = meshHeightAt(bounds.minX + i * step, bounds.minZ + j * step);
+  for (let j = -B; j <= res + B; j++) {
+    const outJ = j < 0 || j > res;
+    for (let i = -B; i <= res + B; i++) {
+      if (outJ && (i < 0 || i > res)) continue;
+      heights[(j + B) * bw + (i + B)] = meshHeightAt(bounds.minX + i * step, bounds.minZ + j * step);
     }
   }
   const waterLevelM = sampler.waterLevelM;
-  const r = OCCLUSION_RADIUS_M;
+  // The ring's points sit rk + rf cells out along each axis.
+  const rCells = r / step;
+  const rk = Math.min(B, Math.floor(rCells + 1e-9));
+  const rf = rk === B ? 0 : rCells - rk;
+  const ringAt = (c: number, d: number): number => {
+    const a = heights[c + rk * d]!;
+    return rf === 0 ? a : a + (heights[c + (rk + 1) * d]! - a) * rf;
+  };
 
   // --- main (interior) grid vertices, absolute world coordinates ---
   for (let j = 0; j <= res; j++) {
     for (let i = 0; i <= res; i++) {
       const x = bounds.minX + i * step;
       const z = bounds.minZ + j * step;
-      const c = (j + 1) * bw + (i + 1);
+      const c = (j + B) * bw + (i + B);
       const y = heights[c]!;
       const dHdx = (heights[c + 1]! - heights[c - 1]!) / (2 * step);
       const dHdz = (heights[c + bw]! - heights[c - bw]!) / (2 * step);
@@ -104,7 +119,7 @@ export function buildChunkGeometryAndSurface(
         const depth = waterLevelM - sampler.groundHeightAt(x, z);
         len = 1 + Math.min(Math.max(depth, 0), WATER_DEPTH_ENCODE_MAX_M) / WATER_DEPTH_ENCODE_MAX_M;
       } else {
-        const ring = (sampler.heightAt(x + r, z) + sampler.heightAt(x - r, z) + sampler.heightAt(x, z + r) + sampler.heightAt(x, z - r)) * 0.25;
+        const ring = (ringAt(c, 1) + ringAt(c, -1) + ringAt(c, bw) + ringAt(c, -bw)) * 0.25;
         const enc = LAND_LEN_AT_ZERO - (LAND_LEN_PER_V * (ring - y)) / r;
         len = enc < LAND_LEN_MIN ? LAND_LEN_MIN : enc > LAND_LEN_MAX ? LAND_LEN_MAX : enc;
       }
@@ -191,11 +206,11 @@ export function buildChunkGeometryAndSurface(
     const j = Math.min(Math.floor(gz), res - 1);
     const fx = gx - i;
     const fz = gz - j;
-    const a = heights[(j + 1) * bw + (i + 1)]!;
-    const bb = heights[(j + 1) * bw + (i + 2)]!;
-    const cc = heights[(j + 2) * bw + (i + 1)]!;
+    const a = heights[(j + B) * bw + (i + B)]!;
+    const bb = heights[(j + B) * bw + (i + B + 1)]!;
+    const cc = heights[(j + B + 1) * bw + (i + B)]!;
     if (fx + fz <= 1) return a + (bb - a) * fx + (cc - a) * fz;
-    const d = heights[(j + 2) * bw + (i + 2)]!;
+    const d = heights[(j + B + 1) * bw + (i + B + 1)]!;
     return d + (cc - d) * (1 - fx) + (bb - d) * (1 - fz);
   };
   return { geometry: { positions, normals, indices, vertexCount, indexCount }, surface, bounds };
