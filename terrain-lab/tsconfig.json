@@ -1,0 +1,6 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": { "noUncheckedIndexedAccess": false, "outDir": "../dist-ts-check-lab" },
+  "include": ["src"],
+  "exclude": []
+}

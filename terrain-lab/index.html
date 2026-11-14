@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Terrain Lab</title>
+    <style>
+      html, body { margin: 0; height: 100%; background: #0a0e14; overflow: hidden; font: 12px/1.4 system-ui, sans-serif; color: #e8ecf2; }
+      #view { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+      #panel { position: fixed; top: 10px; left: 10px; width: 250px; max-height: calc(100% - 20px); overflow: auto; background: rgba(10, 14, 20, 0.78); border-radius: 8px; padding: 10px; }
+      #panel h1 { font-size: 13px; margin: 0 0 6px; letter-spacing: 0.04em; }
+      #panel h2 { font-size: 11px; margin: 10px 0 4px; color: #9fb0c4; text-transform: uppercase; letter-spacing: 0.06em; }
+      #views button { display: block; width: 100%; text-align: left; margin: 2px 0; padding: 5px 7px; background: #1b2330; color: #e8ecf2; border: 1px solid #2b3647; border-radius: 5px; cursor: pointer; font: inherit; }
+      #views button:hover { background: #253043; }
+      label { display: flex; align-items: center; gap: 6px; margin: 3px 0; }
+      input[type=range] { flex: 1; }
+      #readout { position: fixed; left: 10px; bottom: 10px; white-space: pre; background: rgba(10, 14, 20, 0.78); border-radius: 8px; padding: 8px 10px; font: 11px/1.45 ui-monospace, Consolas, monospace; }
+      #minimap { position: fixed; right: 10px; top: 10px; width: 256px; height: 256px; border-radius: 8px; border: 1px solid #2b3647; cursor: crosshair; image-rendering: pixelated; }
+      .help { color: #9fb0c4; }
+      @media (max-width: 700px) { #panel { width: 180px; } #minimap { width: 140px; height: 140px; } }
+    </style>
+  </head>
+  <body>
+    <canvas id="view"></canvas>
+    <div id="panel">
+      <h1>TERRAIN LAB: Himalaya (procedural)</h1>
+      <div class="help">Drag to look. W A S D fly, E / Q up / down, Shift x5, wheel = speed. Click the map to jump.</div>
+      <h2>Views</h2>
+      <div id="views"></div>
+      <h2>Sun</h2>
+      <label>az <input id="sunAz" type="range" min="0" max="360" value="135" /></label>
+      <label>el <input id="sunEl" type="range" min="2" max="80" value="35" /></label>
+      <label><input id="strips" type="checkbox" checked /> runways</label>
+    </div>
+    <canvas id="minimap" width="256" height="256"></canvas>
+    <div id="readout"></div>
+    <script type="module" src="./src/main.ts"></script>
+  </body>
+</html>
