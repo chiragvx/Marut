@@ -14,6 +14,7 @@
  * One Points draw for every lamp.
  */
 import * as THREE from 'three';
+import { uploadFirst } from './attrUpload';
 import { EntityFlag } from '../contracts/core';
 import { ATMOSPHERE_GLSL, getAtmosphereUniforms } from './atmosphere';
 import type { AircraftSharedUniforms } from './aircraftMaterial';
@@ -299,12 +300,7 @@ export function createAircraftLights(root: THREE.Object3D, lights: LightLayout, 
 
     end() {
       glowGeom.setDrawRange(0, n);
-      posAttr.needsUpdate = true;
-      colAttr.needsUpdate = true;
-      sizeAttr.needsUpdate = true;
-      intAttr.needsUpdate = true;
-      dirAttr.needsUpdate = true;
-      upAttr.needsUpdate = true;
+      for (const a of [posAttr, colAttr, sizeAttr, intAttr, dirAttr, upAttr]) uploadFirst(a, n);
       gl.uGLampN.value = lampN;
     },
 

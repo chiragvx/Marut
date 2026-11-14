@@ -22,6 +22,7 @@
  * when its group's value changes (the fans every frame).
  */
 import * as THREE from 'three';
+import { uploadFirst } from './attrUpload';
 import { StoreRack, storeSlotAt, storeSlotCode, storeSlotCount, storeSlotRack, storeSlotTwin, type QuatLike, type Vec3Like } from '../contracts/core';
 import { AIRCRAFT_SHADOW_LAYER } from './sunShadows';
 import type { AircraftModelTemplate, ArticulatedPart } from './aircraftModels/tejasModel';
@@ -703,7 +704,7 @@ export function createMeshAircraftRenderer(root: THREE.Object3D, template: Aircr
       vapourTrails.end();
       for (const b of allBatches) {
         b.mesh.count = b.n;
-        b.mesh.instanceMatrix.needsUpdate = true;
+        uploadFirst(b.mesh.instanceMatrix, b.n);
       }
       for (let i = 0; i < instances.length; i++) {
         if (touched[i]) continue;

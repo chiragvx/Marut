@@ -23,6 +23,7 @@
  * (src/combat/countermeasures.ts); the dispensers' places are the sim's (dispenserBody).
  */
 import * as THREE from 'three';
+import { uploadFirst } from './attrUpload';
 import { EntityKindCode, type QuatLike, type SimEvent, type Vec3Like } from '../contracts/core';
 import type { ShowcaseFrame } from '../contracts/render';
 import { CHAFF_LIFE_SEC, FLARE_LIFE_SEC, dispenserBody } from '../combat/countermeasures';
@@ -808,12 +809,12 @@ export function createWeaponFx(root: THREE.Object3D): WeaponFx {
         puffTint[n * 3 + 2] = pSeed[i]!;
         n++;
       }
-      for (const name of ['position', 'aSize', 'aAlpha', 'aTint']) puffGeo.getAttribute(name).needsUpdate = true;
+      for (const name of ['position', 'aSize', 'aAlpha', 'aTint']) uploadFirst(puffGeo.getAttribute(name) as THREE.BufferAttribute, n);
       puffGeo.setDrawRange(0, n);
 
-      for (const name of ['position', 'aB', 'aW', 'aCol']) streakGeo.getAttribute(name).needsUpdate = true;
+      for (const name of ['position', 'aB', 'aW', 'aCol']) uploadFirst(streakGeo.getAttribute(name) as THREE.BufferAttribute, streakN * 4);
       streakGeo.setDrawRange(0, streakN * 6);
-      for (const name of ['position', 'aSize', 'aCol']) sparkGeo.getAttribute(name).needsUpdate = true;
+      for (const name of ['position', 'aSize', 'aCol']) uploadFirst(sparkGeo.getAttribute(name) as THREE.BufferAttribute, sparkN);
       sparkGeo.setDrawRange(0, sparkN);
       // (Streaks from sync() are drawn once; tick() without a sync (no player) draws none.)
       streakN = 0;

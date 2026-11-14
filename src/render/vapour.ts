@@ -20,6 +20,7 @@
  * each jet's own speed, height and angle of attack, so AI jets show it too.
  */
 import * as THREE from "three";
+import { uploadFirst } from "./attrUpload";
 import type { QuatLike, Vec3Like } from "../contracts/core";
 import type { SceneEnvironment } from "../contracts/render";
 import { ATMOSPHERE_GLSL, getAtmosphereUniforms } from "./atmosphere";
@@ -730,8 +731,8 @@ export function createVapourTrails(
         }
       }
       geom.setDrawRange(0, v);
-      posAttr.needsUpdate = true;
-      trailAttr.needsUpdate = true;
+      uploadFirst(posAttr, v);
+      uploadFirst(trailAttr, v);
       mesh.visible = v > 0;
     },
 

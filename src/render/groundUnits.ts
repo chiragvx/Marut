@@ -8,6 +8,7 @@
  * haze, wet ground); casts sun shadows.
  */
 import * as THREE from 'three';
+import { uploadFirst } from './attrUpload';
 import type { QuatLike, Vec3Like } from '../contracts/core';
 import { GROUND_TYPE_IDS, GroundFlag } from '../contracts/ground';
 import { GROUND_UNIT_TYPES } from '../catalog/groundUnits';
@@ -211,8 +212,8 @@ export function createGroundUnitRenderer(root: THREE.Object3D): GroundUnitRender
       mat.uniforms['uTime']!.value = timeSec % 3600;
       for (const b of batches.values()) {
         b.mesh.count = b.n;
-        b.mesh.instanceMatrix.needsUpdate = true;
-        b.state.needsUpdate = true;
+        uploadFirst(b.mesh.instanceMatrix, b.n);
+        uploadFirst(b.state, b.n);
       }
     },
     setSunDirection(dir) {

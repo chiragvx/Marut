@@ -9,6 +9,7 @@
  * oldest particles are recycled when full.
  */
 import * as THREE from 'three';
+import { uploadFirst } from './attrUpload';
 import type { SimEvent, Vec3Like } from '../contracts/core';
 
 const VS = /* glsl */ `
@@ -142,10 +143,7 @@ function stepLayer(l: Layer, dt: number, origin: Readonly<Vec3Like>, gravity: nu
   }
   const g = l.points.geometry;
   g.setDrawRange(0, l.n);
-  g.getAttribute('position').needsUpdate = true;
-  g.getAttribute('aSize').needsUpdate = true;
-  g.getAttribute('aAlpha').needsUpdate = true;
-  g.getAttribute('aColor').needsUpdate = true;
+  for (const name of ['position', 'aSize', 'aAlpha', 'aColor']) uploadFirst(g.getAttribute(name) as THREE.BufferAttribute, l.n);
 }
 
 interface Fire {
