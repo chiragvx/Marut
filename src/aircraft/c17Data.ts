@@ -315,7 +315,15 @@ export const c17HighLift: HighLiftDefinition = {
 export const c17Spoilers: SpoilerDefinition = {
   /** In-flight speedbrake ~36 deg of the 60 deg lift-dump travel. */
   speedbrakeFrac: 0.6,
-  speedbrake: { dCL: -0.1, dCD: 0.025, dCm: 0.02 },
+  /**
+   * dCD 0.045 [E]: 8 panels, ~44.8 m^2 (48.2 ft x 5 ft per wing [S] VT09) at ~36 deg present ~26 m^2
+   * to the flow; a plate Cd ~0.6 in the wing's upper-surface flow gives 0.045 on 353 m^2. The first
+   * value, 0.025 (Roskam chart), was play-tested as "very weak" (+1 kt/s at 300 KIAS idle) and left
+   * the idle-reverse tactical descent at 12,800 ft/min; 0.045 gives ~2.7 kt/s and ~16,000 ft/min
+   * (published 15-18,000 [U] AGC, [S] TWZ). It overshoots FC2's slats + speedbrakes 525 ft/NM at
+   * 230 KCAS [U] (~660 ft/NM), the less certain figure. tests/integration/c17Speedbrake.test.ts.
+   */
+  speedbrake: { dCL: -0.1, dCD: 0.045, dCm: 0.02 },
   liftDump: { dCLClean: -0.4, dCLFlaps: -0.8, dCD: 0.06, dCm: 0.05, liftDumpFlapsFromDetent: 3 },
   extendSec: 1.5,
   retractSec: 2.0,

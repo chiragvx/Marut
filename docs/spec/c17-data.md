@@ -475,7 +475,7 @@ F(Cμ) from D6058 column "CL at α = 0" minus 1.2:
 
 | Function | ΔCL | ΔCD | ΔCm | Source |
 |---|---|---|---|---|
-| Speedbrake, full (in flight, ≈ 30–40°) | −0.10 (clean) | +0.025 | +0.02 | [E] Roskam spoiler charts for spoilers covering 53% of semispan |
+| Speedbrake, full (in flight, ≈ 30–40°) | −0.10 (clean) | +0.045 (was +0.025) | +0.02 | [E] Roskam spoiler charts for spoilers covering 53% of semispan gave +0.025, play-tested as too weak; +0.045 from panel area (≈ 44.8 m² at ≈ 36°, plate Cd ≈ 0.6) brings the idle-reverse tactical descent to ≈ 16,000 ft/min (section 5.4) |
 | Ground lift dump (all panels, 60°) | −0.8 with flaps ¾/FULL, −0.4 clean | +0.06 | +0.05 | [E] |
 | Roll spoiler, one side full | per-side ΔCL −0.25 → Cl ≈ 0.04 | +0.010 | — | [E] |
 
