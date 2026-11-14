@@ -45,5 +45,7 @@ describe('C-17 in Free Flight', () => {
     const agl = s!.pos.y - deps.sampler.heightAt(s!.pos.x, s!.pos.z);
     expect(agl).toBeGreaterThan(0);
     expect(agl).toBeLessThan(8);
+    // Parked or lined up at idle the spoilers stay down (lift dump only on a landing roll).
+    expect(s!.spoilerPos ?? 0).toBeLessThan(0.01);
   });
 });

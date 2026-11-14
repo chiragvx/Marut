@@ -189,6 +189,10 @@ const configLimitsCache = new Map<string, FcsLimits>();
 export const RAMP_TRANSIT_SEC = 20;
 /** Throttle lever at or below which the ground spoilers deploy on their own once on the wheels (thrust levers at idle). */
 const LIFT_DUMP_IDLE_LEVER = 0.05;
+/** Ground speed, m/s, above which the ground spoilers arm on the wheels (a landing or rejected take-off, not a taxi). */
+const LIFT_DUMP_ARM_MPS = 25;
+/** Once up, the lift dump holds until the roll slows below this, m/s. */
+const LIFT_DUMP_HOLD_MPS = 5;
 
 /** Thrust coefficient Cmu of one wing half from its engines' thrust. */
 export function halfCmu(thrustN: number, qBar: number, wingAreaM2: number): number {
@@ -383,9 +387,14 @@ function runSubstep(
   const sp = def.spoilers;
   if (sp !== undefined) {
     // Ground spoilers deploy by themselves on the wheels with the thrust levers at idle or reverse
-    // selected (and with the speedbrake lever out); in the air the speedbrake lever sets them.
+    // selected, but only on a landing or rejected take-off roll (armed above LIFT_DUMP_ARM_MPS; they
+    // stay up down to LIFT_DUMP_HOLD_MPS), never parked or taxiing. The speedbrake lever out raises
+    // them on the wheels at any speed; in the air it sets the speedbrake.
     const onWheels = (out.flags & EntityFlag.OnGround) !== 0;
-    const liftDump = onWheels && (inputs.throttle <= LIFT_DUMP_IDLE_LEVER || inputs.reverseThrust === true || inputs.airbrake);
+    const cur0 = out.spoilerPos ?? 0;
+    const groundSpeed = Math.hypot(out.vel.x, out.vel.z);
+    const rolling = groundSpeed > (cur0 > 0.01 ? LIFT_DUMP_HOLD_MPS : LIFT_DUMP_ARM_MPS);
+    const liftDump = onWheels && ((rolling && (inputs.throttle <= LIFT_DUMP_IDLE_LEVER || inputs.reverseThrust === true)) || inputs.airbrake);
     const target = structuralFailure ? 0 : liftDump ? 1 : inputs.airbrake ? sp.speedbrakeFrac : 0;
     const cur = out.spoilerPos ?? 0;
     out.spoilerPos = rateLimitStep(cur, target, 1 / (target > cur ? sp.extendSec : sp.retractSec), dtSub);

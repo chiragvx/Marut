@@ -162,9 +162,41 @@ def fix_winding(path: str) -> None:
     print(f'winding: {flipped} of {total} triangles turned to face their normals')
 
 
+# Paint: the source airframe is a dark slate blue-grey; Indian Air Force C-17s are a light neutral
+# grey with a faint green cast. Pixels of the paint's hue (any shade: panel lines, weathering) are
+# moved to the IAF grey at the same relative brightness; markings, roundels, text, tyres and other
+# colours are left alone. Applied to the tiles that carry the outer paint, and the flat airframe cell.
+PAINT_SRC = (72, 88, 99)
+PAINT_IAF = (126, 131, 127)
+PAINT_TILES = ('airframemap', 'edge', 'envelope', 'engine')
+FLAT['airframeblue'] = (tuple(((c / 255 + 0.055) / 1.055) ** 2.4 for c in PAINT_IAF), 0.0, 0.5)
+
+
+def repaint(atlas: Image.Image) -> Image.Image:
+    import numpy as np
+    a = np.asarray(atlas).astype(np.float32)
+    src = np.array(PAINT_SRC, np.float32)
+    dst = np.array(PAINT_IAF, np.float32)
+    src_dir = src / np.linalg.norm(src)
+    src_lum = float(src @ [0.2126, 0.7152, 0.0722])
+    for mat in PAINT_TILES:
+        x, y, size = ATLAS[mat]
+        t = a[y:y + size, x:x + size]
+        n = np.linalg.norm(t, axis=2, keepdims=True) + 1e-6
+        # Angle from the paint's colour direction (shade-independent hue match).
+        cos = np.clip((t / n) @ src_dir, -1, 1)
+        ang = np.arccos(cos)
+        lum = t @ np.array([0.2126, 0.7152, 0.0722], np.float32)
+        rel = lum / src_lum
+        w = np.clip((0.07 - ang) / 0.035, 0, 1) * np.clip((rel - 0.25) / 0.15, 0, 1) * np.clip((2.2 - rel) / 0.4, 0, 1)
+        new = dst[None, None, :] * rel[..., None]
+        a[y:y + size, x:x + size] = t + (new - t) * w[..., None]
+    return Image.fromarray(np.clip(a + 0.5, 0, 255).astype(np.uint8))
+
+
 def main() -> None:
     os.makedirs(BUILD, exist_ok=True)
-    build_atlas('baseColor', 1.0, (90, 104, 116)).save(os.path.join(BUILD, 'atlas_baseColor.png'))
+    repaint(build_atlas('baseColor', 1.0, (90, 104, 116))).save(os.path.join(BUILD, 'atlas_baseColor.png'))
     build_atlas('metallicRoughness', DETAIL_SCALE, (0, 128, 0)).save(os.path.join(BUILD, 'atlas_metallicRoughness.png'))
     build_atlas('normal', DETAIL_SCALE, (128, 128, 255)).save(os.path.join(BUILD, 'atlas_normal.png'))
     # UV rects (Blender's UV frame: v up from the image's bottom), inset by the gutter.
