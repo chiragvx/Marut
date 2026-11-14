@@ -39,7 +39,7 @@ import type { SnapshotEntityView } from './contracts/sim';
 
 import { createSceneRenderer } from './render';
 import { createHudRenderer } from './hud';
-import { buildHudAirbases } from './hud/airbaseMarkers';
+import { buildHudAirbases, homeAirportIdFor } from './hud/airbaseMarkers';
 import { buildSteerpoints, buildStructureSteerpoints } from './hud/steerpoints';
 import { createPlayerInputSystem } from './input';
 import {
@@ -1790,7 +1790,8 @@ function launchMission(missionIn: Mission, opts: { title: string; airStart: bool
   setupWorldView(mission, currentQualityTier, !!missionScript);
 
   hud.setTaxiGuide(null);
-  hud.setAirbases(buildHudAirbases(mission.world.airports as readonly AirportLayout[]));
+  const airportLayouts = mission.world.airports as readonly AirportLayout[];
+  hud.setAirbases(buildHudAirbases(airportLayouts, homeAirportIdFor(mission.playerStart, airportLayouts)));
   lastPlayer.valid = false;
 
   loading.setProgress(0.1, 'Starting simulation…');

@@ -687,6 +687,8 @@ export interface HudAirbase {
   /** Runway designators for the label, e.g. "08/26". */
   runways: string;
   facilities: readonly HudFacility[];
+  /** The player's own base (the mission's start airport, or the one nearest an air start): the default nav airport. */
+  home?: boolean;
 }
 
 export interface HudRenderer {

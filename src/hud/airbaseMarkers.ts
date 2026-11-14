@@ -4,7 +4,10 @@
  * - Heading tape: every airbase at its bearing, just under the tape (friendly: a green circle,
  *   hostile: a red diamond) with its distance in km; one outside the tape's span sits at the edge
  *   with an arrow, so the player knows which way to turn.
- * - Friendly airbases: a diamond over the field in the 3D view, with the name, distance and runways.
+ *   The player's own base (HudAirbase.home) has a filled circle.
+ * - Friendly airbases: a diamond over the field in the 3D view, with the name, distance and runways:
+ *   always the home base (the default nav airport); others only within OTHER_BASE_3D_M (a field
+ *   200 km off is no help over the nose, and its label lands on the home base's stand labels).
  * - Low over a friendly field: its runway ends labelled in 3D; on the ground there, its nearest
  *   facilities too (stands with the refuel/rearm hint on the nearest, hangars, tower, fuel depot,
  *   munitions, radar). Labels that would overlap one already drawn are skipped.
@@ -25,6 +28,8 @@ const FACILITY_RANGE_M = 2500;
 const MAX_FACILITIES = 12;
 /** A base closer than this is where the player is: it leaves the heading tape. */
 const AT_BASE_M = 1500;
+/** Friendly bases other than home get a 3D marker only within this range (the tape shows them all). */
+export const OTHER_BASE_3D_M = 150_000;
 
 const scratch = createScreenProjection();
 
@@ -95,7 +100,8 @@ export function drawAirbaseTape(
       ctx.fill();
     } else {
       ctx.arc(x, y, 4.5, 0, Math.PI * 2);
-      ctx.stroke();
+      if (b.home) ctx.fill();
+      else ctx.stroke();
     }
     const text = km(d);
     const tx = off && rel > 0 ? x - 10 - ctx.measureText(text).width : x + 8;
@@ -133,6 +139,7 @@ export function drawAirbaseMarkers(
   for (const b of bases) {
     if (b.side === 'hostile' || b === near) continue;
     const d = Math.hypot(b.x - px, b.z - pz, b.y - py);
+    if (!b.home && d > OTHER_BASE_3D_M) continue;
     projectWorldToScreen(camera, { x: b.x, y: b.y + 40, z: b.z }, widthPx, heightPx, scratch);
     if (!scratch.visible) continue;
     const x = scratch.xPx;
@@ -215,7 +222,7 @@ function drawFacilities(ctx: CanvasRenderingContext2D, base: HudAirbase, camera:
  * own). Facilities: runway ends, stands, and one label per hangar, tower, fuel depot (the tanks'
  * centre), munitions area (the magazines' centre) and radar.
  */
-export function buildHudAirbases(layouts: readonly AirportLayout[]): HudAirbase[] {
+export function buildHudAirbases(layouts: readonly AirportLayout[], homeAirportId?: string): HudAirbase[] {
   return layouts.map((a) => {
     const y = a.elevationM;
     const facilities: HudFacility[] = [];
@@ -242,6 +249,24 @@ export function buildHudAirbases(layouts: readonly AirportLayout[]): HudAirbase[
       if (r.reciprocalId) seen.add(r.reciprocalId);
       ids.push(r.reciprocalId ? `${r.id}/${r.reciprocalId}` : r.id);
     }
-    return { id: a.id, name: a.name, side: a.side === 'hostile' ? 'hostile' : 'friendly', x: a.referenceWorldX, y, z: a.referenceWorldZ, runways: ids.join(' '), facilities };
+    return { id: a.id, name: a.name, side: a.side === 'hostile' ? 'hostile' : 'friendly', x: a.referenceWorldX, y, z: a.referenceWorldZ, runways: ids.join(' '), facilities, ...(a.id === homeAirportId ? { home: true } : {}) };
   });
+}
+
+/**
+ * The player's own base: the mission's start airport (runway or stand start), else, for an air
+ * start, the friendly airport nearest the start position.
+ */
+export function homeAirportIdFor(playerStart: { airportId?: string; pos?: { x: number; z: number } }, layouts: readonly AirportLayout[]): string | undefined {
+  if (playerStart.airportId !== undefined) return playerStart.airportId;
+  const p = playerStart.pos;
+  if (!p) return undefined;
+  let best: string | undefined;
+  let bestD = Infinity;
+  for (const a of layouts) {
+    if (a.side === 'hostile') continue;
+    const d = Math.hypot(a.referenceWorldX - p.x, a.referenceWorldZ - p.z);
+    if (d < bestD) { bestD = d; best = a.id; }
+  }
+  return best;
 }
