@@ -2069,7 +2069,7 @@ function frame(nowMs: number): void {
   } else hudGlanceHidden = false;
   if (renderer && hud) {
     const camera: CameraState = renderer.renderFrame(nowMs);
-    if (appState === 'gameplay') ambience.listen(camera, podView);
+    if (appState === 'gameplay') ambience.listen(camera, podView, CAMERA_MODE_CYCLE[cameraModeIndex] === 'flyby');
     hud.renderFrame(nowMs, camera);
     chunkManager?.update(camera.worldPos, currentQualityTier);
   }

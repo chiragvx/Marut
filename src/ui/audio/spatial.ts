@@ -140,7 +140,12 @@ export interface Emitter {
   /** Connect the sound here. */
   input: AudioNode;
   /** Where it is (body frame point on `jet`), heard from `listener`; `inside` sends it to the cockpit room. */
-  place(listener: Listener, jet: Airframe, inside: boolean): void;
+  /**
+   * `doppler` false (any view moving with or round the jet: cockpit, chase, orbit): no travel delay,
+   * so swinging the camera never bends the pitch. True only for a camera standing still in the
+   * world (the fly-by view), where a jet going past is really heard shifting.
+   */
+  place(listener: Listener, jet: Airframe, inside: boolean, doppler?: boolean): void;
   /** Its body-frame point (changeable: e.g. a source that moves). */
   bodyPoint: Vec3Like;
   /** Takes it out of the mix for good. */
@@ -227,7 +232,7 @@ export function createEmitter(ac: BaseAudioContext, dest: AudioNode, room: Audio
   const em: Emitter = {
     input,
     bodyPoint: { ...bodyPoint },
-    place(listener, jet, inside) {
+    place(listener, jet, inside, doppler = true) {
       const t = ac.currentTime;
       // Where it is from the listener, in the world, and how fast that is changing.
       rotate(jet.rot, em.bodyPoint, world);
@@ -261,7 +266,7 @@ export function createEmitter(ac: BaseAudioContext, dest: AudioNode, room: Audio
           coneInside = inside;
         }
       }
-      const d = Math.min(MAX_DELAY_SEC, travelSec(world, vel));
+      const d = doppler ? Math.min(MAX_DELAY_SEC, travelSec(world, vel)) : 0;
       // A jump (a new view) moves at once; a jet flying past glides (the Doppler shift).
       if (lastDelay < 0 || Math.abs(d - lastDelay) > 0.1) {
         delay.delayTime.cancelScheduledValues(t);

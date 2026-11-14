@@ -83,7 +83,7 @@ export interface Ambience {
   /** The sim's events (only the ones about you, or near you, sound). */
   event(ev: SimEvent, playerId: number, playerPos: Vec3Like): void;
   /** Each rendered frame: where the camera is (3D sound). `pilotsEars`: hear from the pilot's seat whatever the camera shows (the pod view). */
-  listen(camera: CameraState, pilotsEars: boolean): void;
+  listen(camera: CameraState, pilotsEars: boolean, worldFixedCamera?: boolean): void;
   silence(): void;
 }
 
@@ -407,7 +407,9 @@ export function createAmbience(bus: AudioBus): Ambience {
           break;
       }
     },
-    listen(cam, pilotsEars) {
+    listen(cam, pilotsEars, worldFixedCamera = false) {
+      // Travel delay (and so the Doppler shift) only from a camera standing still in the world.
+      const doppler = worldFixedCamera && !pilotsEars;
       if (!loops || !cam.subjectPos || !cam.subjectRot) return;
       Object.assign(jet.pos, cam.subjectPos);
       Object.assign(jet.rot, cam.subjectRot);
@@ -423,9 +425,9 @@ export function createAmbience(bus: AudioBus): Ambience {
         Object.assign(listener.rot, cam.worldRot);
       }
       const heavyOn = heavy !== null;
-      for (const e of emitters) if (!heavyOn || !engineEmitters.includes(e)) e.place(listener, jet, inside);
+      for (const e of emitters) if (!heavyOn || !engineEmitters.includes(e)) e.place(listener, jet, inside, doppler);
       if (heavy) {
-        for (const e of heavy.emitters) e.place(listener, jet, inside);
+        for (const e of heavy.emitters) e.place(listener, jet, inside, doppler);
         // Where the listener is round the aircraft (the fan's whine ahead, the roar behind).
         toEar.x = listener.pos.x - jet.pos.x;
         toEar.y = listener.pos.y - jet.pos.y;
