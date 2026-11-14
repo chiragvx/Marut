@@ -172,6 +172,11 @@ export interface PerformanceTarget {
   /** Relative tolerance, e.g. 0.1 = +/-10%. Always paired with `sourceNote` explaining why this width was chosen (see 12-verification.md section 9). */
   toleranceRel: number;
   sourceNote: string;
+  /**
+   * Stall-speed and landing-roll targets: the airframe's assumed CLmax for this configuration
+   * (absent: 1.1 clean / 1.6 landing, the Tejas delta's). The scanned CL table caps it.
+   */
+  assumedClMax?: number;
 }
 
 export interface PerformanceCheckResult {

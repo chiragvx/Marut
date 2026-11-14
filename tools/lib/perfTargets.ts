@@ -114,3 +114,91 @@ export const PERFORMANCE_TARGETS: readonly PerformanceTarget[] = [
     sourceNote: 'public Tejas landing-roll figures cluster around 600-700 m; test mass assumes partial fuel remaining',
   },
 ];
+
+/** aircraftDefId the JF17_PERFORMANCE_TARGETS below are evaluated against. */
+export const JF17_PERF_TARGET_AIRCRAFT_ID = 'jf-17';
+
+/**
+ * The PAC JF-17 Thunder (Block II, src/aircraft/jf17Data.ts). Its published figures are few (S-notes
+ * in jf17Data.ts's header): Mach 1.6 at altitude is the only directly sourced performance number;
+ * the rest are derived from its sourced wing area, mass and RD-93 rating, or estimated (marked).
+ */
+export const JF17_PERFORMANCE_TARGETS: readonly PerformanceTarget[] = [
+  {
+    id: 'vmax_11000',
+    kind: PerformanceTargetKind.VMax,
+    description: 'Maximum level speed at 11000 m, military power + afterburner, clean configuration.',
+    altitudeM: 11000,
+    massKg: 9500,
+    configNote: 'military+AB, clean',
+    targetValue: 472,
+    unit: 'm/s',
+    toleranceRel: 0.1,
+    sourceNote: 'Mach 1.6 clean at altitude (PAC/CAC brochure via MILAVIA; The Diplomat 2019), Mach 1.6 at 11 km ISA',
+  },
+  {
+    id: 'turn_5000_m06',
+    kind: PerformanceTargetKind.SustainedTurnRateDegSec,
+    description: 'Sustained turn rate at 5000 m, Mach 0.6, military power + afterburner, clean configuration.',
+    altitudeM: 5000,
+    massKg: 9500,
+    configNote: 'Mach 0.6, military+AB, clean, 9500 kg',
+    targetValue: 9.0,
+    unit: 'deg/s',
+    toleranceRel: 0.25,
+    sourceNote:
+      'ESTIMATE, no public figure: ~3.2 g sustained from the RD-93 thrust (57 kN here) against the drag of a 24.43 m^2 wing at the CL that load needs (jf17Data.ts polar). Same thrust as the Tejas on 64% of its wing area, so well below the Tejas (13 deg/s target)',
+  },
+  {
+    id: 'climb_sl',
+    kind: PerformanceTargetKind.ClimbRateMps,
+    description: 'Sea-level climb rate, military power + afterburner, clean configuration, Vy = 180 m/s.',
+    altitudeM: 0,
+    massKg: 9500,
+    configNote: 'military+AB, clean, Vy=180 m/s, 9500 kg',
+    targetValue: 110,
+    unit: 'm/s',
+    toleranceRel: 0.2,
+    sourceNote:
+      "ESTIMATE: no credible public figure (the 300 m/s often quoted is not physical: it would need ~3x the available excess power). Same thrust class and mass as the Tejas (125 m/s target); a little less from its higher induced drag at the climb's CL",
+  },
+  {
+    id: 'stall_clean',
+    kind: PerformanceTargetKind.StallSpeedMps,
+    description: 'Clean-configuration stall speed at sea level.',
+    altitudeM: 0,
+    massKg: 9500,
+    configNote: 'clean, gear/flaps up, 9500 kg',
+    targetValue: 67,
+    unit: 'm/s',
+    toleranceRel: 0.15,
+    assumedClMax: 1.4,
+    sourceNote: 'computed: sqrt(2 m g / (rho0 S CLmax)), S = 24.43 m^2 (PAC), CLmax 1.4 (LERX fighter, clean; estimate). The Tejas, on 38.4 m^2, stalls at ~60 m/s',
+  },
+  {
+    id: 'takeoff_roll',
+    kind: PerformanceTargetKind.TakeoffRollM,
+    description: 'Ground roll distance to liftoff, military power + afterburner.',
+    altitudeM: 0,
+    massKg: 9500,
+    configNote: 'military+AB, 9500 kg',
+    targetValue: 500,
+    unit: 'm',
+    toleranceRel: 0.3,
+    sourceNote: 'ESTIMATE, no public figure: the Tejas thrust at the same mass, but a higher lift-off speed on the smaller wing',
+  },
+  {
+    id: 'landing_roll',
+    kind: PerformanceTargetKind.LandingRollM,
+    description: 'Ground roll distance from touchdown to stop, wheel brakes applied (no brake chute).',
+    altitudeM: 0,
+    massKg: 8500,
+    configNote: 'flaps landing, brakes, no chute, 8500 kg',
+    targetValue: 1000,
+    unit: 'm',
+    toleranceRel: 0.3,
+    assumedClMax: 1.6,
+    sourceNote:
+      'ESTIMATE: a touchdown ~15% faster than the Tejas (smaller wing) on wheel brakes alone; the real JF-17 streams a brake chute on most landings, which the sim does not model',
+  },
+];

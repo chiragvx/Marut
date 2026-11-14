@@ -1086,6 +1086,8 @@ export interface AircraftDefLike extends GCommandAircraftDefLike {
 const VMAX_BISECT_MIN_MPS = 100;
 const VMAX_BISECT_MAX_MPS = 600;
 const VMAX_BISECT_ITERATIONS = 22;
+/** Step, m/s, of the walk up from VMAX_BISECT_MIN_MPS to the first speed full power can sustain. */
+const VMAX_BRACKET_WALK_MPS = 25;
 /** Matches the one 'turn_5000_m06' row in 12-verification.md section 5.1 — the only sustained-turn-rate target this table defines. */
 const TURN_RATE_TEST_MACH = 0.6;
 const TURN_RATE_BISECT_MAX_BANK_RAD = (85 * Math.PI) / 180;
@@ -1296,14 +1298,21 @@ function findVmax<TDef extends GCommandAircraftDefLike>(
     iterations: VMAX_BISECT_ITERATIONS,
     residualMps2: Math.sqrt(r.rForward * r.rForward + r.rVertical * r.rVertical),
   });
-  if (loResidual.rForward < 0) {
+  // A heavily wing-loaded airframe cannot hold the bracket's bottom speed at altitude (it is below
+  // its stall speed there): walk up to the first speed full power can sustain before bisecting.
+  let loResidualUsed = loResidual;
+  while (loResidualUsed.rForward < 0 && lo + VMAX_BRACKET_WALK_MPS < hi) {
+    lo += VMAX_BRACKET_WALK_MPS;
+    loResidualUsed = fullPowerResidual(step, def, altitudeM, lo, 0, massKg);
+  }
+  if (loResidualUsed.rForward < 0) {
     // Full power cannot even sustain the bottom of the bisection bracket —
     // the true Vmax is below VMAX_BISECT_MIN_MPS (not expected for this
     // airframe's data, but handled rather than silently bisecting a bracket
     // with no sign change).
-    return { speedMps: lo, trim: makeTrim(lo, loResidual) };
+    return { speedMps: VMAX_BISECT_MIN_MPS, trim: makeTrim(VMAX_BISECT_MIN_MPS, loResidual) };
   }
-  let lastGood = loResidual;
+  let lastGood = loResidualUsed;
   let lastGoodSpeed = lo;
   for (let i = 0; i < VMAX_BISECT_ITERATIONS; i++) {
     const mid = (lo + hi) / 2;
@@ -1555,7 +1564,7 @@ export function checkPerformanceTarget<TDef extends AircraftDefLike>(
       measured = computeClimbRateMps(step, def, target.altitudeM, target.massKg);
       break;
     case PerformanceTargetKind.StallSpeedMps: {
-      const assumedClMax = target.id === 'stall_landing' ? 1.6 : 1.1;
+      const assumedClMax = target.assumedClMax ?? (target.id === 'stall_landing' ? 1.6 : 1.1);
       measured = computeStallSpeedMps(def, target.massKg, assumedClMax);
       break;
     }
@@ -1563,7 +1572,7 @@ export function checkPerformanceTarget<TDef extends AircraftDefLike>(
       measured = computeGroundRollM(step, def, 'takeoff', 0, target.massKg);
       break;
     case PerformanceTargetKind.LandingRollM: {
-      const vTouchdown = computeStallSpeedMps(def, target.massKg, 1.6) * LANDING_APPROACH_SPEED_FACTOR;
+      const vTouchdown = computeStallSpeedMps(def, target.massKg, target.assumedClMax ?? 1.6) * LANDING_APPROACH_SPEED_FACTOR;
       measured = computeGroundRollM(step, def, 'landing', vTouchdown, target.massKg);
       break;
     }
