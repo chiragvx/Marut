@@ -6,6 +6,7 @@
 import type { HeightSampler, Vec3Like } from '../contracts/core';
 import type { TerrainParams, AirportFlattenZone, CreateHeightSampler } from '../contracts/terrain';
 import { createRawTerrainHeight } from './terrainHeight';
+import { waterLevelAt as himalayaWaterLevelAt } from './himalaya/height';
 
 /** Fixed algorithm detail, not tunable data (04-terrain.md section 5.3). */
 const NORMAL_SAMPLE_EPSILON_M = 1.0;
@@ -47,12 +48,20 @@ export const createHeightSampler: CreateHeightSampler = (
     return raw + (bestElevationM - raw) * bestWeight;
   }
 
+  // Mountain lakes, each with its own level (the Himalaya): the surface is max(ground, lake level).
+  const lakeLevelAt = params.shape?.kind === 'himalaya' ? himalayaWaterLevelAt : undefined;
+
   function heightAt(x: number, z: number): number {
     const h = groundHeightAt(x, z);
+    if (lakeLevelAt) {
+      const w = lakeLevelAt(x, z);
+      return h < w ? w : h;
+    }
     return waterLevelM !== undefined && h < waterLevelM ? waterLevelM : h;
   }
 
   function isWaterAt(x: number, z: number): boolean {
+    if (lakeLevelAt) return groundHeightAt(x, z) < lakeLevelAt(x, z);
     return waterLevelM !== undefined && groundHeightAt(x, z) < waterLevelM;
   }
 
@@ -78,6 +87,6 @@ export const createHeightSampler: CreateHeightSampler = (
     seed: params.seed,
     heightAt,
     normalAt,
-    ...(waterLevelM !== undefined ? { isWaterAt, waterLevelM, groundHeightAt } : {}),
+    ...(lakeLevelAt ? { isWaterAt, groundHeightAt, waterLevelAt: lakeLevelAt } : waterLevelM !== undefined ? { isWaterAt, waterLevelM, groundHeightAt } : {}),
   };
 };

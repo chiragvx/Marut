@@ -30,7 +30,21 @@ export function buildAirfieldMask(L: AirportLayout): AirfieldMask {
   const z0 = L.flattenZones[0];
   const cx = z0 ? z0.centerWorldX : L.referenceWorldX;
   const cz = z0 ? z0.centerWorldZ : L.referenceWorldZ;
-  const half = (z0 ? z0.flatRadiusM : 2500) + OUTER_M + 50;
+  // Big enough for the first flatten zone, and for everything the layout paves or builds (a layout
+  // whose zones are small discs along the runway, on terrain that is level already, still gets an
+  // airfield all round its aprons).
+  let reach = z0 ? z0.flatRadiusM : 2500;
+  const cover = (x: number, z: number, r: number): void => {
+    reach = Math.max(reach, Math.abs(x - cx) + r, Math.abs(z - cz) + r);
+  };
+  for (const r of L.runways) {
+    cover(r.thresholdWorldX, r.thresholdWorldZ, 120 + r.widthM);
+    cover(r.thresholdWorldX + Math.sin(r.headingRad) * r.lengthM, r.thresholdWorldZ - Math.cos(r.headingRad) * r.lengthM, 120 + r.widthM);
+  }
+  for (const t of L.taxiways) for (const p of t.points) cover(p.worldX, p.worldZ, t.widthM);
+  for (const a of L.aprons) for (const p of a.points) cover(p.worldX, p.worldZ, 0);
+  for (const s of L.structures ?? []) cover(s.worldX, s.worldZ, Math.max(s.widthM, s.lengthM));
+  const half = reach + OUTER_M + 50;
   const minX = cx - half;
   const minZ = cz - half;
   const cell = (2 * half) / N;

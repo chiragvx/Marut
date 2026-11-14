@@ -76,9 +76,13 @@ export function buildChunkGeometryAndSurface(
   // Heights on the grid plus a one-cell border, row-major, (res+3) per row.
   const bw = res + 3;
   const heights = new Float64Array(bw * bw);
+  // Lakes with their own levels (sampler.waterLevelAt): the mesh is the lake BED, and the ground
+  // shader draws the water where the view ray meets each lake's level, so the shore is the smooth
+  // line where the bed crosses it at any LOD rather than the stair-step of whole flat triangles.
+  const meshHeightAt = sampler.waterLevelAt && sampler.groundHeightAt ? sampler.groundHeightAt : sampler.heightAt;
   for (let j = -1; j <= res + 1; j++) {
     for (let i = -1; i <= res + 1; i++) {
-      heights[(j + 1) * bw + (i + 1)] = sampler.heightAt(bounds.minX + i * step, bounds.minZ + j * step);
+      heights[(j + 1) * bw + (i + 1)] = meshHeightAt(bounds.minX + i * step, bounds.minZ + j * step);
     }
   }
   const waterLevelM = sampler.waterLevelM;

@@ -90,6 +90,7 @@ import { createChunkManager } from './terrain';
 import { buildCoastProfile, createHeightSampler } from './terrain';
 import { RIVER_FLOATS, packRiver } from './terrain/riverMath';
 import { ESTUARY_FLOATS, packEstuary } from './terrain/coastMath';
+import { buildAlpineEnvironment } from './terrain/himalaya';
 import { createAirportNavDb } from './airport';
 import { buildPavementGeometry } from './airport/pavementGeometry';
 import { buildAirfieldMask } from './airport/airfieldMask';
@@ -1096,10 +1097,21 @@ function buildSceneEnvironment(terrainParams: TerrainParams, airportLayouts: rea
       ? { coverage: 0.22, baseM: 1700, topM: 2300, seed: terrainParams.seed }
       : terrainParams.surfaceStyle === 'coastal'
         ? { coverage: 0.09, baseM: 1200, topM: 1700, seed: terrainParams.seed }
-        : undefined;
+        : terrainParams.surfaceStyle === 'alpine'
+          ? // Build-ups over the ranges, based well above the 4-5 km plateau.
+            { coverage: 0.12, baseM: 6100, topM: 7300, seed: terrainParams.seed }
+          : undefined;
+  // Mountain lakes and the dry/wet regions (the Himalaya).
+  const alpine = terrainParams.shape?.kind === 'himalaya' ? buildAlpineEnvironment() : undefined;
   return {
     surfaceStyle: terrainParams.surfaceStyle ?? 'default',
-    groundLevelM: terrainParams.shape?.kind === 'plains' ? terrainParams.shape.baseElevationM : (terrainParams.waterLevelM ?? 0) + 20,
+    groundLevelM:
+      terrainParams.shape?.kind === 'plains'
+        ? terrainParams.shape.baseElevationM
+        : terrainParams.shape?.kind === 'himalaya'
+          ? 4000 // the plateau; kept under the camera in the valleys (farGround.ts)
+          : (terrainParams.waterLevelM ?? 0) + 20,
+    ...(alpine ? { alpine } : {}),
     ...(clouds ? { clouds } : {}),
     ...(rivers ? { rivers } : {}),
     ...(estuaries ? { estuaries } : {}),
@@ -1126,7 +1138,14 @@ function buildSceneEnvironment(terrainParams: TerrainParams, airportLayouts: rea
 function applyDevStart(mission: Mission): Mission {
   const params = new URLSearchParams(location.search);
   const raw = params.get('start');
-  if (!raw) return mission;
+  if (!raw) {
+    // `&jet=` alone (e.g. ?mission=himalaya-free&jet=c-17): the mission's own start, another type
+    // (its loadout belongs to the mission's type, so the new type gets its default).
+    const jet = params.get('jet');
+    if (!jet || !getAircraftDefinition(jet)) return mission;
+    const { loadout: _l, loadoutId: _i, ...start } = mission.playerStart;
+    return { ...mission, playerStart: { ...start, aircraftId: jet } };
+  }
   const v = raw.split(',').map(Number);
   if (v.length < 3 || v.some((n) => !Number.isFinite(n))) return mission;
   const jet = params.get('jet');

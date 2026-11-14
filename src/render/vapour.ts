@@ -71,7 +71,7 @@ export function airHumidity(
   w: Readonly<WeatherState>,
   style: SceneEnvironment["surfaceStyle"],
 ): number {
-  const base = style === "coastal" ? 0.6 : style === "farmland" ? 0.4 : 0.45;
+  const base = style === "coastal" ? 0.6 : style === "farmland" ? 0.4 : style === "alpine" ? 0.3 : 0.45;
   const fog = 1 - sstep(1.5, 6, w.visKm);
   return Math.min(
     1,

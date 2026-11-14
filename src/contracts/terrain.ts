@@ -182,6 +182,13 @@ export interface TerrainParams {
   surfaceStyle?: TerrainSurfaceStyle;
   /** Settlements and the road/canal network (src/terrain/roadNetwork.ts). Absent = none. */
   network?: NetworkSpec;
+  /**
+   * Extra quadtree depth on top of the quality tier's maxLodDepth (capped at MAX_QUADTREE_DEPTH),
+   * for rugged terrain that needs a finer mesh near the camera. Absent = 0.
+   */
+  lodDepthBonus?: number;
+  /** Minimum terrain draw distance, m (raises the quality tier's stream radius). Absent = the tier's. */
+  minDrawDistanceM?: number;
 }
 
 // -----------------------------------------------------------------------------
@@ -269,6 +276,8 @@ export const TerrainSurfaceStyle = {
   Default: 'default',
   Coastal: 'coastal',
   Farmland: 'farmland',
+  /** High mountains: rock, scree, snow and glaciers by height and slope, steppe or forest by region, lakes. */
+  Alpine: 'alpine',
 } as const;
 export type TerrainSurfaceStyle = (typeof TerrainSurfaceStyle)[keyof typeof TerrainSurfaceStyle];
 
@@ -377,7 +386,16 @@ export interface PlainsShape {
   rivers: readonly RiverSpec[];
 }
 
-export type TerrainShape = CoastShape | PlainsShape;
+/**
+ * The Himalaya theatre (src/terrain/himalaya): a fixed, hand-laid procedural map (no seed, no noise
+ * parameters): regional ranges, named summits, carved valleys, basins, lakes with their own water
+ * levels, and level airfield pads. The terrain lab (terrain-lab/) draws the same function.
+ */
+export interface HimalayaShape {
+  kind: 'himalaya';
+}
+
+export type TerrainShape = CoastShape | PlainsShape | HimalayaShape;
 
 /** Numeric tags identifying which of this module's 5 independent noise fields a sub-seed is for. Passed to DeriveTerrainSubSeed. */
 export const TerrainNoiseSeedTag = {
@@ -420,6 +438,7 @@ export const TheatreId = {
   Konkan: 'konkan',
   Punjab: 'punjab',
   Border: 'border',
+  Himalaya: 'himalaya',
 } as const;
 export type TheatreId = (typeof TheatreId)[keyof typeof TheatreId];
 
@@ -683,6 +702,18 @@ export const THEATRE_TERRAIN_PARAMS: Readonly<Record<TheatreId, TerrainParams>> 
         { x: -30500, z: 11000, radiusM: 2800 },
       ],
     },
+  },
+  // Western Nepal, Kumaon and south-west Tibet (Ngari, Kailash, Mansarovar), compressed to 0.6 of
+  // real distance with real heights: src/terrain/himalaya. Lakes carry their own water levels, so
+  // there is no global waterLevelM. 7 km of relief: extra quadtree depth for a finer mesh near the
+  // camera, and the clear high air shows the ranges out to 140 km.
+  himalaya: {
+    ...DEFAULT_TERRAIN_PARAMS,
+    shape: { kind: 'himalaya' },
+    heightBoundsM: { minM: 300, maxM: 8000 },
+    surfaceStyle: 'alpine',
+    lodDepthBonus: 2,
+    minDrawDistanceM: 140_000,
   },
 };
 

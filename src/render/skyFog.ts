@@ -29,6 +29,8 @@ const SKY_BY_STYLE: Readonly<Record<SceneEnvironment['surfaceStyle'], readonly [
   coastal: [0x3f73a8, 0xc4d4df, 0x5f7f92],
   // North Indian plains in winter: pale blue-grey haze, a slightly washed-out blue sky.
   farmland: [0x4f7fb8, 0xc3ccd6, 0x9a9580],
+  // High, dry, thin air: a deep blue zenith and a clear, pale horizon.
+  alpine: [0x1d4c9c, 0xbcd0e6, 0x8c7c66],
 };
 
 export interface SkyFogSystem {

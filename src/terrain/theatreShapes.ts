@@ -1,5 +1,5 @@
 /**
- * src/terrain/theatreShapes.ts — theatre landforms (coast, river plains).
+ * src/terrain/theatreShapes.ts — theatre landforms (coast, river plains, the Himalaya).
  *
  * Each builder turns a `TerrainShape` into a RawTerrainHeightFn using the same noise fields the
  * generic band terrain uses (domain-warped fbm and ridged noise, normalised here to [-1,1] and
@@ -17,6 +17,7 @@ import type {
 } from '../contracts/terrain';
 import { RIVER_FLOATS, packRiver, riverField, type RiverField } from './riverMath';
 import { ESTUARY_FLOATS, estuaryField, packEstuary, shoreAt } from './coastMath';
+import { heightAt as himalayaHeightAt } from './himalaya/height';
 
 export interface ShapeNoiseFields {
   /** Domain-warped fbm, normalised to roughly [-1,1]. */
@@ -140,5 +141,9 @@ export function buildShapedHeight(shape: TerrainShape, waterLevelM: number | und
       return buildCoast(shape, seed, fields, scratch);
     case 'plains':
       return buildPlains(shape, waterLevelM ?? shape.baseElevationM - 8, seed, fields, scratch);
+    case 'himalaya':
+      // A fixed map: no seed, its own noise. Lake beds lie below their water (waterLevelAt), which
+      // heightSampler.ts adds as the surface.
+      return (x, z) => himalayaHeightAt(x, z);
   }
 }

@@ -88,6 +88,9 @@ const HAZE_BY_STYLE: Readonly<Record<SceneEnvironment['surfaceStyle'], { visKm: 
   coastal: { visKm: 60, scaleM: 1000, groundM: 0 },
   // Winter haze over the plains: shorter visibility low down, clearing quickly with height.
   farmland: { visKm: 70, scaleM: 1100, groundM: 234 },
+  // Thin, dry air over the Tibetan plateau: very long visibility at 4,200 m, thickening into the
+  // hazier monsoon valleys far below.
+  alpine: { visKm: 170, scaleM: 2200, groundM: 4200 },
 };
 
 /** Sets the theatre's haze. Colours come from skyFog.ts (horizon/zenith per style). */

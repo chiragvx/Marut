@@ -716,6 +716,11 @@ export interface HeightSampler {
   readonly waterLevelM?: number;
   /** Present only for terrains with a water surface: the ground (seabed/riverbed) height, ignoring the water. */
   groundHeightAt?(x: number, z: number): number;
+  /**
+   * Present only for terrains whose water bodies have their own levels (mountain lakes; then
+   * `waterLevelM` is absent): the water surface at (x, z), -Infinity where there is none.
+   */
+  waterLevelAt?(x: number, z: number): number;
 }
 
 // -----------------------------------------------------------------------------

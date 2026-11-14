@@ -7,6 +7,10 @@
  *   1 coastal  — Konkan: beaches, lush green plain with laterite patches and tree canopy, forested Ghats
  *   2 farmland — Punjab: a muted field patchwork (after an oblique satellite view) and sandy braided floodplains; roads,
  *                canals, settlements and trees are real geometry (chunkFeatureRenderer.ts)
+ *   3 alpine   — the Himalaya: forest, meadow and steppe by region (a baked dryness field) and height,
+ *                gravel valley floors, scree and rock by slope, snow and glaciers by height, slope
+ *                and aspect, three close-range detail layers, and lakes with their own levels
+ *                (the same colouring as terrain-lab/)
  * plus water shading (fresnel sky reflection, sun glint, shallow-water colour and shore foam)
  * wherever the mesh sits at the terrain's water level, and runway asphalt with a grass strip
  * around it (the airport renderer only draws runway outlines).
@@ -56,6 +60,7 @@ const STYLE_CODE: Readonly<Record<SceneEnvironment['surfaceStyle'], number>> = {
   default: 0,
   coastal: 1,
   farmland: 2,
+  alpine: 3,
 };
 
 /** Water body colour per style (display values; see skyFog.ts for the sky/fog side). */
@@ -63,7 +68,11 @@ const WATER_COLOR: Readonly<Record<SceneEnvironment['surfaceStyle'], [number, nu
   default: [0.1, 0.25, 0.35],
   coastal: [0.06, 0.2, 0.3], // Arabian Sea
   farmland: [0.45, 0.3, 0.29], // Sutlej/Beas: silt-laden, reddish brown
+  alpine: [0.04, 0.2, 0.36], // Mansarovar: clear, deep blue
 };
+
+/** Lakes the alpine style can draw (each with its own level). */
+export const MAX_LAKES = 4;
 
 /** hash12 / vnoise / fbm3, shared by the vertex and fragment shaders. */
 const NOISE_GLSL = /* glsl */ `
@@ -402,6 +411,110 @@ const FRAGMENT_SHADER = /* glsl */ `
     return col;
   }
 
+  // --- Alpine (the Himalaya; the same colouring as terrain-lab/). ---
+  uniform sampler2D uDryTex;
+  uniform vec3 uDryMap; // origin (m), texel spacing (m), texels per side
+  uniform vec4 uLakes[${MAX_LAKES}]; // centre x, z, radii x, z
+  uniform vec2 uLakeRL[${MAX_LAKES}]; // rotation (rad, east toward south), water level
+  uniform int uLakeCount;
+  uniform float uLakeRegion;
+  // The water level of the lake whose region holds p (nearest by ellipse distance), else -1e9.
+  float lakeLevelAt(vec2 p) {
+    float best = uLakeRegion;
+    float level = -1e9;
+    for (int i = 0; i < ${MAX_LAKES}; i++) {
+      if (i >= uLakeCount) break;
+      vec2 d = p - uLakes[i].xy;
+      float c = cos(uLakeRL[i].x), s = sin(uLakeRL[i].x);
+      float el = length(vec2((d.x * c + d.y * s) / uLakes[i].z, (-d.x * s + d.y * c) / uLakes[i].w));
+      if (el < best) { best = el; level = uLakeRL[i].y; }
+    }
+    return level;
+  }
+  // Value noise and gradient, periodic over per cells (so a camera-snapped origin never jumps).
+  vec3 vnoiseP(vec2 p, float per) {
+    vec2 i = floor(p), f = fract(p);
+    vec2 u = f * f * (3.0 - 2.0 * f), du = 6.0 * f * (1.0 - f);
+    vec2 i0 = mod(i, per), i1 = mod(i + 1.0, per);
+    float a = hash12(i0), b = hash12(vec2(i1.x, i0.y)), c = hash12(vec2(i0.x, i1.y)), d = hash12(i1);
+    float k = a - b - c + d;
+    return vec3(a + (b - a) * u.x + (c - a) * u.y + k * u.x * u.y, du * vec2(b - a + k * u.y, c - a + k * u.x));
+  }
+  // Forest, meadow and alpine grass in the monsoon south, steppe on the dry plateau; gravel on valley
+  // floors and basins; scree and rock by slope; glaciers and snow above a snowline that is higher on
+  // the dry plateau and on sunny slopes. Near the camera, three detail layers (32 m, 4 m, 0.8 m) of
+  // relief and albedo, each fading out once its cells are under a pixel. n gets the detail normal.
+  vec3 alpineColor(vec3 w, inout vec3 n, float px, float relief) {
+    float slope = 1.0 - n.y;
+    float h = w.y;
+    vec2 wp = w.xz;
+    float dry = texture(uDryTex, ((wp - uDryMap.xx) / uDryMap.y + 0.5) / uDryMap.z).r;
+    float n1 = vnoise(wp / 230.0);
+    float n2 = px < 25.0 ? vnoise(wp / 41.0) : 0.5;
+    float n3 = vnoise(wp / 1900.0);
+    float nz = n1 * 0.5 + n2 * 0.3 + n3 * 0.2;
+    vec3 forest = vec3(0.16, 0.22, 0.11), meadow = vec3(0.36, 0.38, 0.22), alpineG = vec3(0.42, 0.39, 0.31);
+    vec3 steppeA = vec3(0.62, 0.52, 0.37), steppeB = vec3(0.52, 0.46, 0.36);
+    vec3 wet = mix(forest, meadow, smoothstep(2300.0, 3500.0, h + (nz - 0.5) * 600.0));
+    wet = mix(wet, alpineG, smoothstep(3700.0, 4400.0, h + (nz - 0.5) * 400.0));
+    vec3 dryc = mix(steppeA, steppeB, n1 * 0.7 + n2 * 0.3);
+    vec3 col = mix(wet, dryc, smoothstep(0.35, 0.85, dry));
+    // Valley floors and basins (flat, and lying low): gravel and alluvium.
+    float flatv = smoothstep(0.05, 0.012, slope) * (0.35 + 0.65 * smoothstep(-0.02, 0.05, relief));
+    vec3 gravel = mix(vec3(0.60, 0.57, 0.51), vec3(0.50, 0.47, 0.42), n2);
+    col = mix(col, gravel, flatv * mix(0.35, 0.6, dry));
+    // Rock on steep ground, scree below it.
+    vec3 rock = mix(vec3(0.30, 0.28, 0.27), vec3(0.47, 0.43, 0.39), n1 * 0.6 + n2 * 0.4);
+    vec3 scree = mix(vec3(0.55, 0.52, 0.48), vec3(0.47, 0.44, 0.41), n2);
+    col = mix(col, scree, smoothstep(0.10, 0.20, slope + (nz - 0.5) * 0.08) * smoothstep(2800.0, 4200.0, h) * 0.8);
+    float rockW = smoothstep(0.20, 0.34, slope + (nz - 0.5) * 0.12);
+    col = mix(col, rock, rockW);
+    // Snow: higher on the dry plateau and on sunny (south-facing) slopes; steep faces shed it.
+    float aspectS = n.z / max(length(n.xz), 0.02) * smoothstep(0.02, 0.2, slope);
+    float snowline = mix(5100.0, 5950.0, dry) + 350.0 * aspectS;
+    float snowW = smoothstep(snowline - 120.0, snowline + 180.0, h + (nz - 0.5) * 700.0);
+    snowW *= 1.0 - smoothstep(0.50, 0.72, slope);
+    // Glaciers: high, gentle ground below the snowline proper.
+    float glacier = smoothstep(snowline - 700.0, snowline - 300.0, h) * smoothstep(0.12, 0.04, slope) * (1.0 - flatv);
+    col = mix(col, vec3(0.80, 0.86, 0.92), glacier * 0.8);
+    col = mix(col, vec3(0.93, 0.95, 0.98), snowW);
+
+    // Close-range detail, LOD by pixel footprint, in coordinates relative to a camera-snapped origin
+    // (20480 m: a whole number of every layer's period, also in the turned frames) for precision.
+    vec2 lp = wp - floor(uAtmCamPos.xz / 20480.0 + 0.5) * 20480.0;
+    float grassW = (1.0 - rockW) * (1.0 - snowW) * (1.0 - dry) * (1.0 - flatv);
+    float stoneW = (1.0 - rockW) * (1.0 - snowW) * max(dry, flatv);
+    float f1 = 1.0 - smoothstep(4.0, 12.0, px);   // 32 m: patches, boulders, rock ribs
+    float f2 = 1.0 - smoothstep(0.6, 2.0, px);    // 4 m: clumps, stones, cracks
+    float f3 = 1.0 - smoothstep(0.12, 0.4, px);   // 0.8 m: grit, tufts, pebbles
+    if (f1 > 0.0) {
+      vec3 d1 = vnoiseP(mat2(0.6, 0.8, -0.8, 0.6) * lp / 32.0, 128.0);
+      d1.yz = d1.yz * mat2(0.6, 0.8, -0.8, 0.6);
+      float bump = mix(mix(0.25, 0.9, rockW), 0.08, snowW);
+      n = normalize(n - vec3(d1.y, 0.0, d1.z) * bump * f1);
+      col *= 1.0 + (d1.x - 0.5) * 0.28 * f1 * (1.0 - snowW * 0.7);
+      // Rock strata: bands along the contours, broken by the noise.
+      col *= 1.0 - rockW * f1 * 0.18 * smoothstep(0.3, 0.7, fract(h / 9.0 + d1.x * 1.7));
+    }
+    if (f2 > 0.0) {
+      vec3 d2 = vnoiseP(mat2(0.8, -0.6, 0.6, 0.8) * lp / 4.0 + 17.0, 1024.0);
+      d2.yz = d2.yz * mat2(0.8, -0.6, 0.6, 0.8);
+      float bump = mix(mix(0.35, 0.8, rockW), 0.1, snowW);
+      n = normalize(n - vec3(d2.y, 0.0, d2.z) * bump * f2 * 0.6);
+      col *= 1.0 + f2 * ((d2.x - 0.5) * (0.35 * grassW + 0.3 * stoneW + 0.25 * rockW) - grassW * 0.06);
+    }
+    if (f3 > 0.0) {
+      vec3 d3 = vnoiseP(mat2(0.6, -0.8, 0.8, 0.6) * lp / 0.8 - 5.0, 5120.0);
+      d3.yz = d3.yz * mat2(0.6, -0.8, 0.8, 0.6);
+      n = normalize(n - vec3(d3.y, 0.0, d3.z) * 0.35 * f3 * (1.0 - snowW * 0.8));
+      float speck = smoothstep(0.72, 0.9, d3.x);
+      col *= 1.0 + f3 * ((d3.x - 0.5) * 0.25 + speck * 0.25 * stoneW - speck * 0.2 * grassW);
+      // Snow glints in the sun.
+      col += snowW * f3 * pow(smoothstep(0.93, 1.0, d3.x), 4.0) * 0.6 * max(dot(n, normalize(uSunDir)), 0.0);
+    }
+    return col;
+  }
+
   // Punjab from the air (reference: an oblique satellite view near Jalandhar): a patchwork of
   // rectangular fields, mostly on one grid, in muted colours - about half beige/tan/brown (harvested
   // or bare), soft and mid greens, some dark green (sugarcane, orchards), the odd purple-brown - with
@@ -529,6 +642,22 @@ const FRAGMENT_SHADER = /* glsl */ `
       float island = seaW > 1500.0 ? smoothstep(0.15, 0.6, vWorld.y - uWaterLevel) : 0.0;
       coastWater = smoothstep(-0.5 * px - 0.5, 0.5 * px + 0.5, max(seaW, est)) * (1.0 - island);
     }
+    // Mountain lakes: the mesh is the lake bed; the water is shaded where the view ray meets the
+    // lake's own level (as the sea above), wherever the bed lies below it.
+    float lakeWater = 0.0;
+    float lakeDepth = 0.0;
+    if (uStyle == 3 && uLakeCount > 0) {
+      float lev = lakeLevelAt(vWorld.xz);
+      if (lev > -1e8) {
+        float camY = vWorld.y - vRel.y;
+        lakeDepth = lev - vWorld.y;
+        if (lakeDepth > -1.0) {
+          if (vRel.y < -1e-3 && camY > lev) wWater = vWorld + vRel * (clamp((lev - camY) / vRel.y, 0.0, 1.0) - 1.0);
+          pxWater = max(length(dFdx(wWater.xz)), length(dFdy(wWater.xz)));
+          lakeWater = smoothstep(-0.15, 0.15, lakeDepth);
+        }
+      }
+    }
     if (uStyle == 0 && uHasWater > 0.5 && vWorld.y <= uWaterLevel + 0.05) {
       col = waterShade(vWorld, vRel, px, max(nl - 1.0, 0.0) * 30.0, 1e9, 0.0, 1.0);
     } else {
@@ -539,12 +668,13 @@ const FRAGMENT_SHADER = /* glsl */ `
       // Near-camera detail weight: full below 3 m per pixel, gone by 12 m.
       float near = 1.0 - smoothstep(3.0, 12.0, px);
       // (Not on the Punjab plain: it is flat enough that per-pixel relief would not show.)
-      if (near > 0.0 && uStyle != 2) {
+      if (near > 0.0 && uStyle != 2 && uStyle != 3) {
         vec2 g = detailGrad(vWorld.xz, 22.0, 1.4, px);
         n = normalize(n - vec3(g.x, 0.0, g.y) * near);
       }
       float shadow = 1.0;
       if (uStyle == 1) col = coastColor(vWorld, n, px, near, L, shadow, est, coastPx);
+      else if (uStyle == 3) col = alpineColor(vWorld, n, px, relief);
       else col = plainsColor(vWorld, px, L, shadow, rv);
       // Airfield ground: mown, sun-dried grass with a little mowing texture, and bare, scuffed earth
       // along the pavement edges (instead of crops, groves or painted trees).
@@ -557,6 +687,8 @@ const FRAGMENT_SHADER = /* glsl */ `
         vec3 earth = vec3(0.56, 0.49, 0.38) * mix(vec3(1.0), detailAt(ap, 1.0, 10.0, px), 0.6);
         float bare = (1.0 - smoothstep(0.03, 0.16, af.y + 0.06 * vnoise(ap / 11.0))) * 0.85;
         vec3 ground = mix(grass, earth, bare);
+        // In the mountains the airfield is graded gravel and dust, not grass.
+        if (uStyle == 3) ground = mix(vec3(0.56, 0.52, 0.45), vec3(0.47, 0.43, 0.37), vnoise(ap / 60.0)) * mix(vec3(1.0), detailAt(ap, 1.0, 10.0, px), 0.6);
         col = mix(col, ground, af.x);
         shadow = mix(shadow, 1.0, af.x);
       }
@@ -580,7 +712,8 @@ const FRAGMENT_SHADER = /* glsl */ `
         // Mown grass strip around the runway, then the asphalt.
         float strip = (1.0 - smoothstep(r.z + 250.0, r.z + 300.0, along)) * (1.0 - smoothstep(r.w + 130.0, r.w + 170.0, across));
         if (strip <= 0.0) continue;
-        col = mix(col, vec3(0.46, 0.49, 0.30) * (0.92 + 0.16 * vnoise(vWorld.xz / 25.0)), strip);
+        vec3 stripCol = uStyle == 3 ? vec3(0.55, 0.51, 0.44) : vec3(0.46, 0.49, 0.30);
+        col = mix(col, stripCol * (0.92 + 0.16 * vnoise(vWorld.xz / 25.0)), strip);
         shadow = mix(shadow, 1.0, strip); // the airfield is cleared: no tree shadows on it
         float onRwy = (1.0 - smoothstep(r.z, r.z + px, along)) * (1.0 - smoothstep(r.w, r.w + px, across));
         // Centreline dashes and threshold bars, fading out when too small to resolve.
@@ -612,14 +745,21 @@ const FRAGMENT_SHADER = /* glsl */ `
         float depth = estuary ? min(est * 0.02, 6.0) : min(seaW * (0.01 - 0.006 * coastPx.y), 60.0);
         col = mix(col, waterShade(wWater, wWater - vWorld + vRel, pxWater, depth, estuary ? 1e9 : seaW, estuary ? 2.0 : 1.0, sunVis), coastWater);
       }
+      if (lakeWater > 0.0) col = mix(col, waterShade(wWater, wWater - vWorld + vRel, pxWater, max(lakeDepth, 0.0), 1e9, 0.0, sunVis), lakeWater);
     }
-    gl_FragColor = vec4(atmApply(col, mix(vWorld, wWater, coastWater)), 1.0);
+    gl_FragColor = vec4(atmApply(col, mix(vWorld, wWater, max(coastWater, lakeWater))), 1.0);
   }
 `;
 
 function emptyAirfieldTexture(): THREE.DataArrayTexture {
   const t = new THREE.DataArrayTexture(new Uint8Array(2), 1, 1, 1);
   t.format = THREE.RGFormat;
+  t.needsUpdate = true;
+  return t;
+}
+
+function emptyDryTexture(): THREE.DataTexture {
+  const t = new THREE.DataTexture(new Uint8Array([255]), 1, 1, THREE.RedFormat);
   t.needsUpdate = true;
   return t;
 }
@@ -651,6 +791,12 @@ export function createTerrainMaterial(): THREE.ShaderMaterial {
       uRiverCount: { value: 0 },
       uEstuaries: { value: Array.from({ length: 4 * MAX_ESTUARIES }, () => new THREE.Vector4()) },
       uEstuaryCount: { value: 0 },
+      uDryTex: { value: emptyDryTexture() },
+      uDryMap: { value: new THREE.Vector3(0, 1, 1) },
+      uLakes: { value: Array.from({ length: MAX_LAKES }, () => new THREE.Vector4(0, 0, 1, 1)) },
+      uLakeRL: { value: Array.from({ length: MAX_LAKES }, () => new THREE.Vector2()) },
+      uLakeCount: { value: 0 },
+      uLakeRegion: { value: 0 },
       ...getCloudShadowUniforms(),
       ...getAtmosphereUniforms(),
       ...getGroundLampUniforms(),
@@ -714,6 +860,29 @@ export function applyTerrainEnvironment(material: THREE.ShaderMaterial, env: Rea
     (u['uCoastShape']!.value as THREE.Vector3).set(coast.plainRiseMPerKm, coast.hillsStartM, coast.hillsRampM);
   }
   u['uCoastCount']!.value = nCoast;
+
+  // Alpine: lakes and the dryness field.
+  const alpine = env.alpine;
+  const lakes = u['uLakes']!.value as THREE.Vector4[];
+  const lakeRL = u['uLakeRL']!.value as THREE.Vector2[];
+  const nLakes = alpine ? Math.min(alpine.lakes.length, MAX_LAKES) : 0;
+  for (let i = 0; i < nLakes; i++) {
+    const l = alpine!.lakes[i]!;
+    lakes[i]!.set(l.x, l.z, l.rx, l.rz);
+    lakeRL[i]!.set(l.rotRad, l.level);
+  }
+  u['uLakeCount']!.value = nLakes;
+  u['uLakeRegion']!.value = alpine?.lakeRegionEl ?? 0;
+  if (alpine) {
+    const d = alpine.dry;
+    const tex = new THREE.DataTexture(d.data as Uint8Array<ArrayBuffer>, d.n, d.n, THREE.RedFormat);
+    tex.magFilter = THREE.LinearFilter;
+    tex.minFilter = THREE.LinearFilter;
+    tex.needsUpdate = true;
+    (u['uDryTex']!.value as THREE.Texture).dispose();
+    u['uDryTex']!.value = tex;
+    (u['uDryMap']!.value as THREE.Vector3).set(d.originM, d.stepM, d.n);
+  }
 
   const masks = (env.airfieldMasks ?? []).slice(0, MAX_AIRFIELDS);
   const old = u['uAirfieldTex']!.value as THREE.DataArrayTexture;

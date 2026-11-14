@@ -346,6 +346,8 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
     coastal: [1000, 1450],
     farmland: [1150, 1600],
     default: [1200, 1650],
+    // Above the plateau (4-5 km) and below the high summits.
+    alpine: [6300, 6900],
   };
 
   /** The player's aircraft for the 3D cockpit, filled each frame. */

@@ -16,7 +16,8 @@ import type {
   TerrainInitMessage,
   TerrainToMainMessageExt,
 } from '../contracts/terrain';
-import { TERRAIN_QUALITY_PROFILES, MAX_RESIDENT_CHUNKS, MAX_REQUESTS_PER_UPDATE } from '../contracts/terrain';
+import { TERRAIN_QUALITY_PROFILES, MAX_RESIDENT_CHUNKS, MAX_REQUESTS_PER_UPDATE, MAX_QUADTREE_DEPTH, REFERENCE_CHUNK_SIZE_M } from '../contracts/terrain';
+import type { QualityTerrainProfile } from '../contracts/terrain';
 import { chunkParent, chunkKeyToBounds, computeDesiredChunks, distanceToChunk } from './quadtree';
 import type { ChunkBounds, TerrainParams } from '../contracts/terrain';
 
@@ -47,6 +48,22 @@ function chunkKeyHash(key: ChunkKey): number {
   return key.depth * 1_000_000 + key.cx * 1000 + key.cz;
 }
 
+/**
+ * The tier's terrain profile adjusted for the terrain: `lodDepthBonus` extra quadtree depth (capped
+ * at MAX_QUADTREE_DEPTH) and a stream radius of at least `minDrawDistanceM` (TerrainParams).
+ */
+export function terrainProfileFor(tier: QualityTier, params: TerrainParams): QualityTerrainProfile {
+  const base = TERRAIN_QUALITY_PROFILES[tier];
+  const bonus = params.lodDepthBonus ?? 0;
+  const minChunks = params.minDrawDistanceM !== undefined ? Math.ceil(params.minDrawDistanceM / REFERENCE_CHUNK_SIZE_M) : 0;
+  if (bonus <= 0 && minChunks <= base.streamRadiusChunks) return base;
+  return {
+    ...base,
+    maxLodDepth: Math.min(MAX_QUADTREE_DEPTH, base.maxLodDepth + Math.max(0, bonus)),
+    streamRadiusChunks: Math.max(base.streamRadiusChunks, minChunks),
+  };
+}
+
 class ChunkManagerImpl implements ChunkManager {
   private readonly sendToTerrainWorker: SendToTerrainWorker;
   private readonly entries = new Map<number, Entry>();
@@ -68,6 +85,8 @@ class ChunkManagerImpl implements ChunkManager {
   private readonly candidatesScratch: Entry[] = [];
   /** The active terrain's vertical bounds for LOD distances (TerrainParams.heightBoundsM). */
   private readonly heightBoundsM: TerrainParams['heightBoundsM'];
+  private readonly terrainParams: TerrainParams;
+  private readonly profiles = new Map<QualityTier, QualityTerrainProfile>();
 
   private onChunkReadyCallback: ((chunk: ResidentChunkInfo) => void) | undefined;
   private onChunkEvictedCallback: ((key: ChunkKey) => void) | undefined;
@@ -80,14 +99,24 @@ class ChunkManagerImpl implements ChunkManager {
   constructor(config: ChunkManagerConfig, sendToTerrainWorker: SendToTerrainWorker) {
     this.sendToTerrainWorker = sendToTerrainWorker;
     this.heightBoundsM = config.terrainParams.heightBoundsM;
+    this.terrainParams = config.terrainParams;
     const init: TerrainInitMessage = {
       type: 'terrainInit',
       params: config.terrainParams,
       flattenZones: config.flattenZones,
       chunkGridQuads: TERRAIN_QUALITY_PROFILES[config.qualityTier].chunkGridQuads,
-      maxLodDepth: TERRAIN_QUALITY_PROFILES[config.qualityTier].maxLodDepth,
+      maxLodDepth: this.profileFor(config.qualityTier).maxLodDepth,
     };
     this.sendToTerrainWorker(init);
+  }
+
+  private profileFor(tier: QualityTier): QualityTerrainProfile {
+    let p = this.profiles.get(tier);
+    if (!p) {
+      p = terrainProfileFor(tier, this.terrainParams);
+      this.profiles.set(tier, p);
+    }
+    return p;
   }
 
   update(cameraWorldPos: Vec3Like, qualityTier: QualityTier): void {
@@ -96,7 +125,7 @@ class ChunkManagerImpl implements ChunkManager {
     this.lastCameraY = cameraWorldPos.y;
     this.lastCameraZ = cameraWorldPos.z;
 
-    const profile = TERRAIN_QUALITY_PROFILES[qualityTier];
+    const profile = this.profileFor(qualityTier);
     computeDesiredChunks(cameraWorldPos, profile, this.wasSplitLastFrameFn, this.scratchDesired, this.heightBoundsM);
 
     // Single pass over this frame's desired keys: populate desiredSet AND

@@ -53,7 +53,7 @@ export function moonDirAt(hours: number, latDeg: number, out: Dir3): Dir3 {
 }
 
 export function latitudeFor(style: SceneEnvironment['surfaceStyle']): number {
-  return style === 'coastal' ? 15.4 : style === 'farmland' ? 31.4 : 25;
+  return style === 'coastal' ? 15.4 : style === 'farmland' ? 31.4 : style === 'alpine' ? 30.85 : 25;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -93,6 +93,9 @@ const CLIMATE: Readonly<Record<SceneEnvironment['surfaceStyle'], TheatreClimate>
   // Punjab in winter: haze and smog, famous dense fog, the odd grey rainy day.
   farmland: { visKm: 70, scaleM: 1100, cumulus: 0.22, weights: { clear: 0.35, hazy: 0.25, fog: 0.15, overcast: 0.15, rain: 0.1 } },
   default: { visKm: 45, scaleM: 1200, cumulus: 0.15, weights: { clear: 0.4, hazy: 0.25, overcast: 0.2, rain: 0.15 } },
+  // The Himalaya and Tibet: mostly crystal clear, afternoon build-ups over the ranges, some overcast
+  // and showers; never fog over the whole map.
+  alpine: { visKm: 170, scaleM: 2200, cumulus: 0.12, weights: { clear: 0.6, hazy: 0.1, overcast: 0.2, rain: 0.1 } },
 };
 
 export function weatherPreset(preset: WeatherPreset, style: SceneEnvironment['surfaceStyle']): WeatherState {

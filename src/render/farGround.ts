@@ -19,11 +19,14 @@ export const FAR_GROUND_RADIUS_M = 320000;
 const VS = /* glsl */ `
   ${ATMOSPHERE_GLSL}
   uniform float uLevel;
+  uniform float uBelowCam;
   uniform vec3 uOrigin;
   varying vec3 vWorld;
   void main() {
-    // position is relative to the camera's horizontal position.
-    vec3 w = vec3(position.x + uAtmCamPos.x, uLevel, position.z + uAtmCamPos.z);
+    // position is relative to the camera's horizontal position. In the mountains the level is kept
+    // under the camera (a valley far below the plateau): never a ceiling overhead.
+    float level = uBelowCam > 0.0 ? min(uLevel, uAtmCamPos.y - uBelowCam) : uLevel;
+    vec3 w = vec3(position.x + uAtmCamPos.x, level, position.z + uAtmCamPos.z);
     vWorld = w;
     gl_Position = projectionMatrix * viewMatrix * vec4(atmCurve(w) - uOrigin, 1.0);
   }
@@ -48,6 +51,7 @@ const LAND: Readonly<Record<SceneEnvironment['surfaceStyle'], [number, number, n
   default: [0.29, 0.42, 0.23],
   coastal: [0.24, 0.36, 0.17],
   farmland: [0.47, 0.47, 0.35],
+  alpine: [0.46, 0.42, 0.35],
 };
 
 export interface FarGround {
@@ -92,6 +96,7 @@ export function createFarGround(scene: THREE.Scene): FarGround {
     uniforms: {
       ...getAtmosphereUniforms(),
       uLevel: { value: 0 },
+      uBelowCam: { value: 0 },
       uOrigin: { value: new THREE.Vector3() },
       uLand: { value: new THREE.Vector3(...LAND.default) },
       uSea: { value: new THREE.Vector3(0.06, 0.2, 0.3) },
@@ -109,6 +114,7 @@ export function createFarGround(scene: THREE.Scene): FarGround {
   return {
     setEnvironment(env, groundLevelM, shoreX) {
       mat.uniforms['uLevel']!.value = groundLevelM;
+      mat.uniforms['uBelowCam']!.value = env.surfaceStyle === 'alpine' ? 150 : 0;
       (mat.uniforms['uLand']!.value as THREE.Vector3).set(...LAND[env.surfaceStyle]);
       mat.uniforms['uShoreX']!.value = shoreX ?? -1e9;
     },

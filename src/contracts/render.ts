@@ -398,8 +398,18 @@ export const WEAPON_DISPLAY_LABEL: Readonly<Record<WeaponKind, string>> = {
  * layouts: ground colouring style, water level (absent = no water) and the runways to paint.
  */
 export interface SceneEnvironment {
-  surfaceStyle: 'default' | 'coastal' | 'farmland';
+  surfaceStyle: 'default' | 'coastal' | 'farmland' | 'alpine';
   waterLevelM?: number;
+  /**
+   * Alpine theatres: lakes (each with its own water level; there is water where the ground is below
+   * it, within `lakeRegionEl` ellipse radii of the centre) and the regional dryness field (0 wet
+   * south .. 1 dry plateau; n x n bytes, texel (i, j) at originM + (i, j) * stepM) for the ground.
+   */
+  alpine?: {
+    lakes: readonly { x: number; z: number; rx: number; rz: number; rotRad: number; level: number }[];
+    lakeRegionEl: number;
+    dry: { originM: number; stepM: number; n: number; data: Uint8Array };
+  };
   /** Coast theatres only: shoreline X and headland weight sampled along Z (see contracts/terrain.ts CoastProfile). */
   coast?: { z0: number; dz: number; shoreX: readonly number[]; headland: readonly number[]; plainRiseMPerKm: number; hillsStartM: number; hillsRampM: number };
   /** Typical ground elevation (m MSL) for the far-ground ring beyond the streamed terrain. */
