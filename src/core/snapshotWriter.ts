@@ -24,6 +24,7 @@ import {
 } from '../contracts/core';
 import type { EntityId } from '../contracts/core';
 import type { EntityPool, SnapshotHudView, WriteSnapshot } from '../contracts/sim';
+import { afterburnerStage } from '../physics/engine';
 
 export const writeSnapshot: WriteSnapshot = (
   pool: EntityPool,
@@ -71,7 +72,7 @@ export const writeSnapshot: WriteSnapshot = (
     out[entityFieldOffset(i, SnapshotEntity.RUDDER)] = e.rudder;
     out[entityFieldOffset(i, SnapshotEntity.GEAR_POS)] = e.gearPos;
     out[entityFieldOffset(i, SnapshotEntity.THROTTLE)] = e.throttle;
-    out[entityFieldOffset(i, SnapshotEntity.AFTERBURNER_ON)] = e.afterburnerOn ? 1 : 0;
+    out[entityFieldOffset(i, SnapshotEntity.AFTERBURNER_ON)] = e.afterburnerOn ? Math.max(0.02, afterburnerStage(e.afterburnerLevel ?? 1)) : 0;
     out[entityFieldOffset(i, SnapshotEntity.FLAGS)] = e.flags;
     out[entityFieldOffset(i, SnapshotEntity.STORES)] = e.stores ?? 0;
     out[entityFieldOffset(i, SnapshotEntity.STORES_B)] = e.storesB ?? 0;

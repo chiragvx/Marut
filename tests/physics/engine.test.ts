@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { stepEngine, computeAppliedThrustN, sampleThrustN } from '../../src/physics/engine';
+import { stepEngine, computeAppliedThrustN, sampleThrustN, AB_IGNITION_SEC, AB_STAGE_SEC, AB_OUT_SEC, afterburnerLightable } from '../../src/physics/engine';
 import type { EntityState, PilotInputs, DamageState } from '../../src/contracts/core';
 import type { AircraftDefinition } from '../../src/contracts/aircraft';
 import type { Table2D } from '../../src/contracts/math';
@@ -189,5 +189,71 @@ describe('computeAppliedThrustN / sampleThrustN (telemetry thrustFrac helpers)',
     const def = makeDef(1);
     expect(sampleThrustN(def.engine, 0, 0, true)).toBe(80000);
     expect(sampleThrustN(def.engine, 0, 0, false)).toBe(50000);
+  });
+});
+
+describe('afterburner light-off sequence', () => {
+  const run = (state: EntityState, inputs: PilotInputs, sec: number, mach = 0.5): { x: number; y: number; z: number } => {
+    const def = makeDef(0.5);
+    const thrust = { x: 0, y: 0, z: 0 };
+    const dt = 1 / 240;
+    for (let t = 0; t < sec - 1e-9; t += dt) stepEngine(state, inputs, makeDamage(), def, mach, dt, thrust);
+    return thrust;
+  };
+
+  it('waits out the ignition delay, then fills from military to full reheat', () => {
+    const state = makeState({ throttle: 1, afterburnerLevel: 0 });
+    const inputs = makeInputs({ throttle: 1, afterburner: true });
+    let t = run(state, inputs, AB_IGNITION_SEC * 0.8);
+    expect(state.afterburnerOn).toBe(false);
+    expect(t.x).toBeCloseTo(50000, 0);
+    t = run(state, inputs, AB_IGNITION_SEC * 0.2 + AB_STAGE_SEC * 0.5);
+    expect(state.afterburnerOn).toBe(true);
+    expect(t.x).toBeGreaterThan(55000);
+    expect(t.x).toBeLessThan(75000);
+    t = run(state, inputs, AB_STAGE_SEC * 0.6);
+    expect(t.x).toBeCloseTo(80000, 0);
+  });
+
+  it('goes out quickly out of the detent', () => {
+    const state = makeState({ throttle: 1, afterburnerOn: true, afterburnerLevel: 1 });
+    const t = run(state, makeInputs({ throttle: 1 }), AB_OUT_SEC + 0.01);
+    expect(state.afterburnerOn).toBe(false);
+    expect(t.x).toBeCloseTo(50000, 0);
+  });
+
+  it('will not light until the core is near military power', () => {
+    const state = makeState({ throttle: 0.9, afterburnerLevel: 0 });
+    run(state, makeInputs({ throttle: 1, afterburner: true }), 0.6);
+    expect(state.afterburnerOn).toBe(false);
+  });
+
+  it('will not light, or stay lit, with no fuel or a dead engine', () => {
+    const dry = makeState({ throttle: 1, fuelKg: 0, afterburnerLevel: 0 });
+    run(dry, makeInputs({ throttle: 1, afterburner: true }), 3);
+    expect(dry.afterburnerOn).toBe(false);
+    const lit = makeState({ throttle: 1, fuelKg: 0, afterburnerOn: true, afterburnerLevel: 1 });
+    run(lit, makeInputs({ throttle: 1, afterburner: true }), 1 / 240);
+    expect(lit.afterburnerOn).toBe(false);
+  });
+
+  it('blows out high and slow', () => {
+    expect(afterburnerLightable(0.9, 12000)).toBe(true);
+    expect(afterburnerLightable(0.3, 17000)).toBe(false);
+    const state = makeState({ throttle: 1, afterburnerOn: true, afterburnerLevel: 1, pos: { x: 0, y: 17000, z: 0 } });
+    run(state, makeInputs({ throttle: 1, afterburner: true }), 0.5, 0.3);
+    expect(state.afterburnerOn).toBe(false);
+  });
+
+  it('minimum reheat burns far more fuel for its thrust than full', () => {
+    const def = makeDef(0.5);
+    const flow = (level: number): number => {
+      const st = makeState({ throttle: 1, afterburnerOn: true, afterburnerLevel: level, fuelKg: 1000 });
+      stepEngine(st, makeInputs({ throttle: 1, afterburner: true }), makeDamage(), def, 0.5, 0.001, { x: 0, y: 0, z: 0 });
+      return (1000 - st.fuelKg) / 0.001;
+    };
+    const lit = AB_IGNITION_SEC / (AB_IGNITION_SEC + AB_STAGE_SEC) + 0.001;
+    expect(flow(lit)).toBeGreaterThan(flow(0) * 1.05);
+    expect(flow(1)).toBeGreaterThan(flow(lit));
   });
 });

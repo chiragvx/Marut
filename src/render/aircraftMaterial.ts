@@ -501,15 +501,17 @@ const FLAME_VS = /* glsl */ `
   uniform float uNozzleY;
   uniform float uSeed;
   uniform float uExitX;
+  uniform float uLen;
   varying vec3 vWorld;
   varying vec3 vNormalW;
   varying float vU;
   void main() {
     vec3 p = position;
-    // Flicker in length; the root widens with the nozzle.
-    float flick = 0.92 + 0.05 * sin(uTime * 31.0 + uSeed) + 0.03 * sin(uTime * 57.0 + uSeed * 2.3);
+    // Flicker in length (more at the ragged tail); the length grows with the reheat stage; the root
+    // widens with the nozzle.
+    float flick = 0.92 + 0.05 * sin(uTime * 31.0 + uSeed) + 0.03 * sin(uTime * 57.0 + uSeed * 2.3) + 0.02 * sin(uTime * 93.0 + uSeed * 4.1);
     float x0 = uExitX;
-    p.x = x0 + (p.x - x0) * flick;
+    p.x = x0 + (p.x - x0) * flick * uLen;
     vec2 c = vec2(uNozzleY, 0.0);
     p.yz = c + (p.yz - c) * (1.0 + uNozzle * 0.15 * (1.0 - aU));
     vec4 wr = modelMatrix * vec4(p, 1.0);
@@ -526,6 +528,8 @@ const FLAME_FS = /* glsl */ `
   precision highp float;
   ${ATMOSPHERE_GLSL}
   uniform float uAB;
+  uniform float uStage;
+  uniform float uFlash;
   varying vec3 vWorld;
   varying vec3 vNormalW;
   varying float vU;
@@ -533,10 +537,21 @@ const FLAME_FS = /* glsl */ `
     vec3 V = normalize(uAtmCamPos - vWorld);
     float edge = pow(abs(dot(normalize(vNormalW), V)), 1.2);
     float u = vU;
-    vec3 col = mix(vec3(1.0, 0.93, 0.78), vec3(1.0, 0.45, 0.12), smoothstep(0.05, 0.7, u));
-    // Shock diamonds in the first half.
-    float diamonds = 0.8 + 0.35 * max(0.0, cos(u * 34.0)) * (1.0 - smoothstep(0.2, 0.55, u));
+    // Minimum reheat burns lean and clean: a translucent blue-violet cone. Towards full the core is
+    // white-yellow, the tail orange.
+    float st = smoothstep(0.0, 0.7, uStage);
+    vec3 core = mix(vec3(0.6, 0.68, 1.0), vec3(1.0, 0.93, 0.78), st);
+    vec3 tail = mix(vec3(0.5, 0.36, 0.95), vec3(1.0, 0.45, 0.12), st);
+    vec3 col = mix(core, tail, smoothstep(0.05, 0.7, u));
+    // Shock diamonds: bright discs (Mach disks) at a regular spacing in the first half, sharper and
+    // stronger at full reheat.
+    float cell = fract(u * 6.5 - 0.1) - 0.5;
+    float disc = exp(-cell * cell * mix(30.0, 70.0, uStage));
+    float diamonds = 0.75 + disc * (0.35 + 0.75 * uStage) * (1.0 - smoothstep(0.12, 0.6, u));
     float k = pow(1.0 - u, 1.6) * diamonds * edge * uAB * 0.8;
+    // The light-off pop.
+    k *= 1.0 + 1.6 * uFlash;
+    col = mix(col, vec3(1.0, 0.85, 0.6), uFlash * 0.6);
     // Brighter against a dark sky.
     k *= 0.9 + 0.8 * uAtmLights;
     gl_FragColor = vec4(col * k * atmTransmittance(vWorld), 1.0);
@@ -545,6 +560,12 @@ const FLAME_FS = /* glsl */ `
 
 export interface AircraftFlameUniforms {
   uAB: { value: number };
+  /** Reheat stage, 0 (minimum) .. 1 (full). */
+  uStage: { value: number };
+  /** The light-off flash, 1 .. 0. */
+  uFlash: { value: number };
+  /** Flame length scale. */
+  uLen: { value: number };
   uNozzle: { value: number };
   uSeed: { value: number };
 }
@@ -557,6 +578,9 @@ export function createAircraftFlameMaterial(shared: AircraftSharedUniforms, nozz
       uNozzleY: { value: nozzleAxisY },
       uExitX: { value: nozzleExitX + 0.05 },
       uAB: { value: 0 },
+      uStage: { value: 1 },
+      uFlash: { value: 0 },
+      uLen: { value: 1 },
       uNozzle: { value: 0 },
       uSeed: { value: 0 },
     },

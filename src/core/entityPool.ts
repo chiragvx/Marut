@@ -64,6 +64,7 @@ function freshEntityState(): EntityState {
     gearPos: 0,
     throttle: 0,
     afterburnerOn: false,
+    afterburnerLevel: 0,
     storesMassKg: 0,
     airbrakePos: 0,
     storesDragAreaM2: 0,
@@ -173,6 +174,7 @@ class KindStore {
     state.gearPos = 0;
     state.throttle = 0;
     state.afterburnerOn = false;
+    state.afterburnerLevel = 0;
     state.storesMassKg = 0;
     state.airbrakePos = 0;
     state.storesDragAreaM2 = 0;

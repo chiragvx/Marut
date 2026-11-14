@@ -103,6 +103,7 @@ function copyEntityState(src: EntityState, dst: EntityState): void {
   dst.gearPos = src.gearPos;
   dst.throttle = src.throttle;
   dst.afterburnerOn = src.afterburnerOn;
+  dst.afterburnerLevel = src.afterburnerLevel;
   dst.storesMassKg = src.storesMassKg;
   dst.airbrakePos = src.airbrakePos;
   dst.storesDragAreaM2 = src.storesDragAreaM2;

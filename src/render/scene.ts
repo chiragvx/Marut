@@ -184,6 +184,7 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
     gearPos: 0,
     throttle: 0,
     afterburner: false,
+    abStage: 1,
     airbrakeOut: false,
     onGround: false,
     team: 0,
@@ -737,6 +738,7 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
           st.gearPos = a.gearPos;
           st.throttle = a.throttle;
           st.afterburner = a.afterburner;
+          st.abStage = 1;
           st.airbrakeOut = false;
           st.onGround = false;
           st.team = a.team ?? 0;
@@ -775,7 +777,7 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
         cf.hud = curr.hud;
         cf.flags = curr.flags[playerSlot]!;
         cf.throttle = interpEntity.throttle;
-        cf.afterburner = curr.afterburnerOn[playerSlot] === 1;
+        cf.afterburner = curr.afterburnerOn[playerSlot]! > 0;
         cf.gearPos = interpEntity.gearPos;
         cf.elevonL = interpEntity.elevonL;
         cf.elevonR = interpEntity.elevonR;
@@ -864,7 +866,8 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
           st.rudder = interpEntity.rudder;
           st.gearPos = interpEntity.gearPos;
           st.throttle = interpEntity.throttle;
-          st.afterburner = curr.afterburnerOn[i] === 1;
+          st.afterburner = curr.afterburnerOn[i]! > 0;
+          st.abStage = curr.afterburnerOn[i]!;
           st.airbrakeOut = (flags & EntityFlag.AirbrakeOut) !== 0;
           st.onGround = (flags & EntityFlag.OnGround) !== 0;
           st.team = curr.team[i]!;

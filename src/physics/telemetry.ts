@@ -15,7 +15,7 @@ import type { Environment, ComputeTelemetry } from '../contracts/flight';
 import { Quat } from '../math';
 import type { YawPitchRoll } from '../math';
 import { computeAirspeedFrame, type AirspeedFrame } from './aeroForces';
-import { computeAppliedThrustN, sampleThrustN } from './engine';
+import { afterburnerStage, computeAppliedThrustN, sampleThrustN } from './engine';
 import { entityPoolIndex, getLastGLoad } from './fcs';
 
 /** ISA sea-level density, kg/m^3 (IAS ~= TAS*sqrt(rho/rho0) approximation). */
@@ -59,7 +59,8 @@ export const computeTelemetry: ComputeTelemetry = (
     state.throttle,
     state.afterburnerOn,
     damage.engineHealthPct,
-    fuelAvailable
+    fuelAvailable,
+    afterburnerStage(state.afterburnerLevel ?? 1)
   );
   const maxThrustN = sampleThrustN(def.engine, scratchFrame.mach, state.pos.y, state.afterburnerOn);
   out.thrustFrac = maxThrustN > 0 ? appliedThrustN / maxThrustN : 0;

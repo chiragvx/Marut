@@ -51,7 +51,8 @@ export interface SnapshotFrame {
   rudder: Float32Array;
   gearPos: Float32Array;
   throttle: Float32Array;
-  afterburnerOn: Uint8Array;
+  /** 0 = out; lit: the reheat stage (0, 1] (SnapshotEntity.AFTERBURNER_ON). */
+  afterburnerOn: Float32Array;
   flags: Float64Array;
   /** Packed stores (aircraft: slots 0-3, then 4-7) / store code (missiles). */
   stores: Float64Array;
@@ -86,7 +87,7 @@ export function createSnapshotFrame(): SnapshotFrame {
     rudder: new Float32Array(MAX_ENTITIES),
     gearPos: new Float32Array(MAX_ENTITIES),
     throttle: new Float32Array(MAX_ENTITIES),
-    afterburnerOn: new Uint8Array(MAX_ENTITIES),
+    afterburnerOn: new Float32Array(MAX_ENTITIES),
     flags: new Float64Array(MAX_ENTITIES),
     stores: new Float64Array(MAX_ENTITIES),
     storesB: new Float64Array(MAX_ENTITIES),

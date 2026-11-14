@@ -247,7 +247,13 @@ export interface EntityState {
   gearPos: number;
   /** Current throttle lever position actually applied by the flight model, 0..1 (may lag PilotInputs.throttle per engine spool dynamics). */
   throttle: number;
+  /** The afterburner is lit (physics/engine.ts: past its ignition delay). */
   afterburnerOn: boolean;
+  /**
+   * The afterburner's light-off sequence, 0..1 (physics/engine.ts): below AB_LIT_LEVEL the ignition
+   * delay, above it the reheat filling from minimum to full. Absent: as `afterburnerOn` (0 or 1).
+   */
+  afterburnerLevel?: number;
   /**
    * Mass of carried stores (missiles + gun ammunition), kg. Aircraft only. Written each tick by
    * src/core's combat adapter from the live weapon-station counts, so it drops as weapons are
@@ -962,7 +968,7 @@ export const SnapshotEntity = {
   RUDDER: 21,
   GEAR_POS: 22,
   THROTTLE: 23,
-  AFTERBURNER_ON: 24, // 0 or 1
+  AFTERBURNER_ON: 24, // 0 = out; lit: the reheat stage, (0, 1] (never 0 while lit)
   FLAGS: 25, // EntityFlags bitmask
   /** Aircraft: its carried stores, packed per station (packStoreSlot), slots 0-3; missile: its store code (STORE_IDS). */
   STORES: 26,

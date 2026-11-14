@@ -12,6 +12,36 @@ import { interpolate2D, lerp } from '../math';
 /** damage.fuelLeak extra burn rate, kg/s (~2 min to empty a 500 kg tank). */
 const FUEL_LEAK_RATE_KG_S = 4.1667;
 
+/*
+ * Afterburner sequencing (the F404-GE-IN20's reheat is fully modulated). With the lever in the
+ * detent and the core at military power, the nozzle opens and the spray bars light after
+ * AB_IGNITION_SEC (no extra thrust yet); the zones then fill to full reheat over AB_STAGE_SEC.
+ * Out of the detent it goes out over AB_OUT_SEC. `EntityState.afterburnerLevel` runs 0..1 through
+ * the whole sequence: below AB_LIT_LEVEL it is the ignition delay, above it the reheat stage.
+ */
+export const AB_IGNITION_SEC = 0.35;
+export const AB_STAGE_SEC = 1.5;
+export const AB_OUT_SEC = 0.35;
+/** The core must be at military power for the afterburner to light (the flight-model performance targets are calibrated to this detent). */
+export const AB_MIN_CORE_THROTTLE = 0.999;
+/** The level at which the flame lights. */
+export const AB_LIT_LEVEL = AB_IGNITION_SEC / (AB_IGNITION_SEC + AB_STAGE_SEC);
+/** Minimum reheat burns this share of the full afterburner's extra fuel for little extra thrust (reheat is least efficient at its lowest zone). */
+const AB_MIN_FUEL_SHARE = 0.2;
+
+/** The reheat stage, 0 (just lit / out) .. 1 (full), from the sequence level. */
+export function afterburnerStage(level: number): number {
+  return Math.min(1, Math.max(0, (level - AB_LIT_LEVEL) / (1 - AB_LIT_LEVEL)));
+}
+
+/**
+ * Whether the afterburner will light (and stay lit) here: high and slow the air is too thin for the
+ * flame (it blows out). Generous: ~13 km static, ~21 km at Mach 0.9, so it only bites near the ceiling.
+ */
+export function afterburnerLightable(mach: number, altitudeM: number): boolean {
+  return altitudeM < 13000 + 9000 * mach;
+}
+
 /** Raw max-thrust table value (no health/throttle scaling) at (mach, altitudeM). */
 export function sampleThrustN(engine: EngineTables, mach: number, altitudeM: number, afterburnerOn: boolean): number {
   return afterburnerOn ? interpolate2D(engine.afterburnerThrustN, mach, altitudeM) : interpolate2D(engine.militaryThrustN, mach, altitudeM);
@@ -30,12 +60,15 @@ export function computeAppliedThrustN(
   throttle: number,
   afterburnerOn: boolean,
   engineHealthPct: number,
-  fuelAvailable: boolean
+  fuelAvailable: boolean,
+  /** The reheat stage while lit (afterburnerStage), 0..1; absent = full. */
+  abStage = 1
 ): number {
   const engineOk = engineHealthPct > 0 && fuelAvailable;
   if (!engineOk) return 0;
-  if (afterburnerOn) return sampleThrustN(engine, mach, altitudeM, true) * engineHealthPct;
-  return throttle * sampleThrustN(engine, mach, altitudeM, false) * engineHealthPct;
+  const dry = throttle * sampleThrustN(engine, mach, altitudeM, false);
+  if (afterburnerOn) return (dry + (sampleThrustN(engine, mach, altitudeM, true) - dry) * abStage) * engineHealthPct;
+  return dry * engineHealthPct;
 }
 
 /**
@@ -57,25 +90,28 @@ export function stepEngine(
   const abCmd = inputs.afterburner && throttleCmd >= 0.999;
 
   out.throttle = throttleCmd + (out.throttle - throttleCmd) * Math.exp(-dtSub / def.engine.spoolTimeConstantSec);
-  out.afterburnerOn = abCmd && out.throttle >= 0.999;
 
   const tankFuelKg = out.dropTankFuelKg ?? 0;
   const fuelAvailable = out.fuelKg > 0 || tankFuelKg > 0;
   const engineOk = damage.engineHealthPct > 0 && fuelAvailable;
 
+  // The afterburner sequence: ignition delay, then the zones fill; out quickly (blown out high and slow).
+  const wantAb = abCmd && engineOk && out.throttle >= AB_MIN_CORE_THROTTLE && afterburnerLightable(mach, out.pos.y);
+  const level0 = out.afterburnerLevel ?? (out.afterburnerOn ? 1 : 0);
+  const level = wantAb ? Math.min(1, level0 + dtSub / (AB_IGNITION_SEC + AB_STAGE_SEC)) : Math.max(0, level0 - dtSub / AB_OUT_SEC);
+  out.afterburnerLevel = level;
+  out.afterburnerOn = engineOk && level >= AB_LIT_LEVEL && (wantAb || level0 >= AB_LIT_LEVEL);
+  const stage = afterburnerStage(level);
+
   let thrustN = 0;
-  if (engineOk) {
-    if (out.afterburnerOn) {
-      thrustN = sampleThrustN(def.engine, mach, out.pos.y, true) * damage.engineHealthPct;
-    } else {
-      thrustN = out.throttle * sampleThrustN(def.engine, mach, out.pos.y, false) * damage.engineHealthPct;
-    }
-  }
+  if (engineOk) thrustN = computeAppliedThrustN(def.engine, mach, out.pos.y, out.throttle, out.afterburnerOn, damage.engineHealthPct, true, stage);
 
   let fuelFlowKgS = 0;
   if (engineOk) {
     if (out.afterburnerOn) {
-      fuelFlowKgS = interpolate2D(def.engine.afterburnerFuelFlowKgS, mach, out.pos.y);
+      const dryFlow = lerp(def.engine.idleFuelFlowKgS, interpolate2D(def.engine.militaryFuelFlowKgS, mach, out.pos.y), out.throttle);
+      const abFlow = interpolate2D(def.engine.afterburnerFuelFlowKgS, mach, out.pos.y);
+      fuelFlowKgS = dryFlow + (abFlow - dryFlow) * (AB_MIN_FUEL_SHARE + (1 - AB_MIN_FUEL_SHARE) * stage);
     } else if (out.throttle > 0.02) {
       fuelFlowKgS = lerp(def.engine.idleFuelFlowKgS, interpolate2D(def.engine.militaryFuelFlowKgS, mach, out.pos.y), out.throttle);
     } else {

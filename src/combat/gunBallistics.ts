@@ -151,6 +151,7 @@ function copyEntityState(src: EntityState, dst: EntityState): void {
   dst.gearPos = src.gearPos;
   dst.throttle = src.throttle;
   dst.afterburnerOn = src.afterburnerOn;
+  dst.afterburnerLevel = src.afterburnerLevel;
   dst.flags = src.flags;
 }
 

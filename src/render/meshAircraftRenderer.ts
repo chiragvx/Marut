@@ -39,6 +39,8 @@ export interface MeshAircraftState {
   /** 0..1. */
   throttle: number;
   afterburner: boolean;
+  /** While lit, the reheat stage: just lit (min) .. 1 full (absent = full). */
+  abStage?: number;
   airbrakeOut: boolean;
   onGround: boolean;
   /** 0 = friendly, 1 = hostile. */
@@ -150,9 +152,15 @@ interface Instance {
   vapWing: number;
   vapTip: number;
   vapCone: number;
+  /** The flame's smoothed stage, and the light-off flash (1 at the pop, decaying). */
+  abVis: number;
+  abFlash: number;
+  abWasLit: boolean;
 }
 
 const NO_ID = -1;
+/** The light-off flash fades over this long, s. */
+const AB_FLASH_SEC = 0.22;
 
 export interface MeshAircraftRenderer {
   /** Once per frame before updateEntity: frame time, floating origin, camera (absolute world), clock. */
@@ -344,7 +352,7 @@ export function createMeshAircraftRenderer(root: THREE.Object3D, template: Aircr
     root.add(group);
     const landingNode = parts.find((p) => p.part.name === template.landingPart)?.node;
     const vapour = createVapourMeshes(airframe, vapourWingGeom, vapourConeGeom, shared, shockConeGeom);
-    return { root: group, parts, body, flameMat, flame, airframe, landingNode, assignedId: NO_ID, airbrake: 0, slat: 0, nozzle: 0, rolled: 0, rollSpeed: 0, steer: 0, oleo: {}, vapour, vapWing: 0, vapTip: 0, vapCone: 0 };
+    return { root: group, parts, body, flameMat, flame, airframe, landingNode, assignedId: NO_ID, airbrake: 0, slat: 0, nozzle: 0, rolled: 0, rollSpeed: 0, steer: 0, oleo: {}, vapour, vapWing: 0, vapTip: 0, vapCone: 0, abVis: 0, abFlash: 0, abWasLit: false };
   }
 
   const camWorld = { x: 0, y: 0, z: 0 };
@@ -482,11 +490,22 @@ export function createMeshAircraftRenderer(root: THREE.Object3D, template: Aircr
       const u = inst.body.uniforms;
       u.uTeam.value = s.team;
       u.uThrottle.value = s.throttle;
-      u.uAB.value = s.afterburner ? 1 : 0;
+      // The afterburner: lights with a pop (a short flash, the flame overshooting), then fills from a
+      // short, faint blue-violet cone at minimum reheat to the long orange flame at full.
+      const abStage = s.afterburner ? Math.min(1, Math.max(0, s.abStage ?? 1)) : 0;
+      if (s.afterburner && !inst.abWasLit && !fresh) inst.abFlash = 1;
+      inst.abWasLit = s.afterburner;
+      inst.abFlash = Math.max(0, inst.abFlash - dt / AB_FLASH_SEC);
+      inst.abVis = fresh ? abStage : approach(inst.abVis, abStage, 2.5, 4, dt);
+      u.uAB.value = s.afterburner ? 0.5 + 0.5 * inst.abVis : 0;
       u.uNozzle.value = inst.nozzle;
       inst.flame.visible = s.afterburner;
-      inst.flameMat.uniforms.uAB.value = s.afterburner ? 1 : 0;
-      inst.flameMat.uniforms.uNozzle.value = inst.nozzle;
+      const fu = inst.flameMat.uniforms;
+      fu.uAB.value = s.afterburner ? 0.45 + 0.55 * inst.abVis : 0;
+      fu.uStage.value = inst.abVis;
+      fu.uFlash.value = inst.abFlash;
+      fu.uLen.value = 0.4 + 0.6 * inst.abVis + 0.3 * inst.abFlash;
+      fu.uNozzle.value = inst.nozzle;
       if (s.stores > 0 || s.storesB > 0) {
         inst.root.updateMatrix();
         putStores(inst.root.matrix, s.stores, s.storesB);
