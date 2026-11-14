@@ -23,7 +23,11 @@ export function createMissionScript(mission: Mission): MissionScript | undefined
       return new BorderStrikeScript(layouts, { x: s.x, z: s.z });
     }
     case 'himalaya-airdrop':
-      return new SimikotAirdropScript(mission.weather?.windWorldMps ?? { x: 0, y: 0, z: 0 }, mission.dropApproach);
+      return new SimikotAirdropScript(
+        mission.weather?.windWorldMps ?? { x: 0, y: 0, z: 0 },
+        mission.dropApproach,
+        mission.groundGroups?.find((g) => g.hidden && g.team !== 0)?.pos
+      );
     case 'train-takeoff':
       return new TakeoffLesson();
     case 'train-landing':

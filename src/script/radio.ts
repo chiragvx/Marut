@@ -62,7 +62,6 @@ const SUBTITLE: Partial<Record<RadioClipId, string>> = {
   ad_too_fast: 'Too fast. 180 kt.',
   ad_come_around: 'Come around for another pass. Climb out with the valley to the west, turn back above 5,000 m, and rejoin the glidepath from the south-east.',
   ad_of_dz: 'of the DZ.',
-  ad_complete: 'Supplies are on the ground; the Nepal Army is recovering them. Well done. Simikot runway 28 is open if you want to land. Otherwise, head home.',
   tw_contact: 'Skylord 1, Simikot Tower. Welcome to Humla. The DZ is our runway. Follow the river up the valley, track 315, and ride the glidepath down. Drop height 150 m.',
   tw_final: 'Skylord 1, you are on final. Ramp open, flaps 1/2, 180 kt, and wait for the green light.',
   tw_join: 'Skylord 1, join the glidepath south-east of the field, track 315.',

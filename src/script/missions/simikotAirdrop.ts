@@ -14,13 +14,15 @@
  *
  *   1 Inbound      the glidepath from the south-east; jettison fuel if wanted (not needed)
  *   2 Run-in/drop  ramp open, ~150 m over the strip, 180 kt (flaps 1/2), release on green
- *   3 Climb-out    flares, full power, left with the valley
- *   4 (bonus)      land at Simikot, or leave the area
+ *   3 Climb-out    flares, full power, left with the valley, out of the MANPADS' reach
+ *   4 Complete     Netra's closing call, then the debrief
  *
  * A miss (centre of the stick 350 m or more from the T, or the loads wrecked by a release too low)
  * means another pass, as many as it takes (reserve bundles once the rigged load is gone). The
- * mission ends in success once an acceptable stick is down and the jet is clear (landed at Simikot,
- * 30 km away or 8 minutes later); the sim ends it in failure if the jet is lost.
+ * mission ends in success once all three objectives are met (missionComplete): an acceptable stick
+ * on the ground, the threat behind the jet (no missile warning for a few seconds and out of the
+ * teams' reach, or never fired on), and a safe climb-out (4,000 m or 8 km from the strip); the
+ * sim ends it in failure if the jet is lost.
  *
  * Why the run-in is not the runway's own axis: the straight runway 28 final crosses a 4,800 m ridge
  * 5-7 km east of the field (real Simikot has a curved approach up a ravine). The Karnali gorge from
@@ -58,6 +60,15 @@ export const ADVISED_FUEL_KG = 30000;
  */
 export const DROP_KT = 180;
 export const TOO_FAST_KT = 220;
+/** Where the hidden MANPADS teams are when the mission does not say (himalayaAirdrop.json 'manpads-ridge'). */
+export const THREAT_POS = { x: 68311, z: 71382 } as const;
+/** Out of the teams' reach: their missiles' range (5 km) and a margin. */
+export const THREAT_CLEAR_M = 6000;
+/** A safe climb-out: this high (MSL), or this far from the strip. */
+export const CLIMB_OUT_ALT_M = 4000;
+export const CLIMB_OUT_DIST_M = 8000;
+/** The missile warning must have been quiet this long, s. */
+const WARN_QUIET_SEC = 5;
 /** The run-in starts this far out on the approach. */
 const RUN_IN_M = 14000;
 
@@ -111,16 +122,18 @@ export class SimikotAirdropScript extends ScriptBase {
   private engineOutCalled = false;
   private succeeded = false;
   private completeAt = -1;
-  private landedAtSimikot = false;
+  private lastWarnAt = -Infinity;
+  private readonly threat: { x: number; z: number };
   private result: 'success' | undefined;
   private endAt = -1;
   private lastFrame: ScriptFrame | undefined;
   private readonly atmos: ScriptAtmosphere;
 
-  constructor(wind: { x: number; y: number; z: number } = { x: 0, y: 0, z: 0 }, approach: DropApproach = SIMIKOT_APPROACH) {
+  constructor(wind: { x: number; y: number; z: number } = { x: 0, y: 0, z: 0 }, approach: DropApproach = SIMIKOT_APPROACH, threat: { x: number; z: number } = THREAT_POS) {
     super('NETRA', 'SKYLORD 1');
     this.wind = { ...wind };
     this.approach = approach;
+    this.threat = { x: threat.x, z: threat.z };
     // A clear morning; the T and smoke on the strip.
     this.atmos = { timeOfDayH: 9.5, markers: dzMarkers() };
   }
@@ -142,6 +155,26 @@ export class SimikotAirdropScript extends ScriptBase {
     return this.phase;
   }
 
+  /** The three objectives (missionComplete ends the mission when all are met). */
+  objectives(): { drop: boolean; threatClear: boolean; climbedOut: boolean } {
+    const f = this.lastFrame;
+    if (!f) return { drop: this.succeeded, threatClear: false, climbedOut: false };
+    const p = f.player;
+    const quiet = (f.warningBits & WarningBit.MissileLaunch) === 0 && f.t - this.lastWarnAt >= WARN_QUIET_SEC;
+    const away = this.launches === 0 || Math.hypot(this.threat.x - p.x, this.threat.z - p.z) > THREAT_CLEAR_M;
+    return {
+      drop: this.succeeded,
+      // Only after a release: before it, the threat is still ahead.
+      threatClear: this.sticks.length > 0 && quiet && away,
+      climbedOut: f.altMslM > CLIMB_OUT_ALT_M || Math.hypot(DZ.x - p.x, DZ.z - p.z) > CLIMB_OUT_DIST_M,
+    };
+  }
+
+  /** When the mission was completed (the closing call), s; -1 before. */
+  completedAt(): number {
+    return this.completeAt;
+  }
+
   /** Missiles fired at the jet so far (the surprise is sprung on the first). */
   missileLaunches(): number {
     return this.launches;
@@ -155,9 +188,8 @@ export class SimikotAirdropScript extends ScriptBase {
       tiles: [
         { label: 'Drop', value: best ? `${GRADE_TEXT[best.grade!]} · ${Math.round(best.distM!)} m` : 'None' },
         { label: 'Passes', value: String(graded.length) },
-        ...(this.launches > 0 ? [{ label: 'Missiles evaded', value: `${Math.max(0, this.launches - this.hits)} of ${this.launches}` }] : []),
+        { label: 'Missiles evaded', value: this.launches > 0 ? `${Math.max(0, this.launches - this.hits)} of ${this.launches}` : 'None fired' },
         ...(wrecked > 0 ? [{ label: 'Bundles wrecked', value: String(wrecked) }] : []),
-        { label: 'Simikot', value: this.landedAtSimikot ? 'Landed' : '—' },
       ],
       lines: graded.map(
         (s, i) =>
@@ -203,6 +235,7 @@ export class SimikotAirdropScript extends ScriptBase {
       this.say(RadioPriority.Urgent, 'ad_sam');
       if (this.ready('flaresCall', 10)) this.own('p_skylord_flares', 'Flares!', RadioPriority.Urgent);
     }
+    if ((warn & WarningBit.MissileLaunch) !== 0) this.lastWarnAt = f.t;
     this.lastWarn = warn;
     if (f.enginesRunning !== undefined && f.enginesRunning < 4 && !this.engineOutCalled && this.done('brief')) {
       this.engineOutCalled = true;
@@ -241,25 +274,27 @@ export class SimikotAirdropScript extends ScriptBase {
     if (this.phase === 'runin') this.runIn(f, dDz);
 
     if (this.phase === 'egress') {
+      const o = this.objectives();
       const dOut = Math.hypot(CLIMB_OUT.x - p.x, CLIMB_OUT.z - p.z);
-      this.setObjective(3, STEPS, 'Climb out: full power, left with the valley', `${Math.round(f.altMslM)} m · valley ${(dOut / 1000).toFixed(1)} km`);
-      if (this.succeeded && (f.altMslM > 5000 || dDz > 12000)) {
-        this.phase = 'done';
-        this.completeAt = f.t;
-        this.say(RadioPriority.High, 'ad_netra', 'ad_complete');
-      }
+      const todo = [
+        !o.drop ? 'drop not graded yet' : '',
+        !o.threatClear ? (this.launches > 0 ? 'get clear of the missiles' : 'clear the area') : '',
+        !o.climbedOut ? 'climb to 4,000 m' : '',
+      ].filter(Boolean);
+      this.setObjective(3, STEPS, 'Climb out: full power, left with the valley', `${Math.round(f.altMslM)} m · valley ${(dOut / 1000).toFixed(1)} km${todo.length ? ' · ' + todo.join(' · ') : ''}`);
+      if (o.drop && o.threatClear && o.climbedOut) this.missionComplete();
     }
 
-    if (this.phase === 'done') {
-      this.setObjective(4, STEPS, 'Supplies delivered', `Land at Simikot for a bonus, or head home · Simikot ${(dDz / 1000).toFixed(1)} km`);
-      if (this.result === undefined) {
-        const speed = Math.hypot(p.vx, p.vz);
-        if (p.onGround && dDz < 1500 && speed < 3) {
-          this.landedAtSimikot = true;
-          this.finish('ad_landed');
-        } else if (dDz > 30000 || f.t - this.completeAt > 480) this.finish('ad_home');
-      }
-    }
+    if (this.phase === 'done') this.setObjective(4, STEPS, 'Supplies delivered', 'Mission complete');
+  }
+
+  /** All three objectives met: Netra's closing call, and the debrief once it has been said. */
+  private missionComplete(): void {
+    this.phase = 'done';
+    this.completeAt = this.t;
+    this.result = 'success';
+    this.endAt = this.t + this.outroSec;
+    this.say(RadioPriority.Urgent, 'ad_netra', 'ad_complete', 'ad_home');
   }
 
   /** The tower's glidepath calls: high, low, off the track (a call every 15 s at most, not near the strip). */
@@ -277,12 +312,6 @@ export class SimikotAirdropScript extends ScriptBase {
     else if (b.crossM > Math.max(250, b.alongM * 0.03)) this.tower(RadioPriority.Normal, 'tw_right');
     else if (b.crossM < -Math.max(250, b.alongM * 0.03)) this.tower(RadioPriority.Normal, 'tw_left');
     else this.disarm('gp');
-  }
-
-  private finish(clip: 'ad_landed' | 'ad_home'): void {
-    this.result = 'success';
-    this.endAt = this.t + this.outroSec;
-    this.say(RadioPriority.Urgent, clip);
   }
 
   private startRunIn(): void {

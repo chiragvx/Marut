@@ -160,7 +160,7 @@ const THREAT_WORDS = /missile|manpads|sam\b|threat|shoulder|launch/i;
  * release on the CARP; flares on each missile launch; then full power and a climbing left turn with
  * the valley (west through the notch, then up the Karnali). Feeds the script frames and events.
  */
-function flyMission(opts: { flares: boolean; afterSec: number }) {
+function flyMission(opts: { flares: boolean; afterSec: number; untilEnd?: boolean }) {
   const m = resolveBuiltinMission(ID);
   const deps = buildWorldDependencies(m);
   const world = createWorld(deps);
@@ -187,7 +187,8 @@ function flyMission(opts: { flares: boolean; afterSec: number }) {
   let maxNeedles = 0;
   let firstLaunchCallAt = -1;
   let alive = true;
-  const steps = Math.round(560 / SIM_DT_SEC);
+  let successAt = -1;
+  const steps = Math.round(800 / SIM_DT_SEC);
   for (let i = 0; i < steps; i++) {
     const t = i * SIM_DT_SEC;
     const s = world.getEntityState(id)!;
@@ -280,9 +281,13 @@ function flyMission(opts: { flares: boolean; afterSec: number }) {
         if (firstLaunchCallAt < 0 && tx.clips.includes('tw_launch')) firstLaunchCallAt = t;
       }
     }
+    if (successAt < 0 && script.outcome() === 'success') {
+      successAt = t;
+      if (opts.untilEnd) break;
+    }
     if (released && t - releasedAt > opts.afterSec) break;
   }
-  return { m, script, said, landed, release, minAglApproach, minAglClimb, firstLaunch, firstLaunchCallAt, launches, launchesShortOfStrip, hits, firstHit, alive, maxNeedles, final: world.getEntityState(id)! };
+  return { m, script, said, landed, release, releasedAt, successAt, minAglApproach, minAglClimb, firstLaunch, firstLaunchCallAt, launches, launchesShortOfStrip, hits, firstHit, alive, maxNeedles, final: world.getEntityState(id)! };
 }
 
 describe('Simikot Lifeline (C-17 airdrop)', () => {
@@ -396,7 +401,7 @@ describe('Simikot Lifeline (C-17 airdrop)', () => {
   });
 
   test('the whole mission on autopilot: the glidepath and climb-out clear the ground, the surprise is sprung on the run-in, flares save the jet, the stick lands on the strip', () => {
-    const r = flyMission({ flares: true, afterSec: 70 });
+    const r = flyMission({ flares: true, afterSec: 240, untilEnd: true });
     expect(r.alive).toBe(true);
     // Down the glidepath to the drop, never close to the ground; the climb-out through the notch too.
     expect(r.release).toBeDefined();
@@ -436,10 +441,22 @@ describe('Simikot Lifeline (C-17 airdrop)', () => {
     for (const tx of before) expect(tx.text).not.toMatch(THREAT_WORDS);
     expect(r.hits).toBeLessThan(3);
     expect(r.script.missileLaunches()).toBe(r.launches);
-    // The script: graded, thanked, climbing out or done.
+    // The script: graded, thanked, and the mission ends once clear of the missiles and climbed
+    // out: Netra's closing call, then success within a few minutes of the drop.
     expect(r.said.some((tx) => tx.clips.includes('tw_thanks'))).toBe(true);
-    expect(['egress', 'done']).toContain(r.script.currentPhase());
-  }, 60_000);
+    expect(r.script.currentPhase()).toBe('done');
+    expect(r.successAt).toBeGreaterThan(r.releasedAt);
+    expect(r.successAt - r.releasedAt).toBeLessThan(180);
+    const closing = r.said.find((tx) => tx.clips.includes('ad_complete'))!;
+    expect(closing.clips).toContain('ad_home');
+    expect(r.script.completedAt()).toBeLessThan(r.successAt);
+    // The debrief: the grade, the passes and the missiles evaded.
+    const tiles = Object.fromEntries(r.script.results().tiles.map((x) => [x.label, x.value]));
+    expect(tiles['Drop']).toMatch(/^(Excellent|Good) · \d+ m$/);
+    expect(tiles['Passes']).toBe('1');
+    expect(tiles['Missiles evaded']).toBe(`${r.launches - r.hits} of ${r.launches}`);
+    expect(tiles['Simikot']).toBeUndefined();
+  }, 90_000);
 
   test('the script runs: brief, glidepath, run-in, a good stick, climb-out, the end', () => {
     const s = new SimikotAirdropScript({ x: 2, y: 0, z: -1.5 });
@@ -465,14 +482,40 @@ describe('Simikot Lifeline (C-17 airdrop)', () => {
     const graded = s.drain();
     expect(graded.some((tx) => tx.clips.includes('ad_drop_good'))).toBe(true);
     expect(graded.some((tx) => tx.clips.includes('tw_thanks'))).toBe(true);
-    // Climbed out: done; then clear of the area: the end.
-    s.update(frame({ t: 460, player: { x: DZ.x - 6000, y: 5200, z: DZ.z - 2000 } }));
+    // A missile goes up on the climb-out: not complete while the warning is on, nor inside the teams' reach.
+    s.event({ type: 'missileLaunch', shooterId: 99, missileId: 100, weapon: 'ir' } as unknown as SimEvent, 1);
+    s.update(frame({ t: 250, player: { x: DZ.x - 2000, y: 3500, z: DZ.z - 500 }, warningBits: WarningBit.MissileLaunch }));
+    expect(s.objectives()).toEqual({ drop: true, threatClear: false, climbedOut: false });
+    expect(s.currentPhase()).toBe('egress');
+    // Still near the teams, high: climbed out but the threat is not behind yet.
+    s.update(frame({ t: 270, player: { x: DZ.x - 3000, y: 4200, z: DZ.z - 1500 } }));
+    expect(s.objectives()).toEqual({ drop: true, threatClear: false, climbedOut: true });
+    // Out of their reach, quiet: complete. The closing call, then success after the outro.
+    s.update(frame({ t: 300, player: { x: DZ.x - 9000, y: 4300, z: DZ.z - 2500 } }));
     expect(s.currentPhase()).toBe('done');
+    const closing = s.drain();
+    expect(closing.some((tx) => tx.clips.includes('ad_complete') && tx.clips.includes('ad_home'))).toBe(true);
     expect(s.outcome()).toBeUndefined();
-    s.update(frame({ t: 600, player: { x: DZ.x - 31000, y: 6000, z: DZ.z } }));
-    s.update(frame({ t: 620, player: { x: DZ.x - 31500, y: 6000, z: DZ.z } }));
+    s.update(frame({ t: 300 + s.outroSec + 0.1, player: { x: DZ.x - 9500, y: 4400, z: DZ.z - 2500 } }));
     expect(s.outcome()).toBe('success');
-    expect(s.results().tiles[0]!.value).toMatch(/^Good/);
+    const tiles = s.results().tiles;
+    expect(tiles[0]!.value).toMatch(/^Good/);
+    expect(tiles.find((x) => x.label === 'Missiles evaded')?.value).toBe('1 of 1');
+  });
+
+  test('never fired on: complete as soon as the stick is graded and the jet has climbed out', () => {
+    const s = new SimikotAirdropScript({ x: 0, y: 0, z: 0 });
+    s.update(frame({ t: 200, player: onPath(6000) }));
+    s.event({ type: 'airdropRelease', entityId: 1, stickId: 1, count: 4, pos: { x: 0, y: 0, z: 0 }, iasMps: DROP_KT * KT, aglM: 150, reserve: false }, 1);
+    for (let i = 0; i < 4; i++) s.event({ type: 'airdropLanded', entityId: 1, stickId: 1, index: i, count: 4, pos: { x: DZ.x + 20, y: DZ_GROUND_M, z: DZ.z + i * 10 }, impactMps: 9, destroyed: false }, 1);
+    expect(s.drops()[0]!.grade).toBe('excellent');
+    // Low near the strip: not yet.
+    s.update(frame({ t: 230, player: { x: DZ.x - 2000, y: 3300, z: DZ.z } }));
+    expect(s.currentPhase()).toBe('egress');
+    // 8 km out (still low in the valley): complete.
+    s.update(frame({ t: 300, player: { x: DZ.x - 8100, y: 3600, z: DZ.z } }));
+    expect(s.currentPhase()).toBe('done');
+    expect(s.results().tiles.find((x) => x.label === 'Missiles evaded')?.value).toBe('None fired');
   });
 
   test('grades: bands and wrecked loads', () => {

@@ -252,7 +252,7 @@ export const MISSIONS: readonly MissionEntry[] = [
     title: 'Simikot Lifeline',
     baseId: 'simikot',
     bandits: 0,
-    objective: 'Airdrop supplies to the Nepal Army on the runway at Simikot.',
+    objective: 'Airdrop supplies to the Nepal Army on the runway at Simikot, then climb out of the valley.',
     situation:
       'Chinese forces have attacked Nepalese border posts and are advancing down the Karnali from Hilsa. Nepal has asked India for help. You start 30 km south-east of Simikot in the C-17, lined up on the Karnali valley: fly the glidepath up the valley (the HUD needles; Simikot Tower talks you down) and drop sixteen 1-tonne bundles on the runway, about 150 m up at 180 knots with flaps 1/2. Fuel jettison is there if you want more climb in the thin air; you do not need it.',
     weather: 'clear',
