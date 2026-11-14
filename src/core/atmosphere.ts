@@ -36,8 +36,12 @@ export function isaAtmosphere(altMslM: number): IsaAtmosphereResult {
   return { airDensityKgM3: rho, soundSpeedMps: Math.sqrt(GAMMA * R_SPECIFIC * T) };
 }
 
-/** Allocation-free variant: writes into `out` and returns it, for the sim worker's hot path (World.stepOnce, once per aircraft per tick). */
-export function isaAtmosphereInto(altMslM: number, out: IsaAtmosphereResult): IsaAtmosphereResult {
+/**
+ * Allocation-free variant: writes into `out` and returns it, for the sim worker's hot path (World.stepOnce, once per aircraft per tick).
+ * `isaDeviationK` (a hot or cold day, WeatherConfig.isaDeviationK) offsets the temperature at the
+ * same pressure: density falls as 1/T and the speed of sound rises as sqrt(T). 0 = standard day.
+ */
+export function isaAtmosphereInto(altMslM: number, out: IsaAtmosphereResult, isaDeviationK = 0): IsaAtmosphereResult {
   const h = Math.max(-1000, Math.min(20000, altMslM));
   let T: number;
   let P: number;
@@ -48,6 +52,7 @@ export function isaAtmosphereInto(altMslM: number, out: IsaAtmosphereResult): Is
     T = T11;
     P = P11 * Math.exp((-G0 * (h - 11000)) / (R_SPECIFIC * T11));
   }
+  if (isaDeviationK !== 0) T = Math.max(150, T + isaDeviationK);
   out.airDensityKgM3 = P / (R_SPECIFIC * T);
   out.soundSpeedMps = Math.sqrt(GAMMA * R_SPECIFIC * T);
   return out;

@@ -177,6 +177,18 @@ export interface PerformanceTarget {
    * (absent: 1.1 clean / 1.6 landing, the Tejas delta's). The scanned CL table caps it.
    */
   assumedClMax?: number;
+  // --- Optional machine-read configuration (transport aircraft). Absent = the fighters' recipe. ---
+  /** Flap lever detent (aircraft with AircraftDefinition.highLift): stall, take-off and landing configurations. The stall speed then comes from the configured, power-off CL curve. */
+  flapDetent?: number;
+  /** Climb test: indicated airspeed held, m/s (default 180 m/s). */
+  climbIasMps?: number;
+  /** Take-off: rotation indicated airspeed, m/s (default 72 m/s), and the stick held from it (default 0.7). */
+  rotateIasMps?: number;
+  rotateStick?: number;
+  /** Landing roll: reverse thrust held from touchdown. */
+  reverseThrust?: boolean;
+  /** Landing roll: touchdown speed as a multiple of the configured stall speed (default 1.15). */
+  touchdownSpeedFactor?: number;
 }
 
 export interface PerformanceCheckResult {

@@ -92,6 +92,7 @@ import { createEntityPoolInternal, unpackEntityId } from './entityPool';
 import type { AirportLayout } from '../contracts/airport';
 import type { WorldEntityPool } from './entityPool';
 import { resetFcsTrimState } from '../physics';
+import { createEngineStates, n1ForLever } from '../physics/engines';
 import type { WorldCombatTickContext } from './combatContext';
 import { isaAtmosphereInto } from './atmosphere';
 import type { IsaAtmosphereResult } from './atmosphere';
@@ -465,6 +466,7 @@ class WorldImpl implements World {
         state.flags |= EntityFlag.IsPlayer;
         // The fuel the player chose to take (the loadout screen); drop tanks still start full.
         if (ps.fuelFrac !== undefined && Number.isFinite(ps.fuelFrac)) state.fuelKg *= Math.min(1, Math.max(0.05, ps.fuelFrac));
+        this.applyTransportStart(state, ps.aircraftId ?? PLAYER_DEFAULT_AIRCRAFT_ID, ps.cargoKg, ps.failedEngines, playerStartOnGround);
       }
       this.playerEntityIdInternal = playerId;
     }
@@ -809,6 +811,37 @@ class WorldImpl implements World {
     return id;
   }
 
+  /**
+   * Transport start state (AircraftDefinition.engines/highLift/massModel aircraft only; nothing for
+   * the fighters): flaps up, the cargo the mission loads (held to massModel.maxCargoKg) and any
+   * engines the mission starts failed. Engines start at idle on the ground and at the lever's N1
+   * in the air (the flight model creates them that way when absent).
+   */
+  private applyTransportStart(state: EntityState, defId: string, cargoKg: number | undefined, failedEngines: readonly number[] | undefined, onGround: boolean): void {
+    const def = getAircraftDefinition(defId);
+    if (!def) return;
+    if (def.highLift) {
+      state.flapDetent = 0;
+      state.flapPos = 0;
+      state.slatPos = 0;
+      state.spoilerPos = 0;
+    }
+    if (def.massModel && cargoKg !== undefined && Number.isFinite(cargoKg) && cargoKg > 0) {
+      state.cargoMassKg = Math.min(cargoKg, def.massModel.maxCargoKg);
+      state.cargoCgBodyX = def.massModel.cargoCgBodyX;
+    }
+    if (def.engines) {
+      state.engines = createEngineStates(def, onGround ? undefined : n1ForLever(def, state.throttle));
+      for (const i of failedEngines ?? []) {
+        const e = state.engines[i];
+        if (e) {
+          e.failed = true;
+          e.n1 = 0;
+        }
+      }
+    }
+  }
+
   private buildPilotContext(id: EntityId, rec: AircraftRecord): PilotContext {
     const state = this.pool.get(id) as EntityState;
     const damage = this.pool.getDamage(id) as DamageState;
@@ -919,6 +952,10 @@ class WorldImpl implements World {
     target.podTrack = inputs.podTrack ?? false;
     target.laser = inputs.laser ?? false;
     target.throttleActive = inputs.throttleActive ?? false;
+    // Transport controls (read only by aircraft with flaps / reversers / a ramp).
+    target.flapLever = inputs.flapLever ?? 0;
+    target.reverseThrust = inputs.reverseThrust ?? false;
+    target.rampOpen = inputs.rampOpen ?? false;
   }
 
   commandAutopilot(action: AutopilotAction): void {
@@ -987,7 +1024,9 @@ class WorldImpl implements World {
       // Step 3: flight model.
       const damage = this.pool.getDamage(state.id);
       if (!damage) continue;
-      isaAtmosphereInto(state.pos.y, rec.atmosphereScratch);
+      const isaDevK = this.mission?.weather.isaDeviationK ?? 0;
+      isaAtmosphereInto(state.pos.y, rec.atmosphereScratch, isaDevK);
+      if (isaDevK !== 0) rec.env.isaDeviationK = isaDevK;
       rec.env.airDensityKgM3 = rec.atmosphereScratch.airDensityKgM3;
       rec.env.soundSpeedMps = rec.atmosphereScratch.soundSpeedMps;
       rec.env.windWorldMps.x = this.windWorldMpsScratch.x;

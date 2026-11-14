@@ -29,7 +29,8 @@ export const INPUT_MAP_STORAGE_KEY = 'tejas.inputMap.v1';
 // 9 -> 10: flares (F) and chaff (C). From 10 on, new actions are added by migrateInputMapData's
 // generic step (default key if the player isn't already using it), so bumps need no bespoke code.
 // 10 -> 11: targeting pod (Y view, U zoom, I track, K laser, N polarity).
-export const INPUT_MAP_VERSION = 11;
+// 11 -> 12: transport controls (, flaps up, . flaps down, / reverse thrust held, ; cargo ramp).
+export const INPUT_MAP_VERSION = 12;
 
 /**
  * The literal default binding/tuning data, matching 09-input.md section 5.1 (throttle keys
@@ -70,6 +71,12 @@ export const DEFAULT_INPUT_MAP_DATA: InputMapData = {
       podZoom: 'KeyU',
       podTrack: 'KeyI',
       laser: 'KeyK',
+      // Transport (C-17): flap lever one detent per press, thrust reversers while held (on the
+      // ground; idle reverse only in flight), cargo ramp and door open / close.
+      flapsUp: 'Comma',
+      flapsDown: 'Period',
+      thrustReverse: 'Slash',
+      rampToggle: 'Semicolon',
     },
     meta: {
       cameraCycle: 'KeyV',
@@ -119,6 +126,10 @@ export const DEFAULT_INPUT_MAP_DATA: InputMapData = {
       podZoom: null,
       podTrack: null,
       laser: null,
+      flapsUp: null,
+      flapsDown: null,
+      thrustReverse: null,
+      rampToggle: null,
     },
     meta: {
       cameraCycle: { buttonIndex: 11 },

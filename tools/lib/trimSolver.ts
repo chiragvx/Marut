@@ -42,6 +42,8 @@ import { SIM_DT_SEC } from '../../src/contracts/core';
 import { resetFcsTrimState } from '../../src/physics';
 import { entityPoolIndex, getLastGLoad, neutralGReference } from '../../src/physics/fcs';
 import { emptyMassKg as TEJAS_EMPTY_MASS_KG } from '../../src/aircraft/tejasGeometry';
+import type { AircraftDefinition } from '../../src/contracts/aircraft';
+import { configuredCoefficients, type AeroConfig, type ConfiguredCoefficients } from '../../src/physics/highLift';
 
 /**
  * Fuel load that makes the (clean, no-stores) Tejas weigh `massKg`. src/physics's mass is now
@@ -49,8 +51,14 @@ import { emptyMassKg as TEJAS_EMPTY_MASS_KG } from '../../src/aircraft/tejasGeom
  * each performance condition's own massKg is honoured by fuelling to it. May exceed maxFuelKg for
  * the heavier (e.g. 9500 kg, i.e. stores-equivalent) conditions -- the solver only needs the mass.
  */
-function fuelKgForMass(massKg: number): number {
-  return Math.max(0, massKg - TEJAS_EMPTY_MASS_KG);
+function fuelKgForMass(massKg: number, emptyMassKg: number = TEJAS_EMPTY_MASS_KG): number {
+  return Math.max(0, massKg - emptyMassKg);
+}
+
+/** The aircraft's own empty mass when its definition carries one (every real AircraftDefinition does), else the Tejas's. */
+function emptyMassOf(def: unknown): number {
+  const m = (def as { emptyMassKg?: number } | null)?.emptyMassKg;
+  return typeof m === 'number' ? m : TEJAS_EMPTY_MASS_KG;
 }
 
 // -----------------------------------------------------------------------------
@@ -96,7 +104,7 @@ export function isaAt(altitudeM: number): IsaResult {
 export const RHO0_KG_M3 = 1.225;
 
 /** Builds an EntityState per 12-verification.md section 4.2.1's exact recipe. `fuelKg` is not specified by that recipe; it is set so the aircraft weighs `condition.massKg` (see fuelKgForMass). */
-export function makeTrimSeedState(condition: TrimCondition): EntityState {
+export function makeTrimSeedState(condition: TrimCondition, emptyMassKg: number = TEJAS_EMPTY_MASS_KG): EntityState {
   const rot: QuatLike = { x: 0, y: 0, z: 0, w: 1 };
   Quat.fromYawPitchRoll(0, 0, condition.bankRad, rot);
   return {
@@ -109,7 +117,7 @@ export function makeTrimSeedState(condition: TrimCondition): EntityState {
     omega: { x: 0, y: 0, z: 0 },
     alive: true,
     hp: 100,
-    fuelKg: fuelKgForMass(condition.massKg),
+    fuelKg: fuelKgForMass(condition.massKg, emptyMassKg),
     elevonL: 0,
     elevonR: 0,
     rudder: 0,
@@ -180,6 +188,11 @@ function cloneEntityState(s: EntityState): EntityState {
     throttle: s.throttle,
     afterburnerOn: s.afterburnerOn,
     flags: s.flags,
+    // Transport state, only when present (the fighters' clones are unchanged).
+    ...(s.engines ? { engines: s.engines.map((e) => ({ ...e })) } : {}),
+    ...(s.flapPos !== undefined ? { flapDetent: s.flapDetent ?? 0, flapPos: s.flapPos, slatPos: s.slatPos ?? 0 } : {}),
+    ...(s.spoilerPos !== undefined ? { spoilerPos: s.spoilerPos } : {}),
+    ...(s.cargoMassKg !== undefined ? { cargoMassKg: s.cargoMassKg } : {}),
   };
 }
 
@@ -1098,6 +1111,13 @@ const CLIMB_TEST_DURATION_SEC = 20;
 const CLIMB_TEST_DISCARD_SEC = 15;
 /** rad of pitch-stick per m/s of IAS error, per 12-verification.md section 5.1's climb-rate P-controller. */
 const CLIMB_TEST_KP = 0.02;
+/**
+ * Transport climb (a target with climbIasMps): a slow-responding heavy aircraft is still trading
+ * speed for height 15 s in, so the climb is flown longer and measured as the rate of change of
+ * energy height h + V^2/2g (the steady climb rate at that speed: specific excess power).
+ */
+const TRANSPORT_CLIMB_DURATION_SEC = 60;
+const TRANSPORT_CLIMB_DISCARD_SEC = 30;
 const STALL_ALPHA_SCAN_STEPS = 40;
 const STALL_ALPHA_SCAN_START_RAD = (-5 * Math.PI) / 180;
 /** A representative low/subsonic Mach at which to slice the CL table, matching tests/aircraft/tejasAeroTables.test.ts's MACH_REF. */
@@ -1169,7 +1189,7 @@ export function trimConverges<TDef extends GCommandAircraftDefLike>(
   massKg: number
 ): TrimResult {
   const condition: TrimCondition = { altitudeM, speedMps, bankRad, massKg };
-  const seed = makeTrimSeedState(condition);
+  const seed = makeTrimSeedState(condition, emptyMassOf(def));
   const direct = findGCommandTrim(step, def, condition, seed);
   if (direct.status === TrimStatus.Converged) return direct;
 
@@ -1240,7 +1260,7 @@ function fullPowerResidual<TDef extends GCommandAircraftDefLike>(
   massKg: number
 ): { rForward: number; rVertical: number; alphaRad: number } {
   const condition: TrimCondition = { altitudeM, speedMps, bankRad, massKg };
-  const seed = makeTrimSeedState(condition);
+  const seed = makeTrimSeedState(condition, emptyMassOf(def));
   resetFcsTrimState(entityPoolIndex(seed.id));
   const gCmdTarget = 1 / Math.cos(bankRad);
   const pitchStick = pitchStickForGCommand(gCmdTarget, def.fcsLimits.maxGLoadPos, def.fcsLimits.maxGLoadNeg, neutralGForBank(bankRad));
@@ -1363,7 +1383,7 @@ function findMaxSustainedTurnRateDegSec<TDef extends GCommandAircraftDefLike>(
 ): { degSec: number; trim?: TrimResult } {
   const speedMps = TURN_RATE_TEST_MACH * isaAt(altitudeM).soundSpeedMps;
   const initialBankRad = Math.acos(1 / TURN_FLY_INITIAL_G);
-  let state = makeTrimSeedState({ altitudeM, speedMps, bankRad: initialBankRad, massKg });
+  let state = makeTrimSeedState({ altitudeM, speedMps, bankRad: initialBankRad, massKg }, emptyMassOf(def));
   resetFcsTrimState(entityPoolIndex(state.id));
   let scratch = cloneEntityState(state);
   const damage = makeFullHealthDamageState();
@@ -1399,9 +1419,11 @@ function findMaxSustainedTurnRateDegSec<TDef extends GCommandAircraftDefLike>(
   return { degSec: (turnRateRadSec * 180) / Math.PI };
 }
 
-function computeClimbRateMps<TDef>(step: StepAircraftLike<TDef>, def: TDef, altitudeM: number, massKg: number): number {
-  const condition: TrimCondition = { altitudeM, speedMps: CLIMB_TEST_IAS_MPS, bankRad: 0, massKg };
-  let state = makeTrimSeedState(condition);
+function computeClimbRateMps<TDef>(step: StepAircraftLike<TDef>, def: TDef, altitudeM: number, massKg: number, climbIasMpsOpt?: number): number {
+  const transport = climbIasMpsOpt !== undefined;
+  const climbIasMps = climbIasMpsOpt ?? CLIMB_TEST_IAS_MPS;
+  const condition: TrimCondition = { altitudeM, speedMps: climbIasMps, bankRad: 0, massKg };
+  let state = makeTrimSeedState(condition, emptyMassOf(def));
   // See findTrim's own comment: this seed also uses id 0, and this function
   // runs its own fresh raw step loop (not through findTrim), so it must
   // independently clear any leftover FCS trim-integral/gLoad state from
@@ -1409,8 +1431,10 @@ function computeClimbRateMps<TDef>(step: StepAircraftLike<TDef>, def: TDef, alti
   resetFcsTrimState(entityPoolIndex(state.id));
   let out = cloneEntityState(state);
   const damage = makeFullHealthDamageState();
-  const totalSteps = Math.round(CLIMB_TEST_DURATION_SEC / SIM_DT_SEC);
-  const discardSteps = Math.round(CLIMB_TEST_DISCARD_SEC / SIM_DT_SEC);
+  const totalSteps = Math.round((transport ? TRANSPORT_CLIMB_DURATION_SEC : CLIMB_TEST_DURATION_SEC) / SIM_DT_SEC);
+  const discardSteps = Math.round((transport ? TRANSPORT_CLIMB_DISCARD_SEC : CLIMB_TEST_DISCARD_SEC) / SIM_DT_SEC);
+  const energyHeightM = (s: EntityState): number => s.pos.y + (vecLength(s.vel) * vecLength(s.vel)) / (2 * GRAVITY_MPS2);
+  let energyStartM = 0;
   let sumVy = 0;
   let count = 0;
   for (let i = 0; i < totalSteps; i++) {
@@ -1429,7 +1453,7 @@ function computeClimbRateMps<TDef>(step: StepAircraftLike<TDef>, def: TDef, alti
     // 20s window) rather than a bounded climb, which is what actually made
     // this target measure a large NEGATIVE vspeed instead of the small
     // transient dip a correctly-signed P-loop settles out of.
-    const error = ias - CLIMB_TEST_IAS_MPS;
+    const error = ias - climbIasMps;
     const pitchStick = clamp(CLIMB_TEST_KP * error, -1, 1);
     const inputs = makeProbeInputs(pitchStick, 1);
     const env = buildTrimEnvironment(state.pos.y);
@@ -1437,15 +1461,34 @@ function computeClimbRateMps<TDef>(step: StepAircraftLike<TDef>, def: TDef, alti
     const tmp = state;
     state = out;
     out = tmp;
+    if (i === discardSteps - 1) energyStartM = energyHeightM(state);
     if (i >= discardSteps) {
       sumVy += state.vel.y;
       count++;
     }
   }
+  if (transport) return count > 0 ? (energyHeightM(state) - energyStartM) / (count * SIM_DT_SEC) : 0;
   return count > 0 ? sumVy / count : 0;
 }
 
-function computeStallSpeedMps<TDef extends AircraftDefLike>(def: TDef, massKg: number, assumedClMax: number): number {
+/**
+ * Power-off maximum lift coefficient of an aircraft with AircraftDefinition.highLift in a flap
+ * detent, from the same configured CL curve the flight model flies (src/physics/highLift.ts),
+ * scanned over alpha at STALL_MACH_REF.
+ */
+export function configuredClMax(def: AircraftDefinition, flapDetent: number, mach: number = STALL_MACH_REF): number {
+  const cfg: AeroConfig = { flapPos: flapDetent, spoilerPos: 0, cmuLeft: 0, cmuRight: 0, rampPos: 0 };
+  const out: ConfiguredCoefficients = { CL: 0, CD: 0, Cm: 0, Cl: 0, groundEffectScale: 1 };
+  let best = -Infinity;
+  for (let a = -5; a <= 40; a += 0.1) best = Math.max(best, configuredCoefficients(def, (a * Math.PI) / 180, mach, cfg, out).CL);
+  return best;
+}
+
+function computeStallSpeedMps<TDef extends AircraftDefLike>(def: TDef, massKg: number, assumedClMax: number, flapDetent?: number): number {
+  const full = def as unknown as AircraftDefinition;
+  if (flapDetent !== undefined && full.highLift !== undefined) {
+    return Math.sqrt((2 * massKg * GRAVITY_MPS2) / (RHO0_KG_M3 * def.wingAreaM2 * configuredClMax(full, flapDetent)));
+  }
   let scannedClMax = -Infinity;
   const stallAlphaRad = def.aero.stallAlphaRad;
   for (let i = 0; i <= STALL_ALPHA_SCAN_STEPS; i++) {
@@ -1461,12 +1504,23 @@ function computeStallSpeedMps<TDef extends AircraftDefLike>(def: TDef, massKg: n
 const TAKEOFF_ROTATE_SPEED_MPS = 72;
 const TAKEOFF_ROTATE_STICK = 0.7;
 
+/** Optional transport configuration for computeGroundRollM (PerformanceTarget's optional fields). */
+interface GroundRollConfig {
+  /** Field elevation, m (pressure altitude; ISA). */
+  fieldElevationM: number;
+  flapDetent?: number;
+  rotateIasMps?: number;
+  rotateStick?: number;
+  reverseThrust?: boolean;
+}
+
 function computeGroundRollM<TDef extends AircraftDefLike>(
   step: StepAircraftLike<TDef>,
   def: TDef,
   mode: 'takeoff' | 'landing',
   startSpeedMps: number,
-  massKg: number
+  massKg: number,
+  config?: GroundRollConfig
 ): number {
   const damage = makeFullHealthDamageState();
   // Spawn resting on the gear, not with the CG exactly at ground level:
@@ -1485,7 +1539,8 @@ function computeGroundRollM<TDef extends AircraftDefLike>(
   // instead, letting the suspension settle to its natural resting
   // compression under gravity like a real ground spawn would.
   const lowestGearYBodyM = Math.min(...def.gear.map((g) => g.posBodyM.y));
-  const startPosY = -lowestGearYBodyM;
+  const fieldM = config?.fieldElevationM ?? 0;
+  const startPosY = fieldM - lowestGearYBodyM;
   let state: EntityState = {
     id: 0,
     kind: 'aircraft',
@@ -1496,7 +1551,7 @@ function computeGroundRollM<TDef extends AircraftDefLike>(
     omega: { x: 0, y: 0, z: 0 },
     alive: true,
     hp: 100,
-    fuelKg: fuelKgForMass(massKg),
+    fuelKg: fuelKgForMass(massKg, emptyMassOf(def)),
     elevonL: 0,
     elevonR: 0,
     rudder: 0,
@@ -1504,6 +1559,7 @@ function computeGroundRollM<TDef extends AircraftDefLike>(
     throttle: mode === 'takeoff' ? 1 : 0,
     afterburnerOn: mode === 'takeoff',
     flags: 0,
+    ...(config?.flapDetent !== undefined ? { flapDetent: config.flapDetent, flapPos: config.flapDetent, slatPos: config.flapDetent > 0 ? 1 : 0 } : {}),
   };
   // See findTrim's own comment: this fixture also uses id 0 and runs its
   // own fresh raw step loop, so it must independently clear any leftover
@@ -1512,10 +1568,19 @@ function computeGroundRollM<TDef extends AircraftDefLike>(
   resetFcsTrimState(entityPoolIndex(state.id));
   let out = cloneEntityState(state);
   const env = buildTrimEnvironment(0);
+  if (fieldM !== 0) {
+    const isa = isaAt(fieldM);
+    env.airDensityKgM3 = isa.airDensityKgM3;
+    env.soundSpeedMps = isa.soundSpeedMps;
+    env.groundElevationM = fieldM;
+  }
   const inputs = makeProbeInputs(0, mode === 'takeoff' ? 1 : 0);
   inputs.afterburner = mode === 'takeoff';
   inputs.brakes = mode === 'landing' ? 1 : 0;
   inputs.gearDown = true;
+  if (config?.flapDetent !== undefined) inputs.flapLever = config.flapDetent;
+  if (mode === 'landing' && config?.reverseThrust) inputs.reverseThrust = true;
+  const iasScale = Math.sqrt(env.airDensityKgM3 / RHO0_KG_M3);
 
   let distanceM = 0;
   const maxSteps = Math.round(GROUND_ROLL_MAX_SIM_SEC / SIM_DT_SEC);
@@ -1523,7 +1588,10 @@ function computeGroundRollM<TDef extends AircraftDefLike>(
     // Take-off: rotate (stick back) from the rotation speed, as a pilot does. With the main gear
     // behind the centre of gravity the nose wheel carries weight, so the aircraft no longer
     // lifts off by itself with the stick centred.
-    if (mode === 'takeoff') inputs.pitch = state.vel.x >= TAKEOFF_ROTATE_SPEED_MPS ? TAKEOFF_ROTATE_STICK : 0;
+    if (mode === 'takeoff') {
+      if (config?.rotateIasMps === undefined) inputs.pitch = state.vel.x >= TAKEOFF_ROTATE_SPEED_MPS ? TAKEOFF_ROTATE_STICK : 0;
+      else inputs.pitch = state.vel.x * iasScale >= config.rotateIasMps ? (config.rotateStick ?? TAKEOFF_ROTATE_STICK) : 0;
+    }
     step(state, damage, inputs, env, def, SIM_DT_SEC, out);
     distanceM += SIM_DT_SEC * state.vel.x;
     const tmp = state;
@@ -1533,6 +1601,18 @@ function computeGroundRollM<TDef extends AircraftDefLike>(
     if (mode === 'landing' && vecLength(state.vel) < 1) break;
   }
   return distanceM;
+}
+
+/** The ground-roll configuration a target asks for; undefined for the fighters' plain recipe. */
+function transportRollConfig(target: PerformanceTarget): GroundRollConfig | undefined {
+  if (target.flapDetent === undefined && target.rotateIasMps === undefined && target.reverseThrust === undefined && target.altitudeM === 0) return undefined;
+  return {
+    fieldElevationM: target.altitudeM,
+    ...(target.flapDetent !== undefined ? { flapDetent: target.flapDetent } : {}),
+    ...(target.rotateIasMps !== undefined ? { rotateIasMps: target.rotateIasMps } : {}),
+    ...(target.rotateStick !== undefined ? { rotateStick: target.rotateStick } : {}),
+    ...(target.reverseThrust !== undefined ? { reverseThrust: target.reverseThrust } : {}),
+  };
 }
 
 /**
@@ -1561,19 +1641,22 @@ export function checkPerformanceTarget<TDef extends AircraftDefLike>(
       break;
     }
     case PerformanceTargetKind.ClimbRateMps:
-      measured = computeClimbRateMps(step, def, target.altitudeM, target.massKg);
+      measured = computeClimbRateMps(step, def, target.altitudeM, target.massKg, target.climbIasMps);
       break;
     case PerformanceTargetKind.StallSpeedMps: {
       const assumedClMax = target.assumedClMax ?? (target.id === 'stall_landing' ? 1.6 : 1.1);
-      measured = computeStallSpeedMps(def, target.massKg, assumedClMax);
+      measured = computeStallSpeedMps(def, target.massKg, assumedClMax, target.flapDetent);
       break;
     }
     case PerformanceTargetKind.TakeoffRollM:
-      measured = computeGroundRollM(step, def, 'takeoff', 0, target.massKg);
+      measured = computeGroundRollM(step, def, 'takeoff', 0, target.massKg, transportRollConfig(target));
       break;
     case PerformanceTargetKind.LandingRollM: {
-      const vTouchdown = computeStallSpeedMps(def, target.massKg, target.assumedClMax ?? 1.6) * LANDING_APPROACH_SPEED_FACTOR;
-      measured = computeGroundRollM(step, def, 'landing', vTouchdown, target.massKg);
+      // Touchdown speed: a multiple of the (equivalent) stall speed, as true airspeed at the field.
+      const vsEas = computeStallSpeedMps(def, target.massKg, target.assumedClMax ?? 1.6, target.flapDetent);
+      const tasPerEas = target.altitudeM !== 0 ? Math.sqrt(RHO0_KG_M3 / isaAt(target.altitudeM).airDensityKgM3) : 1;
+      const vTouchdown = vsEas * (target.touchdownSpeedFactor ?? LANDING_APPROACH_SPEED_FACTOR) * tasPerEas;
+      measured = computeGroundRollM(step, def, 'landing', vTouchdown, target.massKg, transportRollConfig(target));
       break;
     }
     default: {

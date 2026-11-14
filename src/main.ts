@@ -559,6 +559,8 @@ function controlGroups(): ControlGroup[] {
         { keys: [L(b.gearToggle)], label: 'Landing gear' },
         { keys: [L(b.airbrakeToggle)], label: 'Airbrake and wheel brakes' },
         { keys: [L(b.jettisonTanks)], label: 'Drop tanks' },
+        { keys: [L(b.flapsUp), L(b.flapsDown)], label: 'Flaps up / down (C-17)' },
+        { keys: [L(b.thrustReverse), L(b.rampToggle)], label: 'Reverse thrust (hold), cargo ramp (C-17)' },
         { keys: [L(b.service)], label: 'Refuel and rearm (stopped on a stand)' },
         { keys: [L(m.taxiGuide)], label: 'Taxi guidance' },
         { keys: [L(m.lightsCycle)], label: 'Lights: off, nav, strobes, landing, formation' },
@@ -1129,18 +1131,40 @@ function applyDevStart(mission: Mission): Mission {
   if (v.length < 3 || v.some((n) => !Number.isFinite(n))) return mission;
   const jet = params.get('jet');
   const aircraftId = jet && getAircraftDefinition(jet) ? jet : mission.playerStart.aircraftId;
+  // Transport dev options: &cargo=<kg>, &fuel=<0..1>, &engineOut=1,4 (engine numbers, 1 = left
+  // outboard), &isa=<K> (hot or cold day, ISA deviation).
+  const num = (k: string): number | undefined => {
+    const s = params.get(k);
+    const n = s === null ? NaN : Number(s);
+    return Number.isFinite(n) ? n : undefined;
+  };
+  const cargoKg = num('cargo') ?? mission.playerStart.cargoKg;
+  const fuelFrac = num('fuel') ?? mission.playerStart.fuelFrac;
+  const engineOut = params.get('engineOut');
+  const failedEngines = engineOut
+    ? engineOut.split(',').map((s) => Number(s) - 1).filter((i) => Number.isInteger(i) && i >= 0)
+    : mission.playerStart.failedEngines;
+  const isaK = num('isa');
   return {
     ...mission,
+    ...(isaK !== undefined ? { weather: { ...mission.weather, isaDeviationK: isaK } } : {}),
     playerStart: {
       ...(aircraftId ? { aircraftId } : {}),
       ...(mission.playerStart.loadoutId ? { loadoutId: mission.playerStart.loadoutId } : {}),
       ...(mission.playerStart.loadout ? { loadout: mission.playerStart.loadout } : {}),
-      ...(mission.playerStart.fuelFrac !== undefined ? { fuelFrac: mission.playerStart.fuelFrac } : {}),
+      ...(fuelFrac !== undefined ? { fuelFrac } : {}),
+      ...(cargoKg !== undefined ? { cargoKg } : {}),
+      ...(failedEngines !== undefined && failedEngines.length > 0 ? { failedEngines } : {}),
       pos: { x: v[0]!, y: v[1]!, z: v[2]! },
       headingRad: ((v[3] ?? 0) * Math.PI) / 180,
       speedMps: v[4] ?? 200,
     },
   };
+}
+
+/** The mission's day temperature (ISA deviation), kept through the weather choice. */
+function isaOf(wx: Mission['weather']): { isaDeviationK?: number } {
+  return wx.isaDeviationK !== undefined ? { isaDeviationK: wx.isaDeviationK } : {};
 }
 
 /**
@@ -1151,9 +1175,9 @@ function applyWeatherSetting(mission: Mission): Mission {
   const wx = mission.weather;
   switch (weatherMode) {
     case 'off':
-      return { ...mission, weather: { windWorldMps: { x: 0, y: 0, z: 0 }, gustMps: 0, turbulence: 0 } };
+      return { ...mission, weather: { windWorldMps: { x: 0, y: 0, z: 0 }, gustMps: 0, turbulence: 0, ...isaOf(wx) } };
     case 'fog':
-      return { ...mission, weather: { windWorldMps: { x: wx.windWorldMps.x * 0.3, y: 0, z: wx.windWorldMps.z * 0.3 }, gustMps: 0, turbulence: 0 } };
+      return { ...mission, weather: { windWorldMps: { x: wx.windWorldMps.x * 0.3, y: 0, z: wx.windWorldMps.z * 0.3 }, gustMps: 0, turbulence: 0, ...isaOf(wx) } };
     case 'rain':
       return { ...mission, weather: { ...wx, gustMps: Math.max(wx.gustMps, 6), turbulence: Math.max(wx.turbulence, 0.35) } };
     default:

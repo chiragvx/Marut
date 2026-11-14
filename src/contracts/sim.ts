@@ -171,6 +171,8 @@ export interface SimEnvironment {
   groundElevationM: number;
   /** Terrain unit surface normal at the same point, world frame. */
   groundNormalWorld: Vec3Like;
+  /** ISA temperature deviation, K (WeatherConfig.isaDeviationK); absent = standard day. */
+  isaDeviationK?: number;
 }
 
 /**

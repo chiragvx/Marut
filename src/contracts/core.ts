@@ -302,8 +302,38 @@ export interface EntityState {
   stores?: number;
   storesB?: number;
 
+  // --- Transport state (aircraft with AircraftDefinition.highLift/spoilers/engines). Absent on
+  // the fighters. Written by src/physics; the renderer reads them to pose the model. ---
+  /** Flap lever detent the flaps are travelling to (index into AircraftDefinition.highLift.detents). */
+  flapDetent?: number;
+  /** Actual flap position in detent units (e.g. 2.5 = halfway from detent 2 to 3); see physics flapAngleDeg for degrees. */
+  flapPos?: number;
+  /** Slat extension, 0 (in) .. 1 (out). */
+  slatPos?: number;
+  /** Symmetric spoiler panel position, 0..1 of full travel (speedbrake ~ SpoilerDefinition.speedbrakeFrac, lift dump 1). Roll spoilers follow the roll command and are not included. */
+  spoilerPos?: number;
+  /** One per AircraftDefinition.engines entry. */
+  engines?: EngineRunState[];
+  /** Cargo carried, kg, and its CG along body x, m (reference CG = 0). The airdrop hook: change these and mass, CG and inertia follow. */
+  cargoMassKg?: number;
+  cargoCgBodyX?: number;
+  /** Cargo ramp and door, 0 (closed) .. 1 (airdrop position). */
+  rampPos?: number;
+
   /** Bitmask of EntityFlag. */
   flags: EntityFlags;
+}
+
+/** One engine of a multi-engine aircraft (EntityState.engines). */
+export interface EngineRunState {
+  /** Fan speed N1, fraction of 100% (idle ~0.26). */
+  n1: number;
+  /** Thrust reverser: 0 stowed .. 1 deployed. */
+  reverserPos: number;
+  /** Failed (no thrust, windmilling). */
+  failed: boolean;
+  /** Net axial thrust this engine is making, N (negative in reverse). */
+  thrustN: number;
 }
 
 // -----------------------------------------------------------------------------
@@ -411,7 +441,22 @@ export interface PilotInputs {
   pitchRateScale?: number;
   rollRateScale?: number;
   yawRateScale?: number;
+  /**
+   * Flap lever position, 0 (up) .. FLAP_LEVER_MAX; clamped to the aircraft's detents. Aircraft
+   * without flaps ignore it. Absent = 0.
+   */
+  flapLever?: number;
+  /**
+   * Thrust reverse held (aircraft with reversers). On the ground the reversers deploy and the
+   * engines go to full reverse once deployed; in flight they go to idle reverse. Absent = false.
+   */
+  reverseThrust?: boolean;
+  /** Cargo ramp/door commanded open. Absent = closed. */
+  rampOpen?: boolean;
 }
+
+/** Highest flap lever position (PilotInputs.flapLever): five positions, UP .. FULL. */
+export const FLAP_LEVER_MAX = 4;
 
 /** Aerodynamic/engine/nav telemetry for the aircraft a Pilot is flying, recomputed by src/physics every SIM_DT_SEC and handed to Pilot.update via PilotContext. */
 export interface AircraftTelemetry {
@@ -446,7 +491,21 @@ export interface AircraftTelemetry {
   onGround: boolean;
   /** True when alphaRad has exceeded the aircraft's stall AoA (see 02/03's spec for the exact threshold and hysteresis). */
   stalled: boolean;
+  /** Aircraft with configurable high lift: stall warning (stick shaker) — alpha past the 1.1 Vs alpha for the current flaps/slats/power. Absent on the fighters. */
+  stallWarning?: boolean;
+  /** Bitmask of TransportWarning (placard exceedances). Absent/0 = none. */
+  limitWarnings?: number;
 }
+
+/** AircraftTelemetry.limitWarnings bits: placards exceeded. Warnings only; nothing breaks. */
+export const TransportWarning = {
+  FlapOverspeed: 1,
+  GearOverspeed: 2,
+  Overspeed: 4,
+  ReverserOverspeed: 8,
+  RampOverspeed: 16,
+  OverG: 32,
+} as const;
 
 export const LockState = {
   None: 'none',
@@ -783,6 +842,12 @@ export interface WeatherConfig {
   gustMps: number;
   /** 0..1 turbulence intensity scalar (see 02's spec for how it perturbs the flight model). */
   turbulence: number;
+  /**
+   * Air temperature offset from ISA, K (ISA+dT): the same pressure at each altitude, a different
+   * temperature, so a hot day has thinner air (density altitude) and a higher speed of sound.
+   * Absent = 0 (standard day).
+   */
+  isaDeviationK?: number;
 }
 
 export const MissionObjectiveKind = {
@@ -868,6 +933,10 @@ export interface MissionPlayerStart {
   loadout?: Readonly<Record<string, { store: string; count: number }>>;
   /** Internal fuel at the start, 0..1 of `maxFuelKg` (drop tanks always start full). Absent = full. */
   fuelFrac?: number;
+  /** Cargo carried at the start, kg (aircraft with AircraftDefinition.massModel; clamped to its maxCargoKg). Absent = none. */
+  cargoKg?: number;
+  /** Engines failed at the start (indices into AircraftDefinition.engines), for engine-out practice. Absent = none. */
+  failedEngines?: readonly number[];
   pos?: Vec3Like;
   headingRad?: number;
   speedMps?: number;

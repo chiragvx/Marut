@@ -9,6 +9,9 @@ export { sampleWind, createGustState } from './wind';
 export { resetFcsTrimState } from './fcs';
 export { stepStoreBody, slenderBodyInertia, machDragFactor, STORE_BODY_SUBSTEPS } from './storeBody';
 export type { StoreBodyState, StoreBodyParams, StoreBodyEnv } from './storeBody';
+// Transport (C-17): the airdrop hook and the renderer's flap angle.
+export { loadCargo, moveCargo, releaseCargo } from './cargo';
+export { flapAngleDeg } from './highLift';
 
 export type {
   Environment,

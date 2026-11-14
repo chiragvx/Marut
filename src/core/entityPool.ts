@@ -180,6 +180,19 @@ class KindStore {
     state.storesDragAreaM2 = 0;
     state.dropTankCount = 0;
     state.dropTankFuelKg = 0;
+    // Transport state (a C-17's slot reused by a fighter must not keep its cargo or engines).
+    if (state.engines !== undefined) state.engines = undefined;
+    if (state.flapPos !== undefined) {
+      state.flapDetent = undefined;
+      state.flapPos = undefined;
+      state.slatPos = undefined;
+    }
+    if (state.spoilerPos !== undefined) state.spoilerPos = undefined;
+    if (state.cargoMassKg !== undefined) {
+      state.cargoMassKg = undefined;
+      state.cargoCgBodyX = undefined;
+    }
+    if (state.rampPos !== undefined) state.rampPos = undefined;
     state.flags = 0;
     const dmg = this.damage[index];
     if (dmg) {

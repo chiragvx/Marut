@@ -169,6 +169,21 @@ const FCS_PATH_RATE_MIN_TAS_MPS = 20;
  */
 const FCS_ALPHA_TRIM_G_PER_RAD = 10;
 
+/** Ground rotation integral (FcsLimits.groundRotationIntegralGain): integrates only above this much aft stick. */
+const GROUND_ROTATION_INTEGRATE_STICK = 0.1;
+/** ... and otherwise bleeds back to zero at this rate, rad/s of elevator. */
+const GROUND_ROTATION_INTEGRAL_BLEED_RAD_S = 0.1;
+
+/** Steps `x` toward `target` by at most `maxStep`. */
+function moveToward(x: number, target: number, maxStep: number): number {
+  return x < target ? Math.min(target, x + maxStep) : Math.max(target, x - maxStep);
+}
+
+/** Pitch-attitude protection (FcsLimits.maxPitchAttitudeRad): pitch rate per rad of attitude margin, 1/s. */
+const FCS_ATTITUDE_LOOP_GAIN_PER_S = 0.6;
+/** Floor on cos(bank) when the attitude-protection rate is divided by it. */
+const FCS_ATTITUDE_MIN_COS_PHI = 0.3;
+
 /**
  * Pitch-axis qBar gain scheduling (cross-module fix; see
  * tests/integration/trimAndPerformance.test.ts / tools/lib/trimSolver.ts's
@@ -376,6 +391,14 @@ const shapedRollStick = new Float64Array(MAX_ENTITIES);
 const shapedPitchRateCmd = new Float64Array(MAX_ENTITIES);
 /** FCS_ROLL_RATE_CMD_TAU_SEC-filtered roll rate command, rad/s; per-slot state like the above. */
 const filteredRollRateCmd = new Float64Array(MAX_ENTITIES);
+/** Sideslip-command yaw law's rudder integral, rad (FcsLimits.sideslipIntegralGain aircraft only); per-slot state like the above. */
+const sideslipIntegralRad = new Float64Array(MAX_ENTITIES);
+/** Roll attitude-hold integral, rad of differential elevon (FcsLimits.rollIntegralGain aircraft only). */
+const rollIntegralRad = new Float64Array(MAX_ENTITIES);
+/** Authority of the roll attitude-hold integral, as a fraction of maxElevonRad. */
+const ROLL_INTEGRAL_MAX_FRAC = 1.0;
+/** Rudder integral authority, fraction of maxRudderRad (enough to hold an outboard engine out). */
+const SIDESLIP_INTEGRAL_MAX_FRAC = 1.0;
 
 /** `noUncheckedIndexedAccess`-safe read of a Float64Array slot (never actually undefined for an in-range index; the array is fixed-size and zero-initialized). */
 function readF64(arr: Float64Array, index: number): number {
@@ -413,6 +436,8 @@ export function resetFcsTrimState(entityIndex: number): void {
   shapedRollStick[entityIndex] = 0;
   shapedPitchRateCmd[entityIndex] = 0;
   filteredRollRateCmd[entityIndex] = 0;
+  sideslipIntegralRad[entityIndex] = 0;
+  rollIntegralRad[entityIndex] = 0;
 }
 
 /**
@@ -449,6 +474,10 @@ export interface FcsSlotState {
   shapedRollStick: number;
   shapedPitchRateCmd: number;
   filteredRollRateCmd: number;
+  /** Optional so older callers' saved slots stay valid; absent = 0. */
+  sideslipIntegralRad?: number;
+  /** Optional, as above; absent = 0. */
+  rollIntegralRad?: number;
 }
 
 export function getFcsSlotState(entityIndex: number, out: FcsSlotState): FcsSlotState {
@@ -458,6 +487,8 @@ export function getFcsSlotState(entityIndex: number, out: FcsSlotState): FcsSlot
   out.shapedRollStick = readF64(shapedRollStick, entityIndex);
   out.shapedPitchRateCmd = readF64(shapedPitchRateCmd, entityIndex);
   out.filteredRollRateCmd = readF64(filteredRollRateCmd, entityIndex);
+  out.sideslipIntegralRad = readF64(sideslipIntegralRad, entityIndex);
+  out.rollIntegralRad = readF64(rollIntegralRad, entityIndex);
   return out;
 }
 
@@ -468,6 +499,8 @@ export function setFcsSlotState(entityIndex: number, s: Readonly<FcsSlotState>):
   shapedRollStick[entityIndex] = s.shapedRollStick;
   shapedPitchRateCmd[entityIndex] = s.shapedPitchRateCmd;
   filteredRollRateCmd[entityIndex] = s.filteredRollRateCmd;
+  sideslipIntegralRad[entityIndex] = s.sideslipIntegralRad ?? 0;
+  rollIntegralRad[entityIndex] = s.rollIntegralRad ?? 0;
 }
 
 /**
@@ -494,6 +527,7 @@ const COS_BANK_COMPENSATION_MAX = Math.cos(FCS_BANK_COMPENSATION_MAX_RAD);
 const scratchBodyAxis: Vec3Like = { x: 0, y: 0, z: 0 };
 const BODY_FORWARD: Vec3Like = { x: 1, y: 0, z: 0 };
 const BODY_UP: Vec3Like = { x: 0, y: 1, z: 0 };
+const BODY_RIGHT: Vec3Like = { x: 0, y: 0, z: 1 };
 
 /**
  * Neutral-stick load-factor reference, `cos(theta)/cos(phi)` (pitch attitude theta, bank phi), with
@@ -519,6 +553,36 @@ export function neutralGReference(rot: Readonly<QuatLike>): number {
 
 const scratchNonGravWorld: Vec3Like = { x: 0, y: 0, z: 0 };
 const scratchNonGravBody: Vec3Like = { x: 0, y: 0, z: 0 };
+
+/**
+ * Bank protection (FcsLimits.maxBankRad): past bankRateReduceAboveRad the roll-rate command away
+ * from wings-level is cut to highBankRollRateRadS, tapering to zero at maxBankRad; past maxBankRad
+ * the FCS rolls back toward it. Rolling back toward level is never limited.
+ */
+function bankProtectedRollRate(pCmd: number, rot: Readonly<QuatLike>, lim: FcsLimits): number {
+  Quat.rotate(rot, BODY_FORWARD, scratchBodyAxis);
+  const sinTheta = clamp(scratchBodyAxis.y, -1, 1);
+  const cosTheta = Math.sqrt(1 - sinTheta * sinTheta);
+  if (cosTheta < 1e-3) return pCmd;
+  Quat.rotate(rot, BODY_UP, scratchBodyAxis);
+  const upY = scratchBodyAxis.y / cosTheta;
+  // Right wing down is positive bank (and positive roll rate); body-up's lateral tilt gives the sign.
+  Quat.rotate(rot, BODY_RIGHT, scratchBodyAxis);
+  const bank = Math.atan2(-scratchBodyAxis.y / cosTheta, upY);
+  const maxBank = lim.maxBankRad!;
+  const reduceAbove = lim.bankRateReduceAboveRad ?? maxBank;
+  const highRate = lim.highBankRollRateRadS ?? lim.maxRollRateRadS;
+  const absBank = Math.abs(bank);
+  if (absBank <= reduceAbove || pCmd * bank <= 0) {
+    if (absBank > maxBank) return pCmd - Math.sign(bank) * highRate * Math.min(1, (absBank - maxBank) / 0.05);
+    return pCmd;
+  }
+  const taper = clamp((maxBank - absBank) / Math.max(1e-3, maxBank - reduceAbove), 0, 1);
+  const cap = highRate * taper;
+  let p = clamp(pCmd, -cap, cap);
+  if (absBank > maxBank) p -= Math.sign(bank) * highRate * Math.min(1, (absBank - maxBank) / 0.05);
+  return p;
+}
 
 export interface FcsSurfaces {
   elevonL: number;
@@ -552,7 +616,9 @@ export function stepFcs(
   fcsLimits: FcsLimits,
   dtSub: number,
   qBarPa: number = FCS_QBAR_REF_PA,
-  tasMps: number = 100
+  tasMps: number = 100,
+  /** Sideslip, rad: only read by the sideslip-command yaw law (FcsLimits.sideslipIntegralGain). */
+  betaRad = 0
 ): void {
   const gainSchedule = pitchGainSchedule(qBarPa);
   // gLoad = dot(rotateInverse(rot, totalForceWorld - gravityWorld), (0,1,0)) / (massKg*g)
@@ -617,6 +683,20 @@ export function stepFcs(
     const pathRateRadS = (gLoad - bodyUpWorldY) * gOverV;
     let qCmdAlphaMax = Infinity;
     let qCmdAlphaMin = -Infinity;
+    // Pitch-attitude protection (FcsLimits.maxPitchAttitudeRad, transports only): a pitch-rate
+    // ceiling/floor that closes on the attitude limit. In a bank the pitch attitude changes at
+    // q*cos(phi), so the command is divided by it (held to >= FCS_ATTITUDE_MIN_COS_PHI).
+    let qCmdThetaMax = Infinity;
+    let qCmdThetaMin = -Infinity;
+    if (fcsLimits.maxPitchAttitudeRad !== undefined || fcsLimits.minPitchAttitudeRad !== undefined) {
+      Quat.rotate(rot, BODY_FORWARD, scratchBodyAxis);
+      const sinTheta = clamp(scratchBodyAxis.y, -1, 1);
+      const thetaRad = Math.asin(sinTheta);
+      const cosTheta = Math.max(Math.sqrt(1 - sinTheta * sinTheta), 1e-3);
+      const cosPhi = Math.max(clamp(bodyUpWorldY / cosTheta, -1, 1), FCS_ATTITUDE_MIN_COS_PHI);
+      if (fcsLimits.maxPitchAttitudeRad !== undefined) qCmdThetaMax = (FCS_ATTITUDE_LOOP_GAIN_PER_S * (fcsLimits.maxPitchAttitudeRad - thetaRad)) / cosPhi;
+      if (fcsLimits.minPitchAttitudeRad !== undefined) qCmdThetaMin = (FCS_ATTITUDE_LOOP_GAIN_PER_S * (fcsLimits.minPitchAttitudeRad - thetaRad)) / cosPhi;
+    }
     if (limiterOn) {
       // alphaDot ~= q - pathRate; leading alpha by FCS_ALPHA_LOOP_LEAD_SEC of it damps the approach.
       const alphaLead = alpha + FCS_ALPHA_LOOP_LEAD_SEC * (q - pathRateRadS);
@@ -635,7 +715,7 @@ export function stepFcs(
     const qCmdCapRadS = Math.min(
       (FCS_PITCH_RATE_CMD_SATURATION_MARGIN * fcsLimits.maxElevonRad) /
         (FCS_PITCH_INNER_LOOP_GAIN_MULT * innerSchedule * Math.abs(fcsLimits.pitchRateGain)),
-      FCS_MAX_PITCH_RATE_CMD_RAD_S
+      fcsLimits.maxPitchRateCmdRadS ?? FCS_MAX_PITCH_RATE_CMD_RAD_S
     );
     // Feedforward: the pitch rate the COMMANDED load factor needs to hold a steady turn,
     // (gCmd - bodyUpWorldY)*g/V, so the proportional term only has to correct transients. Without
@@ -649,10 +729,20 @@ export function stepFcs(
       FCS_PITCH_RATE_CMD_ONSET_RAD_S2,
       dtSub
     );
-    const qCmdG = readF64(shapedPitchRateCmd, entityIndex);
+    const qCmdGShaped = readF64(shapedPitchRateCmd, entityIndex);
+    // The attitude limit acts on the g path (it protects the pilot's command, like the g limit).
+    const thetaLimitActive = qCmdGShaped > qCmdThetaMax || qCmdGShaped < qCmdThetaMin;
+    const qCmdG = thetaLimitActive ? clamp(qCmdGShaped, qCmdThetaMin, qCmdThetaMax) : qCmdGShaped;
     // Fly whichever path asks for less pitch rate. The alpha path is deliberately NOT onset-shaped
-    // (that lag is exactly what a limiter can't afford); it is still bounded by the same cap.
-    const qCmdAir = clamp(clamp(qCmdG, qCmdAlphaMin, qCmdAlphaMax), -qCmdCapRadS, qCmdCapRadS);
+    // (that lag is exactly what a limiter can't afford); it is still bounded by the same cap (or
+    // by FcsLimits.alphaPathMaxPitchRateRadS where the aircraft sets one).
+    const alphaPathCap = fcsLimits.alphaPathMaxPitchRateRadS ?? qCmdCapRadS;
+    const qCmdAir =
+      qCmdG > qCmdAlphaMax
+        ? clamp(qCmdAlphaMax, -alphaPathCap, alphaPathCap)
+        : qCmdG < qCmdAlphaMin
+          ? clamp(qCmdAlphaMin, -alphaPathCap, alphaPathCap)
+          : clamp(qCmdG, -qCmdCapRadS, qCmdCapRadS);
     // While the alpha path is being flown, the trim integral tracks the ALPHA error instead of the
     // g error (the pilot is asking for more g than the limit allows, so integrating the g error
     // would wind it straight into its clamp). Without this it froze, and the inner rate loop's
@@ -668,10 +758,13 @@ export function stepFcs(
     const rawTrimErrorG = alphaLimitActive
       ? FCS_ALPHA_TRIM_G_PER_RAD * ((qCmdG > qCmdAlphaMax ? fcsLimits.maxAlphaRad : fcsLimits.minAlphaRad) - alpha)
       : gCmd - gLoad;
-    const gPathSaturated = !alphaLimitActive && Math.abs(qCmdGRaw) >= qCmdCapRadS;
+    // Frozen too while the attitude limit holds the nose (the g error it leaves is intended).
+    const gPathSaturated = !alphaLimitActive && (Math.abs(qCmdGRaw) >= qCmdCapRadS || thetaLimitActive);
     const trimErrorG = gPathSaturated ? 0 : clamp(rawTrimErrorG, -FCS_TRIM_INTEGRATE_MAX_ERROR_G, FCS_TRIM_INTEGRATE_MAX_ERROR_G);
 
-    if (transitioned) {
+    // A transport's rotation integral (groundRotationIntegralGain) is kept through lift-off: it is
+    // the nose-up trim the climb-out needs.
+    if (transitioned && fcsLimits.groundRotationIntegralGain === undefined) {
       trimIntegralRad[entityIndex] = 0;
     } else {
       // Sign (cross-module review; see src/aircraft/tejasGeometry.ts's FcsLimits.gLoadGain
@@ -688,10 +781,11 @@ export function stepFcs(
       // covers why it must be negative for this specific aircraft) and is kept specifically to
       // source it here, via Math.sign, exactly as before.
       const trimIntegralSign = Math.sign(fcsLimits.gLoadGain) || 1;
+      const trimMaxRad = fcsLimits.trimIntegralMaxRad ?? FCS_TRIM_INTEGRAL_MAX_RAD;
       trimIntegralRad[entityIndex] = clamp(
         readF64(trimIntegralRad, entityIndex) + trimIntegralSign * FCS_TRIM_INTEGRAL_GAIN * trimErrorG * dtSub,
-        -FCS_TRIM_INTEGRAL_MAX_RAD,
-        FCS_TRIM_INTEGRAL_MAX_RAD
+        -trimMaxRad,
+        trimMaxRad
       );
     }
     // INNER LOOP: rate error -> elevon, the same self-limiting structural pattern the roll law
@@ -704,7 +798,7 @@ export function stepFcs(
     elevonSymCmd =
       FCS_PITCH_INNER_LOOP_GAIN_MULT * innerSchedule * fcsLimits.pitchRateGain * (qCmdAir - q) + readF64(trimIntegralRad, entityIndex);
   } else {
-    trimIntegralRad[entityIndex] = 0;
+    if (fcsLimits.groundRotationIntegralGain === undefined) trimIntegralRad[entityIndex] = 0;
     // RATE-command law (same structure as the roll law just below: qCmd from the stick, gain on
     // the rate ERROR, not a raw position command) -- rewritten from an earlier direct-position
     // formula (`-stick*maxElevonRad*GROUND_LAW_PITCH_AUTHORITY_FRACTION - gainSchedule*
@@ -744,7 +838,7 @@ export function stepFcs(
     // rotation held long enough post-liftoff to still climb alpha past the limit at the target
     // rate; not gated by minAlphaRad/the symmetric case, since a ground rotation excursion only
     // ever runs away in the nose-up direction.
-    let qCmdGround = pitchStickShaped * GROUND_LAW_MAX_ROTATION_RATE_RAD_S;
+    let qCmdGround = pitchStickShaped * (fcsLimits.groundRotationRateRadS ?? GROUND_LAW_MAX_ROTATION_RATE_RAD_S);
     // Stick released after a nose-high touchdown: lower the nose onto the nose wheel (see
     // GROUND_DEROTATION_RATE_RAD_S) instead of holding the touchdown attitude.
     Quat.rotate(rot, BODY_FORWARD, scratchBodyAxis);
@@ -764,6 +858,17 @@ export function stepFcs(
     // q overshooting the 10deg/s target by 3x+ (past 30-40deg/s) while STILL on the ground and
     // well before any ground/air transition, ruling out the transition handoff as the cause.
     elevonSymCmd = gainSchedule * fcsLimits.pitchRateGain * (qCmdGround - q);
+    if (fcsLimits.groundRotationIntegralGain !== undefined) {
+      // Transport rotation (FcsLimits.groundRotationIntegralGain): integrate the rotation-rate
+      // error while the stick is pulled (same sign as the rate term); bleed it off otherwise.
+      const trimMaxRad = fcsLimits.trimIntegralMaxRad ?? FCS_TRIM_INTEGRAL_MAX_RAD;
+      const prev = readF64(trimIntegralRad, entityIndex);
+      trimIntegralRad[entityIndex] =
+        pitchStickShaped > GROUND_ROTATION_INTEGRATE_STICK
+          ? clamp(prev + Math.sign(fcsLimits.pitchRateGain) * fcsLimits.groundRotationIntegralGain * (qCmdGround - q) * dtSub, -trimMaxRad, trimMaxRad)
+          : moveToward(prev, 0, GROUND_ROTATION_INTEGRAL_BLEED_RAD_S * dtSub);
+      elevonSymCmd += readF64(trimIntegralRad, entityIndex);
+    }
     // Tail-strike protection (GROUND_PITCH_LIMIT_RAD's doc comment): a direct nose-down push once
     // the attitude nears the limit. The rate law's gain is the sign reference (it drives nose-down
     // for a negative rate error).
@@ -776,10 +881,32 @@ export function stepFcs(
   elevonSymCmd = clamp(elevonSymCmd, -fcsLimits.maxElevonRad, fcsLimits.maxElevonRad);
 
   const pCmdPrev = readF64(filteredRollRateCmd, entityIndex);
-  const pCmdTarget = rollStickShaped * fcsLimits.maxRollRateRadS * controlRateScale(inputs.rollRateScale);
+  let pCmdTarget = rollStickShaped * fcsLimits.maxRollRateRadS * controlRateScale(inputs.rollRateScale);
+  if (fcsLimits.maxBankRad !== undefined && !currentOnGround) pCmdTarget = bankProtectedRollRate(pCmdTarget, rot, fcsLimits);
   filteredRollRateCmd[entityIndex] = pCmdPrev + (pCmdTarget - pCmdPrev) * (1 - Math.exp(-dtSub / FCS_ROLL_RATE_CMD_TAU_SEC));
   const pCmd = readF64(filteredRollRateCmd, entityIndex);
-  const elevonDiffCmd = clamp(fcsLimits.rollRateGain * (pCmd - p), -fcsLimits.maxElevonRad, fcsLimits.maxElevonRad);
+  let rollRateTerm = fcsLimits.rollRateGain * (pCmd - p);
+  if (fcsLimits.rollIntegralGain !== undefined) {
+    // Rate command / attitude hold (transport): integrating the rate error holds the bank the
+    // pilot left against a steady rolling moment. Airborne only. The integrated rate is the Euler
+    // bank rate p + tan(theta)(q sin(phi) + r cos(phi)), not body p: in a climbing turn the two
+    // differ and holding p = 0 lets the bank creep.
+    const rmax = ROLL_INTEGRAL_MAX_FRAC * fcsLimits.maxElevonRad;
+    if (currentOnGround || transitioned) rollIntegralRad[entityIndex] = 0;
+    else {
+      Quat.rotate(rot, BODY_FORWARD, scratchBodyAxis);
+      const sinTheta = clamp(scratchBodyAxis.y, -0.99, 0.99);
+      const tanTheta = sinTheta / Math.sqrt(1 - sinTheta * sinTheta);
+      Quat.rotate(rot, BODY_UP, scratchBodyAxis);
+      const upY = scratchBodyAxis.y;
+      Quat.rotate(rot, BODY_RIGHT, scratchBodyAxis);
+      const phi = Math.atan2(-scratchBodyAxis.y, upY);
+      const phiDot = p + tanTheta * (q * Math.sin(phi) + r * Math.cos(phi));
+      rollIntegralRad[entityIndex] = clamp(readF64(rollIntegralRad, entityIndex) + fcsLimits.rollIntegralGain * (pCmd - phiDot) * dtSub, -rmax, rmax);
+    }
+    rollRateTerm += readF64(rollIntegralRad, entityIndex);
+  }
+  const elevonDiffCmd = clamp(rollRateTerm, -fcsLimits.maxElevonRad, fcsLimits.maxElevonRad);
 
   // Negated, same bug class and same root cause as the ground pitch law above (found auditing
   // for other instances after that fix): tejasGeometry.ts's yawRateGain comment establishes
@@ -790,7 +917,17 @@ export function stepFcs(
   // yawRateGain itself went through the gain-constant review; only this direct term, inherited
   // from the same spec formula (docs/spec/02-flight-model.md section 4.9, also fixed there), was
   // never checked by that review for the reason explained above.
-  const rudderCmd = clamp(-inputs.yaw * controlRateScale(inputs.yawRateScale) * fcsLimits.maxRudderRad - fcsLimits.yawRateGain * r, -fcsLimits.maxRudderRad, fcsLimits.maxRudderRad);
+  let rudderCmd = clamp(-inputs.yaw * controlRateScale(inputs.yawRateScale) * fcsLimits.maxRudderRad - fcsLimits.yawRateGain * r, -fcsLimits.maxRudderRad, fcsLimits.maxRudderRad);
+  if (fcsLimits.sideslipIntegralGain !== undefined) {
+    // Sideslip-command yaw law (C-17, docs/spec/c17-data.md 4.2): the pedals command sideslip and an
+    // integral on the sideslip error trims the rudder, so an engine failure is held with the
+    // pedals centred once the rudder has caught up (positive beta = nose left of the airflow, which
+    // needs nose-right, i.e. negative, rudder). Airborne only; frozen on the ground.
+    const imax = SIDESLIP_INTEGRAL_MAX_FRAC * fcsLimits.maxRudderRad;
+    if (currentOnGround || transitioned) sideslipIntegralRad[entityIndex] = 0;
+    else sideslipIntegralRad[entityIndex] = clamp(readF64(sideslipIntegralRad, entityIndex) - fcsLimits.sideslipIntegralGain * betaRad * dtSub, -imax, imax);
+    rudderCmd = clamp(rudderCmd + readF64(sideslipIntegralRad, entityIndex), -fcsLimits.maxRudderRad, fcsLimits.maxRudderRad);
+  }
 
   const healthL = damage.controlSurfaces.elevonL;
   const healthR = damage.controlSurfaces.elevonR;
