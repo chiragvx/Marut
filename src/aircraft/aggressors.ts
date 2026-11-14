@@ -1,8 +1,7 @@
 /**
  * src/aircraft/aggressors.ts — the hostile aircraft types: the PAF's JF-17 Thunder (Block II/III
  * fits) and F-16 (Block 52 fits). Each has its own weapon fits, radar, countermeasures and radar
- * signature; the flight model is the Tejas's until these types get their own, so they fly like a
- * Tejas. The JF-17 has its own 3D model (public/models/jf17.glb, tools/models/build_jf17.py: its
+ * signature. The JF-17 has its own flight data (jf17Data.ts); the F-16 still flies the Tejas's. The JF-17 has its own 3D model (public/models/jf17.glb, tools/models/build_jf17.py: its
  * main wheels sit on the Tejas's main legs, its nose leg is moved to its own nose wheel); the F-16
  * is still drawn as the grey hostile Tejas. Swap `aero`/`engine` here when real data exists.
  *
@@ -13,6 +12,7 @@ import type { AircraftDefinition, GearDefinition, LoadoutPreset, StationDef } fr
 import { AircraftModel } from '../contracts/core';
 import { tejasDefinition } from './tejasDefinition';
 import { hardpointsFor } from './tejasGeometry';
+import { jf17Aero, jf17ContactPoints, jf17EmptyMassKg, jf17Engine, jf17FcsLimits, jf17InertiaBodyKgM2, jf17MassKg, jf17MaxFuelKg, jf17MaxTakeoffMassKg, jf17MeanChordM, jf17WingAreaM2, jf17WingSpanM } from './jf17Data';
 
 function station(id: string, accepts: string[], maxCount: number): StationDef {
   const base = tejasDefinition.stations!.find((s) => s.id === id)!;
@@ -118,6 +118,19 @@ export const jf17Definition: AircraftDefinition = {
   sensors: { radar: 'klj-7a', iff: true, rwr: 'jf17-rwr', maws: true, countermeasures: { chaff: 60, flares: 60 } },
   renderModel: AircraftModel.Jf17,
   gear: jf17Gear(),
+  // Its own flight data (jf17Data.ts: sourced mass, fuel, MTOW, wing, RD-93; estimated aero).
+  massKg: jf17MassKg,
+  emptyMassKg: jf17EmptyMassKg,
+  maxFuelKg: jf17MaxFuelKg,
+  maxTakeoffMassKg: jf17MaxTakeoffMassKg,
+  inertiaBodyKgM2: jf17InertiaBodyKgM2,
+  wingAreaM2: jf17WingAreaM2,
+  wingSpanM: jf17WingSpanM,
+  meanChordM: jf17MeanChordM,
+  aero: jf17Aero,
+  engine: jf17Engine,
+  fcsLimits: jf17FcsLimits,
+  airframeContactPointsBodyM: jf17ContactPoints,
   // Bigger than the Tejas (conventional intakes, less composite): ~3 m^2 nose-on.
   signature: { rcsNoseOnM2: 3.0, rcsBroadsideM2: 9.0, hitEllipsoidBodyM: { x: 7.1, y: 2.4, z: 4.6 } },
 };
