@@ -14,6 +14,8 @@ import { button, field, h, lockTag, menuKeys, segmented, shell } from './kit';
 import { createLoadoutEditor, describeFit, selectionFit, selectionName, type LoadoutSelection, type LoadoutView } from './loadoutEditor';
 import type { LoadoutFit } from '../aircraft/loadout';
 import { formatTimeOfDay } from './settings';
+import { getAircraftDefinition } from '../aircraft/registry';
+import { DEFAULT_TRANSPORT_LOAD, createTransportLoadEditor, describeTransportLoad, type TransportLoad, type TransportLoadView } from './transportLoad';
 
 export interface FreeFlightSetup {
   baseId: BaseId;
@@ -23,6 +25,8 @@ export interface FreeFlightSetup {
   loadout: LoadoutSelection;
   /** Which aircraft (absent: the Tejas). */
   aircraftId?: FreeFlightAircraftId;
+  /** The C-17's fuel and cargo (absent: DEFAULT_TRANSPORT_LOAD). */
+  transport?: TransportLoad;
 }
 
 export const DEFAULT_FREE_FLIGHT: FreeFlightSetup = { baseId: 'bathinda', start: 'runway', timeOfDayH: 10.5, weather: 'clear', loadout: {} };
@@ -41,8 +45,9 @@ export interface FreeFlightCallbacks {
   onBack(): void;
 }
 
-export function createFreeFlightSetup(container: HTMLElement, opts: { bases: readonly BaseInfo[]; def: AircraftDefinition; setup: FreeFlightSetup; /** The jet in its hangar, in 3D, while the loadout is edited (none: the editor alone). */ openLoadoutView?: (fit: LoadoutFit) => LoadoutView | undefined }, cb: FreeFlightCallbacks): ScreenHandle {
-  const setup: FreeFlightSetup = { ...opts.setup, loadout: { ...opts.setup.loadout } };
+export function createFreeFlightSetup(container: HTMLElement, opts: { bases: readonly BaseInfo[]; def: AircraftDefinition; setup: FreeFlightSetup; /** The jet in its hangar, in 3D, while the loadout is edited (none: the editor alone). */ openLoadoutView?: (fit: LoadoutFit) => LoadoutView | undefined; /** The C-17 in its hangar while its load is planned. */ openTransportView?: () => TransportLoadView | undefined }, cb: FreeFlightCallbacks): ScreenHandle {
+  const setup: FreeFlightSetup = { ...opts.setup, loadout: { ...opts.setup.loadout }, ...(opts.setup.transport ? { transport: { ...opts.setup.transport } } : {}) };
+  const c17 = getAircraftDefinition('c-17');
   if (opts.bases.find((b) => b.id === setup.baseId)?.locked) setup.baseId = opts.bases.find((b) => !b.locked)?.id ?? setup.baseId;
   const s = shell({ title: 'Free Flight', eyebrow: 'Punjab · No enemies, no time limit', sub: 'Pick the hour, the weather and what hangs under the wings, then fly.', back: { onClick: () => cb.onBack() } });
   s.root.classList.add('tj-free-flight');
@@ -152,9 +157,18 @@ export function createFreeFlightSetup(container: HTMLElement, opts: { bases: rea
   function renderAircraft(): void {
     const a = FREE_FLIGHT_AIRCRAFT.find((x) => x.id === (setup.aircraftId ?? 'tejas-mk1a'))!;
     aircraftNote.textContent = a.blurb;
-    // The loadout editor is the Tejas's (the C-17 carries no stores).
+    // The loadout editor is the Tejas's (the C-17 carries no stores: its load is fuel and cargo).
     loadoutField.classList.toggle('tj-hidden', a.id !== 'tejas-mk1a');
+    transportField.classList.toggle('tj-hidden', a.id !== 'c-17' || !c17);
   }
+  // The C-17's load: fuel and cargo.
+  const transportText = h('span', { className: 'tj-note', attrs: { 'data-role': 'transport-load' } });
+  function renderTransport(): void {
+    if (c17) transportText.textContent = describeTransportLoad(c17, setup.transport ?? DEFAULT_TRANSPORT_LOAD);
+  }
+  renderTransport();
+  const changeTransport = button('Change load…', () => openTransportEditor(), 'default', { 'data-action': 'transport-load' });
+  const transportField = h('div', {}, field('Load', h('div', { className: 'tj-stack', attrs: { style: 'gap: 4px' } }, transportText, h('div', {}, changeTransport))));
   const changeLoadout = button('Change loadout…', () => openEditor(), 'default', { 'data-action': 'loadout' });
 
   s.body.append(
@@ -162,7 +176,7 @@ export function createFreeFlightSetup(container: HTMLElement, opts: { bases: rea
       'div',
       { className: 'tj-cols' },
       field('Base', bases),
-      h('div', { className: 'tj-stack' }, field('Aircraft', h('div', { className: 'tj-stack' }, aircraft, aircraftNote)), field('Start', h('div', { className: 'tj-stack' }, startHolder, startNote)), field('Time of day', h('div', { className: 'tj-row' }, time, timeValue)), field('Weather', weather), h('div', {}, loadoutField))
+      h('div', { className: 'tj-stack' }, field('Aircraft', h('div', { className: 'tj-stack' }, aircraft, aircraftNote)), field('Start', h('div', { className: 'tj-stack' }, startHolder, startNote)), field('Time of day', h('div', { className: 'tj-row' }, time, timeValue)), field('Weather', weather), h('div', {}, loadoutField), transportField)
     )
   );
   loadoutField.append(field('Loadout', h('div', { className: 'tj-stack', attrs: { style: 'gap: 4px' } }, loadoutName, loadoutText, h('div', {}, changeLoadout))));
@@ -188,6 +202,25 @@ export function createFreeFlightSetup(container: HTMLElement, opts: { bases: rea
         changeLoadout.focus();
       },
     }, opts.openLoadoutView?.(selectionFit(opts.def, setup.loadout)));
+  }
+
+  function openTransportEditor(): void {
+    if (!c17) return;
+    s.root.classList.add('tj-hidden');
+    const ed = createTransportLoadEditor(container, c17, setup.transport ?? DEFAULT_TRANSPORT_LOAD, {
+      onDone: (load) => {
+        setup.transport = load;
+        ed.destroy();
+        s.root.classList.remove('tj-hidden');
+        renderTransport();
+        changeTransport.focus();
+      },
+      onCancel: () => {
+        ed.destroy();
+        s.root.classList.remove('tj-hidden');
+        changeTransport.focus();
+      },
+    }, opts.openTransportView?.());
   }
 
   return { ...handle, destroy: () => { release(); handle.destroy(); } };

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { AirportLayout } from '../../src/contracts/airport';
-import { clampOrbit, findHangarBay, orbitCameraLocal, HANGAR_ORBIT_LIMITS } from '../../src/ui/hangarView';
+import { C17_HANGAR_FIT, C17_HANGAR_SUBJECT, clampOrbit, findHangarBay, orbitCameraLocal, HANGAR_ORBIT_LIMITS } from '../../src/ui/hangarView';
+import { c17Definition } from '../../src/aircraft/c17Definition';
 import { packFitStores } from '../../src/aircraft/loadout';
 import { STORE_IDS } from '../../src/contracts/core';
 import { tejasDefinition as TEJAS_MK1A } from '../../src/aircraft';
@@ -14,6 +15,19 @@ describe('loadout hangar view', () => {
     const tight = { structures: [hangar('big', 90, 86, 17), hangar('small', 30, 28, 10.4)] } as unknown as AirportLayout;
     expect(findHangarBay(tight)?.id).toBe('small');
     expect(findHangarBay({ structures: [hangar('tiny', 18, 15, 6)] } as unknown as AirportLayout)).toBeUndefined();
+  });
+
+  it('puts the C-17 in a hangar it fits, drawn tall enough for its fin', () => {
+    const layout = { structures: [hangar('big', 88.7, 86.4, 17.4), hangar('wide', 95, 28, 10.4), hangar('roomy', 41, 34, 11)] } as unknown as AirportLayout;
+    const bay = findHangarBay(layout, C17_HANGAR_FIT)!;
+    expect(bay.id).toBe('big');
+    expect(bay.widthM).toBeGreaterThan(c17Definition.wingSpanM + 15);
+    // The fin (16.8 m) under the tie beams and lamps (wall height 0.72 x the interior height, lamps 1 m below).
+    expect(bay.heightM * 0.72 - 1).toBeGreaterThan(16.8 + 0.5);
+    expect(findHangarBay({ structures: [hangar('roomy', 41, 34, 11)] } as unknown as AirportLayout, C17_HANGAR_FIT)).toBeUndefined();
+    // Stand-off: the closest the camera comes is outside the wing tips' half-span from the middle.
+    expect(C17_HANGAR_SUBJECT.limits.distMin).toBeGreaterThan(15);
+    expect(C17_HANGAR_SUBJECT.limits.distMax).toBeLessThan(bay.lengthM);
   });
 
   it('keeps the camera inside the shed and above the floor', () => {

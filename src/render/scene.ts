@@ -839,7 +839,12 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
         eachRenderer((r) => r.beginFrame(showDt, origin, cameraPose.pos, showTime));
         for (const st of sc.stores ?? []) aircraftRenderer.updateMissile(st.code, st.pos, st.vel, st.rot, origin, st.flags ?? 0);
         for (const a of sc.aircraft) {
+          // Another type's model not loaded yet: not drawn (rather than as a Tejas) until it is.
+          const r = rendererFor(a.flags);
+          if (r === aircraftRenderer && aircraftModelOf(a.flags) !== AircraftModel.Tejas && importedModels) continue;
           const st = aircraftState;
+          clearTransportState(st);
+          st.ramp = a.ramp;
           st.elevonL = 0;
           st.elevonR = 0;
           st.rudder = 0;
@@ -855,7 +860,7 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
           st.storesB = a.storesB;
           st.flags = a.flags;
           st.groundY = a.groundY;
-          rendererFor(a.flags).updateEntity(a.id, a.pos, a.rot, st, origin);
+          r.updateEntity(a.id, a.pos, a.rot, st, origin);
         }
         eachRenderer((r) => r.endFrame());
         renderer.getDrawingBufferSize(viewSize);

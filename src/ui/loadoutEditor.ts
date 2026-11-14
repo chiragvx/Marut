@@ -156,7 +156,7 @@ export interface LoadoutView {
 }
 
 /** Drag (and pinch) on `el`, away from `panel`: turns and zooms the view. Returns the remover. */
-function attachOrbit(el: HTMLElement, panel: HTMLElement, view: LoadoutView): () => void {
+export function attachOrbit(el: HTMLElement, panel: HTMLElement, view: Pick<LoadoutView, 'orbitBy' | 'setDragging'>): () => void {
   const pts = new Map<number, { x: number; y: number }>();
   let pinch = 0;
   const outside = (t: EventTarget | null): boolean => !(t instanceof Node && panel.contains(t));

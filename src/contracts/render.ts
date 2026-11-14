@@ -457,6 +457,8 @@ export interface ShowcaseAircraft {
   groundY?: number;
   /** Team (0 own, 1 hostile); default 0. */
   team?: number;
+  /** A transport's cargo ramp, 0 closed .. 1 down (default closed). */
+  ramp?: number;
 }
 
 /** A weapon in flight in a cinematic shot (missile, rocket or bomb), drawn as the sim's would be. */

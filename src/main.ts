@@ -76,7 +76,8 @@ import { createVoicePlayer } from './ui/audio/voicePlayer';
 import { createAmbience } from './ui/audio/ambience';
 import { airToAirScene, approachScene, lowPassScene, nightDepartureScene, taxiScene, type ShowcaseScene } from './ui/showcase';
 import { REEL_SHOTS } from './ui/reel';
-import { createHangarScene, findHangarBay } from './ui/hangarView';
+import { C17_HANGAR_FIT, C17_HANGAR_SUBJECT, createHangarScene, findHangarBay, type HangarScene } from './ui/hangarView';
+import { DEFAULT_TRANSPORT_LOAD, normalizeTransportLoad, withTransportLoad, type TransportLoadView } from './ui/transportLoad';
 import type { LoadoutView } from './ui/loadoutEditor';
 import type { LoadoutFit } from './aircraft/loadout';
 import { PROMO_SHOTS } from './ui/promo';
@@ -387,6 +388,7 @@ function savedFreeFlight(): FreeFlightSetup {
     weather: isWeather(s.weather) && s.weather !== 'off' ? s.weather : d.weather,
     loadout: s.loadout && typeof s.loadout === 'object' ? s.loadout : d.loadout,
     ...(isFreeFlightAircraft(s.aircraftId) ? { aircraftId: s.aircraftId } : {}),
+    ...(s.transport !== undefined ? { transport: normalizeTransportLoad(getAircraftDefinition('c-17') ?? tejasDefinition, s.transport) } : {}),
   };
 }
 
@@ -452,7 +454,7 @@ function showFreeFlight(): void {
   appState = 'mainMenu';
   currentScreen = createFreeFlightSetup(
     uiRoot,
-    { bases: BASES, def: playerAircraft, setup: savedFreeFlight(), openLoadoutView },
+    { bases: BASES, def: playerAircraft, setup: savedFreeFlight(), openLoadoutView, openTransportView },
     {
       onFly: (setup) => {
         saveJson(STORAGE.freeFlight, setup);
@@ -650,7 +652,7 @@ function launchFlight(flight: Flight): void {
     weatherMode = s.weather;
     timeOfDayH = s.timeOfDayH;
     renderer.setTimeOfDay(timeOfDayH);
-    launchMission(s.aircraftId === 'c-17' ? freeFlightMission(s.baseId, s.start, s.aircraftId) : withLoadout(freeFlightMission(s.baseId, s.start, s.aircraftId), s.loadout), { title: flightTitle(flight), airStart: s.start === 'air' });
+    launchMission(s.aircraftId === 'c-17' ? withTransportLoad(freeFlightMission(s.baseId, s.start, s.aircraftId), s.transport ?? DEFAULT_TRANSPORT_LOAD) : withLoadout(freeFlightMission(s.baseId, s.start, s.aircraftId), s.loadout), { title: flightTitle(flight), airStart: s.start === 'air' });
     return;
   }
   const base = resolveBuiltinMission(flight.id);
@@ -1651,7 +1653,23 @@ function openLoadoutView(fit: LoadoutFit): LoadoutView | undefined {
   const layout = (mission.world.airports as readonly AirportLayout[]).find((a) => a.id === base.airportId);
   const bay = layout ? findHangarBay(layout) : undefined;
   if (!layout || !bay) return undefined;
-  const scene = createHangarScene(layout, bay, playerAircraft, fit);
+  return showHangarScene(createHangarScene(layout, bay, playerAircraft, fit));
+}
+
+/** The C-17's load planner's view: the aircraft in Bathinda's biggest hangar, ramp down. */
+function openTransportView(): TransportLoadView | undefined {
+  if (!showcaseActive || devShowcase) return undefined;
+  const c17 = getAircraftDefinition('c-17');
+  const base = baseInfo('bathinda');
+  const mission = resolveBuiltinMission(base.freeMissionId);
+  const layout = (mission.world.airports as readonly AirportLayout[]).find((a) => a.id === base.airportId);
+  const bay = layout ? findHangarBay(layout, C17_HANGAR_FIT) : undefined;
+  if (!c17 || !layout || !bay) return undefined;
+  return showHangarScene(createHangarScene(layout, bay, c17, {}, C17_HANGAR_SUBJECT));
+}
+
+/** Puts a hangar scene in place of the cinematic until closed (the cinematic then carries on). */
+function showHangarScene(scene: HangarScene): LoadoutView {
   scene.setOffsetX(window.innerWidth > 760 ? 0.2 : 0);
   const resume = showcaseIndex;
   showcaseScene = scene;

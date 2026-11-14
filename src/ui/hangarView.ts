@@ -15,6 +15,7 @@ import type { AirportLayout } from '../contracts/airport';
 import type { AircraftDefinition } from '../contracts/aircraft';
 import type { ShowcaseFrame } from '../contracts/render';
 import type { QuatLike } from '../contracts/core';
+import { AIRCRAFT_MODEL_SHIFT, AircraftModel } from '../contracts/core';
 import { Quat } from '../math';
 import { packFitStores, type LoadoutFit } from '../aircraft/loadout';
 import { makeAircraft, type ShowcaseScene } from './showcase';
@@ -29,11 +30,32 @@ export interface HangarBayDef {
   heightM: number;
 }
 
+/** A bigger aircraft's hangar: at least this floor, and the interior drawn at least this tall. */
+export interface HangarFit {
+  minWidthM: number;
+  minLengthM: number;
+  minHeightM: number;
+}
+
+/**
+ * The C-17 (51.8 m span, 53 m long, fin 16.8 m): the smallest shed with ~10 m round it. Bhisiana's
+ * HANGAR-3 (89 x 86 x 17.4 m) takes it; its interior is drawn 26 m tall so the tie beams and lamps clear the
+ * fin (the shed itself is hidden while the view is open, so the extra height never shows outside).
+ */
+export const C17_HANGAR_FIT: HangarFit = { minWidthM: 70, minLengthM: 70, minHeightM: 26 };
+
 /**
  * The base's hangar for the view: the smallest roomy one (about 36 x 32 m or more: space to stand
- * well back from the jet), else the smallest a Tejas fits in at all (none: undefined).
+ * well back from the jet), else the smallest a Tejas fits in at all (none: undefined). With `fit`
+ * (a bigger aircraft): the smallest hangar with that floor.
  */
-export function findHangarBay(layout: AirportLayout): HangarBayDef | undefined {
+export function findHangarBay(layout: AirportLayout, fit?: HangarFit): HangarBayDef | undefined {
+  if (fit) {
+    const big = (layout.structures ?? []).filter((s) => s.kind === 'hangar' && s.widthM >= fit.minWidthM && s.lengthM >= fit.minLengthM);
+    big.sort((a, b) => a.widthM * a.lengthM - b.widthM * b.lengthM);
+    const b = big[0];
+    return b ? { id: b.id, x: b.worldX, z: b.worldZ, headingRad: b.headingRad, widthM: b.widthM, lengthM: b.lengthM, heightM: Math.max(b.heightM, fit.minHeightM) } : undefined;
+  }
   const all = (layout.structures ?? []).filter((s) => s.kind === 'hangar' && s.widthM >= 24 && s.lengthM >= 24 && s.heightM >= 8);
   all.sort((a, b) => a.widthM * a.lengthM - b.widthM * b.lengthM);
   const s = all.find((x) => x.widthM >= 36 && x.lengthM >= 32 && x.widthM <= 60 && x.lengthM <= 60) ?? all[0];
@@ -47,13 +69,64 @@ export interface HangarOrbit {
   dist: number;
 }
 
-export const HANGAR_ORBIT_LIMITS = { pitchMin: -0.12, pitchMax: 1.05, distMin: 6, distMax: 24 } as const;
+export interface OrbitLimits {
+  pitchMin: number;
+  pitchMax: number;
+  distMin: number;
+  distMax: number;
+}
 
-export function clampOrbit(o: HangarOrbit): HangarOrbit {
-  o.pitch = Math.min(HANGAR_ORBIT_LIMITS.pitchMax, Math.max(HANGAR_ORBIT_LIMITS.pitchMin, o.pitch));
-  o.dist = Math.min(HANGAR_ORBIT_LIMITS.distMax, Math.max(HANGAR_ORBIT_LIMITS.distMin, o.dist));
+export const HANGAR_ORBIT_LIMITS: OrbitLimits = { pitchMin: -0.12, pitchMax: 1.05, distMin: 6, distMax: 24 };
+
+export function clampOrbit(o: HangarOrbit, lim: OrbitLimits = HANGAR_ORBIT_LIMITS): HangarOrbit {
+  o.pitch = Math.min(lim.pitchMax, Math.max(lim.pitchMin, o.pitch));
+  o.dist = Math.min(lim.distMax, Math.max(lim.distMin, o.dist));
   return o;
 }
+
+/** What stands in the hangar and how the camera walks round it. */
+export interface HangarSubject {
+  /** EntityFlags for the model (contracts/core.ts AIRCRAFT_MODEL_SHIFT). */
+  flags: number;
+  /** Its origin above the floor, parked on its wheels, m. */
+  parkedOriginM: number;
+  /** The camera's aim above the origin, m. */
+  targetAboveOriginM: number;
+  /** How far ahead of the bay's middle it stands, m (more room behind for the tail). */
+  fwdM: number;
+  start: HangarOrbit;
+  limits: OrbitLimits;
+  /** Cargo ramp (0 closed .. 1 down), transports only. */
+  ramp?: number;
+  /** Whether it carries stores (drawn from the fit). */
+  stores: boolean;
+}
+
+/** The Tejas (showcase.ts parks its origin 1.6 m above its wheels' contact). */
+export const TEJAS_HANGAR_SUBJECT: HangarSubject = {
+  flags: 0,
+  parkedOriginM: 1.6,
+  targetAboveOriginM: 0.3,
+  fwdM: 1.0,
+  start: { yaw: -0.75, pitch: 0.2, dist: 12.5 },
+  limits: HANGAR_ORBIT_LIMITS,
+  stores: true,
+};
+
+/**
+ * The C-17: its CG 4.25 m over the floor on its gear (aircraft/c17Data.ts contacts 4.5 m down,
+ * ~0.25 m static compression), the ramp down as if being loaded.
+ */
+export const C17_HANGAR_SUBJECT: HangarSubject = {
+  flags: AircraftModel.C17 << AIRCRAFT_MODEL_SHIFT,
+  parkedOriginM: 4.25,
+  targetAboveOriginM: 0.8,
+  fwdM: 2.0,
+  start: { yaw: -0.8, pitch: 0.16, dist: 50 },
+  limits: { pitchMin: -0.08, pitchMax: 0.95, distMin: 20, distMax: 72 },
+  ramp: 1,
+  stores: false,
+};
 
 /** Where the camera stands, in the bay's frame (x right, y up from the floor, z towards the doors from the middle): kept inside the shed. */
 export function orbitCameraLocal(o: HangarOrbit, target: { x: number; y: number; z: number }, bay: { widthM: number; lengthM: number; heightM: number }): { x: number; y: number; z: number } {
@@ -87,12 +160,10 @@ const SPIN_DECAY = 2.5;
 /** Idle (s) before the camera drifts round by itself, and how fast, rad/s. */
 const IDLE_SEC = 5;
 const DRIFT_RAD_S = 0.06;
-/** The jet's origin above its wheels' contact with the floor, m (as showcase.ts parks it). */
-const PARKED_ORIGIN_M = 1.6;
-/** How far ahead of the bay's middle the jet stands, m (more room behind for the tail). */
-const JET_FWD_M = 1.0;
-
-export function createHangarScene(layout: AirportLayout, bay: HangarBayDef, def: AircraftDefinition, fit: LoadoutFit): HangarScene {
+export function createHangarScene(layout: AirportLayout, bay: HangarBayDef, def: AircraftDefinition, fit: LoadoutFit, subject: HangarSubject = TEJAS_HANGAR_SUBJECT): HangarScene {
+  const PARKED_ORIGIN_M = subject.parkedOriginM;
+  const JET_FWD_M = subject.fwdM;
+  const lim = subject.limits;
   const floorY = layout.elevationM + 0.04;
   const h = bay.headingRad;
   // Bay frame: right (cos h, sin h), forward to the doors (sin h, -cos h).
@@ -102,6 +173,8 @@ export function createHangarScene(layout: AirportLayout, bay: HangarBayDef, def:
   const fz = -Math.cos(h);
   const jet = makeAircraft();
   jet.throttle = 0;
+  jet.flags = subject.flags;
+  if (subject.ramp !== undefined) jet.ramp = subject.ramp;
   jet.groundY = floorY;
   jet.pos.x = bay.x + fx * JET_FWD_M;
   jet.pos.y = floorY + PARKED_ORIGIN_M;
@@ -110,6 +183,11 @@ export function createHangarScene(layout: AirportLayout, bay: HangarBayDef, def:
   Quat.fromYawPitchRoll(h, 0, 0, q);
   Object.assign(jet.rot, q);
   const setFit = (f: LoadoutFit): void => {
+    if (!subject.stores) {
+      jet.stores = 0;
+      jet.storesB = 0;
+      return;
+    }
     const p = packFitStores(def, f);
     jet.stores = p.a;
     jet.storesB = p.b;
@@ -117,7 +195,7 @@ export function createHangarScene(layout: AirportLayout, bay: HangarBayDef, def:
   setFit(fit);
 
   // Front-left three-quarter view to start.
-  const want: HangarOrbit = { yaw: -0.75, pitch: 0.2, dist: 12.5 };
+  const want: HangarOrbit = { ...subject.start };
   const cur: HangarOrbit = { ...want };
   let lastT = 0;
   let idle = 0;
@@ -129,7 +207,7 @@ export function createHangarScene(layout: AirportLayout, bay: HangarBayDef, def:
   let dragging = false;
   let offsetX = 0.2;
   // What the camera looks at: the jet's middle, a little over its origin (bay frame, floor-relative).
-  const target = { x: 0, y: PARKED_ORIGIN_M + 0.3, z: JET_FWD_M };
+  const target = { x: 0, y: PARKED_ORIGIN_M + subject.targetAboveOriginM, z: JET_FWD_M };
   const frame: ShowcaseFrame = {
     camPos: { x: 0, y: 0, z: 0 },
     lookAt: { x: 0, y: 0, z: 0 },
@@ -154,7 +232,7 @@ export function createHangarScene(layout: AirportLayout, bay: HangarBayDef, def:
       want.yaw += dYaw;
       want.pitch += dPitch;
       want.dist *= zoom;
-      clampOrbit(want);
+      clampOrbit(want, lim);
       idle = 0;
     },
     setDragging(on) {
@@ -179,7 +257,7 @@ export function createHangarScene(layout: AirportLayout, bay: HangarBayDef, def:
           // Let go: it carries on turning, slowing to a stop.
           want.yaw += spinYaw * dt;
           want.pitch += spinPitch * dt;
-          clampOrbit(want);
+          clampOrbit(want, lim);
           const d = Math.exp(-dt * SPIN_DECAY);
           spinYaw *= d;
           spinPitch *= d;

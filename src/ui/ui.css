@@ -726,3 +726,8 @@ a.tj-link { color: var(--tj-ink); }
 .tj-weight.is-over .tj-wt-fill { background: linear-gradient(90deg, #7fb8d8, #e88040); }
 .tj-weight.is-over .tj-wt-note, .tj-weight.is-over [data-role="weight"] { color: #f0a060; opacity: 1; }
 .tj-weight .tj-range { width: 100%; margin: 0; }
+/* Transport load planner (transportLoad.ts): text-only preset tiles, the CG bar with its envelope. */
+.tj-mission--text { grid-template-columns: 1fr; }
+.tj-cg-band { position: absolute; top: 0; bottom: 0; border-radius: 4px; background: rgba(127, 184, 216, 0.35); }
+.tj-cg-mark { position: absolute; top: -4px; bottom: -4px; width: 3px; margin-left: -1.5px; border-radius: 1px; background: #fff; transition: left 0.2s ease; }
+.tj-cg.is-over .tj-cg-mark { background: #f0a060; }

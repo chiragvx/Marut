@@ -249,6 +249,7 @@ export function buildHangarInterior(w: number, l: number, h: number): { geom: TH
 
   // Steel frames: columns, a tie beam and the arch, every ~4.5 m; purlins along the roof.
   const frames = Math.max(3, Math.round(l / 4.5));
+  const lampEvery = Math.ceil((frames * 3) / MAX_LAMPS);
   const lamps: THREE.Vector3[] = [];
   const v0 = new THREE.Vector3();
   const v1 = new THREE.Vector3();
@@ -265,7 +266,9 @@ export function buildHangarInterior(w: number, l: number, h: number): { geom: TH
     // Struts from the tie beam up to the arch.
     for (const x of [-hw * 0.5, 0, hw * 0.5]) boxAt(parts, P.Steel, x - 0.06, x + 0.06, wallH - 0.1, archY(x) - 0.3, z - 0.06, z + 0.06);
     // High-bay lamps hung between the frames.
-    if (k < frames) {
+    // In a long shed (the C-17's) only every few bays has a row, so the lamps the shader lights
+    // (MAX_LAMPS) are spread over the whole length instead of the front half.
+    if (k < frames && k % lampEvery === 0) {
       const zm = z + (l - 0.6) / frames / 2;
       for (const x of [-hw * 0.45, 0, hw * 0.45]) {
         const y = wallH - 0.6;
