@@ -1049,13 +1049,14 @@ export interface ChunkManager {
    * this call (nearest-desired-first; any remaining newly-desired chunks
    * are picked up on a later `update()` call once earlier requests have
    * resolved) and TerrainCancelMessage for no-longer-desired in-flight
-   * requests, and fires onChunkEvicted for resident chunks that fell out of
-   * the desired set. Does not itself fire onChunkReady (that happens from
-   * `handleTerrainWorkerMessage` once the worker actually responds). No
+   * requests. A displayed chunk that falls out of the desired set stays
+   * displayed until the desired chunks covering its ground are all resident;
+   * then onChunkEvicted (old) and onChunkReady (new) fire together, so an LOD
+   * swap never leaves a hole or draws ground twice. No
    * allocation once the resident set has stabilised in steady state.
    */
   update(cameraWorldPos: Vec3Like, qualityTier: QualityTier): void;
-  /** Feed one incoming terrain-worker message. src/core's main-thread message router calls this for every message the terrain worker posts. Fires onChunkReady synchronously for a `chunkReady` whose requestId is still desired (a `chunkReady` for an already-cancelled/superseded request is silently dropped). */
+  /** Feed one incoming terrain-worker message. src/core's main-thread message router calls this for every message the terrain worker posts. Fires onChunkReady synchronously for a `chunkReady` whose requestId is still desired, unless a displayed chunk it replaces is still waiting on its other replacements (then all of them appear together) (a `chunkReady` for an already-cancelled/superseded request is silently dropped). */
   handleTerrainWorkerMessage(msg: TerrainToMainMessage | TerrainToMainMessageExt): void;
   /** Single-subscriber callback, replaced (not appended) on repeated calls, invoked once per newly-resident chunk. The passed ResidentChunkInfo is only guaranteed valid for the duration of the callback. */
   onChunkReady(callback: (chunk: ResidentChunkInfo) => void): void;

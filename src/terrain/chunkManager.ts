@@ -24,8 +24,16 @@ import type { ChunkBounds, TerrainParams } from '../contracts/terrain';
 interface Entry {
   key: ChunkKey;
   resident: boolean;
+  /** Handed to the renderer (onChunkReady fired, onChunkEvicted not yet). */
+  displayed: boolean;
   requestId?: number;
   geometry?: ChunkGeometry;
+}
+
+/** A displayed chunk that left the desired set, kept on screen until its ground is covered again. */
+interface Retained {
+  key: ChunkKey;
+  geometry: ChunkGeometry;
 }
 
 /**
@@ -48,6 +56,12 @@ function chunkKeyHash(key: ChunkKey): number {
   return key.depth * 1_000_000 + key.cx * 1000 + key.cz;
 }
 
+/** chunkKeyHash of `key`'s ancestor at `depth` (<= key.depth), without allocating the key. */
+function ancestorHash(key: ChunkKey, depth: number): number {
+  const s = key.depth - depth;
+  return depth * 1_000_000 + (key.cx >> s) * 1000 + (key.cz >> s);
+}
+
 /**
  * The tier's terrain profile adjusted for the terrain: `lodDepthBonus` extra quadtree depth (capped
  * at MAX_QUADTREE_DEPTH) and a stream radius of at least `minDrawDistanceM` (TerrainParams).
@@ -67,6 +81,15 @@ export function terrainProfileFor(tier: QualityTier, params: TerrainParams): Qua
 class ChunkManagerImpl implements ChunkManager {
   private readonly sendToTerrainWorker: SendToTerrainWorker;
   private readonly entries = new Map<number, Entry>();
+  /**
+   * Displayed chunks no longer desired, still drawn until the ground they cover is shown by the
+   * desired chunks that replace them (all resident) — so an LOD split or merge swaps the meshes in
+   * one step instead of leaving a hole while the worker builds the replacement. Never overlaps
+   * itself or a displayed entry: desired chunks under a retained one stay hidden until it goes.
+   */
+  private readonly retained = new Map<number, Retained>();
+  /** Scratch: hashes of every not-yet-resident desired chunk and all its ancestors. */
+  private readonly pendingScratch = new Set<number>();
   private ready = false;
   private disposed = false;
   private nextRequestId = 1;
@@ -137,16 +160,25 @@ class ChunkManagerImpl implements ChunkManager {
     for (const key of this.scratchDesired) {
       const kh = chunkKeyHash(key);
       this.desiredSet.add(kh);
-      if (!this.entries.has(kh)) this.entries.set(kh, { key, resident: false });
+      if (this.entries.has(kh)) continue;
+      const back = this.retained.get(kh);
+      if (back) {
+        // Wanted again while still on screen (the camera turned back): it simply stays.
+        this.retained.delete(kh);
+        this.entries.set(kh, { key: back.key, resident: true, displayed: true, geometry: back.geometry });
+      } else {
+        this.entries.set(kh, { key, resident: false, displayed: false });
+      }
     }
 
-    // Cancel/evict entries that fell out of the desired set.
+    // Cancel entries that fell out of the desired set; displayed ones stay drawn (retained) until
+    // their replacement is resident, see reconcileDisplay().
     for (const [kh, entry] of this.entries) {
       if (this.desiredSet.has(kh)) continue;
       if (entry.requestId !== undefined && !entry.resident) {
         this.sendToTerrainWorker({ type: 'cancel', requestId: entry.requestId });
       }
-      if (entry.resident) this.fireEvicted(entry.key);
+      if (entry.displayed && entry.geometry) this.retained.set(kh, { key: entry.key, geometry: entry.geometry });
       this.entries.delete(kh);
     }
 
@@ -169,6 +201,7 @@ class ChunkManagerImpl implements ChunkManager {
     this.splitAncestorsNext = tmp;
 
     this.trySendRequests();
+    this.reconcileDisplay();
   }
 
   handleTerrainWorkerMessage(msg: TerrainToMainMessage | TerrainToMainMessageExt): void {
@@ -203,7 +236,7 @@ class ChunkManagerImpl implements ChunkManager {
       }
       entry.geometry = geometry;
       entry.resident = true;
-      this.onChunkReadyCallback?.({ key: entry.key, geometry });
+      this.reconcileDisplay();
       return;
     }
   }
@@ -225,20 +258,72 @@ class ChunkManagerImpl implements ChunkManager {
   getResidentChunks(): readonly ResidentChunkInfo[] {
     const result: ResidentChunkInfo[] = [];
     for (const entry of this.entries.values()) {
-      if (entry.resident && entry.geometry) result.push({ key: entry.key, geometry: entry.geometry });
+      if (entry.displayed && entry.geometry) result.push({ key: entry.key, geometry: entry.geometry });
     }
+    for (const r of this.retained.values()) result.push({ key: r.key, geometry: r.geometry });
     return result;
   }
 
   dispose(): void {
     this.disposed = true;
     this.entries.clear();
+    this.retained.clear();
     this.onChunkReadyCallback = undefined;
     this.onChunkEvictedCallback = undefined;
   }
 
   private fireEvicted(key: ChunkKey): void {
     this.onChunkEvictedCallback?.(key);
+  }
+
+  /**
+   * Brings what the renderer draws in line with residency without ever uncovering ground:
+   * 1. a retained chunk goes once its ground is covered — by a resident desired ancestor, or by
+   *    all of its desired descendants being resident (none left pending); one with no desired
+   *    chunk over or under it lies outside the streamed area and goes at once;
+   * 2. then every resident desired chunk not under a retained one is shown.
+   * Both steps of a swap happen in the same call, so an LOD change never leaves a hole or draws
+   * the same ground twice.
+   */
+  private reconcileDisplay(): void {
+    if (this.retained.size > 0) {
+      const pending = this.pendingScratch;
+      pending.clear();
+      for (const entry of this.entries.values()) {
+        if (entry.resident) continue;
+        for (let d = entry.key.depth; d >= 0; d--) {
+          const h = ancestorHash(entry.key, d);
+          if (pending.has(h)) break; // the rest of the chain is already in
+          pending.add(h);
+        }
+      }
+      for (const [kh, r] of this.retained) {
+        let release: boolean | undefined;
+        for (let d = r.key.depth - 1; d >= 0; d--) {
+          const anc = this.entries.get(ancestorHash(r.key, d));
+          if (anc) {
+            release = anc.resident;
+            break;
+          }
+        }
+        if (release === undefined) release = !pending.has(kh);
+        if (release) {
+          this.retained.delete(kh);
+          this.fireEvicted(r.key);
+        }
+      }
+    }
+    for (const entry of this.entries.values()) {
+      if (!entry.resident || entry.displayed || !entry.geometry) continue;
+      if (this.retained.size > 0 && this.underRetained(entry.key)) continue;
+      entry.displayed = true;
+      this.onChunkReadyCallback?.({ key: entry.key, geometry: entry.geometry });
+    }
+  }
+
+  private underRetained(key: ChunkKey): boolean {
+    for (let d = key.depth - 1; d >= 0; d--) if (this.retained.has(ancestorHash(key, d))) return true;
+    return false;
   }
 
   private distanceOfKey(key: ChunkKey): number {
@@ -284,7 +369,7 @@ class ChunkManagerImpl implements ChunkManager {
     for (const entry of resident) {
       if (overflow <= 0) break;
       const kh = chunkKeyHash(entry.key);
-      this.fireEvicted(entry.key);
+      if (entry.displayed) this.fireEvicted(entry.key);
       this.entries.delete(kh);
       this.desiredSet.delete(kh);
       overflow--;
