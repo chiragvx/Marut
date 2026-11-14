@@ -108,14 +108,16 @@ export function createFreeFlightSetup(container: HTMLElement, opts: { bases: rea
   }
   function noteFor(base: BaseInfo): void {
     const transport = setup.aircraftId === 'c-17';
+    const above = `${(Math.round((base.airStart?.heightM ?? 3000) / 100) * 100).toLocaleString('en-US')} m above the field`;
+    const onApproach = base.airStart ? `${base.airStart.distanceM / 1000} km out on the runway ${base.airStart.runwayId} approach` : 'on the approach';
     startNote.textContent =
       setup.start === 'parked'
         ? `Engines running, ${transport ? 'on the apron' : base.parkedLabel}. Press H for taxi guidance to the runway.`
         : setup.start === 'air' && transport
-          ? '3,000 m above the field, 230 kt, on the approach. Gear up.'
+          ? `${above}, 230 kt, ${onApproach}. Gear up.`
         : setup.start === 'runway'
           ? 'Lined up on the runway in use, engine running. Throttle up (X) and go.'
-          : '3,000 m above the field, 350 kt, on the approach. Gear up.';
+          : `${above}, 350 kt, ${onApproach}. Gear up.`;
   }
   renderStart();
 

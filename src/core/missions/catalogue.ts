@@ -9,7 +9,7 @@ import type { Mission, Vec3Like } from '../../contracts/core';
 import { activeRunway } from '../../airport/taxiGraph';
 import { resolveBuiltinMission, type BuiltinMissionId } from './index';
 
-export type BaseId = 'hansa' | 'bathinda' | 'fukche';
+export type BaseId = 'hansa' | 'bathinda' | 'fukche' | 'simikot';
 export type StartMode = 'parked' | 'runway' | 'air';
 
 export interface BaseInfo {
@@ -28,6 +28,13 @@ export interface BaseInfo {
   untested?: boolean;
   /** Not open in this build: shown, locked (and its missions with it). */
   locked?: boolean;
+  /** The Free Flight's name when the base shares another base's world (`freeMissionId`). */
+  flightName?: string;
+  /**
+   * An air start on this runway's approach, this far out and this high above the field, instead
+   * of AIR_START on the runway in use (a one-way strip in a gorge has one way in).
+   */
+  airStart?: { runwayId: string; distanceM: number; heightM: number };
 }
 
 /** The tag and the line the menus show for an untested base. */
@@ -66,6 +73,21 @@ export const BASES: readonly BaseInfo[] = [
     freeMissionId: 'himalaya-free',
     parkingSpotId: 'STAND-1',
     parkedLabel: 'at the dispersal',
+    untested: true,
+  },
+  {
+    id: 'simikot',
+    name: 'Simikot',
+    place: 'Humla, Nepal',
+    blurb: 'A 650 m strip at 2,971 m on a shelf above the Karnali gorge, ridges to 5,800 m round it: the final to runway 28 comes up the ravine.',
+    airportId: 'simikot',
+    // The same Himalaya world as Fukche (the three bases share one map).
+    freeMissionId: 'himalaya-free',
+    flightName: 'Free Flight — Simikot, Himalaya',
+    parkingSpotId: 'STAND-1',
+    parkedLabel: 'on the apron',
+    // The ravine approach to runway 28 (as the dev start himalaya-simikot): 6 km out, 5,200 m.
+    airStart: { runwayId: '28', distanceM: 6000, heightM: 2229 },
     untested: true,
   },
 ];
@@ -303,13 +325,41 @@ export const isFreeFlightAircraft = (id: unknown): id is FreeFlightAircraftId =>
 /** Transports park on an apron stand, never in a fighter shelter. */
 const isTransport = (aircraftId: FreeFlightAircraftId | undefined): boolean => aircraftId === 'c-17';
 
+function insidePolygon(pts: readonly { worldX: number; worldZ: number }[], x: number, z: number): boolean {
+  let inside = false;
+  for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+    const a = pts[i]!;
+    const b = pts[j]!;
+    if (a.worldZ > z !== b.worldZ > z && x < ((b.worldX - a.worldX) * (z - a.worldZ)) / (b.worldZ - a.worldZ) + a.worldX) inside = !inside;
+  }
+  return inside;
+}
+
+/**
+ * Whether an aircraft `lengthM` long and `spanM` wide fits on a stand: its fuselage line (nose to
+ * tail along the stand's heading) and its wing line (tip to tip through the stand point) all on
+ * the apron. Simikot's apron is 40 m deep: a 53 m C-17 does not fit there.
+ */
+export function standFits(layout: AirportLayout, spot: { worldX: number; worldZ: number; headingRad: number }, lengthM: number, spanM: number): boolean {
+  const fx = Math.sin(spot.headingRad);
+  const fz = -Math.cos(spot.headingRad);
+  const on = (x: number, z: number): boolean => layout.aprons.some((ap) => insidePolygon(ap.points, x, z));
+  for (let s = -lengthM / 2; s <= lengthM / 2 + 1e-6; s += 1) if (!on(spot.worldX + fx * s, spot.worldZ + fz * s)) return false;
+  for (let s = -spanM / 2; s <= spanM / 2 + 1e-6; s += 1) if (!on(spot.worldX - fz * s, spot.worldZ + fx * s)) return false;
+  return true;
+}
+
+/** The C-17's footprint for standFits, m (53.0 m long, 51.75 m span). */
+export const C17_FOOTPRINT = { lengthM: 53, spanM: 51.75 } as const;
+
 /** Where this aircraft parks at this base (undefined: no stand fits it, so no Parked start). */
 export function parkingSpotFor(baseId: BaseId, aircraftId?: FreeFlightAircraftId): string | undefined {
   const base = baseInfo(baseId);
   if (!isTransport(aircraftId)) return base.parkingSpotId;
   const m = resolveBuiltinMission(base.freeMissionId);
   const layout = (m.world.airports as readonly AirportLayout[]).find((a) => a.id === base.airportId);
-  return layout?.parkingSpots.find((p) => p.type === 'transport')?.id;
+  if (!layout) return undefined;
+  return layout.parkingSpots.find((p) => p.type === 'transport' && standFits(layout, p, C17_FOOTPRINT.lengthM, C17_FOOTPRINT.spanM))?.id;
 }
 
 /**
@@ -319,7 +369,8 @@ export function parkingSpotFor(baseId: BaseId, aircraftId?: FreeFlightAircraftId
  */
 export function freeFlightMission(baseId: BaseId, start: StartMode, aircraftIdIn?: FreeFlightAircraftId): Mission {
   const base = baseInfo(baseId);
-  const m = resolveBuiltinMission(base.freeMissionId);
+  const m0 = resolveBuiltinMission(base.freeMissionId);
+  const m = base.flightName ? { ...m0, name: base.flightName } : m0;
   const layout = (m.world.airports as readonly AirportLayout[]).find((a) => a.id === base.airportId);
   const aircraftId = aircraftIdIn ?? m.playerStart.aircraftId;
   const common = { airportId: base.airportId, ...(aircraftId ? { aircraftId } : {}) };
@@ -329,14 +380,18 @@ export function freeFlightMission(baseId: BaseId, start: StartMode, aircraftIdIn
   const rwy = activeRunway(layout, { x: m.weather.windWorldMps.x, z: m.weather.windWorldMps.z });
   const runway = layout.runways.find((r) => r.id === rwy) ?? layout.runways[0]!;
   if (start !== 'air') return { ...m, playerStart: { ...common, runwayId: runway.id, speedMps: 0 } };
+  const as = base.airStart;
+  const approach = (as && layout.runways.find((r) => r.id === as.runwayId)) || runway;
+  const distanceM = as?.distanceM ?? AIR_START.distanceM;
+  const heightM = as?.heightM ?? AIR_START.heightM;
   // Heading 0 = north, +x east, -z north: the approach is behind the threshold.
-  const dirX = Math.sin(runway.headingRad);
-  const dirZ = -Math.cos(runway.headingRad);
+  const dirX = Math.sin(approach.headingRad);
+  const dirZ = -Math.cos(approach.headingRad);
   const pos: Vec3Like = {
-    x: runway.thresholdWorldX - dirX * AIR_START.distanceM,
-    y: layout.elevationM + AIR_START.heightM,
-    z: runway.thresholdWorldZ - dirZ * AIR_START.distanceM,
+    x: approach.thresholdWorldX - dirX * distanceM,
+    y: layout.elevationM + heightM,
+    z: approach.thresholdWorldZ - dirZ * distanceM,
   };
   const speedMps = isTransport(aircraftIdIn) ? 120 : AIR_START.speedMps;
-  return { ...m, playerStart: { ...(aircraftId ? { aircraftId } : {}), pos, headingRad: runway.headingRad, speedMps } };
+  return { ...m, playerStart: { ...(aircraftId ? { aircraftId } : {}), pos, headingRad: approach.headingRad, speedMps } };
 }
