@@ -162,6 +162,8 @@ export interface MissionGroundGroup {
   /** Air-defence sites: 'active' radars search all the time; 'ambush' keeps them silent until the
    *  early-warning network reports a target near the engagement envelope. Default 'active'. */
   emcon?: 'active' | 'ambush';
+  /** Unknown to the player: no steerpoint, map or HUD mark (an ambush the mission springs as a surprise). */
+  hidden?: boolean;
 }
 
 /** Objective kinds that involve ground targets (MissionObjective.kind; params below). */

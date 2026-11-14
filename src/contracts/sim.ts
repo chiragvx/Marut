@@ -566,6 +566,7 @@ export interface MissionDescriptor {
   weather: Mission['weather'];
   objectives: Mission['objectives'];
   route?: Mission['route'];
+  dropApproach?: Mission['dropApproach'];
 }
 
 /**

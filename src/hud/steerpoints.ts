@@ -36,7 +36,7 @@ const km = (m: number): string => (m < 10000 ? (m / 1000).toFixed(1) : (m / 1000
 export function buildSteerpoints(groups: readonly MissionGroundGroup[], heightAt: (x: number, z: number) => number): HudSteerpoint[] {
   const out: HudSteerpoint[] = [];
   for (const g of groups) {
-    if (g.team === 0) continue;
+    if (g.team === 0 || g.hidden) continue;
     const units = [...(g.template ? (SITE_TEMPLATES[g.template]?.units ?? []) : []), ...(g.units ?? [])];
     let dx = 0, dz = 0;
     for (const u of units) {

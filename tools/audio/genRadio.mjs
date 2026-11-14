@@ -10,7 +10,8 @@
  *   ONLY=duel_splash,n9 node tools/audio/genRadio.mjs
  *
  * Ids starting p_ are the player's own calls: the same voice, lower and quicker (the game plays
- * them through an oxygen-mask mic, the controller through the radio).
+ * them through an oxygen-mask mic, the controller through the radio). Ids starting tw_ are the
+ * Simikot tower controller, a Nepalese voice (ne-NP-SagarNeural reading the English lines).
  *
  * Needs edge-tts (pip install edge-tts) and ffmpeg on the PATH. For a public release, render the
  * same voice through Azure Speech (licensed output).
@@ -26,6 +27,9 @@ const VOICE = 'en-IN-PrabhatNeural';
 /** The controller; the pilot's own calls (ids p_*) the same voice lower and quicker, so the two differ. */
 const CONTROLLER = { rate: '+8%', pitch: '+0Hz' };
 const PILOT = { rate: '+16%', pitch: '-14Hz' };
+/** The Simikot tower controller (ids tw_*): a second person on the radio, with a Nepali accent. */
+const TOWER_VOICE = 'ne-NP-SagarNeural';
+const TOWER = { rate: '+4%', pitch: '+0Hz' };
 const OUT = 'public/audio/radio';
 const lines = JSON.parse(readFileSync('src/script/radioLines.json', 'utf8'));
 mkdirSync(OUT, { recursive: true });
@@ -43,8 +47,9 @@ async function one([id, text]) {
   const raw = join(tmp, `${id}.mp3`);
   for (let attempt = 0; ; attempt++) {
     try {
-      const v = id.startsWith('p_') ? PILOT : CONTROLLER;
-      await run('edge-tts', ['--voice', VOICE, `--rate=${v.rate}`, `--pitch=${v.pitch}`, '--text', text, '--write-media', raw]);
+      const tower = id.startsWith('tw_');
+      const v = id.startsWith('p_') ? PILOT : tower ? TOWER : CONTROLLER;
+      await run('edge-tts', ['--voice', tower ? TOWER_VOICE : VOICE, `--rate=${v.rate}`, `--pitch=${v.pitch}`, '--text', text, '--write-media', raw]);
       break;
     } catch (e) {
       if (attempt >= 3) throw e;

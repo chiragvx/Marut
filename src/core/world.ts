@@ -107,6 +107,7 @@ import { Airdrops, type AirdropStatus } from './airdrop';
 import { subSeed } from './seed';
 import { writeSnapshot as writeSnapshotBuffer } from './snapshotWriter';
 import { computeIlsDeviation, forwardWorldInto, rightWorldInto } from './hudTelemetry';
+import { dropBeamAt, newDropBeamState } from './dropBeam';
 import type { CombatPortWithAirDefence, CombatPortWithBriefing, CombatPortWithContacts, CombatPortWithGroundMap, CombatPortWithRearm, CombatPortWithStores } from './combatContext';
 import { GCAS_WARN_CLEARANCE_M, gcasClearanceM } from './gcas';
 import { applyAutopilotAction, autopilotFlags, createAutopilotState, stepAutopilot, type AutopilotState } from './autopilot';
@@ -331,6 +332,7 @@ class WorldImpl implements World {
   };
   private readonly ilsScratch = { loc: 0, gs: 0 };
   private readonly ilsTry = { loc: 0, gs: 0 };
+  private readonly dropBeam = newDropBeamState();
   /** The player's autopilot, and the inputs it hands the flight model (the pilot's, with its overrides). */
   private ap: AutopilotState = createAutopilotState();
   private readonly apInputs: PilotInputs = defaultPilotInputs();
@@ -1710,6 +1712,13 @@ class WorldImpl implements World {
     const out = this.ilsScratch;
     out.loc = 0;
     out.gs = 0;
+    // A mission's airdrop approach comes first: inside its beam the needles fly it.
+    const drop = this.mission?.dropApproach;
+    if (drop && dropBeamAt(playerPos, drop, this.dropBeam).valid) {
+      out.loc = this.dropBeam.loc;
+      out.gs = this.dropBeam.gs;
+      return;
+    }
     let bestSq = Infinity;
     for (const airport of this.deps.navDb.listAirports()) {
       for (const runway of airport.runways) {

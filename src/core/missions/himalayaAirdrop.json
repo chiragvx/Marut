@@ -14,13 +14,13 @@
   "playerStart": {
     "aircraftId": "c-17",
     "pos": {
-      "x": -2000,
-      "y": 7300,
-      "z": 93000
+      "x": 92025,
+      "y": 4750,
+      "z": 94595
     },
-    "headingRad": 1.42,
-    "speedMps": 190,
-    "fuelFrac": 0.5,
+    "headingRad": 5.4978,
+    "speedMps": 93,
+    "fuelFrac": 0.4,
     "cargoKg": 16000,
     "airdrop": {
       "bundles": 16,
@@ -32,42 +32,32 @@
   "aiFlights": [],
   "groundGroups": [
     {
-      "id": "manpads-kermi",
-      "name": "MANPADS teams (north)",
-      "team": 1,
-      "template": "manpads-pair",
-      "pos": {
-        "x": 61811,
-        "z": 64882
-      },
-      "headingRad": 2.2
-    },
-    {
       "id": "manpads-ridge",
-      "name": "MANPADS teams (west)",
+      "name": "MANPADS teams",
       "team": 1,
       "template": "manpads-pair",
       "pos": {
-        "x": 60311,
-        "z": 65882
+        "x": 70061,
+        "z": 71882
       },
-      "headingRad": 1.9
+      "headingRad": 2.36,
+      "hidden": true
     }
   ],
   "weather": {
     "windWorldMps": {
-      "x": 3,
+      "x": 2,
       "y": 0,
-      "z": -2
+      "z": -1.5
     },
-    "gustMps": 1.5,
-    "turbulence": 0.15
+    "gustMps": 1,
+    "turbulence": 0.08
   },
   "objectives": [
     {
       "id": "obj-airdrop",
       "kind": "survive_time",
-      "description": "Airdrop the supplies on DZ Tango, north-west of Simikot (the mission script grades the drop and ends the mission).",
+      "description": "Airdrop the supplies on the runway at Simikot (the mission script grades the drop and ends the mission).",
       "params": {
         "seconds": 86400
       }
@@ -75,36 +65,23 @@
   ],
   "route": [
     {
-      "name": "LETDOWN",
+      "name": "DZ SIMIKOT",
       "pos": {
-        "x": 77239,
-        "z": 81042
+        "x": 70811.5,
+        "z": 73382.2
       },
-      "altM": 4600
-    },
-    {
-      "name": "IP",
-      "pos": {
-        "x": 71364,
-        "z": 71971
-      },
-      "altM": 4600
-    },
-    {
-      "name": "DZ TANGO",
-      "pos": {
-        "x": 65411,
-        "z": 67782
-      },
-      "altM": 4065
-    },
-    {
-      "name": "EXIT",
-      "pos": {
-        "x": 54981,
-        "z": 60499
-      },
-      "altM": 6500
+      "altM": 3121
     }
-  ]
+  ],
+  "dropApproach": {
+    "pos": {
+      "x": 70811.5,
+      "z": 73382.2
+    },
+    "groundM": 2971,
+    "courseRad": 5.497787,
+    "glideDeg": 3,
+    "heightAglM": 150,
+    "rangeM": 34000
+  }
 }

@@ -137,6 +137,14 @@ const MAX_DECOYS = 96;
 
 /** An aircraft type's radar signature and hit ellipsoid (cached). */
 const signatureCache = new Map<string, { radar: RadarSignature; hitEllipsoidBodyM: Vec3Like } | null>();
+const mawsCache = new Map<string, boolean>();
+function hasMaws(defId: string | undefined): boolean {
+  if (!defId) return false;
+  let m = mawsCache.get(defId);
+  if (m === undefined) mawsCache.set(defId, (m = !!getAircraftDefinition(defId)?.maws));
+  return m;
+}
+
 function signatureFor(defId: string | undefined): { radar: RadarSignature; hitEllipsoidBodyM: Vec3Like } | undefined {
   if (!defId) return undefined;
   let sig = signatureCache.get(defId);
@@ -456,6 +464,7 @@ export function createCombatAdapter(): CombatPort & CombatPortWithContacts & Com
         }
         // Carrying a self-protection jammer pod: hostile radars see it only inside burn-through range.
         d.jamming = !!ws?.jammer;
+        d.maws = e.kind === EntityKind.Aircraft && hasMaws(ctx.getAircraftDefId(e.id));
         allEntitiesScratch[i] = d;
       }
       // Decoys in the air (flown on, burnt-out ones freed), after the real entities.

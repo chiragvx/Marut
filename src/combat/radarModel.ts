@@ -38,6 +38,7 @@ import {
   THREAT_SCORE_WEIGHTS,
   RWR_MISSILE_THREAT_TIME_SEC,
   RWR_MISSILE_THREAT_RADIUS_M,
+  MAWS_RANGE_M,
   type UpdateSensors,
   type RadarDetectionRangeM,
   type DetectableEntity,
@@ -560,6 +561,8 @@ export const updateSensors: UpdateSensors = (
     const e = allEntities[i]!;
     if (e.id === observerId || !e.alive || e.kind !== 'missile' || e.team === observer.team) continue;
     if (computeMissileThreat(observer.pos, e.pos, e.vel).isThreat) { missileInboundWarning = true; break; }
+    // A MAWS sees the motor: any hostile missile near, from the moment it leaves the tube.
+    if (observer.maws && Vec3.distance(observer.pos, e.pos) < MAWS_RANGE_M) { missileInboundWarning = true; break; }
   }
 
   let rwrWarning = false;

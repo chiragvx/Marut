@@ -769,7 +769,16 @@ export interface DetectableEntity {
    * radar missiles homing on it are easier to decoy with chaff. Absent = not jamming.
    */
   jamming?: boolean;
+  /**
+   * Aircraft only: it carries a missile approach warning system (MAWS: ultraviolet/IR sensors that see
+   * a missile's motor), so any hostile missile inside MAWS_RANGE_M sets its missile warning, whether
+   * or not it points at the aircraft yet (an RWR alone calls only missiles already on a collision course).
+   */
+  maws?: boolean;
 }
+
+/** DetectableEntity.maws: how far a missile approach warner sees a missile, m. */
+export const MAWS_RANGE_M = 8000;
 
 /** A ground target the ground-map radar may show (src/core builds these from the mission's targets). */
 export interface GroundMapCandidate {

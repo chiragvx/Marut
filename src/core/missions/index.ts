@@ -90,6 +90,7 @@ export const loadMissionDescriptor: LoadMissionDescriptor = (
     weather: descriptor.weather,
     objectives: descriptor.objectives,
     ...(descriptor.route ? { route: descriptor.route } : {}),
+    ...(descriptor.dropApproach ? { dropApproach: descriptor.dropApproach } : {}),
   };
 };
 

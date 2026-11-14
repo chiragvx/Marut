@@ -2014,7 +2014,7 @@ function launchMission(missionIn: Mission, opts: { title: string; airStart: bool
   inputSystem.setRampOpen(false);
   const playerDef = getAircraftDefinition(mission.playerStart.aircraftId ?? tejasDefinition.id) ?? tejasDefinition;
   playerCargoControls = playerDef.airdrop !== undefined || playerDef.fuelDump !== undefined;
-  playerMaws = playerDef.highLift !== undefined;
+  playerMaws = !!playerDef.maws;
   playerFlapNames = playerDef.highLift?.detents.map((d) => d.name);
   hud.setFlapDetents?.(playerFlapNames);
   ambience.setAircraft(playerDef);

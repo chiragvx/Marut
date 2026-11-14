@@ -54,7 +54,7 @@ export const TRANSPORT_PRESETS: readonly { id: string; label: string; fuelFrac: 
   { id: 'display', label: 'Display', fuelFrac: 0.15, cargoKg: 0 },
   { id: 'troops', label: 'Troops', fuelFrac: 0.6, cargoKg: 12240 },
   { id: 'airdrop', label: 'Heavy drop', fuelFrac: 0.4, cargoKg: 27200 },
-  { id: 'cds', label: 'Airdrop (CDS)', fuelFrac: 0.5, cargoKg: 16000, airdrop: true },
+  { id: 'cds', label: 'Airdrop (CDS)', fuelFrac: 0.4, cargoKg: 16000, airdrop: true },
   { id: 'max', label: 'Max payload', fuelFrac: 0.53, cargoKg: 77519 },
   { id: 'ferry', label: 'Ferry', fuelFrac: 1, cargoKg: 0 },
 ];

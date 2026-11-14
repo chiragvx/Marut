@@ -201,9 +201,9 @@ function createTransportBriefing(
     'div',
     { className: 'tj-stack', attrs: { style: 'gap: 6px' } },
     row(keyCap(k.dump), 'fuel jettison on / off (stops at the minimum)'),
-    row(keyCap(k.flapsDown), keyCap(k.flapsUp), 'flaps down / up: flaps 3/4 for the drop at 140 kt'),
+    row(keyCap(k.flapsDown), keyCap(k.flapsUp), 'flaps down / up: flaps 3/4 for the drop at 140 kt; follow the HUD glidepath needles'),
     row(keyCap(k.ramp), 'open the ramp, then', keyCap(k.drop), 'releases a stick of four bundles'),
-    row(keyCap(k.flare), 'flares when the missile warning sounds; full power and climb away')
+    row(keyCap(k.flare), 'flares')
   );
   const loadName = h('b');
   const loadText = h('span', {});

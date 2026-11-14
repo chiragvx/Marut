@@ -151,6 +151,13 @@ export const VALLEYS: Valley[] = [
     ],
   },
   {
+    // A dry notch from Simikot's west end down to the Karnali: the climb-out after an airdrop on the
+    // strip (run in up the gorge on 315, turn left with the valley) clears the knoll there.
+    id: 'simikot-west', name: 'Simikot west notch', river: false, nodes: [
+      vn(29.97197, 81.81127, 2930, 150, 1.3), vn(29.97437, 81.7982, 2800, 180, 1.3), vn(29.97677, 81.78251, 2650, 200, 1.3),
+    ],
+  },
+  {
     id: 'kali', name: 'Kali / Mahakali (Gunji, Dharchula)', river: true, nodes: [
       vn(30.21, 80.99, 3600, 400, 1.2), vn(30.18, 80.86, 3180, 1500), vn(30.10, 80.80, 2900, 300, 1.5),
       vn(29.98, 80.72, 2100, 120, 1.9), vn(29.85, 80.54, 900, 150, 1.8), vn(29.72, 80.40, 600, 150, 1.6),

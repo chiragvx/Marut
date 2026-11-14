@@ -977,6 +977,21 @@ export interface MissionPlayerStart {
   speedMps?: number;
 }
 
+/**
+ * Mission.dropApproach: a beam down to the drop height over a DZ. The localiser runs along
+ * `courseRad` (world heading, flown towards the DZ); the glidepath rises at `glideDeg` back from the
+ * point `heightAglM` above the DZ.
+ */
+export interface DropApproach {
+  pos: { x: number; z: number };
+  groundM: number;
+  courseRad: number;
+  glideDeg: number;
+  heightAglM: number;
+  /** How far out the needles show, m. */
+  rangeM: number;
+}
+
 /** MissionPlayerStart.airdrop. */
 export interface AirdropLoad {
   bundles: number;
@@ -998,6 +1013,8 @@ export interface Mission<TTerrain = unknown, TAirport = unknown> {
   objectives: readonly MissionObjective[];
   /** The planned route (navigation steerpoints, flown in order). Absent = none. */
   route?: readonly RouteWaypoint[];
+  /** An airdrop approach: a localiser and glidepath to a drop zone, shown on the HUD's ILS needles (src/core/dropBeam.ts). */
+  dropApproach?: DropApproach;
 }
 
 /**

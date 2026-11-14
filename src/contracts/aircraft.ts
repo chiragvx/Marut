@@ -522,6 +522,8 @@ export interface AircraftDefinition {
   fuelDump?: FuelDumpDefinition;
   /** Airdrop off a cargo ramp (MissionPlayerStart.airdrop, PilotInputs.airdropRelease). Absent = none. */
   airdrop?: AirdropDefinition;
+  /** A missile approach warning system (contracts/combat.ts DetectableEntity.maws). Absent = RWR only. */
+  maws?: boolean;
 }
 
 export interface FuelDumpDefinition {

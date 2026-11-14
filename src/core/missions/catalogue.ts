@@ -252,12 +252,12 @@ export const MISSIONS: readonly MissionEntry[] = [
     title: 'Simikot Lifeline',
     baseId: 'simikot',
     bandits: 0,
-    objective: 'Airdrop supplies to the Nepal Army at Simikot, under the cloud, at dusk.',
+    objective: 'Airdrop supplies to the Nepal Army on the runway at Simikot.',
     situation:
-      'Chinese forces have attacked Nepalese border posts and are advancing down the Karnali from Hilsa. Nepal has asked India for help: fly the C-17 from Indian airspace to Simikot, get under the low overcast in the valley and drop sixteen 1-tonne bundles on DZ Tango, north-west of the town, at 150 m and 140 knots. Shoulder-launched missiles have been reported on the Hilsa side. Jettison fuel on the way to lighten the jet for the thin air at 4,000 m.',
-    weather: 'overcast',
-    timeOfDayH: 18.1,
-    transport: { presetId: 'cds', fuelFrac: 0.5, cargoKg: 16000, airdrop: true },
+      'Chinese forces have attacked Nepalese border posts and are advancing down the Karnali from Hilsa. Nepal has asked India for help. You start 30 km south-east of Simikot in the C-17, lined up on the Karnali valley: fly the glidepath up the valley (the HUD needles; Simikot Tower talks you down) and drop sixteen 1-tonne bundles on the runway, about 150 m up at 140 knots. Fuel jettison is there if you want more climb in the thin air; you do not need it.',
+    weather: 'clear',
+    timeOfDayH: 9.5,
+    transport: { presetId: 'cds', fuelFrac: 0.4, cargoKg: 16000, airdrop: true },
   },
   {
     id: 'border-sead',

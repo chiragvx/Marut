@@ -71,6 +71,8 @@ export const c17Definition: AircraftDefinition = {
   // stops with ~30,000 lb left (enough to divert at low level), as large transports' systems do.
   fuelDump: { rateKgS: 38, minFuelKg: 13600, outletsBodyM: [{ x: -6.4, y: -0.35, z: 22.5 }, { x: -6.4, y: -0.35, z: -22.5 }] },
   // The ramp's sill when it is down to the airdrop position (model: ~21 m aft of the CG, 3 m below).
+  // AN/AAR-47 missile warning: sees a missile's motor and cues the flares.
+  maws: true,
   airdrop: { exitBodyM: { x: -21, y: -3.0, z: 0 }, minRampPos: 0.98 },
   // The flare dispensers' places: src/combat/countermeasures.ts dispenserBody (by model).
 };
