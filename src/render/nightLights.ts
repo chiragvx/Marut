@@ -131,6 +131,14 @@ const PAPI_VS = /* glsl */ `
 /** Height of the dome's centre (where the light point sits) above the ground, m. */
 const FIXTURE_LAMP_H = 0.36;
 const FIXTURE_DRAW_M = 1500;
+/** Fittings are batched per square cell this wide, so only the cells near the camera are drawn. */
+const FIXTURE_CELL_M = 2000;
+
+interface FixtureCell {
+  mesh: THREE.Mesh;
+  /** Bounds of the cell's lamp positions (world), for the FIXTURE_DRAW_M distance test. */
+  box: THREE.Box3;
+}
 
 /**
  * One elevated edge light, turned on a lathe, its base at y = 0; aPart 0: yellow paint, 1: steel
@@ -280,30 +288,52 @@ export function createRunwayLights(root: THREE.Object3D): RunwayLights {
   const floodMat = lightSpriteMaterial(RUNWAY_VS, lens(1.0, 1.8));
   const papiMat = lightSpriteMaterial(PAPI_VS, {});
   const aidMeshes: THREE.Mesh[] = [];
-  // The fittings: one instanced draw for the runways', one for the taxiways'.
+  // The fittings: instanced draws for the runways' and the taxiways', one per FIXTURE_CELL_M cell,
+  // each drawn only while the camera is within FIXTURE_DRAW_M of it (a fitting is ~500 triangles,
+  // and a theatre has hundreds to thousands of them; the vertex shader also drops far ones).
   const fixtureGeom = buildFixtureGeometry();
   const fixtureMat = (): THREE.ShaderMaterial =>
     new THREE.ShaderMaterial({ uniforms: { ...getAtmosphereUniforms(), uOrigin: { value: new THREE.Vector3() }, uIntensity: { value: 0 } }, vertexShader: FIXTURE_VS, fragmentShader: FIXTURE_FS });
   const runwayFixMat = fixtureMat();
   const taxiFixMat = fixtureMat();
-  let runwayFix: THREE.Mesh | undefined;
-  let taxiFix: THREE.Mesh | undefined;
-  const fixtures = (src: THREE.InstancedBufferGeometry, m: THREE.ShaderMaterial): THREE.Mesh => {
-    const g = new THREE.InstancedBufferGeometry();
-    for (const name of ['position', 'normal', 'aPart']) g.setAttribute(name, fixtureGeom.getAttribute(name));
-    for (const name of ['iPos', 'iCol', 'iDir']) g.setAttribute(name, src.getAttribute(name));
-    g.instanceCount = src.instanceCount;
-    const mesh = new THREE.Mesh(g, m);
-    mesh.frustumCulled = false;
-    root.add(mesh);
-    return mesh;
-  };
-  const dropFixtures = (m: THREE.Mesh | undefined): undefined => {
-    if (m) {
-      root.remove(m);
-      m.geometry.dispose();
+  let runwayFix: FixtureCell[] = [];
+  let taxiFix: FixtureCell[] = [];
+  const fixtures = (src: THREE.InstancedBufferGeometry, m: THREE.ShaderMaterial): FixtureCell[] => {
+    const attrs = ['iPos', 'iCol', 'iDir'].map((name) => src.getAttribute(name) as THREE.InstancedBufferAttribute);
+    const pos = attrs[0]!.array;
+    const cells = new Map<string, number[]>();
+    for (let i = 0; i < src.instanceCount; i++) {
+      const key = `${Math.floor(pos[i * 3]! / FIXTURE_CELL_M)},${Math.floor(pos[i * 3 + 2]! / FIXTURE_CELL_M)}`;
+      let list = cells.get(key);
+      if (!list) cells.set(key, (list = []));
+      list.push(i);
     }
-    return undefined;
+    const out: FixtureCell[] = [];
+    for (const list of cells.values()) {
+      const g = new THREE.InstancedBufferGeometry();
+      for (const name of ['position', 'normal', 'aPart']) g.setAttribute(name, fixtureGeom.getAttribute(name));
+      const box = new THREE.Box3();
+      attrs.forEach((a, k) => {
+        const arr = new Float32Array(list.length * 3);
+        list.forEach((i, j) => arr.set(a.array.subarray(i * 3, i * 3 + 3), j * 3));
+        g.setAttribute(['iPos', 'iCol', 'iDir'][k]!, new THREE.InstancedBufferAttribute(arr, 3));
+        if (k === 0) box.setFromArray(arr);
+      });
+      g.instanceCount = list.length;
+      const mesh = new THREE.Mesh(g, m);
+      mesh.frustumCulled = false;
+      mesh.visible = false;
+      root.add(mesh);
+      out.push({ mesh, box });
+    }
+    return out;
+  };
+  const dropFixtures = (cells: FixtureCell[]): FixtureCell[] => {
+    for (const c of cells) {
+      root.remove(c.mesh);
+      c.mesh.geometry.dispose();
+    }
+    return [];
   };
 
   return {
@@ -405,6 +435,9 @@ export function createRunwayLights(root: THREE.Object3D): RunwayLights {
     update(intensity, origin) {
       for (const m of [mat, taxiMat, floodMat, papiMat, runwayFixMat, taxiFixMat]) (m.uniforms['uOrigin']!.value as THREE.Vector3).set(origin.x, origin.y, origin.z);
       // (The fittings are drawn by day too; their domes light with the lights.)
+      const cam = getAtmosphereUniforms().uAtmCamPos.value;
+      for (const c of runwayFix) c.mesh.visible = c.box.distanceToPoint(cam) < FIXTURE_DRAW_M;
+      for (const c of taxiFix) c.mesh.visible = c.box.distanceToPoint(cam) < FIXTURE_DRAW_M;
       runwayFixMat.uniforms['uIntensity']!.value = intensity;
       taxiFixMat.uniforms['uIntensity']!.value = intensity;
       // Taxiway lights with the runway lights (night, poor visibility); floodlights at night only
