@@ -164,6 +164,11 @@ export interface MissionGroundGroup {
   emcon?: 'active' | 'ambush';
   /** Unknown to the player: no steerpoint, map or HUD mark (an ambush the mission springs as a surprise). */
   hidden?: boolean;
+  /**
+   * Air-defence sites: hold fire at aircraft short of a line, the one through (x, z) square to
+   * `headingRad`; only an aircraft past it (further along headingRad) is engaged. Absent = no limit.
+   */
+  holdFireShortOf?: { x: number; z: number; headingRad: number };
 }
 
 /** Objective kinds that involve ground targets (MissionObjective.kind; params below). */

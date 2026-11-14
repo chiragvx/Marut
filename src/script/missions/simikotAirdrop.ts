@@ -13,7 +13,7 @@
  * the notch at the strip's west end, src/terrain/himalaya/layout.ts 'simikot-west').
  *
  *   1 Inbound      the glidepath from the south-east; jettison fuel if wanted (not needed)
- *   2 Run-in/drop  ramp open, ~150 m over the strip, 140 kt, release on green
+ *   2 Run-in/drop  ramp open, ~150 m over the strip, 180 kt (flaps 1/2), release on green
  *   3 Climb-out    flares, full power, left with the valley
  *   4 (bonus)      land at Simikot, or leave the area
  *
@@ -50,6 +50,14 @@ export const SIMIKOT_APPROACH: DropApproach = { pos: { ...DZ }, groundM: DZ_GROU
 export const CLIMB_OUT = { x: DZ.x - 3600, z: DZ.z - 950 } as const;
 /** Fuel the jettison advice aims at, kg. */
 export const ADVISED_FUEL_KG = 30000;
+/**
+ * The drop speed, KIAS (the HUD's speed is IAS), and the "too fast" call. At the mission's weight
+ * (~188 t) the alpha limiter holds level flight down to ~170 KIAS flaps up, ~150 with slats and
+ * ~135 with flaps 1/2 at Simikot's height; 180 kt with flaps 1/2 leaves a wide margin either side
+ * (and is inside the 1/2 placard, 250 kt; the 3/4 detent's 190 kt is too close).
+ */
+export const DROP_KT = 180;
+export const TOO_FAST_KT = 220;
 /** The run-in starts this far out on the approach. */
 const RUN_IN_M = 14000;
 
@@ -166,12 +174,12 @@ export class SimikotAirdropScript extends ScriptBase {
     if (this.phase === 'egress') return { text: 'Climb out: full power, turn left with the valley', highlight: ['throttleUp'] };
     if (this.phase === 'inbound') {
       if (!this.dumped && f.fuelDumping) return { text: 'Jettisoning fuel: switch off {fuelDump} at about 30 t (optional)', highlight: ['fuelDump'] };
-      return { text: 'Fly the glidepath (HUD needles) · flaps 3/4 · 140 kt', highlight: [] };
+      return { text: `Fly the glidepath (HUD needles) · flaps 1/2 · ${DROP_KT} kt`, highlight: [] };
     }
     // Run-in.
     if ((f.rampPos ?? 0) < 0.98) return { text: 'Open the ramp {ramp}', highlight: ['ramp'] };
     if (this.greenGiven && !this.passReleased) return { text: 'GREEN LIGHT: release {drop}', highlight: ['drop'] };
-    return { text: 'Hold the glidepath, 140 kt · release {drop} on the green light', highlight: ['drop'] };
+    return { text: `Hold the glidepath, ${DROP_KT} kt · release {drop} on the green light`, highlight: ['drop'] };
   }
 
   /** Simikot Tower, on the ground at the strip. */
@@ -318,7 +326,7 @@ export class SimikotAirdropScript extends ScriptBase {
     }
     if (secs < 30 && secs > 3) {
       if (overDz < 90 && this.ready('low', 10)) this.say(RadioPriority.High, 'ad_too_low');
-      else if (ias > 165 * KT && this.ready('fast', 10)) this.say(RadioPriority.High, 'ad_too_fast');
+      else if (ias > TOO_FAST_KT * KT && this.ready('fast', 10)) this.say(RadioPriority.High, 'ad_too_fast');
     }
     // Green a second and a half early: the call takes that long to say.
     if (!this.greenGiven && ramp && f.airdropState === AirdropStateCode.Armed && ahead < gs * 1.5 && ahead > -gs * 2) {

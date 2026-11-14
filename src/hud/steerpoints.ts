@@ -57,6 +57,26 @@ export function buildSteerpoints(groups: readonly MissionGroundGroup[], heightAt
 }
 
 /**
+ * A hidden group gives itself away by firing: the one whose units stand nearest a launch at `pos`
+ * (within `reachM`), not yet in `revealed` (its id is added). Its steerpoint is then
+ * buildSteerpoints([{ ...group, hidden: false }]). Undefined: nothing new to show.
+ */
+export function revealFiringGroup(groups: readonly MissionGroundGroup[], revealed: Set<string>, pos: { x: number; z: number }, reachM = 800): MissionGroundGroup | undefined {
+  let best: MissionGroundGroup | undefined;
+  let bestD = reachM;
+  for (const g of groups) {
+    if (!g.hidden || revealed.has(g.id)) continue;
+    const d = Math.hypot(g.pos.x - pos.x, g.pos.z - pos.z);
+    if (d < bestD) {
+      bestD = d;
+      best = g;
+    }
+  }
+  if (best) revealed.add(best.id);
+  return best;
+}
+
+/**
  * Steerpoints for a mission's structure objectives (destroy_structures): the centre of the matching
  * airbase structures (that airport, that layout group), named after the group.
  */

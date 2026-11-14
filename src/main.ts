@@ -40,7 +40,7 @@ import type { SnapshotEntityView } from './contracts/sim';
 import { createSceneRenderer } from './render';
 import { createHudRenderer } from './hud';
 import { buildHudAirbases, homeAirportIdFor } from './hud/airbaseMarkers';
-import { buildSteerpoints, buildStructureSteerpoints } from './hud/steerpoints';
+import { buildSteerpoints, buildStructureSteerpoints, revealFiringGroup } from './hud/steerpoints';
 import { createPlayerInputSystem } from './input';
 import {
   createMainMenu,
@@ -265,6 +265,16 @@ const radioPlayer = createRadioPlayer(audioBus, SITE_ROOT, (tx, ms) => flightOve
 /** The flying mission's script (src/script), if it has one; the HUD's own steerpoints under its markers. */
 let missionScript: MissionScript | undefined;
 let baseSteerpoints: HudSteerpoint[] = [];
+/** Hidden ground groups (MissionGroundGroup.hidden) that have given themselves away by firing. */
+const revealedGroups = new Set<string>();
+
+/** A hidden team fired from `pos`: its threat marker goes on the HUD from now on. */
+function revealThreatAt(pos: { x: number; z: number }): void {
+  const g = revealFiringGroup(currentMission?.groundGroups ?? [], revealedGroups, pos);
+  if (!g) return;
+  baseSteerpoints = [...baseSteerpoints, ...buildSteerpoints([{ ...g, hidden: false }], worldHeightAt ?? (() => 0))];
+  hud.setSteerpoints(baseSteerpoints);
+}
 let debriefTimer: ReturnType<typeof setTimeout> | undefined;
 const ambience = createAmbience(audioBus);
 let voiceWarnings = createVoiceWarningState();
@@ -1020,6 +1030,7 @@ async function initWorkersAndRenderer(qualityTier: QualityTier): Promise<void> {
       for (const ev of eventsMsg.events) {
         if (appState === 'gameplay') ambience.event(ev, playerEntityId, lastPlayer);
         missionScript?.event(ev, playerEntityId);
+        if (ev.type === 'missileLaunch' && ev.pos && ev.shooterId !== playerEntityId) revealThreatAt(ev.pos);
         // The debrief's shots and hits are the player's own.
         if (ev.type === 'gunFire') {
           if (ev.shooterId === playerEntityId) statShotsFiredGun += 1;
@@ -1291,6 +1302,7 @@ function setupWorldView(mission: Mission, tier: QualityTier, scripted = false): 
   renderer.setGroundHeight(heightAt);
   hud.setRoute((mission.route ?? []).map((w) => ({ name: w.name, ...(w.tot !== undefined ? { tot: w.tot } : {}) })));
   // A scripted mission marks its own objectives (src/script); the threats stay.
+  revealedGroups.clear();
   baseSteerpoints = [...buildSteerpoints(mission.groundGroups ?? [], heightAt), ...(scripted ? [] : buildStructureSteerpoints(mission.objectives, airportLayouts))];
   hud.setSteerpoints(baseSteerpoints);
   renderer.setEnvironment(buildSceneEnvironment(terrainParams, airportLayouts, { x: mission.weather.windWorldMps.x, z: mission.weather.windWorldMps.z }));

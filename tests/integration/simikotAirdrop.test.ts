@@ -31,13 +31,13 @@ import { predictCdsDrop } from '../../src/core/airdrop';
 import { dropBeamAt, dropPathAltM, newDropBeamState } from '../../src/core/dropBeam';
 import { c17Definition } from '../../src/aircraft/c17Definition';
 import { createMissionScript } from '../../src/script';
-import { DZ, DZ_GROUND_M, RUN_IN_DEG, SimikotAirdropScript, gradeDrop, gradeSucceeds } from '../../src/script/missions/simikotAirdrop';
+import { DROP_KT, DZ, DZ_GROUND_M, RUN_IN_DEG, SimikotAirdropScript, TOO_FAST_KT, gradeDrop, gradeSucceeds } from '../../src/script/missions/simikotAirdrop';
 import type { ScriptFrame } from '../../src/script/director';
 import type { Transmission } from '../../src/script/radio';
 import type { AirportLayout } from '../../src/contracts/airport';
 import { flareSeductionChance } from '../../src/combat/countermeasures';
 import { ANZA_MK3 } from '../../src/catalog/weapons';
-import { buildSteerpoints } from '../../src/hud/steerpoints';
+import { buildSteerpoints, revealFiringGroup } from '../../src/hud/steerpoints';
 
 const KT = 0.514444;
 const ID = 'himalaya-airdrop';
@@ -79,9 +79,9 @@ function runInWorld(backM: number, aglM: number, iasKt: number, opts: { lateralM
   const st = world.getEntityState(id)!;
   // Already open (the ramp takes 20 s to open).
   if (opts.rampOpen) st.rampPos = 1;
-  // Configured for the drop: slats out, flaps 3/4.
-  st.flapDetent = 3;
-  st.flapPos = 3;
+  // Configured for the drop: slats out, flaps 1/2.
+  st.flapDetent = 2;
+  st.flapPos = 2;
   st.slatPos = 1;
   return { world, deps, mission, id };
 }
@@ -100,7 +100,7 @@ function flyDrop(w: ReturnType<typeof runInWorld>, iasKt: number, release: (s: {
     if (!s || !s.alive || !tel) break;
     const inputs = baseInputs();
     inputs.rampOpen = true;
-    inputs.flapLever = 3;
+    inputs.flapLever = 2;
     if (tel.iasMps > 10) throttle = Math.min(1, Math.max(0.05, throttle + (iasKt * KT - tel.iasMps) * 0.004));
     inputs.throttle = released ? 1 : throttle;
     inputs.pitch = Math.max(-0.5, Math.min(0.5, ((released ? holdY + 300 : holdY) - s.pos.y) * 0.006 - s.vel.y * 0.04));
@@ -179,7 +179,9 @@ function flyMission(opts: { flares: boolean; afterSec: number }) {
   let release: { alongM: number; aglOverDz: number; iasKt: number } | undefined;
   let minAglApproach = Infinity;
   let minAglClimb = Infinity;
-  let firstLaunch: { t: number; alongM: number } | undefined;
+  let firstLaunch: { t: number; alongM: number; afterRelease: boolean; pos: { x: number; z: number } } | undefined;
+  let launchesShortOfStrip = 0;
+  let firstHit: { alive: boolean; engines: number } | undefined;
   let launches = 0;
   let hits = 0;
   let maxNeedles = 0;
@@ -202,8 +204,8 @@ function flyMission(opts: { flares: boolean; afterSec: number }) {
     let wantHdg: number;
     if (!released) {
       wantHdg = RUN_IN_DEG - Math.max(-20, Math.min(20, beam.crossM * 0.02));
-      const wantKt = beam.alongM > 20000 ? 170 : 140;
-      inp.flapLever = beam.alongM > 20000 ? 1 : beam.alongM > 16000 ? 2 : 3;
+      const wantKt = beam.alongM > 20000 ? 200 : DROP_KT;
+      inp.flapLever = beam.alongM > 20000 ? 1 : 2;
       inp.rampOpen = beam.alongM < 12000;
       thr = Math.min(1, Math.max(0.05, thr + (wantKt - ias) * KT * 0.004));
       const vsWant = Math.max(-12, Math.min(8, (beam.pathAltM - s.pos.y) * 0.08 - Math.hypot(s.vel.x, s.vel.z) * Math.tan((3 * Math.PI) / 180)));
@@ -219,10 +221,10 @@ function flyMission(opts: { flares: boolean; afterSec: number }) {
     } else {
       // West through the notch, then up the Karnali.
       wantHdg = s.pos.x - DZ.x > -1300 ? 262 : 293;
-      inp.flapLever = t - releasedAt > 20 ? 2 : 3;
+      inp.flapLever = 2;
       inp.rampOpen = false;
       thr = 1;
-      inp.pitch = Math.max(-0.3, Math.min(0.8, ((ias > 128 ? 10 : 0) - s.vel.y) * 0.06));
+      inp.pitch = Math.max(-0.3, Math.min(0.8, ((ias > 150 ? 10 : 0) - s.vel.y) * 0.06));
     }
     const bankLim = ((released ? 25 : 15) * Math.PI) / 180;
     const bankWant = Math.max(-bankLim, Math.min(bankLim, (wrap180(wantHdg - hdg) * Math.PI) / 180));
@@ -237,9 +239,16 @@ function flyMission(opts: { flares: boolean; afterSec: number }) {
       if (e.type === 'missileLaunch') {
         launches++;
         flareAt.push(t + 0.6, t + 2);
-        if (!firstLaunch) firstLaunch = { t, alongM: beam.alongM };
+        if (beam.alongM > 0) launchesShortOfStrip++;
+        if (!firstLaunch) firstLaunch = { t, alongM: beam.alongM, afterRelease: releasedAt >= 0, pos: { x: e.pos?.x ?? NaN, z: e.pos?.z ?? NaN } };
       }
-      if (e.type === 'hit' && e.targetId === id) hits++;
+      if (e.type === 'hit' && e.targetId === id) {
+        hits++;
+        if (!firstHit) {
+          const after = world.getEntityState(id)!;
+          firstHit = { alive: after.alive, engines: (after.engines ?? []).filter((x) => !x.failed).length };
+        }
+      }
       if (e.type === 'airdropLanded') landed.push(e);
       script.event(e, id);
     }
@@ -273,7 +282,7 @@ function flyMission(opts: { flares: boolean; afterSec: number }) {
     }
     if (released && t - releasedAt > opts.afterSec) break;
   }
-  return { script, said, landed, release, minAglApproach, minAglClimb, firstLaunch, firstLaunchCallAt, launches, hits, alive, maxNeedles, final: world.getEntityState(id)! };
+  return { m, script, said, landed, release, minAglApproach, minAglClimb, firstLaunch, firstLaunchCallAt, launches, launchesShortOfStrip, hits, firstHit, alive, maxNeedles, final: world.getEntityState(id)! };
 }
 
 describe('Simikot Lifeline (C-17 airdrop)', () => {
@@ -394,19 +403,30 @@ describe('Simikot Lifeline (C-17 airdrop)', () => {
     expect(r.minAglApproach).toBeGreaterThan(100);
     expect(r.minAglClimb).toBeGreaterThan(100);
     expect(r.maxNeedles).toBe(1);
-    // Released ~150 m over the strip at ~140 kt.
+    // Released ~150 m over the strip at the drop speed.
     expect(r.release!.aglOverDz).toBeGreaterThan(110);
     expect(r.release!.aglOverDz).toBeLessThan(220);
-    expect(r.release!.iasKt).toBeGreaterThan(125);
-    expect(r.release!.iasKt).toBeLessThan(160);
+    expect(Math.abs(r.release!.iasKt - DROP_KT)).toBeLessThan(15);
     // The stick: good or better.
     expect(r.landed.length).toBe(4);
     const g = r.script.drops()[0]!;
     expect(['excellent', 'good']).toContain(g.grade);
-    // The missiles: none before the run-in; the first goes up on the run-in near the field, and the
-    // tower calls it at once.
+    // The missiles: none before the drop or short of the strip; the first goes up as the jet
+    // crosses it on the climb-out, and the tower calls it at once.
     expect(r.firstLaunch).toBeDefined();
-    expect(r.firstLaunch!.alongM).toBeLessThan(6000);
+    expect(r.firstLaunch!.afterRelease).toBe(true);
+    expect(r.firstLaunch!.alongM).toBeLessThan(0);
+    expect(r.launchesShortOfStrip).toBe(0);
+    // Hidden until then; the team that fired gets its threat marker.
+    const groups = r.m.groundGroups ?? [];
+    expect(buildSteerpoints(groups, () => 3000)).toEqual([]);
+    const revealed = new Set<string>();
+    const team = revealFiringGroup(groups, revealed, r.firstLaunch!.pos);
+    expect(team).toBeDefined();
+    const mark = buildSteerpoints([{ ...team!, hidden: false }], () => 3000);
+    expect(mark.length).toBe(1);
+    expect(mark[0]!.threat).toBe(true);
+    expect(revealFiringGroup(groups, revealed, r.firstLaunch!.pos)).toBeUndefined();
     expect(r.firstLaunchCallAt).toBeGreaterThanOrEqual(r.firstLaunch!.t);
     expect(r.firstLaunchCallAt - r.firstLaunch!.t).toBeLessThan(2);
     const launchCall = r.said.find((tx) => tx.clips.includes('tw_launch'))!;
@@ -465,21 +485,22 @@ describe('Simikot Lifeline (C-17 airdrop)', () => {
     expect(gradeSucceeds('miss')).toBe(false);
   });
 
-  test('a stick released on the CARP on the run-in, ~150 m over the strip at 140 kt, scores good or better', () => {
-    const w = runInWorld(2400, 150, 140);
-    const r = flyDrop(w, 140, onCarp(w.mission.weather.windWorldMps), DZ_GROUND_M + 150);
+  test('a stick released on the CARP on the run-in, ~150 m over the strip at the drop speed, scores good or better', () => {
+    expect(DROP_KT).toBeGreaterThanOrEqual(170);
+    expect(TOO_FAST_KT).toBeGreaterThan(DROP_KT + 25);
+    const w = runInWorld(3000, 150, DROP_KT);
+    const r = flyDrop(w, DROP_KT, onCarp(w.mission.weather.windWorldMps), DZ_GROUND_M + 150);
     expect(r.released).toBe(true);
     expect(r.landed.length).toBe(4);
     expect(r.destroyed).toBe(0);
-    expect(r.releaseIas / KT).toBeGreaterThan(125);
-    expect(r.releaseIas / KT).toBeLessThan(155);
+    expect(Math.abs(r.releaseIas / KT - DROP_KT)).toBeLessThan(15);
     expect(['excellent', 'good']).toContain(gradeDrop(r.distM, r.destroyed, r.landed.length));
   });
 
   test('a stick released far short is a miss, and the mission goes on', () => {
-    const w = runInWorld(2400, 150, 140);
+    const w = runInWorld(3000, 150, DROP_KT);
     // Released as soon as the ramp is open: well before the CARP.
-    const r = flyDrop(w, 140, () => true, DZ_GROUND_M + 150);
+    const r = flyDrop(w, DROP_KT, () => true, DZ_GROUND_M + 150);
     expect(r.landed.length).toBe(4);
     expect(gradeDrop(r.distM, r.destroyed, 4)).toBe('miss');
     const s = new SimikotAirdropScript(w.mission.weather.windWorldMps);
@@ -503,8 +524,8 @@ describe('Simikot Lifeline (C-17 airdrop)', () => {
 
   test('a stick released too low is wrecked', () => {
     // 60 m: the canopies are still filling when the bundles hit.
-    const w = runInWorld(1200, 60, 140, { calm: true, rampOpen: true });
-    const r = flyDrop(w, 140, onCarp({ x: 0, y: 0, z: 0 }), DZ_GROUND_M + 60);
+    const w = runInWorld(1500, 60, DROP_KT, { calm: true, rampOpen: true });
+    const r = flyDrop(w, DROP_KT, onCarp({ x: 0, y: 0, z: 0 }), DZ_GROUND_M + 60);
     expect(r.landed.length).toBe(4);
     expect(r.destroyed).toBeGreaterThanOrEqual(3);
     expect(gradeDrop(r.distM, r.destroyed, 4)).toBe('destroyed');
@@ -554,40 +575,14 @@ describe('Simikot Lifeline (C-17 airdrop)', () => {
     expect(press(beam, 1)).toBeLessThan(0.95);
   });
 
-  test('without flares a MANPADS hit on the run-in is not a kill: launch warning, one engine out', () => {
-    const m = resolveBuiltinMission(ID);
-    const w = runInWorld(3500, 230, 140, { groundGroups: m.groundGroups });
-    const { world, id } = w;
-    const snap = new Float64Array(SNAPSHOT_FLOATS);
-    const events: SimEvent[] = new Array(4096);
-    let launches = 0;
-    let warned = false;
-    let firstHitAlive: boolean | undefined;
-    let enginesAfterHit = 4;
-    for (let i = 0; i < Math.round(60 / SIM_DT_SEC) && firstHitAlive === undefined; i++) {
-      const s = world.getEntityState(id)!;
-      const inputs = { ...baseInputs(), flapLever: 3, throttle: 0.75 };
-      inputs.pitch = Math.max(-0.5, Math.min(0.5, (DZ_GROUND_M + 230 - s.pos.y) * 0.01 - s.vel.y * 0.05));
-      world.setPlayerInput(id, inputs);
-      world.stepOnce();
-      const n = world.drainEvents(events);
-      for (let k = 0; k < n; k++) {
-        const e = events[k]!;
-        if (e.type === 'missileLaunch') launches++;
-        if (e.type === 'hit' && e.targetId === id) {
-          const after = world.getEntityState(id)!;
-          firstHitAlive = after.alive;
-          enginesAfterHit = (after.engines ?? []).filter((x) => !x.failed).length;
-        }
-      }
-      if (i % 12 === 0) {
-        world.writeSnapshot(snap);
-        if (((snap[HUD_BLOCK_START + SnapshotHud.WARNING_BITS] ?? 0) & WarningBit.MissileLaunch) !== 0) warned = true;
-      }
-    }
-    expect(launches).toBeGreaterThan(0);
-    expect(warned).toBe(true);
-    expect(firstHitAlive).toBe(true);
-    expect(enginesAfterHit).toBe(3);
-  });
+  test('the teams hold fire on the inbound run; without flares a hit on the climb-out is not a kill (one engine out)', () => {
+    const r = flyMission({ flares: false, afterSec: 60 });
+    expect(r.release).toBeDefined();
+    expect(r.launches).toBeGreaterThan(0);
+    expect(r.launchesShortOfStrip).toBe(0);
+    expect(r.firstLaunch!.afterRelease).toBe(true);
+    expect(r.firstHit).toBeDefined();
+    expect(r.firstHit!.alive).toBe(true);
+    expect(r.firstHit!.engines).toBe(3);
+  }, 60_000);
 });

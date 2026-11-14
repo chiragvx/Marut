@@ -1481,6 +1481,8 @@ export interface MissileLaunchEvent {
   shooterId: EntityId;
   missileId: EntityId;
   weapon: WeaponKind;
+  /** Where it left from (air-defence launches; absent for aircraft). */
+  pos?: Vec3Like;
 }
 export interface GunFireEvent {
   type: 'gunFire';

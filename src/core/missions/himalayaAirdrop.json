@@ -19,7 +19,7 @@
       "z": 94595
     },
     "headingRad": 5.4978,
-    "speedMps": 93,
+    "speedMps": 124,
     "fuelFrac": 0.4,
     "cargoKg": 16000,
     "airdrop": {
@@ -37,11 +37,16 @@
       "team": 1,
       "template": "manpads-pair",
       "pos": {
-        "x": 70061,
-        "z": 71882
+        "x": 68311,
+        "z": 71382
       },
-      "headingRad": 2.36,
-      "hidden": true
+      "headingRad": 2.6,
+      "hidden": true,
+      "holdFireShortOf": {
+        "x": 70811.5,
+        "z": 73382.2,
+        "headingRad": 5.497787
+      }
     }
   ],
   "weather": {

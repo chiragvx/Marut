@@ -60,6 +60,8 @@ export interface AdSiteSpec {
   team: Team;
   system: AirDefenceSystem;
   emcon: 'active' | 'ambush';
+  /** MissionGroundGroup.holdFireShortOf: engage only aircraft past this line. */
+  holdFireShortOf?: { x: number; z: number; headingRad: number };
 }
 /** One ground unit belonging to an air-defence site. */
 export interface AdUnitSpec {
@@ -347,6 +349,8 @@ export class AirDefenceNetwork {
     if (!target) return;
     const centre = siteCentre(site);
     const range = distance(target.pos, centre);
+    const hold = site.spec.holdFireShortOf;
+    if (hold && (target.pos.x - hold.x) * Math.sin(hold.headingRad) - (target.pos.z - hold.z) * Math.cos(hold.headingRad) < 0) return;
     if (range < sys.minRangeM || range > sys.maxRangeM * launchZoneFactor(target, centre, range) || target.pos.y - centre.y > sys.maxAltM) return;
 
     if (w.kind === 'gun') {
@@ -406,7 +410,7 @@ export class AirDefenceNetwork {
     const rot = { x: 0, y: 0, z: 0, w: 1 };
     velocityAlignQuat(vel.x, vel.y, vel.z, rot);
     outRequests.push({ kind: w.kind === 'ir_missile' ? ProjectileKind.IrMissile : ProjectileKind.RadarMissile, ownerId: launcher.id, team: site.spec.team, posWorld: pos, rotWorld: rot, velWorld: vel, targetId: target.id, profile: w });
-    outEvents.push({ type: 'missileLaunch', shooterId: launcher.id, missileId: NO_ENTITY_ID, weapon: w.kind });
+    outEvents.push({ type: 'missileLaunch', shooterId: launcher.id, missileId: NO_ENTITY_ID, weapon: w.kind, pos: { ...pos } });
   }
 
   private buildEmissions(): void {

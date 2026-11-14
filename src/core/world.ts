@@ -595,7 +595,7 @@ class WorldImpl implements World {
     this.airDefence = { sites: [], units: [] };
     for (const g of mission.groundGroups ?? []) {
       const system = g.template ? SITE_TEMPLATES[g.template]?.airDefence : undefined;
-      if (system) this.airDefence.sites.push({ id: g.id, team: g.team, system, emcon: g.emcon ?? 'active' });
+      if (system) this.airDefence.sites.push({ id: g.id, team: g.team, system, emcon: g.emcon ?? 'active', ...(g.holdFireShortOf ? { holdFireShortOf: g.holdFireShortOf } : {}) });
     }
     this.runways = new RunwayDamage();
     for (const a of (mission.world.airports ?? []) as readonly Partial<AirportLayout>[]) {
