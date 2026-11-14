@@ -244,17 +244,24 @@ const FS = /* glsl */ `
         float t = smoothstep(0.75, 0.2, abs(ay - 1.6));
         t = max(t, 0.55 * smoothstep(1.0, 0.3, abs(ay - 4.2)));
         t = max(t, 0.45 * smoothstep(0.5, 0.1, ay));
-        // Pixels wider than a track see its average.
-        t = mix(t, 0.3 * smoothstep(5.5, 0.0, ay), smoothstep(0.3, 1.5, pw.y));
+        // Pixels wider than a fraction of a track (across them, wander included) see its average:
+        // half-resolved lanes crawl as the view moves.
+        t = mix(t, 0.3 * smoothstep(5.5, 0.0, ay), smoothstep(0.12, 0.5, fwidth(y)));
         t *= 1.0 - smoothstep(hwd * 0.6, hwd, abs(p.y));
-        t *= 0.75 + 0.25 * vnoise(vLocal / 4.0);
+        t *= 0.75 + mix(0.125, 0.25 * vnoise(vLocal / 4.0), 1.0 - smoothstep(0.8, 2.5, px));
         col *= 1.0 - 0.2 * t;
       }
-      float a = vSurf.w + 0.45 * (vnoise(vLocal / 6.0) - 0.5) + 0.2 * (vnoise(vLocal / 1.7 + 11.0) - 0.5) * fine;
-      outA = smoothstep(0.15, 0.85, a);
+      // The frayed edge: noise only on the fringe ramp (the strip itself stays opaque, so the
+      // ground below never shows through it), and each octave only while its cells span several
+      // pixels (beyond that it sparkles along the edges as the view moves).
+      float edge = 1.0 - vSurf.w;
+      float a = vSurf.w + edge * 1.6 * (0.45 * (vnoise(vLocal / 6.0) - 0.5) * (1.0 - smoothstep(1.5, 4.0, px)) + 0.2 * (vnoise(vLocal / 1.7 + 11.0) - 0.5) * fine);
+      outA = vSurf.w > 0.999 ? 1.0 : smoothstep(0.15, 0.85, a);
       if (vExtra.z > 0.5) {
-        // Whitewashed stones marking the runway edges, every 30 m, a metre outside each edge.
+        // Whitewashed stones marking the runway edges, every 30 m, a metre outside each edge; gone
+        // once they shrink under a pixel or so (sub-pixel specks flicker).
         float m = span(mod(p.x + 15.0, 30.0), 14.6, 15.4, pw.x) * span(abs(p.y), hwd + 0.75, hwd + 1.3, pw.y);
+        m *= 1.0 - smoothstep(0.3, 0.9, px);
         col = mix(col, white * 0.92, m);
         outA = max(outA, m);
       }

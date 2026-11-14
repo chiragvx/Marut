@@ -944,6 +944,17 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
           cameraPose.lookAt.y = debugCam[4]!;
           cameraPose.lookAt.z = debugCam[5]!;
           cameraPose.useLookAt = true;
+          // Dev: globalThis.__camOffset = [dx, dy, dz] shifts that camera (and its target) at run
+          // time, for scripted checks of what changes as the view moves (shimmer, flicker).
+          const off = import.meta.env.DEV ? (globalThis as { __camOffset?: number[] }).__camOffset : undefined;
+          if (off && off.length === 3) {
+            cameraPose.pos.x += off[0]!;
+            cameraPose.pos.y += off[1]!;
+            cameraPose.pos.z += off[2]!;
+            cameraPose.lookAt.x += off[0]!;
+            cameraPose.lookAt.y += off[1]!;
+            cameraPose.lookAt.z += off[2]!;
+          }
         }
         if (camera.view) camera.clearViewOffset();
         const origin = placeCamera(fovDeg);
