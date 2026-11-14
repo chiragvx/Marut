@@ -224,6 +224,14 @@ let timeOfDayH = DEV_TOD_H ?? 10.5;
 /** The on-screen buttons in flight (src/ui/actionBar.ts), and whether they are on (Settings -> Gameplay). */
 let actionBar: ActionBar | undefined;
 let actionBarEnabled = true;
+/** Small system notices (gear, flaps, ramp...: src/ui/systemNotices.ts) and the player's flap detent names (undefined: no flaps). */
+let systemToasts: ToastStack | undefined;
+const systemNotices = createSystemNotices();
+let playerFlapNames: readonly string[] | undefined;
+const hlScratch = [0, 0, 0, 0];
+const n1Scratch = [0, 0, 0, 0];
+const revScratch = [0, 0, 0, 0];
+
 /** Camera and radar-scope range changes this flight (Flight School counts them). */
 let cameraChangeCount = 0;
 let radarRangeChangeCount = 0;
@@ -2303,19 +2311,13 @@ function autopilotKey(action: string, held: boolean): void {
   else if (action.startsWith('apSpd')) post({ type: 'adjust', target: 'spd', delta: sign * (kt ? (held ? 10 : 5) * 0.514444 : held ? 5 : 2) });
 }
 
-/** Small system notices (gear, flaps, ramp...: src/ui/systemNotices.ts) and the player's flap detent names (undefined: no flaps). */
-let systemToasts: ToastStack | undefined;
-const systemNotices = createSystemNotices();
-let playerFlapNames: readonly string[] | undefined;
-const hlScratch = [0, 0, 0, 0];
-const n1Scratch = [0, 0, 0, 0];
-const revScratch = [0, 0, 0, 0];
-
 /** The player's gear lever and airbrake as of the latest snapshot (cockpit controls toggle them). */
 let lastPlayerGearCmd = true;
 let lastPlayerAirbrake = false;
 /** The player as of the latest snapshot (for taxi guidance). */
 const lastPlayer = { x: 0, y: 0, z: 0, speedMps: 0, onGround: false, valid: false };
+// Dev: test scripts read where the player is (e.g. to start in the air over the same spot).
+if (import.meta.env.DEV) (globalThis as { __player?: typeof lastPlayer }).__player = lastPlayer;
 const taxiGraphs = new Map<string, TaxiGraph>();
 
 /**

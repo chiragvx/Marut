@@ -117,7 +117,8 @@ const DEV_CAMREL = ((): number[] | undefined => {
   return v && v.length >= 3 && v.every(Number.isFinite) ? v : undefined;
 })();
 /** Dev: ?cambody=x,y,z,lookX,lookY,lookZ holds the camera at a point in the player's body frame (m;
- *  x forward, y up, z right), looking at another (e.g. the C-17's nose wheel: cambody=26,-2.5,-7,18.2,-3.6,0). */
+ *  x forward, y up, z right), looking at another (e.g. the C-17's nose wheel: cambody=26,-2.5,-7,18.2,-3.6,0).
+ *  A test script can move it: globalThis.__cambody = [x, y, z, lookX, lookY, lookZ]. */
 const DEV_CAMBODY = ((): number[] | undefined => {
   const v = DEV_PARAMS?.get('cambody')?.split(',').map(Number);
   return v && v.length === 6 && v.every(Number.isFinite) ? v : undefined;
@@ -941,8 +942,9 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
           cameraPose.lookAt.z = interpEntity.pos.z;
           cameraPose.useLookAt = true;
         }
-        if (DEV_CAMBODY) {
-          const b = DEV_CAMBODY;
+        const camBody = import.meta.env.DEV ? ((globalThis as { __cambody?: number[] }).__cambody ?? DEV_CAMBODY) : undefined;
+        if (camBody) {
+          const b = camBody;
           rotateVecByQuat(interpEntity.rot, { x: b[0]!, y: b[1]!, z: b[2]! }, vEyeWorld);
           cameraPose.pos.x = interpEntity.pos.x + vEyeWorld.x;
           cameraPose.pos.y = interpEntity.pos.y + vEyeWorld.y;

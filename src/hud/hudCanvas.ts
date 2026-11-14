@@ -289,7 +289,7 @@ export const createHudRenderer: CreateHudRenderer = (canvas, initialTier) => {
       drawPowerIndicator(ctx, playerThrottleFrac, playerAfterburnerOn, 100, heightPx - 44);
       drawGearIndicator(ctx, hud[SnapshotHud.GEAR_POS]!, 184, heightPx - 44);
       drawAirbrakeIndicator(ctx, playerAirbrakeOut, nowMs - airbrakeToggledAtMs, 184, heightPx - 60);
-      drawFlapIndicator(ctx, flapNames, hud[HUD_EXT_BASE + SnapshotHudExt.FLAP_LEVER] ?? -1, hud[HUD_EXT_BASE + SnapshotHudExt.FLAP_POS] ?? -1, 184, heightPx - 76);
+      drawFlapIndicator(ctx, flapNames, hud[HUD_EXT_BASE + SnapshotHudExt.FLAP_LEVER] ?? -1, hud[HUD_EXT_BASE + SnapshotHudExt.FLAP_POS] ?? -1, 252, heightPx - 44);
       drawFuelIndicator(ctx, hud[SnapshotHud.FUEL_KG]!, (hud[SnapshotHud.WARNING_BITS]! & WarningBit.LowFuel) !== 0, hud[SnapshotHud.TANK_FUEL_KG]!, 184, heightPx - 28);
       drawIlsNeedles(ctx, hud, widthPx, heightPx);
       drawServiceStatus(ctx, hud, widthPx * 0.5, heightPx * 0.78);

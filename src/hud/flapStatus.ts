@@ -39,7 +39,7 @@ export function flapHudText(s: Readonly<FlapSetting>): string {
 }
 
 /**
- * The flap cue under the gear cue: green when set, amber while travelling. Nothing for aircraft
+ * The flap cue beside the gear cue: green when set, amber while travelling. Nothing for aircraft
  * without flaps.
  */
 export function drawFlapIndicator(ctx: CanvasRenderingContext2D, names: readonly string[] | undefined, lever: number, pos: number, xPx: number, yPx: number): void {
