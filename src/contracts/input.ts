@@ -177,6 +177,8 @@ export const LogicalButton = {
   FlapsDown: 'flapsDown',
   ThrustReverse: 'thrustReverse',
   RampToggle: 'rampToggle',
+  /** Fuel jettison switch (transports): toggles PilotInputs.fuelDump. */
+  FuelDump: 'fuelDump',
 } as const;
 export type LogicalButton = (typeof LogicalButton)[keyof typeof LogicalButton];
 
@@ -517,6 +519,12 @@ export interface PlayerInputSystem extends Pilot {
   setFlapLever(detent: number): void;
   /** Moves the flap lever one detent: -1 up (less flap), +1 down (more), as the flap keys and the on-screen Flaps − / + buttons do. */
   stepFlaps(dir: -1 | 1): void;
+  /** The fuel jettison switch (PilotInputs.fuelDump; its key toggles it), e.g. off for a new flight. */
+  setFuelDump(on: boolean): void;
+  isFuelDumpOn(): boolean;
+  /** The cargo ramp switch (PilotInputs.rampOpen; its key toggles it), e.g. closed for a new flight. */
+  setRampOpen(open: boolean): void;
+  isRampOpen(): boolean;
   setAlphaLimiterDisabled(disabled: boolean): void;
 
   /** Subscribes to meta actions (camera cycle, menu toggle). Returns an unsubscribe function. Fires at most once per rising edge, regardless of source device. */

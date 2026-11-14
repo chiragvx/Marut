@@ -200,6 +200,8 @@ export const EntityFlag = {
   TailOpen: 1 << 8,
   /** A target drone (unmanned, unarmed): drawn as the drone, not as a fighter. Set at spawn. */
   Drone: 1 << 9,
+  /** Fuel is being jettisoned (AircraftDefinition.fuelDump): the renderer draws the mist from the outlets. */
+  FuelDump: 1 << 10,
 } as const;
 
 /**
@@ -455,6 +457,17 @@ export interface PilotInputs {
   reverseThrust?: boolean;
   /** Cargo ramp/door commanded open. Absent = closed. */
   rampOpen?: boolean;
+  /**
+   * Fuel jettison switch on (aircraft with AircraftDefinition.fuelDump): fuel goes overboard at the
+   * system's rate down to its floor while it is on. Level. Absent = off.
+   */
+  fuelDump?: boolean;
+  /**
+   * Airdrop release (aircraft with AircraftDefinition.airdrop and an airdrop load): a press drops
+   * a stick of bundles off the open ramp. Edge-triggered; `launch` does the same on such an
+   * aircraft (the release button). Absent = not pressed.
+   */
+  airdropRelease?: boolean;
 }
 
 /** Highest flap lever position (PilotInputs.flapLever): five positions, UP .. FULL. */
@@ -952,9 +965,25 @@ export interface MissionPlayerStart {
   cargoKg?: number;
   /** Engines failed at the start (indices into AircraftDefinition.engines), for engine-out practice. Absent = none. */
   failedEngines?: readonly number[];
+  /**
+   * An airdrop load rigged in the hold (aircraft with AircraftDefinition.airdrop): `bundles` CDS
+   * bundles of `bundleKg` each, dropped `stick` at a time. Their mass is cargo (it counts in
+   * `cargoKg`; absent cargoKg = bundles x bundleKg). `reserve`: once the rigged bundles are gone, a
+   * release still drops a stick of light reserve bundles (a mission that must never run out).
+   */
+  airdrop?: AirdropLoad;
   pos?: Vec3Like;
   headingRad?: number;
   speedMps?: number;
+}
+
+/** MissionPlayerStart.airdrop. */
+export interface AirdropLoad {
+  bundles: number;
+  bundleKg: number;
+  /** Bundles per release (one pass), >= 1. */
+  stick: number;
+  reserve?: boolean;
 }
 
 export interface Mission<TTerrain = unknown, TAirport = unknown> {
@@ -1123,6 +1152,8 @@ export const STORE_IDS: readonly string[] = [
   'rudram-1', 'saaw',
   'mk-82', 'mk-82-se', 'mar-1', 'akash-msl', 'spyder-derby', 'mrsam-msl',
   'tank-800l', 'el-l-8222',
+  // An airdrop bundle (CDS, A-22 container) falling from a transport's ramp: an effect entity.
+  'cds-bundle',
 ];
 
 /** How a station carries its stores: one on the pylon, a twin missile rail, or a multiple ejector rack (bombs). */
@@ -1354,7 +1385,15 @@ export const SnapshotGround = { X: 0, Z: 1, KIND: 2, FLAGS: 3 } as const;
 export const SnapshotGroundFlag = { Designated: 1, Briefed: 2 } as const;
 /** What a ground-map contact is (the symbol on the radar page). */
 export const GroundMapKind = { Vehicle: 0, Armor: 1, AirDefence: 2, Radar: 3, Structure: 4, Briefed: 5 } as const;
-export const HUD_EXT_FLOATS = SnapshotHudExt.GROUND_BASE + MAX_GROUND_CONTACTS * SNAPSHOT_GROUND_STRIDE;
+/**
+ * The airdrop fields, after the ground-map list (offsets from HUD_EXT_BASE + HUD_AIRDROP_OFFSET):
+ * bundles left in the hold, and AirdropStateCode.
+ */
+export const HUD_AIRDROP_OFFSET = SnapshotHudExt.GROUND_BASE + MAX_GROUND_CONTACTS * SNAPSHOT_GROUND_STRIDE;
+export const SnapshotHudAirdrop = { LEFT: 0, STATE: 1 } as const;
+/** No airdrop load; loaded, ramp not open (safe); ramp open (armed: the release button drops a stick). */
+export const AirdropStateCode = { None: 0, Safe: 1, Armed: 2 } as const;
+export const HUD_EXT_FLOATS = HUD_AIRDROP_OFFSET + 2;
 export const GCAS_NO_THREAT_M = 99999;
 export const HUD_BLOCK_FLOATS = HUD_EXT_BASE + HUD_EXT_FLOATS;
 
@@ -1524,7 +1563,40 @@ export type SimEvent =
   | GroundImpactEvent
   | RunwayCraterEvent
   | RunwayClosedEvent
+  | AirdropReleaseEvent
+  | AirdropLandedEvent
   | MissionEndedEvent;
+
+/** A stick of airdrop bundles has been released off an aircraft's ramp (they leave one by one). */
+export interface AirdropReleaseEvent {
+  type: 'airdropRelease';
+  entityId: EntityId;
+  /** 1-based count of sticks this aircraft has released. */
+  stickId: number;
+  /** Bundles in the stick. */
+  count: number;
+  pos: Vec3Like;
+  iasMps: number;
+  aglM: number;
+  /** Light reserve bundles (the rigged load was gone). */
+  reserve: boolean;
+}
+
+/** One bundle of a stick reached the ground. */
+export interface AirdropLandedEvent {
+  type: 'airdropLanded';
+  /** The aircraft that dropped it. */
+  entityId: EntityId;
+  stickId: number;
+  /** 0-based place in its stick, and the stick's size. */
+  index: number;
+  count: number;
+  pos: Vec3Like;
+  /** Speed at impact, m/s. */
+  impactMps: number;
+  /** Hit too hard (the canopy was not open in time, or failed): the load is lost. */
+  destroyed: boolean;
+}
 
 /** A flare or chaff bundle released by an aircraft (for the renderer; the sim flies the decoy itself). */
 export interface CountermeasureEvent {

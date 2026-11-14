@@ -57,6 +57,7 @@ export const ACTION_LABELS: Readonly<Record<BindableAction, string>> = {
   flapsDown: 'Flaps down (transport)',
   thrustReverse: 'Reverse thrust (hold, transport)',
   rampToggle: 'Cargo ramp (transport)',
+  fuelDump: 'Fuel jettison on / off (transport)',
   flare: 'Flares',
   chaff: 'Chaff',
   podView: 'Targeting pod view',

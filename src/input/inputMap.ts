@@ -30,7 +30,8 @@ export const INPUT_MAP_STORAGE_KEY = 'tejas.inputMap.v1';
 // generic step (default key if the player isn't already using it), so bumps need no bespoke code.
 // 10 -> 11: targeting pod (Y view, U zoom, I track, K laser, N polarity).
 // 11 -> 12: transport controls (, flaps up, . flaps down, / reverse thrust held, ; cargo ramp).
-export const INPUT_MAP_VERSION = 12;
+// 12 -> 13: fuel jettison switch (' : transports).
+export const INPUT_MAP_VERSION = 13;
 
 /**
  * The literal default binding/tuning data, matching 09-input.md section 5.1 (throttle keys
@@ -77,6 +78,9 @@ export const DEFAULT_INPUT_MAP_DATA: InputMapData = {
       flapsDown: 'Period',
       thrustReverse: 'Slash',
       rampToggle: 'Semicolon',
+      // Fuel jettison on / off (transports), beside the ramp key. The airdrop release is the weapon
+      // release (launch, Enter) on an aircraft with a ramp.
+      fuelDump: 'Quote',
     },
     meta: {
       cameraCycle: 'KeyV',
@@ -130,6 +134,7 @@ export const DEFAULT_INPUT_MAP_DATA: InputMapData = {
       flapsDown: null,
       thrustReverse: null,
       rampToggle: null,
+      fuelDump: null,
     },
     meta: {
       cameraCycle: { buttonIndex: 11 },

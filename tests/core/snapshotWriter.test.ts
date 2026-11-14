@@ -94,6 +94,6 @@ describe('writeSnapshot', () => {
   });
 
   test('SNAPSHOT_FLOATS matches HEADER_FLOATS + MAX_ENTITIES*ENTITY_STRIDE + HUD_BLOCK_FLOATS', () => {
-    expect(SNAPSHOT_FLOATS).toBe(HEADER_FLOATS + MAX_ENTITIES * ENTITY_STRIDE + 64 + 32 * 8 + 12 * 4 + 13 + 16 * 4); // HUD fields (to 64) + the player track list (32 x 8) + RWR (12 x 4) + route/GCAS/A-G cue/flap fields and ground-map count (13) + the ground map (16 x 4)
+    expect(SNAPSHOT_FLOATS).toBe(HEADER_FLOATS + MAX_ENTITIES * ENTITY_STRIDE + 64 + 32 * 8 + 12 * 4 + 13 + 16 * 4 + 2); // HUD fields (to 64) + the player track list (32 x 8) + RWR (12 x 4) + route/GCAS/A-G cue/flap fields and ground-map count (13) + the ground map (16 x 4) + airdrop (bundles left, state)
   });
 });

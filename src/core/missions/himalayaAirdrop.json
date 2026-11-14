@@ -1,0 +1,110 @@
+{
+  "id": "himalaya-airdrop",
+  "name": "Simikot Lifeline — C-17 airdrop, Humla",
+  "seed": 3121,
+  "terrain": {
+    "seed": 2971,
+    "theatre": "himalaya"
+  },
+  "airportIds": [
+    "simikot",
+    "fukche-alg",
+    "ngari-gunsa"
+  ],
+  "playerStart": {
+    "aircraftId": "c-17",
+    "pos": {
+      "x": -2000,
+      "y": 7300,
+      "z": 93000
+    },
+    "headingRad": 1.42,
+    "speedMps": 190,
+    "fuelFrac": 0.5,
+    "cargoKg": 16000,
+    "airdrop": {
+      "bundles": 16,
+      "bundleKg": 1000,
+      "stick": 4,
+      "reserve": true
+    }
+  },
+  "aiFlights": [],
+  "groundGroups": [
+    {
+      "id": "manpads-kermi",
+      "name": "MANPADS teams (north)",
+      "team": 1,
+      "template": "manpads-pair",
+      "pos": {
+        "x": 61811,
+        "z": 64882
+      },
+      "headingRad": 2.2
+    },
+    {
+      "id": "manpads-ridge",
+      "name": "MANPADS teams (west)",
+      "team": 1,
+      "template": "manpads-pair",
+      "pos": {
+        "x": 60311,
+        "z": 65882
+      },
+      "headingRad": 1.9
+    }
+  ],
+  "weather": {
+    "windWorldMps": {
+      "x": 3,
+      "y": 0,
+      "z": -2
+    },
+    "gustMps": 1.5,
+    "turbulence": 0.15
+  },
+  "objectives": [
+    {
+      "id": "obj-airdrop",
+      "kind": "survive_time",
+      "description": "Airdrop the supplies on DZ Tango, north-west of Simikot (the mission script grades the drop and ends the mission).",
+      "params": {
+        "seconds": 86400
+      }
+    }
+  ],
+  "route": [
+    {
+      "name": "LETDOWN",
+      "pos": {
+        "x": 77239,
+        "z": 81042
+      },
+      "altM": 4600
+    },
+    {
+      "name": "IP",
+      "pos": {
+        "x": 71364,
+        "z": 71971
+      },
+      "altM": 4600
+    },
+    {
+      "name": "DZ TANGO",
+      "pos": {
+        "x": 65411,
+        "z": 67782
+      },
+      "altM": 4065
+    },
+    {
+      "name": "EXIT",
+      "pos": {
+        "x": 54981,
+        "z": 60499
+      },
+      "altM": 6500
+    }
+  ]
+}

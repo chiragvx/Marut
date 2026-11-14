@@ -42,6 +42,9 @@ import {
   SnapshotGround,
   SnapshotGroundFlag,
   SnapshotHudExt,
+  HUD_AIRDROP_OFFSET,
+  SnapshotHudAirdrop,
+  AirdropStateCode,
   GCAS_NO_THREAT_M,
   ROUTE_CAPTURE_M,
   ROUTE_ABEAM_M,
@@ -100,6 +103,7 @@ import { createWindState, stepWind } from './wind';
 import type { WindState } from './wind';
 import { createEventQueue } from './eventQueue';
 import { JettisonedStores } from './jettisonedStores';
+import { Airdrops, type AirdropStatus } from './airdrop';
 import { subSeed } from './seed';
 import { writeSnapshot as writeSnapshotBuffer } from './snapshotWriter';
 import { computeIlsDeviation, forwardWorldInto, rightWorldInto } from './hudTelemetry';
@@ -345,6 +349,11 @@ class WorldImpl implements World {
   private readonly jettisoned = new JettisonedStores();
   private jettisonSerial = 0;
   private readonly jettisonEnv = { windWorldMps: { x: 0, y: 0, z: 0 } as Vec3Like, gravityMps2: GRAVITY_MPS2 };
+  /** Airdrop loads in the holds and the bundles falling from them (src/core/airdrop.ts). */
+  private readonly airdrops = new Airdrops();
+  private readonly airdropEnv = { windWorldMps: { x: 0, y: 0, z: 0 } as Vec3Like, gravityMps2: GRAVITY_MPS2, gustMps: 0, simTimeSec: 0, seed: 0 };
+  private airdropSeed = 0;
+  private readonly airdropStatus: AirdropStatus = { loaded: false, left: 0, armed: false };
 
   constructor(deps: WorldDependencies) {
     this.deps = deps;
@@ -433,6 +442,7 @@ class WorldImpl implements World {
     this.ap = createAutopilotState();
     this.missionSeedInternal = mission.world.seed;
     this.windState = createWindState(subSeed(this.missionSeedInternal, 'wind'));
+    this.airdropSeed = subSeed(this.missionSeedInternal, 'airdrop');
     this.serviceZones = buildServiceZones(mission);
 
     // Player.
@@ -479,6 +489,15 @@ class WorldImpl implements World {
         // The fuel the player chose to take (the loadout screen); drop tanks still start full.
         if (ps.fuelFrac !== undefined && Number.isFinite(ps.fuelFrac)) state.fuelKg *= Math.min(1, Math.max(0.05, ps.fuelFrac));
         this.applyTransportStart(state, ps.aircraftId ?? PLAYER_DEFAULT_AIRCRAFT_ID, ps.cargoKg, ps.failedEngines, playerStartOnGround);
+        // An airdrop load rigged in the hold (its mass is cargo: the bundles' when no cargo is given).
+        const dropDef = getAircraftDefinition(ps.aircraftId ?? PLAYER_DEFAULT_AIRCRAFT_ID);
+        if (ps.airdrop && dropDef?.airdrop) {
+          this.airdrops.load(playerId, dropDef.airdrop, ps.airdrop);
+          if (state.cargoMassKg === undefined && dropDef.massModel) {
+            state.cargoMassKg = Math.min(ps.airdrop.bundles * ps.airdrop.bundleKg, dropDef.massModel.maxCargoKg);
+            state.cargoCgBodyX = dropDef.massModel.cargoCgBodyX;
+          }
+        }
       }
       this.playerEntityIdInternal = playerId;
     }
@@ -665,6 +684,9 @@ class WorldImpl implements World {
     const flapPos = state?.flapPos;
     out[o + SnapshotHudExt.FLAP_LEVER] = flapPos !== undefined ? (state?.flapDetent ?? 0) : -1;
     out[o + SnapshotHudExt.FLAP_POS] = flapPos ?? -1;
+    const ad = this.airdrops.status(this.playerEntityIdInternal, state, this.airdropStatus);
+    out[o + HUD_AIRDROP_OFFSET + SnapshotHudAirdrop.LEFT] = ad.left;
+    out[o + HUD_AIRDROP_OFFSET + SnapshotHudAirdrop.STATE] = !ad.loaded ? AirdropStateCode.None : ad.armed ? AirdropStateCode.Armed : AirdropStateCode.Safe;
     this.writeGroundMap(out, o);
     if (!route || !wp || !state) return;
     // Distance along the route to the next steerpoint with a planned time.
@@ -731,6 +753,7 @@ class WorldImpl implements World {
     this.eventQueue.clear();
     this.jettisoned.clear();
     this.jettisonSerial = 0;
+    this.airdrops.clear();
     this.tickInternal = 0;
     this.simTimeSecInternal = 0;
     this.playerEntityIdInternal = NO_ENTITY_ID;
@@ -971,6 +994,8 @@ class WorldImpl implements World {
     target.flapLever = inputs.flapLever ?? 0;
     target.reverseThrust = inputs.reverseThrust ?? false;
     target.rampOpen = inputs.rampOpen ?? false;
+    target.fuelDump = inputs.fuelDump ?? false;
+    target.airdropRelease = inputs.airdropRelease ?? false;
   }
 
   commandAutopilot(action: AutopilotAction): void {
@@ -1061,6 +1086,14 @@ class WorldImpl implements World {
           inputs = this.apInputs;
         }
       }
+      // Fuel jettison (transports): overboard at the system's rate down to its floor while the switch is on.
+      const dump = getAircraftDefinition(rec.aircraftDefId)?.fuelDump;
+      if (dump && rec.inputs.fuelDump && state.fuelKg > dump.minFuelKg) {
+        state.fuelKg = Math.max(dump.minFuelKg, state.fuelKg - dump.rateKgS * SIM_DT_SEC_LOCAL);
+        state.flags |= EntityFlag.FuelDump;
+      } else if (state.flags & EntityFlag.FuelDump) {
+        state.flags &= ~EntityFlag.FuelDump;
+      }
       const tanksBefore = state.dropTankCount ?? 0;
       const tankFuelBefore = state.dropTankFuelKg ?? 0;
       this.deps.flightModel.step(rec.aircraftDefId, state, damage, inputs, rec.env, SIM_DT_SEC_LOCAL, state);
@@ -1071,6 +1104,21 @@ class WorldImpl implements World {
     // Step 3b: jettisoned stores fall (after the aircraft, so a store released this tick starts where its pylon is now).
     this.jettisonEnv.windWorldMps = this.windWorldMpsScratch;
     this.jettisoned.step(SIM_DT_SEC_LOCAL, this.pool, this.deps.sampler, this.jettisonEnv, this.eventQueue);
+
+    // Step 3c: airdrop: the player's release button (or the weapon release) with the ramp open drops
+    // a stick; the bundles leave the ramp in turn and fall under their canopies.
+    const ade = this.airdropEnv;
+    ade.windWorldMps = this.windWorldMpsScratch;
+    ade.gustMps = this.mission?.weather.gustMps ?? 0;
+    ade.simTimeSec = this.simTimeSecInternal;
+    ade.seed = this.airdropSeed;
+    const pdrop = this.aircraft.get(this.playerEntityIdInternal);
+    const pstate = this.pool.get(this.playerEntityIdInternal);
+    if (pdrop && pstate) {
+      const t = pdrop.telemetry;
+      this.airdrops.input(pstate.id, !!pdrop.inputs.airdropRelease || pdrop.inputs.launch, pstate, t.iasMps, t.altAglM, ade, this.eventQueue);
+    }
+    this.airdrops.step(SIM_DT_SEC_LOCAL, this.pool, this.deps.sampler, ade, this.eventQueue);
 
     // Step 4: warning-bit evaluation.
     for (let i = 0; i < aircraftCount; i++) {
@@ -1108,6 +1156,9 @@ class WorldImpl implements World {
       ) {
         bits |= WarningBit.GearUnsafe;
       }
+      // A missile coming at the aircraft (the RWR's / a transport's MAWS's missile-inbound call; the
+      // combat step sets it and emits its own warning edges).
+      if (rec.combat.missileInboundWarning) bits |= WarningBit.MissileLaunch;
       const prevBits = rec.activeWarningBits;
       if (bits !== prevBits) {
         this.pushWarningEdge(state.id, prevBits, bits, WarningBit.Stall);

@@ -24,7 +24,7 @@
  */
 import * as THREE from 'three';
 import { uploadFirst } from './attrUpload';
-import { EntityKindCode, type QuatLike, type SimEvent, type Vec3Like } from '../contracts/core';
+import { EntityKindCode, aircraftModelOf, type QuatLike, type SimEvent, type Vec3Like } from '../contracts/core';
 import type { ShowcaseFrame } from '../contracts/render';
 import { CHAFF_LIFE_SEC, FLARE_LIFE_SEC, dispenserBody } from '../combat/countermeasures';
 import { ATMOSPHERE_GLSL, getAtmosphereUniforms } from './atmosphere';
@@ -236,6 +236,8 @@ export interface FxPose {
   pos: Vec3Like;
   rot: QuatLike;
   vel: Vec3Like;
+  /** The aircraft's model (AircraftModel code: where its dispensers are). Absent: the Tejas. */
+  model?: number;
 }
 
 /** Where things are as drawn this frame (the interpolated snapshot, or a cinematic shot). */
@@ -258,6 +260,7 @@ export function snapshotPoses(buf: SnapshotDoubleBuffer, f: number): FxPoses {
         Object.assign(out.pos, scratch.pos);
         Object.assign(out.rot, scratch.rot);
         Object.assign(out.vel, scratch.vel);
+        out.model = aircraftModelOf(c.flags[i]!);
         return c.kind[i] === EntityKindCode.aircraft ? 'aircraft' : 'other';
       }
       return null;
@@ -531,7 +534,7 @@ export function createWeaponFx(root: THREE.Object3D): WeaponFx {
           // Which side's dispenser: the side the cartridge was fired towards.
           rotate(pose.rot, Z_AXIS, v1);
           const side = (p.vel.x - pose.vel.x) * v1.x + (p.vel.y - pose.vel.y) * v1.y + (p.vel.z - pose.vel.z) * v1.z >= 0 ? 1 : -1;
-          rotate(pose.rot, dispenserBody(side, v2), v2);
+          rotate(pose.rot, dispenserBody(side, v2, pose.model ?? 0), v2);
           p.pos.x = pose.pos.x + v2.x;
           p.pos.y = pose.pos.y + v2.y;
           p.pos.z = pose.pos.z + v2.z;

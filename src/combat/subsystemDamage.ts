@@ -66,6 +66,9 @@ function stepRng(rng: CombatRngState): number {
 
 export const rollSubsystemHit: RollSubsystemHit = (rng) => subsystemHitFromU01(stepRng(rng));
 
+/** The most of a multi-engine heavy's structure one hit takes (two MANPADS hits leave it flying, a third does not). */
+export const HEAVY_MAX_HIT_FRAC = 0.4;
+
 export const applyHit: ApplyHit = (
   weapon,
   damageFrac,
@@ -73,14 +76,28 @@ export const applyHit: ApplyHit = (
   targetDamage: DamageState,
   rng: CombatRngState,
 ): ApplyHitResult => {
-  void weapon; // weapon kind does not currently modulate the flat structural-damage formula.
-  const frac = Math.max(damageFrac, 0);
+  // A multi-engine heavy (a transport: EntityState.engines) is big enough that one small warhead
+  // does not bring it down: the hit takes at most HEAVY_MAX_HIT_FRAC of its structure, and a
+  // heat-seeker (it homes on an engine's heat) or an engine roll takes out ONE engine, not all.
+  const engines = targetState.engines;
+  const heavy = engines !== undefined && engines.length > 1;
+  const frac = heavy ? Math.min(Math.max(damageFrac, 0), HEAVY_MAX_HIT_FRAC) : Math.max(damageFrac, 0);
   targetDamage.structurePct = clamp(targetDamage.structurePct - frac, 0, 1);
   const newHp = Math.round(targetDamage.structurePct * 100);
   targetState.hp = newHp;
   const lethal = targetDamage.structurePct <= 0;
 
-  const subsystemHit = rollSubsystemHit(rng);
+  const rolled = rollSubsystemHit(rng);
+  const subsystemHit = heavy && weapon === 'ir_missile' && frac >= 0.1 ? SubsystemHitKind.Engine : rolled;
+  if (heavy && subsystemHit === SubsystemHitKind.Engine) {
+    const running = engines.filter((e) => !e.failed);
+    const e = running[Math.min(running.length - 1, Math.floor(stepRng(rng) * running.length))];
+    if (e) {
+      e.failed = true;
+      e.n1 = 0;
+    }
+    return { subsystemHit, lethal, newHp };
+  }
   const extra = frac * SUBSYSTEM_DAMAGE_EXTRA_MULT;
   switch (subsystemHit) {
     case SubsystemHitKind.Engine:

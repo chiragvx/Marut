@@ -180,6 +180,7 @@ export function createPlayerInputSystem(config: PlayerInputConfig): PlayerInputS
   // Transport controls: flap lever detent (0 UP .. FLAP_LEVER_MAX FULL) and the ramp toggle.
   let flapLeverState = 0;
   let rampOpenState = false;
+  let fuelDumpState = false;
   let alphaLimiterDisabledState = false;
   const controlRates: ControlRates = { pitch: 1, roll: 1, yaw: 1 };
 
@@ -188,6 +189,7 @@ export function createPlayerInputSystem(config: PlayerInputConfig): PlayerInputS
   const flapsUpEdge = createEdgeDetector();
   const flapsDownEdge = createEdgeDetector();
   const rampEdge = createEdgeDetector();
+  const fuelDumpEdge = createEdgeDetector();
   const cameraCycleEdge = createEdgeDetector();
   const menuToggleEdge = createEdgeDetector();
   const taxiGuideEdge = createEdgeDetector();
@@ -512,6 +514,7 @@ export function createPlayerInputSystem(config: PlayerInputConfig): PlayerInputS
       if (flapsUpEdge.risingEdge(rawButtonHeld(LogicalButton.FlapsUp, scheme) || altKeyHeld(FLAPS_UP_ALT_KEYS, scheme))) flapLeverState = stepFlapLever(flapLeverState, -1);
       if (flapsDownEdge.risingEdge(rawButtonHeld(LogicalButton.FlapsDown, scheme) || altKeyHeld(FLAPS_DOWN_ALT_KEYS, scheme))) flapLeverState = stepFlapLever(flapLeverState, 1);
       if (rampEdge.risingEdge(rawButtonHeld(LogicalButton.RampToggle, scheme))) rampOpenState = !rampOpenState;
+      if (fuelDumpEdge.risingEdge(rawButtonHeld(LogicalButton.FuelDump, scheme))) fuelDumpState = !fuelDumpState;
       const rawReverse = rawButtonHeld(LogicalButton.ThrustReverse, scheme);
 
       // Meta actions (not in PilotInputs).
@@ -577,6 +580,7 @@ export function createPlayerInputSystem(config: PlayerInputConfig): PlayerInputS
       out.flapLever = flapLeverState;
       out.reverseThrust = rawReverse;
       out.rampOpen = rampOpenState;
+      out.fuelDump = fuelDumpState;
       out.jettisonTanks = rawJettison;
       out.requestService = rawService;
       out.radarModeCycle = rawRadarMode;
@@ -637,6 +641,22 @@ export function createPlayerInputSystem(config: PlayerInputConfig): PlayerInputS
 
     setFlapLever(detent: number): void {
       flapLeverState = clamp(Math.round(detent), 0, FLAP_LEVER_MAX);
+    },
+
+    setFuelDump(on: boolean): void {
+      fuelDumpState = on;
+    },
+
+    isFuelDumpOn(): boolean {
+      return fuelDumpState;
+    },
+
+    setRampOpen(open: boolean): void {
+      rampOpenState = open;
+    },
+
+    isRampOpen(): boolean {
+      return rampOpenState;
     },
 
     stepFlaps(dir: -1 | 1): void {

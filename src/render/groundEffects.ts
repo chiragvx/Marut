@@ -159,6 +159,10 @@ interface Fire {
 
 export interface GroundEffects {
   ingestEvents(events: readonly SimEvent[]): void;
+  /** Jettisoned fuel streaming from an outlet this frame (world position, the aircraft's velocity), dtSec of flow. */
+  fuelMist(x: number, y: number, z: number, vx: number, vy: number, vz: number, dtSec: number): void;
+  /** Marker smoke columns (a drop zone's), world ground points and colours; empty = none. */
+  setMarkerSmoke(points: readonly { x: number; y: number; z: number; r: number; g: number; b: number }[]): void;
   tick(dtSec: number, originWorld: Readonly<Vec3Like>, viewportHeightPx: number, fovDeg: number): void;
   dispose(): void;
 }
@@ -169,12 +173,31 @@ export function createGroundEffects(root: THREE.Object3D): GroundEffects {
   const dust = createLayer(root, 700, false, 0.9, 0.3);
   const smoke = createLayer(root, 1400, false, 0.15, 1.6);
   const fire = createLayer(root, 500, true, 1.5);
+  // Jettisoned fuel: a fine mist that stops dead in the air behind the outlet, spreads and settles.
+  const mist = createLayer(root, 600, false, 1.4, 0.1);
+  // Signal smoke: thick coloured columns drifting a little.
+  const marker = createLayer(root, 320, false, 0.2, 0.25);
   const fires: Fire[] = [];
+  let markers: { x: number; y: number; z: number; r: number; g: number; b: number; acc: number }[] = [];
   let clock = 0;
   let seed = 1;
   const rnd = (): number => ((seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) / 4294967296);
+  let mistAcc = 0;
 
   return {
+    fuelMist(x, y, z, vx, vy, vz, dtSec) {
+      // ~25 puffs a second per outlet, spread along the path flown this frame.
+      mistAcc += dtSec * 25;
+      while (mistAcc >= 1) {
+        mistAcc -= 1;
+        const f = rnd();
+        emit(mist, x - vx * dtSec * f, y - vy * dtSec * f, z - vz * dtSec * f, vx * 0.35, vy * 0.35 - 1, vz * 0.35, 5 + rnd() * 3, 1.2, 14 + rnd() * 6, 0.32, 0.86, 0.88, 0.9);
+      }
+    },
+    setMarkerSmoke(points) {
+      markers = points.map((p) => ({ ...p, acc: 0 }));
+    },
+
     ingestEvents(events) {
       for (const ev of events) {
         if (ev.type === 'groundImpact') {
@@ -244,16 +267,25 @@ export function createGroundEffects(root: THREE.Object3D): GroundEffects {
           emit(fire, f.x + (rnd() - 0.5) * 3 * s, f.y + 0.5, f.z + (rnd() - 0.5) * 3 * s, 0, 3 + rnd() * 3, 0, 0.5 + rnd() * 0.4, 2.5 * s, 1 * s, 0.85, 1.0, 0.45 + rnd() * 0.25, 0.12);
         }
       }
+      for (const m of markers) {
+        m.acc += dt;
+        while (m.acc >= 0.35) {
+          m.acc -= 0.35;
+          emit(marker, m.x + (rnd() - 0.5) * 2, m.y + 1, m.z + (rnd() - 0.5) * 2, 1.5 + (rnd() - 0.5), 3 + rnd() * 2, 0.6 + (rnd() - 0.5), 22 + rnd() * 8, 3, 30, 0.75, m.r, m.g, m.b);
+        }
+      }
       // Point size in pixels = world size * (viewport height / (2 tan(fov/2))) / distance.
       const scale = viewportHeightPx / (2 * Math.tan((fovDeg * Math.PI) / 360));
-      for (const l of [dust, smoke, fire]) (l.points.material as THREE.ShaderMaterial).uniforms['uScale']!.value = scale;
+      for (const l of [dust, smoke, fire, mist, marker]) (l.points.material as THREE.ShaderMaterial).uniforms['uScale']!.value = scale;
       stepLayer(dust, dt, origin, 3);
       stepLayer(smoke, dt, origin, -1.3);
       stepLayer(fire, dt, origin, -2);
+      if (mist.n > 0) stepLayer(mist, dt, origin, 0.4);
+      if (marker.n > 0) stepLayer(marker, dt, origin, -0.8);
     },
 
     dispose() {
-      for (const l of [dust, smoke, fire]) {
+      for (const l of [dust, smoke, fire, mist, marker]) {
         root.remove(l.points);
         l.points.geometry.dispose();
         (l.points.material as THREE.Material).dispose();

@@ -367,10 +367,10 @@ describe('loading screen', () => {
 });
 
 describe('locked content', () => {
-  it('opens one air-to-air and one ground strike mission, both at Bhisiana; the rest are listed, locked', () => {
-    expect(PLAYABLE_MISSIONS).toEqual(['border-duel', 'border-strike']);
-    expect(playableMissions().map(missionKind)).toEqual(['Air-to-air', 'Ground strike']);
-    expect(playableMissions().every((m) => m.baseId === 'bathinda')).toBe(true);
+  it('opens one air-to-air and one ground strike mission at Bhisiana, and the Simikot airdrop; the rest are listed, locked', () => {
+    expect(PLAYABLE_MISSIONS).toEqual(['border-duel', 'border-strike', 'himalaya-airdrop']);
+    expect(playableMissions().map(missionKind)).toEqual(['Air-to-air', 'Ground strike', 'Airdrop']);
+    expect(playableMissions().map((m) => m.baseId)).toEqual(['bathinda', 'bathinda', 'simikot']);
 
     const onSelect = vi.fn();
     const list = makeContainer();
@@ -380,7 +380,7 @@ describe('locked content', () => {
       expect(tile.classList.contains('tj-locked')).toBe(missionLocked(m.id));
       tile.click();
     }
-    expect(onSelect.mock.calls.map((c) => c[0])).toEqual(['border-duel', 'border-strike']);
+    expect(onSelect.mock.calls.map((c) => c[0])).toEqual(['border-duel', 'border-strike', 'himalaya-airdrop']);
   });
 
   it('shows INS Hansa locked in Free Flight: it cannot be picked, and a saved Hansa setup falls back to Bhisiana', () => {

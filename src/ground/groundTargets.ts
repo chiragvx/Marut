@@ -115,7 +115,9 @@ export class GroundTargetSet {
       const tg = this.targets[keys[i]!]!;
       if (tg.state === TargetStateCode.Destroyed) continue;
       const t = segmentBoxEntry(a, b, tg);
-      if (t >= 0 && t < hit.t) {
+      // t = 0: the segment starts inside the box. A projectile is never inside a target it has not
+      // yet struck except the one that fired it (a MANPADS round leaves its gunner's box).
+      if (t > 0 && t < hit.t) {
         hit.key = tg.key;
         hit.t = t;
       }

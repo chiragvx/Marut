@@ -8,7 +8,7 @@
  * exports of modules 04/08/09/11 rather than a contracts/*.ts file).
  */
 
-import { AimingHelp, AutopilotFlag, EntityFlag, HUD_BLOCK_START, SnapshotEntity, entityFieldOffset, unpackEngines, unpackUnits4, HUD_EXT_BASE, LIGHT_MODES, LockStateCode, NO_ENTITY_ID, PodFlag, RadarModeCode, ServiceStateCode, SnapshotHud, SnapshotHudExt, SpeedUnit, WarningBit, WeaponKindCode, WeatherMode, type AutopilotAction } from './contracts/core';
+import { AimingHelp, AirdropStateCode, HUD_AIRDROP_OFFSET, SnapshotHudAirdrop, AutopilotFlag, EntityFlag, HUD_BLOCK_START, SnapshotEntity, entityFieldOffset, unpackEngines, unpackUnits4, HUD_EXT_BASE, LIGHT_MODES, LockStateCode, NO_ENTITY_ID, PodFlag, RadarModeCode, ServiceStateCode, SnapshotHud, SnapshotHudExt, SpeedUnit, WarningBit, WeaponKindCode, WeatherMode, type AutopilotAction } from './contracts/core';
 import type {
   AiDifficulty,
   EntityId,
@@ -28,7 +28,7 @@ import type { MainToTerrainMessageExt, TerrainToMainMessageExt, AirportFlattenZo
 import type { AirportLayout } from './contracts/airport';
 import { CameraMode } from './contracts/render';
 import type { CameraState, CockpitAction, HudRenderer, HudSteerpoint, SceneEnvironment, SceneRenderer, ShowcaseFrame } from './contracts/render';
-import { createMissionScript, type MissionScript, type ScriptFrame } from './script';
+import { createMissionScript, type MissionScript, type ScriptAtmosphere, type ScriptFrame } from './script';
 import { createRadioPlayer } from './script/radioPlayer';
 import type { PlayerInputSystem } from './contracts/input';
 import { RebindDeviceKind } from './contracts/input';
@@ -77,7 +77,7 @@ import { createAmbience } from './ui/audio/ambience';
 import { airToAirScene, approachScene, lowPassScene, nightDepartureScene, taxiScene, type ShowcaseScene } from './ui/showcase';
 import { REEL_SHOTS } from './ui/reel';
 import { C17_HANGAR_FIT, C17_HANGAR_SUBJECT, createHangarScene, findHangarBay, type HangarScene } from './ui/hangarView';
-import { DEFAULT_TRANSPORT_LOAD, normalizeTransportLoad, withTransportLoad, type TransportLoadView } from './ui/transportLoad';
+import { DEFAULT_TRANSPORT_LOAD, normalizeTransportLoad, withTransportLoad, type TransportLoad, type TransportLoadView } from './ui/transportLoad';
 import type { LoadoutView } from './ui/loadoutEditor';
 import type { LoadoutFit } from './aircraft/loadout';
 import { PROMO_SHOTS } from './ui/promo';
@@ -273,7 +273,9 @@ let bettyWasInCockpit = true;
 const voiceSay: VoiceLineDef[] = [];
 let lastAudioSimSec = -1;
 /** One-shot presses from cockpit controls, added to the next frame's pilot inputs (frames left). */
-const cockpitPulse = { cycleWeapon: 0, cycleTarget: 0, radarModeCycle: 0, jettisonTanks: 0, requestService: 0, flare: 0, chaff: 0 };
+const cockpitPulse = { cycleWeapon: 0, cycleTarget: 0, radarModeCycle: 0, jettisonTanks: 0, requestService: 0, flare: 0, chaff: 0, airdrop: 0 };
+/** The player's aircraft has a cargo group on the action bar (a ramp, an airdrop rig or a fuel jettison). */
+let playerCargoControls = false;
 /** Bumped at every spawn and rearm, so the cockpit starts counting gun rounds again. */
 let lightMode = DEFAULT_LIGHT_MODE;
 /** Objective tracker, event messages and hints over the HUD (src/ui/flightOverlay.ts). */
@@ -352,7 +354,7 @@ function destroyCurrentScreen(): void {
 // -----------------------------------------------------------------------------
 
 /** What the player chose to fly; replayed by Restart, Fly again and Continue. */
-type Flight = { kind: 'free'; setup: FreeFlightSetup } | { kind: 'mission'; id: BuiltinMissionId; difficulty: AiDifficulty; loadout: LoadoutSelection };
+type Flight = { kind: 'free'; setup: FreeFlightSetup } | { kind: 'mission'; id: BuiltinMissionId; difficulty: AiDifficulty; loadout: LoadoutSelection; transport?: TransportLoad };
 let currentFlight: Flight | undefined;
 
 const STORAGE = {
@@ -510,11 +512,12 @@ function showBriefing(id: string): void {
   if (!entry) return showMissions();
   destroyCurrentScreen();
   appState = 'missionSelect';
-  const prefs = loadJson<{ difficulty?: AiDifficulty; loadout?: LoadoutSelection; loadouts?: Record<string, LoadoutSelection> }>(STORAGE.missionPrefs) ?? {};
+  const prefs = loadJson<{ difficulty?: AiDifficulty; loadout?: LoadoutSelection; loadouts?: Record<string, LoadoutSelection>; transport?: Record<string, unknown> }>(STORAGE.missionPrefs) ?? {};
   // Each mission remembers its own fit; the default is the mission's (a strike mission starts armed for it).
   const missionDefault = resolveBuiltinMission(entry.id).playerStart.loadoutId;
   const difficulty: AiDifficulty = prefs.difficulty === 'rookie' || prefs.difficulty === 'ace' ? prefs.difficulty : 'veteran';
   const b = inputSystem.inputMap.data.keyboard.buttons;
+  const transportDef = entry.transport ? getAircraftDefinition(resolveBuiltinMission(entry.id).playerStart.aircraftId ?? 'c-17') : undefined;
   currentScreen = createBriefing(
     uiRoot,
     {
@@ -525,11 +528,20 @@ function showBriefing(id: string): void {
       difficulty,
       loadout: prefs.loadouts?.[entry.id] ?? (missionDefault ? { presetId: missionDefault } : {}),
       keys: { target: keyLabel(b.cycleTarget), launch: keyLabel(b.launch), weapon: keyLabel(b.cycleWeapon), gun: keyLabel(b.trigger) },
+      ...(transportDef && entry.transport
+        ? {
+            transport: {
+              def: transportDef,
+              load: prefs.transport?.[entry.id] !== undefined ? normalizeTransportLoad(transportDef, prefs.transport[entry.id]) : { ...entry.transport },
+              keys: { ramp: keyLabel(b.rampToggle), drop: keyLabel(b.launch), dump: keyLabel(b.fuelDump), flare: keyLabel(b.flare), flapsDown: keyLabel(b.flapsDown), flapsUp: keyLabel(b.flapsUp) },
+            },
+          }
+        : {}),
     },
     {
-      onStart: (d, loadout) => {
-        saveJson(STORAGE.missionPrefs, { difficulty: d, loadouts: { ...(prefs.loadouts ?? {}), [entry.id]: loadout } });
-        launchFlight({ kind: 'mission', id: entry.id, difficulty: d, loadout });
+      onStart: (d, loadout, transport) => {
+        saveJson(STORAGE.missionPrefs, { ...prefs, difficulty: d, loadouts: { ...(prefs.loadouts ?? {}), [entry.id]: loadout }, ...(transport ? { transport: { ...(prefs.transport ?? {}), [entry.id]: transport } } : {}) });
+        launchFlight({ kind: 'mission', id: entry.id, difficulty: d, loadout, ...(transport ? { transport } : {}) });
       },
       onBack: showMissions,
     }
@@ -660,9 +672,16 @@ function launchFlight(flight: Flight): void {
   }
   const base = resolveBuiltinMission(flight.id);
   const lesson = trainingEntry(flight.id);
-  weatherMode = lesson?.weather ?? 'clear';
-  timeOfDayH = DEV_TOD_H ?? lesson?.timeOfDayH ?? 10.5;
+  const own = missionEntry(flight.id);
+  weatherMode = lesson?.weather ?? own?.weather ?? 'clear';
+  timeOfDayH = DEV_TOD_H ?? lesson?.timeOfDayH ?? own?.timeOfDayH ?? 10.5;
   renderer.setTimeOfDay(timeOfDayH);
+  if (own?.transport) {
+    // A transport mission flies its own aircraft, load, wind and sky.
+    const load = flight.transport ?? own.transport;
+    launchMission(withTransportLoad(base, load), { title: flightTitle(flight), airStart: !!base.playerStart.pos, ownWeather: true, throttle: 0.85 });
+    return;
+  }
   if (lesson) {
     // Flight School flies the lesson's own jet and drones as written.
     launchMission(base, { title: flightTitle(flight), airStart: !!base.playerStart.pos, ownWeather: true, ...(lesson.startThrottle !== undefined ? { throttle: lesson.startThrottle } : {}) });
@@ -884,6 +903,7 @@ function showDebrief(ended: MissionEndedEvent): void {
   const nextLesson = lesson ? TRAINING[TRAINING.indexOf(lesson) + 1] : undefined;
   const nextEntry = entry ? playableMissions()[playableMissions().findIndex((m) => m.id === entry.id) + 1] : lesson && !nextLesson ? playableMissions()[0] : undefined;
   const fb = feedbackUrl({ screen: 'debrief', missionId: stats.missionId, quality: currentQualityTier });
+  const scriptResults = missionScript?.results?.();
   currentScreen = createDebriefScreen(
     uiRoot,
     stats,
@@ -906,6 +926,7 @@ function showDebrief(ended: MissionEndedEvent): void {
       newBest,
       ...(entry ? { objectiveText: entry.objective } : lesson ? { objectiveText: lesson.blurb } : {}),
       ...(fb ? { feedbackUrl: fb } : {}),
+      ...(scriptResults ? { results: scriptResults } : {}),
     }
   );
 }
@@ -1234,6 +1255,7 @@ function setupWorldView(mission: Mission, tier: QualityTier, scripted = false): 
   renderer.setNavDb(navDb);
   // The same ground the simulation flies over (airfields flattened), for keeping the camera above it.
   const heightAt = createHeightSampler(terrainParams, flattenZones).heightAt;
+  worldHeightAt = heightAt;
   renderer.setGroundHeight(heightAt);
   hud.setRoute((mission.route ?? []).map((w) => ({ name: w.name, ...(w.tot !== undefined ? { tot: w.tot } : {}) })));
   // A scripted mission marks its own objectives (src/script); the threats stay.
@@ -1341,6 +1363,33 @@ const scriptFrame: ScriptFrame = {
   radioBusy: false,
 };
 
+const scriptHl = [0, 0, 0, 0];
+const scriptN1 = [0, 0, 0, 0];
+const scriptRev = [0, 0, 0, 0];
+/** Engines of the player's aircraft (a transport's engine-out calls). */
+let playerDefEngines = 1;
+let scriptAtmosKey = '';
+/** The world's ground height (set per world load), for placing a script's ground marks. */
+let worldHeightAt: ((x: number, z: number) => number) | undefined;
+/** A script's own sky: the cloud deck and visibility, the light going (time of day) and its ground marks. */
+function applyScriptAtmosphere(a: ScriptAtmosphere, simSec: number): void {
+  const key = JSON.stringify([a.weather, a.markers]);
+  if (key !== scriptAtmosKey) {
+    scriptAtmosKey = key;
+    renderer.setWeatherOverride?.(a.weather ?? null);
+    const ground = (p: { x: number; z: number; aglM: number; r: number; g: number; b: number }) => ({ x: p.x, y: (worldHeightAt?.(p.x, p.z) ?? 0) + p.aglM, z: p.z, r: p.r, g: p.g, b: p.b });
+    renderer.setMissionMarkers?.(a.markers ? { lamps: a.markers.lamps.map(ground), smoke: a.markers.smoke.map(ground) } : null);
+  }
+  if (a.timeOfDayH !== undefined) {
+    const h = a.timeOfDayH + ((a.timeRate ?? 0) * simSec) / 3600;
+    // Ten-second steps: the sky is not re-lit every frame.
+    if (Math.abs(h - timeOfDayH) > 1 / 360) {
+      timeOfDayH = h;
+      renderer.setTimeOfDay(timeOfDayH);
+    }
+  }
+}
+
 /** Runs the mission script on a snapshot: its objective markers into the HUD, its radio calls out. */
 function tickMissionScript(view: Float64Array, entityCount: number, playerIndex: number, simSec: number): void {
   const script = missionScript;
@@ -1395,7 +1444,21 @@ function tickMissionScript(view: Float64Array, entityCount: number, playerIndex:
   f.radarRangeChanges = radarRangeChangeCount;
   f.trackCount = hudv(SnapshotHud.TRACK_COUNT);
   f.radioBusy = radioPlayer.busy();
+  f.fuelKg = hudv(SnapshotHud.FUEL_KG);
+  if (playerIndex >= 0) {
+    const flags = view[entityFieldOffset(playerIndex, SnapshotEntity.FLAGS)] ?? 0;
+    f.fuelDumping = (flags & EntityFlag.FuelDump) !== 0;
+    unpackUnits4(view[entityFieldOffset(playerIndex, SnapshotEntity.HIGH_LIFT)] ?? 0, scriptHl);
+    f.rampPos = scriptHl[3]!;
+    f.flapPos = scriptHl[0]!;
+    unpackEngines(view[entityFieldOffset(playerIndex, SnapshotEntity.ENGINES)] ?? 0, scriptN1, scriptRev);
+    f.enginesRunning = playerDefEngines > 1 ? scriptN1.slice(0, playerDefEngines).filter((n) => n > 0.05).length : undefined;
+  }
+  const ad = HUD_BLOCK_START + HUD_EXT_BASE + HUD_AIRDROP_OFFSET;
+  f.airdropState = view[ad + SnapshotHudAirdrop.STATE] ?? 0;
+  f.airdropLeft = view[ad + SnapshotHudAirdrop.LEFT] ?? 0;
   script.update(f);
+  if (script.atmosphere) applyScriptAtmosphere(script.atmosphere(), simSec);
   const marks = script.markers();
   hud.setSteerpoints(marks.length ? [...baseSteerpoints, ...marks] : baseSteerpoints);
   radioPlayer.say(script.drain());
@@ -1432,7 +1495,56 @@ function updateSystemNotices(view: Float64Array, flapLever: number, flapPos: num
     spoilers: hlScratch[2]!,
     ramp: hlScratch[3]!,
     reverser: Math.max(...revScratch),
+    fuelDump: (flags & EntityFlag.FuelDump) !== 0,
+    airdrop: view[HUD_BLOCK_START + HUD_EXT_BASE + HUD_AIRDROP_OFFSET + SnapshotHudAirdrop.STATE] ?? 0,
+    airdropLeft: view[HUD_BLOCK_START + HUD_EXT_BASE + HUD_AIRDROP_OFFSET + SnapshotHudAirdrop.LEFT] ?? 0,
   })) systemToasts.show(text);
+}
+
+/** A transport's MAWS (missile approach warning) has no RWR scope: a launch is a toast and this tone. */
+let playerMaws = false;
+let mawsCtx: AudioContext | undefined;
+function mawsTone(): void {
+  try {
+    mawsCtx ??= new AudioContext();
+    const ctx = mawsCtx;
+    const t0 = ctx.currentTime;
+    const g = ctx.createGain();
+    g.gain.value = 0;
+    g.connect(ctx.destination);
+    const osc = ctx.createOscillator();
+    osc.type = 'square';
+    osc.connect(g);
+    // Three fast warbles, 1.2 s: a synthesised warning tone.
+    for (let i = 0; i < 6; i++) {
+      osc.frequency.setValueAtTime(i % 2 ? 1450 : 1050, t0 + i * 0.2);
+      g.gain.setValueAtTime(0.06, t0 + i * 0.2);
+      g.gain.setValueAtTime(0, t0 + i * 0.2 + 0.17);
+    }
+    osc.start(t0);
+    osc.stop(t0 + 1.25);
+  } catch {
+    /* no audio */
+  }
+}
+
+/** The cargo group of the action bar: ramp, airdrop release and fuel jettison, from the snapshot. */
+function cargoBarState(view: Float64Array): NonNullable<Parameters<ActionBar['setState']>[0]['cargo']> {
+  const ad = HUD_BLOCK_START + HUD_EXT_BASE + HUD_AIRDROP_OFFSET;
+  const state = view[ad + SnapshotHudAirdrop.STATE] ?? 0;
+  const left = view[ad + SnapshotHudAirdrop.LEFT] ?? 0;
+  const pi = readSnapshotHeader(view).playerIndex;
+  const flags = pi >= 0 ? (view[entityFieldOffset(pi, SnapshotEntity.FLAGS)] ?? 0) : 0;
+  const dumping = (flags & EntityFlag.FuelDump) !== 0;
+  unpackUnits4(pi >= 0 ? (view[entityFieldOffset(pi, SnapshotEntity.HIGH_LIFT)] ?? 0) : 0, scriptHl);
+  const ramp = scriptHl[3]!;
+  return {
+    ramp: ramp > 0.98 ? 'OPEN' : ramp < 0.02 ? 'CLOSED' : inputSystem.isRampOpen() ? 'OPENING' : 'CLOSING',
+    drop: state === AirdropStateCode.None ? 'no load' : state === AirdropStateCode.Armed ? `ARMED · ${left}` : `SAFE · ${left}`,
+    dump: dumping ? 'JETTISON' : inputSystem.isFuelDumpOn() ? 'MIN FUEL' : 'OFF',
+    dropArmed: state === AirdropStateCode.Armed,
+    dumping,
+  };
 }
 
 /** Objective tracker, warnings-as-messages and hints, from the latest snapshot's HUD block. */
@@ -1455,6 +1567,7 @@ function updateFlightOverlay(view: Float64Array): void {
     gear: hudv(SnapshotHud.GEAR_POS) > 0.95 ? 'DOWN' : lastPlayerGearCmd ? 'MOVING' : 'UP',
     airbrake: lastPlayerAirbrake ? 'OUT' : 'IN',
     onGround: lastPlayer.onGround,
+    ...(playerCargoControls ? { cargo: cargoBarState(view) } : {}),
   });
 
   // Objective, or the nearest friendly base in Free Flight.
@@ -1485,7 +1598,13 @@ function updateFlightOverlay(view: Float64Array): void {
 
   // Missile launch warning and dropped tanks.
   const warn = hudv(SnapshotHud.WARNING_BITS);
-  if ((warn & WarningBit.MissileLaunch) !== 0 && (lastWarningBits & WarningBit.MissileLaunch) === 0) o.message('Missile launched at you!', true);
+  if ((warn & WarningBit.MissileLaunch) !== 0 && (lastWarningBits & WarningBit.MissileLaunch) === 0) {
+    o.message(playerMaws ? 'MISSILE LAUNCH: flares!' : 'Missile launched at you!', true);
+    if (playerMaws) {
+      systemToasts?.show('MAWS: missile launch, flares');
+      mawsTone();
+    }
+  }
   lastWarningBits = warn;
   const tank = hudv(SnapshotHud.TANK_FUEL_KG);
   if (lastTankFuelKg >= 0 && tank < 0) o.message('Tanks dropped');
@@ -1825,7 +1944,11 @@ function launchMission(missionIn: Mission, opts: { title: string; airStart: bool
   inputSystem.setGearDown(!airStart);
   // Flaps up for every new flight; the HUD's flap cue and the notices learn the aircraft's detents.
   inputSystem.setFlapLever(0);
+  inputSystem.setFuelDump(false);
+  inputSystem.setRampOpen(false);
   const playerDef = getAircraftDefinition(mission.playerStart.aircraftId ?? tejasDefinition.id) ?? tejasDefinition;
+  playerCargoControls = playerDef.airdrop !== undefined || playerDef.fuelDump !== undefined;
+  playerMaws = playerDef.highLift !== undefined;
   playerFlapNames = playerDef.highLift?.detents.map((d) => d.name);
   hud.setFlapDetents?.(playerFlapNames);
   ambience.setAircraft(playerDef);
@@ -1858,6 +1981,10 @@ function launchMission(missionIn: Mission, opts: { title: string; airStart: bool
   radarRangeChangeCount = 0;
   scriptEnded = false;
   missionScript = createMissionScript(mission);
+  scriptAtmosKey = '';
+  renderer.setWeatherOverride?.(null);
+  renderer.setMissionMarkers?.(null);
+  playerDefEngines = playerDef.engines?.length ?? 1;
   setupWorldView(mission, currentQualityTier, !!missionScript);
 
   hud.setTaxiGuide(null);
@@ -2540,6 +2667,7 @@ function applyCockpitPulses(): void {
   if (p.radarModeCycle > 0) pilotInputsScratch.radarModeCycle = p.radarModeCycle-- > 1;
   if (p.flare > 0) pilotInputsScratch.dispenseFlare = p.flare-- > 1;
   if (p.chaff > 0) pilotInputsScratch.dispenseChaff = p.chaff-- > 1;
+  if (p.airdrop > 0) pilotInputsScratch.airdropRelease = p.airdrop-- > 1;
   // Level inputs: held for a few frames.
   if (p.jettisonTanks > 0) {
     p.jettisonTanks--;
@@ -2636,6 +2764,15 @@ function doBarAction(id: ActionId): void {
       return;
     case 'taxi':
       return doCockpitAction({ kind: 'taxiGuide' });
+    case 'ramp':
+      inputSystem.setRampOpen(!inputSystem.isRampOpen());
+      return;
+    case 'drop':
+      cockpitPulse.airdrop = 2;
+      return;
+    case 'dump':
+      inputSystem.setFuelDump(!inputSystem.isFuelDumpOn());
+      return;
   }
 }
 
@@ -2657,6 +2794,9 @@ function pushActionKeys(): void {
     flapsUp: keyLabel(k.buttons.flapsUp),
     flapsDown: keyLabel(k.buttons.flapsDown),
     taxi: keyLabel(k.meta.taxiGuide),
+    ramp: keyLabel(k.buttons.rampToggle),
+    drop: keyLabel(k.buttons.launch),
+    dump: keyLabel(k.buttons.fuelDump),
   });
 }
 
@@ -2682,6 +2822,9 @@ function promptKeyText(text: string): string {
     launch: keyLabel(k.buttons.launch),
     trigger: keyLabel(k.buttons.trigger),
     flare: keyLabel(k.buttons.flare),
+    ramp: keyLabel(k.buttons.rampToggle),
+    drop: keyLabel(k.buttons.launch),
+    fuelDump: keyLabel(k.buttons.fuelDump),
   };
   return text.replace(/\{(\w+)\}/g, (all, id: string) => {
     if (id === 'radarRange') return `{${keyLabel(k.meta.radarRangeDown)}} / {${keyLabel(k.meta.radarRangeUp)}}`;
@@ -2701,6 +2844,9 @@ const PROMPT_BUTTONS: Partial<Record<PromptControl, readonly ActionId[]>> = {
   target: ['target'],
   weapon: ['weapon'],
   flare: ['flare'],
+  ramp: ['ramp'],
+  drop: ['drop'],
+  fuelDump: ['dump'],
 };
 
 let cockpitTip: HTMLDivElement | null = null;

@@ -64,6 +64,27 @@ export interface ScriptFrame {
   trackCount: number;
   /** A radio call is being said or waits to be. */
   radioBusy: boolean;
+  /** Transports: fuel on board (kg) and the jettison running; ramp and flaps 0..1; engines turning. */
+  fuelKg?: number;
+  fuelDumping?: boolean;
+  rampPos?: number;
+  flapPos?: number;
+  enginesRunning?: number | undefined;
+  /** AirdropStateCode and bundles left (rigged load). */
+  airdropState?: number;
+  airdropLeft?: number;
+}
+
+/** A script's own sky (main.ts applies it to the renderer): a cloud deck, visibility, the light going, its ground marks. */
+export interface ScriptAtmosphere {
+  weather?: { deckBaseM?: number; deckTopM?: number; visKm?: number };
+  /** Local time at the start, h, and how fast it runs (sim hours per real hour; 1 = real time). */
+  timeOfDayH?: number;
+  timeRate?: number;
+  markers?: {
+    lamps: readonly { x: number; z: number; aglM: number; r: number; g: number; b: number }[];
+    smoke: readonly { x: number; z: number; aglM: number; r: number; g: number; b: number }[];
+  };
 }
 
 /** Controls a prompt can name: its {id} markers show the key, and the on-screen buttons glow. */
@@ -85,7 +106,10 @@ export type PromptControl =
   | 'weapon'
   | 'launch'
   | 'trigger'
-  | 'flare';
+  | 'flare'
+  | 'ramp'
+  | 'drop'
+  | 'fuelDump';
 
 /** What to do now, in big type at the bottom: text with {control} markers, and the buttons to light up. */
 export interface ScriptPrompt {
@@ -121,6 +145,10 @@ export interface MissionScript {
   prompt?(): ScriptPrompt | undefined;
   /** A script that decides its own ending (Flight School): set once it is over. */
   outcome?(): ScriptOutcome | undefined;
+  /** The mission's own sky and ground marks (read every frame; keep the same objects while unchanged). */
+  atmosphere?(): ScriptAtmosphere;
+  /** The debrief's own results (a drop's grade): stat tiles and lines. */
+  results?(): { tiles: readonly { label: string; value: string }[]; lines: readonly string[] } | undefined;
 }
 
 export abstract class ScriptBase implements MissionScript {

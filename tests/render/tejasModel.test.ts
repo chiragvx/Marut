@@ -227,6 +227,7 @@ describe('stores: public dimensions', () => {
   it('draws every store in the catalogue to its length and diameter', () => {
     for (let code = 1; code < STORE_IDS.length; code++) {
       const id = STORE_IDS[code]!;
+      if (id === 'cds-bundle') continue; // cargo, not a weapon: no public dimensions
       const dims = storeDimensions(id)!;
       const b = bbox(models.byCode[code]!.geometry);
       expect(b.max.x - b.min.x, id).toBeCloseTo(dims.len, 1);

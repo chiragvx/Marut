@@ -13,6 +13,7 @@
  * Allocation-free in the step functions.
  */
 import type { EntityId, QuatLike, Vec3Like } from '../contracts/core';
+import { AircraftModel } from '../contracts/core';
 import { JAMMER_CHAFF_FACTOR } from '../contracts/combat';
 
 export type DecoyKind = 'flare' | 'chaff';
@@ -56,7 +57,14 @@ export function createDecoyPool(size: number): Decoy[] {
  * the nozzle (body frame, m: +X nose, +Y up, +Z right; `side` -1 port, +1 starboard). The
  * cartridges fire out of them down and outboard, a little aft.
  */
-export function dispenserBody(side: number, out: Vec3Like): Vec3Like {
+export function dispenserBody(side: number, out: Vec3Like, model = 0): Vec3Like {
+  if (model === AircraftModel.C17) {
+    // [E] The C-17's AN/ALE-47 dispensers: in the aft fuselage sides behind the main gear pods.
+    out.x = -12;
+    out.y = -2.4;
+    out.z = 3.0 * side;
+    return out;
+  }
   out.x = -4.25;
   out.y = -0.6;
   out.z = 0.36 * side;
@@ -87,13 +95,13 @@ const _w = { x: 0, y: 0, z: 0 };
  * Initialises decoy `d` released from an aircraft at `pos`/`vel` with attitude `rot` (body to
  * world), out of its `side` dispenser (-1 port, +1 starboard: a pair goes out either side).
  */
-export function launchDecoy(d: Decoy, id: EntityId, kind: DecoyKind, ownerId: EntityId, pos: Vec3Like, vel: Vec3Like, rot: QuatLike, side: number): void {
+export function launchDecoy(d: Decoy, id: EntityId, kind: DecoyKind, ownerId: EntityId, pos: Vec3Like, vel: Vec3Like, rot: QuatLike, side: number, model = 0): void {
   d.active = true;
   d.id = id;
   d.kind = kind;
   d.ownerId = ownerId;
   d.ageSec = 0;
-  rotateQ(rot, dispenserBody(side, _b), _w);
+  rotateQ(rot, dispenserBody(side, _b, model), _w);
   d.pos.x = pos.x + _w.x;
   d.pos.y = pos.y + _w.y;
   d.pos.z = pos.z + _w.z;

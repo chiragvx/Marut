@@ -67,4 +67,10 @@ export const c17Definition: AircraftDefinition = {
   gear: c17Gear,
   fcsLimits: c17FcsLimits,
   airframeContactPointsBodyM: c17ContactPoints,
+  // [E] Fuel jettison: about 5,000 lb/min through outlets at the wing trailing edge, outboard; it
+  // stops with ~30,000 lb left (enough to divert at low level), as large transports' systems do.
+  fuelDump: { rateKgS: 38, minFuelKg: 13600, outletsBodyM: [{ x: -6.4, y: -0.35, z: 22.5 }, { x: -6.4, y: -0.35, z: -22.5 }] },
+  // The ramp's sill when it is down to the airdrop position (model: ~21 m aft of the CG, 3 m below).
+  airdrop: { exitBodyM: { x: -21, y: -3.0, z: 0 }, minRampPos: 0.98 },
+  // The flare dispensers' places: src/combat/countermeasures.ts dispenserBody (by model).
 };

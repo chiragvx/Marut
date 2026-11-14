@@ -62,6 +62,7 @@ const BINDABLE_ACTION_TARGETS: Readonly<Record<BindableAction, BindableActionTar
   [BA.FlapsDown]: { rebindAction: LogicalButton.FlapsDown },
   [BA.ThrustReverse]: { rebindAction: LogicalButton.ThrustReverse },
   [BA.RampToggle]: { rebindAction: LogicalButton.RampToggle },
+  [BA.FuelDump]: { rebindAction: LogicalButton.FuelDump },
   [BA.Flare]: { rebindAction: LogicalButton.Flare },
   [BA.Chaff]: { rebindAction: LogicalButton.Chaff },
   [BA.PodView]: { rebindAction: MetaAction.PodView },

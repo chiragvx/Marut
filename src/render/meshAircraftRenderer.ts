@@ -204,7 +204,7 @@ export interface MeshAircraftRenderer {
   /** A missile or bomb in flight: store code (STORE_IDS), pointing along its velocity (else `rot`). */
   updateMissile(code: number, pos: Readonly<Vec3Like>, vel: Readonly<Vec3Like>, rot: Readonly<QuatLike>, originWorld: Readonly<Vec3Like>, flags?: number): void;
   /** A store falling free (a jettisoned tank): store code (STORE_IDS) at its own attitude `rot`, centred on `pos`. */
-  updateStore(code: number, pos: Readonly<Vec3Like>, rot: Readonly<QuatLike>, originWorld: Readonly<Vec3Like>): void;
+  updateStore(code: number, pos: Readonly<Vec3Like>, rot: Readonly<QuatLike>, originWorld: Readonly<Vec3Like>, flags?: number): void;
   /** The drawing-buffer height (px) and the projection's [1][1] term, for sizing light glows. */
   setViewport(heightPx: number, projection11: number): void;
   /** How humid the air is, 0..1 (vapour.ts airHumidity). */
@@ -715,11 +715,13 @@ export function createMeshAircraftRenderer(root: THREE.Object3D, template: Aircr
       if (open) put(balluteBatches[code], mA);
     },
 
-    updateStore(code, pos, rot, origin) {
+    updateStore(code, pos, rot, origin, flags = 0) {
       if (!storeModels.byCode[code]) return;
       qM.set(rot.x, rot.y, rot.z, rot.w);
       mA.makeRotationFromQuaternion(qM).setPosition(pos.x - origin.x, pos.y - origin.y, pos.z - origin.z);
       put(storeBatches[code], mA);
+      // An airdrop bundle's canopy, once it is out.
+      if ((flags & EntityFlag.TailOpen) !== 0 && balluteBatches[code]) put(balluteBatches[code], mA);
     },
 
     setHumidity(h) {

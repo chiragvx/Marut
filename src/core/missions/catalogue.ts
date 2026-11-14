@@ -5,7 +5,7 @@
  * offered in this build.
  */
 import type { AirportLayout } from '../../contracts/airport';
-import type { Mission, Vec3Like } from '../../contracts/core';
+import type { Mission, Vec3Like, WeatherMode } from '../../contracts/core';
 import { activeRunway } from '../../airport/taxiGraph';
 import { resolveBuiltinMission, type BuiltinMissionId } from './index';
 
@@ -96,10 +96,11 @@ export const BASES: readonly BaseInfo[] = [
 export const LOCKED_NOTE = 'Unlocks in a later update';
 
 /**
- * The missions this build opens, in order: one air-to-air, one ground strike, both over Punjab.
+ * The missions this build opens, in order: one air-to-air and one ground strike over Punjab, and a
+ * C-17 airdrop in the Himalaya.
  * The rest are listed, locked.
  */
-export const PLAYABLE_MISSIONS: readonly BuiltinMissionId[] = ['border-duel', 'border-strike'];
+export const PLAYABLE_MISSIONS: readonly BuiltinMissionId[] = ['border-duel', 'border-strike', 'himalaya-airdrop'];
 
 export function missionLocked(id: string): boolean {
   if (isTraining(id)) return false;
@@ -186,7 +187,7 @@ export function playableMissions(): MissionEntry[] {
 
 /** Air-to-air or ground strike, for the mission tiles. */
 export function missionKind(m: MissionEntry): string {
-  return m.targets !== undefined ? 'Ground strike' : 'Air-to-air';
+  return m.transport ? 'Airdrop' : m.targets !== undefined ? 'Ground strike' : 'Air-to-air';
 }
 
 export interface MissionEntry {
@@ -203,6 +204,11 @@ export interface MissionEntry {
   situation: string;
   /** Shown first and marked as the one to start with. */
   recommended?: boolean;
+  /** The mission's own sky (otherwise the player's weather setting and 10:30). */
+  weather?: WeatherMode;
+  timeOfDayH?: number;
+  /** A transport mission: the aircraft's load to start with (src/ui/transportLoad.ts TransportLoad). */
+  transport?: { presetId?: string; fuelFrac: number; cargoKg: number; airdrop?: boolean };
 }
 
 export const MISSIONS: readonly MissionEntry[] = [
@@ -240,6 +246,18 @@ export const MISSIONS: readonly MissionEntry[] = [
     targets: 5,
     objective: 'Laser-guided bombs on the PAF Shahbaz fuel depot.',
     situation: 'Two Griffin LGBs and the Litening pod against the PAF Shahbaz fuel depot, 45 km west. It is defended: an LY-80 battery west of the base (cued by an early-warning radar), an FM-90 section, 35 mm guns and MANPADS round the depot. Watch the RWR (bottom left); fly low to stay under the radars, pop up to designate (Y pod view, arrows, I) and release inside the launch zone (IN RNG): the pod lases for the bombs. Destroy four of the five depot targets.',
+  },
+  {
+    id: 'himalaya-airdrop',
+    title: 'Simikot Lifeline',
+    baseId: 'simikot',
+    bandits: 0,
+    objective: 'Airdrop supplies to the Nepal Army at Simikot, under the cloud, at dusk.',
+    situation:
+      'Chinese forces have attacked Nepalese border posts and are advancing down the Karnali from Hilsa. Nepal has asked India for help: fly the C-17 from Indian airspace to Simikot, get under the low overcast in the valley and drop sixteen 1-tonne bundles on DZ Tango, north-west of the town, at 150 m and 140 knots. Shoulder-launched missiles have been reported on the Hilsa side. Jettison fuel on the way to lighten the jet for the thin air at 4,000 m.',
+    weather: 'overcast',
+    timeOfDayH: 18.1,
+    transport: { presetId: 'cds', fuelFrac: 0.5, cargoKg: 16000, airdrop: true },
   },
   {
     id: 'border-sead',

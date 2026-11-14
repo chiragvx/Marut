@@ -13,7 +13,7 @@
  * extension `world.ts`'s concrete `combatCtx` object satisfies structurally.
  */
 
-import { EntityKind, GroundMapKind, MAX_RWR_CONTACTS, NO_ENTITY_ID, RWR_SYMBOLS, STORE_IDS, isAirToGroundKind } from '../contracts/core';
+import { EntityKind, GroundMapKind, aircraftModelOf, MAX_RWR_CONTACTS, NO_ENTITY_ID, RWR_SYMBOLS, STORE_IDS, isAirToGroundKind } from '../contracts/core';
 import { TargetStateCode } from '../contracts/ground';
 import type { CombatStatus, Contact, EntityId, EntityState, SimEvent, Vec3Like } from '../contracts/core';
 import type { CombatPort, CombatTickContext, EventQueue } from '../contracts/sim';
@@ -214,7 +214,7 @@ export function createCombatAdapter(): CombatPort & CombatPortWithContacts & Com
       let d: Decoy | undefined;
       for (let i = 0; i < decoys.length; i++) if (!decoys[i]!.active) { d = decoys[i]; break; }
       if (!d) return;
-      launchDecoy(d, DECOY_ID_BASE + (decoySerial++ % DECOY_ID_BASE), kind, owner.id, owner.pos, owner.vel, owner.rot, k % 2 === 0 ? -1 : 1);
+      launchDecoy(d, DECOY_ID_BASE + (decoySerial++ % DECOY_ID_BASE), kind, owner.id, owner.pos, owner.vel, owner.rot, k % 2 === 0 ? -1 : 1, aircraftModelOf(owner.flags));
       eventsOut.push({ type: 'countermeasure', entityId: owner.id, kind, pos: { x: d.pos.x, y: d.pos.y, z: d.pos.z }, vel: { x: d.vel.x, y: d.vel.y, z: d.vel.z } });
       for (let i = 0; i < liveCount; i++) {
         const e = ctx.liveAt(i);

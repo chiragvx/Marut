@@ -30,7 +30,9 @@ export const createDebriefScreen: CreateDebriefScreen = (container, stats, callb
     stats.missilesFired > 0 ? statTile('Missiles hit', `${stats.missilesHit} / ${stats.missilesFired}`) : false,
     stats.shotsFiredGun > 0 ? statTile('Gun hits', pct(stats.shotsHitGun, stats.shotsFiredGun)) : false,
     options.newBest ? statTile('Best time', 'New') : false,
+    ...(options.results?.tiles ?? []).map((t) => statTile(t.label, t.value)),
   ];
+  const results = options.results?.lines.length ? h('div', { className: 'tj-stack', attrs: { style: 'gap: 4px', 'data-role': 'results' } }, ...options.results.lines.map((l) => h('span', { text: l }))) : false;
 
   const objectives = free
     ? false
@@ -45,6 +47,7 @@ export const createDebriefScreen: CreateDebriefScreen = (container, stats, callb
     h('div', { className: 'tj-head' }, h('div', { className: 'tj-eyebrow', text: options.title ?? '' }), h('h1', { className: 'tj-title', text: outcomeTitle(stats, free) })),
     h('div', { className: 'tj-stats' }, ...tiles),
     objectives,
+    results,
     h('div', { className: 'tj-stack', attrs: { style: 'gap: 4px' } }, h('span', { className: 'tj-label', text: 'How was that flight?' }), h('span', {}, 'A couple of minutes of feedback helps a lot. ', externalLink('Give feedback', options.feedbackUrl, 'Feedback form coming soon'))),
     h(
       'div',

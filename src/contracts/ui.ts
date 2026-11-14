@@ -164,6 +164,8 @@ export const BindableAction = {
   FlapsDown: 'flapsDown',
   ThrustReverse: 'thrustReverse',
   RampToggle: 'rampToggle',
+  /** Fuel jettison switch (transports): toggles PilotInputs.fuelDump. */
+  FuelDump: 'fuelDump',
   Flare: 'flare',
   Chaff: 'chaff',
   PodView: 'podView',
@@ -389,6 +391,8 @@ export interface DebriefOptions {
   newBest?: boolean;
   objectiveText?: string;
   feedbackUrl?: string;
+  /** A scripted mission's own results (an airdrop's grade): a few stat tiles and lines. */
+  results?: { tiles: readonly { label: string; value: string }[]; lines: readonly string[] };
 }
 export type CreateDebriefScreen = (
   container: HTMLElement,

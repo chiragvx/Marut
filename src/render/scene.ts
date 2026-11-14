@@ -435,6 +435,9 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
   // --- Time of day and weather (skyState.ts) ---
   let timeOfDayH: number | undefined;
   let weatherMode: WeatherMode = 'clear';
+  const dumpBody = { x: -6.4, y: -0.35, z: 0 };
+  const dumpWorld = { x: 0, y: 0, z: 0 };
+  let weatherOverride: { deckBaseM?: number; deckTopM?: number; visKm?: number } | null = null;
   let dynamicWeather: DynamicWeather | undefined;
   let weatherSeed = 1;
   let style: SceneEnvironment['surfaceStyle'] = 'default';
@@ -463,10 +466,12 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
   function updateSky(dt: number, nowSec: number): void {
     const w0 = dynamicWeather ? dynamicWeather.update(dt) : fixedWeather;
     // Above the overcast deck the sky is clear and the sun full; below it, grey (and raining).
-    const [deckBase, deckTop] = DECK_LEVELS[style];
+    const [deckBase, deckTop] = weatherOverride?.deckBaseM !== undefined ? [weatherOverride.deckBaseM, weatherOverride.deckTopM ?? weatherOverride.deckBaseM + 900] : DECK_LEVELS[style];
     const camY = cameraPose.pos.y;
     const below = 1 - Math.max(0, Math.min(1, (camY - deckBase) / (deckTop - deckBase)));
     Object.assign(effWeather, w0);
+    // A mission's murk lies under its deck; above the tops the air is the preset's.
+    if (weatherOverride?.visKm !== undefined) effWeather.visKm = w0.visKm + (Math.min(w0.visKm, weatherOverride.visKm) - w0.visKm) * below;
     // Condensation over the wings wants humid air (vapour.ts): the weather itself, not the view of it.
     lastHumidity = Number.isFinite(DEV_HUMIDITY) ? DEV_HUMIDITY : airHumidity(w0, style);
     eachRenderer((r) => r.setHumidity(lastHumidity));
@@ -675,6 +680,15 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
     setSettlements(layer) {
       terrainConsumer.setSettlements(layer);
       urbanCache.setLayer(layer?.urban);
+    },
+
+    setWeatherOverride(o) {
+      weatherOverride = o ? { ...o } : null;
+    },
+
+    setMissionMarkers(m) {
+      runwayLights.setMarkers(m?.lamps ?? []);
+      groundEffects.setMarkerSmoke(m?.smoke ?? []);
     },
 
     setWeather(m, seed) {
@@ -999,10 +1013,21 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
           }
           if (curr.alive[i] === 1 && curr.kind[i] === EntityKindCode.effect) {
             interpolateEntity(snapshotBuf, i, f, interpEntity);
-            aircraftRenderer.updateStore(curr.stores[i]!, interpEntity.pos, interpEntity.rot, origin);
+            aircraftRenderer.updateStore(curr.stores[i]!, interpEntity.pos, interpEntity.rot, origin, curr.flags[i]!);
             continue;
           }
           if (curr.alive[i] !== 1 || curr.kind[i] !== EntityKindCode.aircraft) continue;
+          // Fuel jettison: mist from the wingtip outlets (C-17; c17Definition fuelDump.outletsBodyM).
+          if ((curr.flags[i]! & EntityFlag.FuelDump) !== 0 && frameDtSec > 0) {
+            interpolateEntity(snapshotBuf, i, f, interpEntity);
+            for (const side of [1, -1]) {
+              dumpBody.z = 22.5 * side;
+              rotateVecByQuat(interpEntity.rot, dumpBody, dumpWorld);
+              const p = interpEntity.pos;
+              const v = interpEntity.vel;
+              groundEffects.fuelMist(p.x + dumpWorld.x, p.y + dumpWorld.y, p.z + dumpWorld.z, v.x, v.y, v.z, frameDtSec);
+            }
+          }
           // No cockpit interior yet: from the cockpit, the player's own jet is not drawn.
           if (i === playerSlot && (mode === CameraMode.Cockpit || mode === CameraMode.Tgp) && !debugCam) continue;
           interpolateEntity(snapshotBuf, i, f, interpEntity);

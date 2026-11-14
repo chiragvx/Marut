@@ -518,4 +518,24 @@ export interface AircraftDefinition {
   massModel?: MassModelDefinition;
   /** Speed placards (telemetry warnings). */
   placards?: PlacardDefinition;
+  /** Fuel jettison system (PilotInputs.fuelDump). Absent = none. */
+  fuelDump?: FuelDumpDefinition;
+  /** Airdrop off a cargo ramp (MissionPlayerStart.airdrop, PilotInputs.airdropRelease). Absent = none. */
+  airdrop?: AirdropDefinition;
+}
+
+export interface FuelDumpDefinition {
+  /** Jettison rate, kg/s. */
+  rateKgS: number;
+  /** The system stops with this much fuel left, kg. */
+  minFuelKg: number;
+  /** The outlets (body frame, m), for the mist. */
+  outletsBodyM: readonly Vec3Like[];
+}
+
+export interface AirdropDefinition {
+  /** Where a bundle leaves the aircraft: the ramp's sill (body frame, m). */
+  exitBodyM: Vec3Like;
+  /** The ramp must be at least this open (EntityState.rampPos) to release. */
+  minRampPos: number;
 }

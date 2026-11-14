@@ -253,6 +253,8 @@ export interface RunwayLights {
   setNavDb(navDb: AirportNavDb): void;
   /** Taxiway edge lights, apron floodlights and PAPIs for the mission's bases. */
   setAids(aids: readonly LightAids[]): void;
+  /** Mission marker lights (a drop zone's lit T), world positions and colours; always on. */
+  setMarkers(points: readonly { x: number; y: number; z: number; r: number; g: number; b: number }[]): void;
   /** Per frame: brightness 0..1 (0 hides them). */
   update(intensity: number, originWorld: Readonly<Vec3Like>): void;
   dispose(): void;
@@ -287,6 +289,9 @@ export function createRunwayLights(root: THREE.Object3D): RunwayLights {
   const taxiMat = lightSpriteMaterial(RUNWAY_VS, lens(0.13, 1.5, 100));
   const floodMat = lightSpriteMaterial(RUNWAY_VS, lens(1.0, 1.8));
   const papiMat = lightSpriteMaterial(PAPI_VS, {});
+  // Marker lights: bright lamps (a portable beacon's ~0.3 m lens), readable from a few km.
+  const markerMat = lightSpriteMaterial(RUNWAY_VS, lens(0.3, 2.6));
+  let markerMesh: THREE.Mesh | undefined;
   const aidMeshes: THREE.Mesh[] = [];
   // The fittings: instanced draws for the runways' and the taxiways', one per FIXTURE_CELL_M cell,
   // each drawn only while the camera is within FIXTURE_DRAW_M of it (a fitting is ~500 triangles,
@@ -432,8 +437,26 @@ export function createRunwayLights(root: THREE.Object3D): RunwayLights {
       if (papiPos.length) add(spriteMesh(quad, papiMat, { iPos: [Float32Array.from(papiPos), 3], iDir: [Float32Array.from(papiDir), 3], iAngle: [Float32Array.from(papiAng), 1] }, n(papiPos)));
     },
 
+    setMarkers(points) {
+      if (markerMesh) {
+        root.remove(markerMesh);
+        markerMesh.geometry.dispose();
+        markerMesh = undefined;
+      }
+      if (points.length === 0) return;
+      const pos = new Float32Array(points.length * 3);
+      const col = new Float32Array(points.length * 3);
+      points.forEach((p, i) => {
+        pos.set([p.x, p.y, p.z], i * 3);
+        col.set([p.r, p.g, p.b], i * 3);
+      });
+      markerMesh = spriteMesh(quad, markerMat, { iPos: [pos, 3], iCol: [col, 3], iDir: [new Float32Array(points.length * 3), 3] }, points.length);
+      root.add(markerMesh);
+    },
+
     update(intensity, origin) {
-      for (const m of [mat, taxiMat, floodMat, papiMat, runwayFixMat, taxiFixMat]) (m.uniforms['uOrigin']!.value as THREE.Vector3).set(origin.x, origin.y, origin.z);
+      for (const m of [mat, taxiMat, floodMat, papiMat, runwayFixMat, taxiFixMat, markerMat]) (m.uniforms['uOrigin']!.value as THREE.Vector3).set(origin.x, origin.y, origin.z);
+      markerMat.uniforms['uIntensity']!.value = 1;
       // (The fittings are drawn by day too; their domes light with the lights.)
       const cam = getAtmosphereUniforms().uAtmCamPos.value;
       for (const c of runwayFix) c.mesh.visible = c.box.distanceToPoint(cam) < FIXTURE_DRAW_M;
@@ -465,6 +488,8 @@ export function createRunwayLights(root: THREE.Object3D): RunwayLights {
       taxiMat.dispose();
       floodMat.dispose();
       papiMat.dispose();
+      markerMesh?.geometry.dispose();
+      markerMat.dispose();
     },
   };
 }

@@ -54,7 +54,21 @@ const SUBTITLE: Partial<Record<RadioClipId, string>> = {
   t4_mode: 'Press the radar mode button to change the scan. Search mode (RWS) sees far. Dogfight mode (ACM) looks at a small box straight ahead, for close fights.',
   t4_gun: 'Now the second one, with the gun. Press weapon until the gun is selected. Get behind the drone, inside 1 km, put the pipper on it, and hold the trigger.',
   t4_closer: 'Get closer. Inside 1 km.',
-  t4_select: 'You have the gun selected. Press weapon, and pick a missile. The ASRAAM is a heat-seeker for close in; the Astra is radar guided, for long range.',
+  ad_brief: 'Situation: Chinese forces attacked Nepalese border posts this morning and are advancing down the Karnali from Hilsa, which they now hold. Nepal has asked India for supplies. You will airdrop 16 bundles on DZ Tango, 8 km north-west of Simikot.',
+  ad_weather: 'Simikot weather: overcast, base 5,000 m, tops 6,000 m. Visibility 6 km under the cloud, light rain. Sunset now. The DZ has a lit T and orange smoke.',
+  ad_dump: 'You are heavy for the thin air at 4,000 m. Recommend fuel jettison now, down to about 40 t.',
+  ad_dump_enough: "That's about 40 t. Jettison off.",
+  ad_letdown: 'Approaching LETDOWN. Descend in the cloud within 3 km of it: the ground there is below 4,400 m. Level at 4,600 m under the base, then follow the valley north-west to the IP.',
+  ad_below: "You're under the cloud. Flaps 3/4, slow to 140 kt, and open the ramp before the IP.",
+  ad_ip: 'IP. Turn left, heading 305. DZ Tango 8 km. Drop at 150 m above the ground, 140 kt.',
+  ad_too_low: 'Too low! Climb to 150 m.',
+  ad_too_fast: 'Too fast. 140 kt.',
+  ad_come_around: 'Come around for another pass. Climb out ahead, turn back above the cloud, and run in again from the IP.',
+  ad_of_dz: 'of the DZ.',
+  ad_climb: 'Now get out. Full power, climb straight ahead to 6,500 m.',
+  ad_complete: 'Supplies are on the ground; the Nepal Army is recovering them. Well done. Simikot runway 28 is open if you want to land. Otherwise, head home.',
+  p_skylord_ip: 'IP inbound.',
+  t4_select:'You have the gun selected. Press weapon, and pick a missile. The ASRAAM is a heat-seeker for close in; the Astra is radar guided, for long range.',
 };
 
 /** A run of clips and its subtitle text. */

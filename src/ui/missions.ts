@@ -3,7 +3,8 @@
  *
  * List: a big tile per open mission (art, air-to-air or ground strike, base, objective, and whether
  * it has been flown, with the best time), then the locked ones; choosing a tile opens its briefing. Briefing: situation, objective, the keys to
- * lock and fire (missiles launch only on a lock), difficulty and loadout, then Start.
+ * lock and fire (missiles launch only on a lock), difficulty and loadout, then Start. A transport
+ * mission (MissionEntry.transport) shows the transport's keys and its load planner instead.
  */
 import type { AiDifficulty } from '../contracts/core';
 import type { AircraftDefinition } from '../contracts/aircraft';
@@ -15,6 +16,7 @@ import { button, field, h, keyCap, lockTag, menuKeys, segmented, shell } from '.
 import duelArt from './art/op-duel.webp';
 import strikeArt from './art/op-strike.webp';
 import { createLoadoutEditor, describeFit, fitSummary, selectionFit, selectionName, type LoadoutSelection } from './loadoutEditor';
+import { airdropRig, createTransportLoadEditor, describeTransportLoad, type TransportLoad } from './transportLoad';
 
 export interface MissionProgress {
   completed: boolean;
@@ -40,7 +42,7 @@ export function createMissionList(
 ): ScreenHandle {
   const open = opts.missions.filter((m) => !missionLocked(m.id) && !opts.bases.find((b) => b.id === m.baseId)?.locked);
   const locked = opts.missions.filter((m) => !open.includes(m));
-  const s = shell({ title: 'Missions', eyebrow: 'Punjab · Bhisiana AFS', sub: 'Take off from Bhisiana. The enemy is already on its way.', back: { onClick: () => cb.onBack() } });
+  const s = shell({ title: 'Missions', eyebrow: 'Punjab · Himalaya', sub: 'Take off from Bhisiana, the enemy already on its way, or fly a C-17 into the Himalaya.', back: { onClick: () => cb.onBack() } });
   s.root.classList.add('tj-missions');
   const tiles = open.map((m, i) => {
     const base = opts.bases.find((b) => b.id === m.baseId);
@@ -56,7 +58,7 @@ export function createMissionList(
         'span',
         { className: 'tj-op-main' },
         h('span', { className: 'tj-op-title', text: m.title }),
-        h('span', { className: 'tj-card-meta', text: `${base?.name ?? ''} · ${m.targets !== undefined ? `${m.targets} ground targets` : `${m.bandits} bandit${m.bandits === 1 ? '' : 's'}`}` }, base?.untested ? h('span', { className: 'tj-badge tj-badge--warn tj-badge--inline', text: UNTESTED_BADGE }) : false),
+        h('span', { className: 'tj-card-meta', text: `${base?.name ?? ''} · ${m.transport ? `C-17 · ${airdropRig(m.transport.cargoKg)?.bundles ?? 0} bundles` : m.targets !== undefined ? `${m.targets} ground targets` : `${m.bandits} bandit${m.bandits === 1 ? '' : 's'}`}` }, base?.untested ? h('span', { className: 'tj-badge tj-badge--warn tj-badge--inline', text: UNTESTED_BADGE }) : false),
         h('span', { className: 'tj-op-obj', text: m.objective }),
         h('span', { className: 'tj-op-go', text: 'Briefing ›' })
       )
@@ -88,11 +90,19 @@ export interface BriefingKeys {
   gun: string;
 }
 
+/** A transport mission's briefing: the aircraft, its load and the keys it flies with. */
+export interface TransportBriefing {
+  def: AircraftDefinition;
+  load: TransportLoad;
+  keys: { ramp: string; drop: string; dump: string; flare: string; flapsDown: string; flapsUp: string };
+}
+
 export function createBriefing(
   container: HTMLElement,
-  opts: { entry: MissionEntry; base: BaseInfo | undefined; index: number; def: AircraftDefinition; difficulty: AiDifficulty; loadout: LoadoutSelection; keys: BriefingKeys },
-  cb: { onStart(difficulty: AiDifficulty, loadout: LoadoutSelection): void; onBack(): void }
+  opts: { entry: MissionEntry; base: BaseInfo | undefined; index: number; def: AircraftDefinition; difficulty: AiDifficulty; loadout: LoadoutSelection; keys: BriefingKeys; transport?: TransportBriefing },
+  cb: { onStart(difficulty: AiDifficulty, loadout: LoadoutSelection, transport?: TransportLoad): void; onBack(): void }
 ): ScreenHandle {
+  if (opts.transport) return createTransportBriefing(container, { ...opts, transport: opts.transport }, cb);
   let difficulty = opts.difficulty;
   let loadout = opts.loadout;
   const m = opts.entry;
@@ -171,5 +181,67 @@ export function createBriefing(
     });
   }
 
+  return { ...handle, destroy: () => { release(); handle.destroy(); } };
+}
+
+/** The briefing for a transport mission (no difficulty: no enemy aircraft): situation, how to drop, the load. */
+function createTransportBriefing(
+  container: HTMLElement,
+  opts: { entry: MissionEntry; base: BaseInfo | undefined; index: number; difficulty: AiDifficulty; loadout: LoadoutSelection; transport: TransportBriefing },
+  cb: { onStart(difficulty: AiDifficulty, loadout: LoadoutSelection, transport?: TransportLoad): void; onBack(): void }
+): ScreenHandle {
+  const t = opts.transport;
+  let load = t.load;
+  const m = opts.entry;
+  const s = shell({ title: m.title, eyebrow: `Mission ${String(opts.index + 1).padStart(2, '0')} · ${missionKind(m)} · ${opts.base?.name ?? ''}`, back: { label: 'Missions', onClick: () => cb.onBack() }, crumb: ['Missions', 'Briefing'] });
+  s.root.classList.add('tj-briefing');
+  const k = t.keys;
+  const row = (...parts: (HTMLElement | string)[]): HTMLElement => h('div', { className: 'tj-row' }, ...parts.map((p) => (typeof p === 'string' ? h('span', { text: p }) : p)));
+  const howTo = h(
+    'div',
+    { className: 'tj-stack', attrs: { style: 'gap: 6px' } },
+    row(keyCap(k.dump), 'fuel jettison on / off (stops at the minimum)'),
+    row(keyCap(k.flapsDown), keyCap(k.flapsUp), 'flaps down / up: flaps 3/4 for the drop at 140 kt'),
+    row(keyCap(k.ramp), 'open the ramp, then', keyCap(k.drop), 'releases a stick of four bundles'),
+    row(keyCap(k.flare), 'flares when the missile warning sounds; full power and climb away')
+  );
+  const loadName = h('b');
+  const loadText = h('span', {});
+  const renderLoad = (): void => {
+    loadName.textContent = describeTransportLoad(t.def, load);
+    const rig = load.airdrop ? airdropRig(load.cargoKg) : undefined;
+    loadText.textContent = rig ? `${rig.bundles} CDS bundles of 1 t, ${rig.stick} per pass; light reserve bundles once they are gone.` : 'No airdrop rig: pick Airdrop (CDS) to drop.';
+  };
+  renderLoad();
+  const change = button('Change load…', () => openEditor(), 'default', { 'data-action': 'loadout' });
+  if (opts.base?.untested) s.body.append(h('p', { className: 'tj-note tj-note--warn', text: UNTESTED_NOTE, attrs: { 'data-role': 'untested' } }));
+  s.body.append(
+    h(
+      'div',
+      { className: 'tj-cols' },
+      h('div', { className: 'tj-stack' }, field('Situation', h('p', { text: m.situation, attrs: { style: 'margin:0' } })), field('Objective', h('p', { text: m.objective, attrs: { style: 'margin:0' } })), field('How to drop', howTo)),
+      h('div', { className: 'tj-stack' }, field('Load', h('div', { className: 'tj-stack', attrs: { style: 'gap: 4px' } }, loadName, loadText, h('div', {}, change))))
+    )
+  );
+  s.actions.append(button('Start mission', () => cb.onStart(opts.difficulty, opts.loadout, load), ['primary', 'big'], { 'data-action': 'start' }));
+  const handle = mountScreen(container, s.root);
+  const release = menuKeys(s.root, () => cb.onBack());
+  function openEditor(): void {
+    s.root.classList.add('tj-hidden');
+    const ed = createTransportLoadEditor(container, t.def, load, {
+      onDone: (l) => {
+        load = l;
+        ed.destroy();
+        s.root.classList.remove('tj-hidden');
+        renderLoad();
+        change.focus();
+      },
+      onCancel: () => {
+        ed.destroy();
+        s.root.classList.remove('tj-hidden');
+        change.focus();
+      },
+    });
+  }
   return { ...handle, destroy: () => { release(); handle.destroy(); } };
 }

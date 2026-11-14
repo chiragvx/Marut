@@ -26,7 +26,7 @@ import { STORE_IDS } from '../../contracts/core';
 import { PART, box, cap, circle, cylinder, geom, grid, loft, merge, plate, range, type Section, type V3 } from './meshBuild';
 
 export interface StoreModel {
-  kind: 'missile' | 'tank' | 'bomb' | 'pod';
+  kind: 'missile' | 'tank' | 'bomb' | 'pod' | 'cargo';
   geometry: THREE.BufferGeometry;
   /** Store frame -> attach frame (origin at the rail top / pylon attach point). */
   mount: THREE.Matrix4;
@@ -1042,6 +1042,51 @@ function buildTwinRail(): THREE.BufferGeometry {
   return merge(parts);
 }
 
+/**
+ * An A-22 cargo bag (CDS): a 1.2 m container of supplies on its skid board, canvas cover and
+ * webbing straps round it (the store frame: x along the track, y up, centred).
+ */
+function buildCdsBundle(): THREE.BufferGeometry {
+  const parts: THREE.BufferGeometry[] = [
+    box([0, 0.05, 0], [0.6, 0.6, 0.6], PART.bandBrown),
+    // The skid board under it.
+    box([0, -0.6, 0], [0.64, 0.05, 0.64], PART.gunmetal),
+  ];
+  // Webbing: two straps each way round it, and the suspension clevis on top.
+  for (const t of [-0.3, 0.3]) {
+    parts.push(box([t, 0.05, 0], [0.025, 0.615, 0.615], PART.dark));
+    parts.push(box([0, 0.05, t], [0.615, 0.615, 0.025], PART.dark));
+  }
+  parts.push(box([0, 0.7, 0], [0.08, 0.06, 0.08], PART.gunmetal));
+  return merge(parts);
+}
+
+/**
+ * A G-12 cargo parachute, open, above its bundle (store frame, y up): the inflated canopy (~14 m
+ * across, a dome with its vent) on its riser and suspension lines (thin strips of the line cone).
+ */
+function buildCargoCanopy(): THREE.BufferGeometry {
+  const skirtY = 9.5;
+  const R = 7;
+  const H = 4.6;
+  const ys = Array.from({ length: 9 }, (_, i) => skirtY + (H * i) / 8);
+  const r = (y: number): number => Math.max(0.5, R * Math.sqrt(Math.max(0, 1 - ((y - skirtY) / (H * 1.02)) ** 2)));
+  // Built along x (the loft axis), turned so x is up.
+  const outer = loft(ys, (y) => circle(0, 0, r(y)), 20, PART.podGrey);
+  const inner = loft(ys, (y) => circle(0, 0, r(y) * 0.995), 20, PART.podGrey, { inward: true });
+  const parts: THREE.BufferGeometry[] = [outer, inner];
+  // Riser from the clevis, then the lines fanning out to the skirt.
+  parts.push(loft([0.75, 2.2], () => circle(0, 0, 0.04), 6, PART.dark));
+  for (let k = 0; k < 12; k++) {
+    const t0 = (k / 12) * Math.PI * 2;
+    parts.push(loft([2.2, skirtY], (y) => circle(0, 0, 0.05 + ((y - 2.2) / (skirtY - 2.2)) * (R - 0.05)), 12, PART.dark, { arc: [t0, t0 + 0.012] }));
+  }
+  const g = merge(parts);
+  g.applyMatrix4(new THREE.Matrix4().makeRotationZ(Math.PI / 2));
+  // makeRotationZ(+90) maps +x to +y.
+  return g;
+}
+
 export interface StoreModels {
   /** By store code (contracts/core.ts STORE_IDS); undefined = nothing to draw. */
   byCode: readonly (StoreModel | undefined)[];
@@ -1064,6 +1109,8 @@ export function buildStoreModels(): StoreModels {
     }
     const p = PODS[id];
     if (p) return { kind: 'pod', geometry: id === 'litening' ? buildTargetingPod(p) : id === 'el-l-8222' ? buildJammerPod(p) : buildRocketPod(p), mount: new THREE.Matrix4().makeTranslation(0.1, id === 'litening' ? -(p.dia / 2 + 0.005) : -(0.04 + p.dia / 2), 0) };
+    // The airdrop bundle: drawn only falling (an effect entity), its canopy once it is out.
+    if (id === 'cds-bundle') return { kind: 'cargo', geometry: buildCdsBundle(), mount: new THREE.Matrix4(), ballute: buildCargoCanopy() };
     return undefined;
   });
   return { byCode, rail: buildRail(), twinRail: buildTwinRail() };

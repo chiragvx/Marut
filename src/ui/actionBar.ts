@@ -11,7 +11,7 @@
  */
 import { h } from './kit';
 
-export type ActionId = 'camera' | 'radarMode' | 'radarRangeDown' | 'radarRangeUp' | 'target' | 'weapon' | 'flare' | 'chaff' | 'gear' | 'airbrake' | 'flapsUp' | 'flapsDown' | 'taxi';
+export type ActionId = 'camera' | 'radarMode' | 'radarRangeDown' | 'radarRangeUp' | 'target' | 'weapon' | 'flare' | 'chaff' | 'gear' | 'airbrake' | 'flapsUp' | 'flapsDown' | 'taxi' | 'ramp' | 'drop' | 'dump';
 
 export interface ActionBarState {
   camera: string;
@@ -23,6 +23,8 @@ export interface ActionBarState {
   onGround: boolean;
   /** The flap setting for the Flaps − / + row (e.g. 'UP', '1/2 ↓' while moving); absent = no flaps (row hidden). */
   flaps?: string;
+  /** A transport's cargo group (ramp, airdrop release, fuel jettison) and what each shows; absent = hidden. */
+  cargo?: { ramp: string; drop: string; dump: string; dropArmed: boolean; dumping: boolean };
 }
 
 export interface ActionBar {
@@ -53,7 +55,7 @@ interface Row {
 }
 
 /** The groups, top to bottom. */
-const GROUPS: readonly { title: string; items: readonly (Def | Row)[] }[] = [
+const GROUPS: readonly { title: string; items: readonly (Def | Row)[]; optional?: 'cargo' }[] = [
   { title: 'View', items: [{ id: 'camera', label: 'Camera', icon: '◉' }] },
   {
     title: 'Radar',
@@ -98,6 +100,15 @@ const GROUPS: readonly { title: string; items: readonly (Def | Row)[] }[] = [
       { id: 'taxi', label: 'Taxi guide', icon: '↱' },
     ],
   },
+  {
+    title: 'Cargo',
+    optional: 'cargo',
+    items: [
+      { id: 'ramp', label: 'Ramp', icon: '⊿' },
+      { id: 'drop', label: 'Drop', icon: '⇣' },
+      { id: 'dump', label: 'Fuel dump', icon: '≋' },
+    ],
+  },
 ];
 
 export function createActionBar(container: HTMLElement, onAction: (id: ActionId) => void): ActionBar {
@@ -135,16 +146,19 @@ export function createActionBar(container: HTMLElement, onAction: (id: ActionId)
     return row;
   };
 
-  const groups = GROUPS.map((g) =>
-    h(
+  let cargoGroup: HTMLElement | undefined;
+  const groups = GROUPS.map((g) => {
+    const el = h(
       'div',
-      { className: 'tj-ab-group', attrs: { role: 'group', 'aria-label': g.title } },
+      { className: g.optional ? 'tj-ab-group tj-hidden' : 'tj-ab-group', attrs: { role: 'group', 'aria-label': g.title } },
       h('div', { className: 'tj-ab-title', text: g.title }),
       ...g.items.map((it) =>
         'row' in it ? makeRow(it) : make(it, false)
       )
-    )
-  );
+    );
+    if (g.optional === 'cargo') cargoGroup = el;
+    return el;
+  });
   const root = h('div', { className: 'tj-actionbar tj-hidden', attrs: { 'data-role': 'action-bar' } }, ...groups);
   container.appendChild(root);
   let lit = '';
@@ -174,7 +188,8 @@ export function createActionBar(container: HTMLElement, onAction: (id: ActionId)
       for (const [id, b] of buttons) b.key.textContent = keys[id] ?? '';
     },
     setState(s) {
-      const k = `${s.camera}|${s.radarMode}|${s.weapon}|${s.gear}|${s.airbrake}|${s.onGround}|${s.flaps ?? '-'}`;
+      const c = s.cargo;
+      const k = `${s.camera}|${s.radarMode}|${s.weapon}|${s.gear}|${s.airbrake}|${s.onGround}|${s.flaps ?? '-'}|${c ? `${c.ramp}|${c.drop}|${c.dump}|${c.dropArmed}|${c.dumping}` : '-'}`;
       if (k === stateKey) return;
       stateKey = k;
       const set = (id: ActionId, text: string): void => {
@@ -191,6 +206,19 @@ export function createActionBar(container: HTMLElement, onAction: (id: ActionId)
       buttons.get('gear')?.el.classList.toggle('tj-ab-btn--on', s.gear === 'DOWN');
       buttons.get('airbrake')?.el.classList.toggle('tj-ab-btn--on', s.airbrake === 'OUT');
       buttons.get('taxi')?.el.classList.toggle('tj-ab-btn--dim', !s.onGround);
+      if (cargoGroup) {
+        const had = !cargoGroup.classList.contains('tj-hidden');
+        cargoGroup.classList.toggle('tj-hidden', c === undefined);
+        if (had !== (c !== undefined)) width = -1;
+        if (c) {
+          set('ramp', c.ramp);
+          set('drop', c.drop);
+          set('dump', c.dump);
+          buttons.get('ramp')?.el.classList.toggle('tj-ab-btn--on', c.ramp === 'OPEN');
+          buttons.get('drop')?.el.classList.toggle('tj-ab-btn--on', c.dropArmed);
+          buttons.get('dump')?.el.classList.toggle('tj-ab-btn--on', c.dumping);
+        }
+      }
       const fr = optionalRows.get('flaps');
       if (fr) {
         const had = !fr.row.classList.contains('tj-hidden');

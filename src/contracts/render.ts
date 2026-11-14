@@ -624,6 +624,16 @@ export interface SceneRenderer {
   setTimeOfDay(hours: number): void;
   /** Visual weather: a preset, or 'dynamic' (random, changing every few minutes; seeded). */
   setWeather(mode: WeatherMode, seed: number): void;
+  /**
+   * A mission's own weather on top of the preset (null = none): a cloud deck at base..top m above
+   * sea level instead of the theatre's, and visibility capped at visKm.
+   */
+  setWeatherOverride?(o: { deckBaseM?: number; deckTopM?: number; visKm?: number } | null): void;
+  /**
+   * Mission ground markers (null / empty = none): lamps (always lit, world positions, linear RGB,
+   * may exceed 1) and coloured marker smoke columns rising from the ground.
+   */
+  setMissionMarkers?(m: { lamps: readonly { x: number; y: number; z: number; r: number; g: number; b: number }[]; smoke: readonly { x: number; y: number; z: number; r: number; g: number; b: number }[] } | null): void;
   /** The theatre's villages and towns for the terrain's distant town layer (null = none). */
   setSettlements(layer: SettlementLayer | null): void;
   /**

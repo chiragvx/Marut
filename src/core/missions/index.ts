@@ -49,6 +49,7 @@ import trainDroneRaw from './trainDrone.json';
 import himalayaFreeFlightRaw from './himalayaFreeFlight.json';
 import himalayaNgariRaw from './himalayaNgari.json';
 import himalayaSimikotRaw from './himalayaSimikot.json';
+import himalayaAirdropRaw from './himalayaAirdrop.json';
 import rangpurAfbRaw from '../../airport/layouts/rangpur-afb.json';
 import konarakCoastalRaw from '../../airport/layouts/konarak-coastal.json';
 import insHansaRaw from '../../airport/layouts/ins-hansa.json';
@@ -153,6 +154,7 @@ const BUILTIN_DESCRIPTORS = {
   // Dev starts (?mission=): Ngari Gunsa runway 33; on the approach to Simikot.
   'himalaya-ngari': himalayaNgariRaw as unknown as MissionDescriptor,
   'himalaya-simikot': himalayaSimikotRaw as unknown as MissionDescriptor,
+  'himalaya-airdrop': himalayaAirdropRaw as unknown as MissionDescriptor,
 } as const satisfies Readonly<Record<string, MissionDescriptor>>;
 
 export type BuiltinMissionId = keyof typeof BUILTIN_DESCRIPTORS;

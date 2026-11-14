@@ -28,6 +28,11 @@ export interface SystemState {
   ramp?: number;
   /** The most deployed thrust reverser, 0..1. */
   reverser?: number;
+  /** Fuel jettison running (EntityFlag.FuelDump). */
+  fuelDump?: boolean;
+  /** AirdropStateCode (0 none, 1 safe, 2 armed) and the bundles left (SnapshotHudAirdrop). */
+  airdrop?: number;
+  airdropLeft?: number;
 }
 
 export interface NoticeProfile {
@@ -112,6 +117,9 @@ export function createSystemNotices(initial: NoticeProfile = { transport: false 
         spoilers: s.spoilers ?? 0,
         ramp: s.ramp ?? 0,
         reverser: s.reverser ?? 0,
+        fuelDump: s.fuelDump ?? false,
+        airdrop: s.airdrop ?? 0,
+        airdropLeft: s.airdropLeft ?? 0,
       };
       const out: string[] = [];
       if (!prev) {
@@ -180,6 +188,10 @@ export function createSystemNotices(initial: NoticeProfile = { transport: false 
             slatsOut = false;
             out.push('Slats retracted');
           }
+        }
+        if (cur.fuelDump !== prev.fuelDump) out.push(cur.fuelDump ? 'Fuel jettison on' : 'Fuel jettison off');
+        if (cur.airdrop !== prev.airdrop && cur.airdrop > 0 && prev.airdrop > 0) {
+          out.push(cur.airdrop === 2 ? `Airdrop armed: ${cur.airdropLeft} bundles` : 'Airdrop safe');
         }
       }
       prev = cur;
