@@ -7,13 +7,14 @@ import { describe, expect, test } from 'vitest';
 import type { AirportLayout } from '../../src/contracts/airport';
 import { THEATRE_TERRAIN_PARAMS } from '../../src/contracts/terrain';
 import { loadAirportLayout } from '../../src/airport';
-import { createHeightSampler, terrainProfileFor } from '../../src/terrain';
+import { createHeightSampler, terrainProfileFor, buildChunkGeometry, OCCLUSION_RADIUS_M, LAND_LEN_AT_ZERO, LAND_LEN_PER_V } from '../../src/terrain';
 import { heightAt as labHeightAt, padBoxes, lakeShapes } from '../../src/terrain/himalaya/height';
 import { buildAlpineEnvironment } from '../../src/terrain/himalaya';
 import { AIRFIELDS, geo } from '../../src/terrain/himalaya/layout';
 import { resolveBuiltinMission } from '../../src/core';
 import * as core from '../../src/core';
 import { createRealWorld, adaptWorldToHandle } from '../../tools/lib/worldAdapter';
+import { buildHudAirbases, homeAirportIdFor } from '../../src/hud/airbaseMarkers';
 import { freeFlightMission, BASES } from '../../src/core/missions/catalogue';
 import ngari from '../../src/airport/layouts/ngari-gunsa.json';
 import simikot from '../../src/airport/layouts/simikot.json';
@@ -103,6 +104,30 @@ describe('Himalaya terrain', () => {
     expect(water).toBe(0);
   });
 
+  test('chunk meshes: vertices are the sampler heights; the ring relief read off the grid matches 4 exact samples', () => {
+    const p = terrainProfileFor('high', params);
+    const s = createHeightSampler(params, []);
+    for (const depth of [7, 4]) {
+      const size = 200000 / 2 ** depth;
+      const key = { depth, cx: Math.floor((-80000 + 100000) / size), cz: Math.floor((-88000 + 100000) / size) };
+      const g = buildChunkGeometry(s, key, p.chunkGridQuads);
+      const nVerts = (p.chunkGridQuads + 1) ** 2;
+      let worst = 0;
+      for (let v = 0; v < nVerts; v += 7) {
+        const x = g.positions[v * 3]!, y = g.positions[v * 3 + 1]!, z = g.positions[v * 3 + 2]!;
+        expect(y).toBeCloseTo(s.groundHeightAt!(x, z), 2);
+        const len = Math.hypot(g.normals[v * 3]!, g.normals[v * 3 + 1]!, g.normals[v * 3 + 2]!);
+        if (len >= 1) continue; // water
+        const r = OCCLUSION_RADIUS_M;
+        const ring = (s.groundHeightAt!(x + r, z) + s.groundHeightAt!(x - r, z) + s.groundHeightAt!(x, z + r) + s.groundHeightAt!(x, z - r)) / 4;
+        const exact = Math.min(0.98, Math.max(0.3, LAND_LEN_AT_ZERO - (LAND_LEN_PER_V * (ring - y)) / r));
+        if (depth === 7) worst = Math.max(worst, Math.abs(len - exact));
+      }
+      // Fine chunks (65 m grid): the linear read of the grid is within a few hundredths of exact.
+      if (depth === 7) expect(worst).toBeLessThan(0.08);
+    }
+  });
+
   test('extra LOD depth and draw distance for the 7 km relief', () => {
     const p = terrainProfileFor('high', params);
     expect(p.maxLodDepth).toBe(7);
@@ -159,6 +184,15 @@ describe('Himalaya missions', () => {
     }
     expect(types).not.toContain('crash');
     expect(types).not.toContain('missionEnded');
+  });
+
+  test('the HUD home base (default nav airport) is the start airport in every Himalaya mission and Fukche start', () => {
+    const home = (m: ReturnType<typeof resolveBuiltinMission>): string | undefined =>
+      buildHudAirbases(m.world.airports as AirportLayout[], homeAirportIdFor(m.playerStart, m.world.airports as AirportLayout[])).find((b) => b.home)?.id;
+    expect(home(resolveBuiltinMission('himalaya-free'))).toBe('fukche-alg');
+    expect(home(resolveBuiltinMission('himalaya-ngari'))).toBe('ngari-gunsa');
+    expect(home(resolveBuiltinMission('himalaya-simikot'))).toBe('simikot'); // air start: the nearest field
+    for (const s of ['parked', 'runway', 'air'] as const) expect(home(freeFlightMission('fukche', s))).toBe('fukche-alg');
   });
 
   test('the dev starts at Ngari and Simikot resolve; the Simikot air start is clear of the ravine walls', () => {

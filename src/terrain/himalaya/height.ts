@@ -159,7 +159,7 @@ function mountains(x: number, z: number, base: number, relief: number, dissect: 
   const hills = 0.5 + 0.5 * N2.erodedFbm(wx / 6000 - 2.2, wz / 6000 + 5.1, 6);
   m += 0.2 * hills * hills * (1 - Math.min(1, m * 3));
   const e = N.erodedFbm(wx / 3500, wz / 3500, 7);
-  m += 0.12 * e * (0.25 + m);
+  if (!(DBG.skip & 64)) m += 0.12 * e * (0.25 + m);
   return peaksOver(x, z, base, base + relief * m, false);
 }
 
@@ -184,7 +184,7 @@ function peaksOver(x: number, z: number, base: number, h: number, coarse: boolea
   return h;
 }
 
-/** Debug: bit mask of feature passes to skip (1 peaks, 2 basins, 4 valleys, 8 lakes, 16 airfields). */
+/** Debug: bit mask of feature passes to skip (1 peaks, 2 basins, 4 valleys, 8 lakes, 16 airfields, 32 slope gullies, 64 eroded fbm). */
 export const DBG = { skip: 0 };
 
 export interface SurfaceInfo { flat: number; river: number; dry: number }
@@ -206,7 +206,7 @@ export function heightAt(x: number, z: number, info?: SurfaceInfo): number {
   const slope = Math.hypot(gx, gz);
   let h = h0;
   const gAmp = relief * 0.13 * smoothstep(0.06, 0.45, slope);
-  if (gAmp > 2) {
+  if (gAmp > 2 && !(DBG.skip & 32)) {
     const inv = 1 / Math.max(slope, 0.05);
     h += gAmp * (gullies(x, z, gx * inv, gz * inv, 3200, 4, 1.6, 1.2) - 0.15);
   }

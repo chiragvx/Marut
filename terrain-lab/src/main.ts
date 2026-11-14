@@ -75,6 +75,13 @@ const sky = new THREE.Mesh(new THREE.SphereGeometry(500_000, 32, 16), skyMat);
 sky.renderOrder = -1;
 scene.add(sky);
 
+// Debug toggles from the URL hash: dbg=<shader bits> (2 no detail layers),
+// hskip=<DBG.skip bits for the height function> (see src/terrain/himalaya/height.ts DBG).
+const DEBUG = ((): { dbg: number; hskip: number } => {
+  const h = new URLSearchParams(location.hash.slice(1) || location.search.slice(1));
+  return { dbg: Number(h.get('dbg') ?? 0) | 0, hskip: Number(h.get('hskip') ?? 0) | 0 };
+})();
+
 // --- Terrain material. ---
 // Airfields with a game layout (Ngari, Simikot, Fukche) are drawn from that JSON (airports.ts);
 // the shader paints simple strips for the rest.
@@ -107,6 +114,7 @@ const terrainFS = /* glsl */ `
   uniform vec4 uStripA[${MAX_STRIPS}], uStripB[${MAX_STRIPS}];
   uniform int uStrips;
   uniform float uShowStrips;
+  uniform int uDbg; // debug: 2 no detail layers
   varying vec3 vWorld; varying vec3 vNormal; varying vec3 vSurf;
   #include <common>
   #include <logdepthbuf_pars_fragment>
@@ -129,6 +137,19 @@ const terrainFS = /* glsl */ `
     float k = a - b - c + d;
     return vec3(a + (b - a) * u.x + (c - a) * u.y + k * u.x * u.y, du * vec2(b - a + k * u.y, c - a + k * u.x));
   }
+  // One detail layer (cells of s metres, turned by R, offset off, periodic over per cells) at q,
+  // blended over the planes the surface faces (weights nw: horizontal, and the two vertical
+  // planes); x = value, yzw = its world-space gradient (per cell). Planes with little weight are
+  // skipped, so gentle ground pays for one sample. (The same as src/render/terrainMaterial.ts.)
+  vec4 detailBi(vec3 q, vec3 nw, mat2 R, float s, float off, float per) {
+    vec4 r = vec4(0.0);
+    if (nw.y > 0.02) { vec3 d = vnoiseD(R * q.xz / s + off, per); d.yz = d.yz * R; r += nw.y * vec4(d.x, d.y, 0.0, d.z); }
+    if (nw.x > 0.02) { vec3 d = vnoiseD(R * q.zy / s + off, per); d.yz = d.yz * R; r += nw.x * vec4(d.x, 0.0, d.z, d.y); }
+    if (nw.z > 0.02) { vec3 d = vnoiseD(R * q.xy / s + off, per); d.yz = d.yz * R; r += nw.z * vec4(d.x, d.y, d.z, 0.0); }
+    return r / max(nw.x * step(0.02, nw.x) + nw.y * step(0.02, nw.y) + nw.z * step(0.02, nw.z), 1e-3);
+  }
+  // Bump n by a world-space height gradient g (its part along the surface).
+  vec3 bumpN(vec3 n, vec3 g, float k) { return normalize(n - (g - dot(g, n) * n) * k); }
   void main() {
     #include <logdepthbuf_fragment>
     vec3 n = normalize(vNormal);
@@ -158,10 +179,13 @@ const terrainFS = /* glsl */ `
     col = mix(col, rock, smoothstep(0.20, 0.34, slope + (nz - 0.5) * 0.12));
 
     // Snow: higher on the dry plateau and on sunny (south-facing) slopes; steep faces shed it.
-    float aspectS = n.z / max(length(n.xz), 0.02) * smoothstep(0.02, 0.2, slope);
-    float snowline = mix(5100.0, 5950.0, dry) + 350.0 * aspectS;
-    float snow = smoothstep(snowline - 120.0, snowline + 180.0, h + (nz - 0.5) * 700.0);
-    snow *= 1.0 - smoothstep(0.50, 0.72, slope);
+    // (Aspect from n.z itself, not its direction: it fades out on gentle ground instead of flipping
+    // +-350 m across every gully wall; the cover thins over a wide band and with slope, so the
+    // edges are soft and follow the ground's steepness, not the mesh's facets.)
+    float aspectS = clamp(n.z / 0.45, -1.0, 1.0);
+    float snowline = mix(5100.0, 5950.0, dry) + 220.0 * aspectS;
+    float snow = smoothstep(snowline - 250.0, snowline + 300.0, h + (n1 * 0.6 + n3 * 0.4 - 0.5) * 700.0);
+    snow *= 1.0 - smoothstep(0.30, 0.62, slope + (n1 - 0.5) * 0.12);
     // Glaciers: high, gentle ground below the snowline proper.
     float glacier = smoothstep(snowline - 700.0, snowline - 300.0, h) * smoothstep(0.12, 0.04, slope) * (1.0 - flatv);
     vec3 snowc = lin(vec3(0.93, 0.95, 0.98)), ice = lin(vec3(0.80, 0.86, 0.92));
@@ -188,37 +212,41 @@ const terrainFS = /* glsl */ `
       }
     }
 
-    // Close-range detail, LOD by pixel footprint: each layer fades out as its cells shrink below a
-    // pixel (fwidth), so far ground costs nothing and nothing shimmers. Bump (lighting) + albedo.
-    vec2 lp = vWorld.xz - uOrigin;
+    // Close-range detail, LOD by pixel footprint (on the surface itself): each layer fades out as its
+    // cells shrink below a pixel, so far ground costs nothing and nothing shimmers. Bump (lighting)
+    // + albedo. Biplanar: a cliff takes its detail from the vertical plane it faces, not from the
+    // horizontal one stretched down it (which streaked every rock face). (No rock strata: regular
+    // contour bands aliased into stripes on every face, and read as stripes even when filtered.)
+    vec3 lq = vec3(vWorld.x - uOrigin.x, h, vWorld.z - uOrigin.y);
+    vec3 nw = pow(abs(n), vec3(4.0));
+    nw /= nw.x + nw.y + nw.z;
     float rockW = smoothstep(0.20, 0.34, slope), snowW = snow, grassW = (1.0 - rockW) * (1.0 - snowW) * (1.0 - dry) * (1.0 - flatv);
     float stoneW = (1.0 - rockW) * (1.0 - snowW) * max(dry, flatv);
     vec3 nb = n;
-    float px = length(fwidth(lp));
+    float px = max(length(dFdx(vWorld)), length(dFdy(vWorld)));
     float f1 = 1.0 - smoothstep(4.0, 12.0, px);   // 32 m layer: patches, boulders, rock ribs
     float f2 = 1.0 - smoothstep(0.6, 2.0, px);    // 4 m layer: clumps, stones, cracks
     float f3 = 1.0 - smoothstep(0.12, 0.4, px);   // 0.8 m layer: grit, tufts, pebbles
+    if ((uDbg & 2) != 0) { f1 = 0.0; f2 = 0.0; f3 = 0.0; }
     if (f1 > 0.0) {
-      vec3 d1 = vnoiseD(mat2(0.6, 0.8, -0.8, 0.6) * lp / 32.0, 128.0);
-      d1.yz = d1.yz * mat2(0.6, 0.8, -0.8, 0.6);
+      // Two octaves turned differently (one alone shows its lattice on a bare face). Periods: a
+      // 20480 m origin shift is a whole number of cells in both turned frames.
+      vec4 d1 = 0.64 * detailBi(lq, nw, mat2(0.6, 0.8, -0.8, 0.6), 32.0, 0.0, 128.0)
+              + 0.36 * detailBi(lq, nw, mat2(0.8, 0.6, -0.6, 0.8), 16.0, 9.0, 256.0);
       float bump = mix(mix(0.25, 0.9, rockW), 0.08, snowW);
-      nb = normalize(nb - vec3(d1.y, 0.0, d1.z) * bump * f1);
+      nb = bumpN(nb, d1.yzw, bump * f1);
       col *= 1.0 + (d1.x - 0.5) * 0.28 * f1 * (1.0 - snowW * 0.7);
-      // Rock strata: bands along the contours, broken by the noise.
-      col *= 1.0 - rockW * f1 * 0.18 * smoothstep(0.3, 0.7, fract(h / 9.0 + d1.x * 1.7));
     }
     if (f2 > 0.0) {
-      vec3 d2 = vnoiseD(mat2(0.8, -0.6, 0.6, 0.8) * lp / 4.0 + 17.0, 1024.0);
-      d2.yz = d2.yz * mat2(0.8, -0.6, 0.6, 0.8);
+      vec4 d2 = detailBi(lq, nw, mat2(0.8, -0.6, 0.6, 0.8), 4.0, 17.0, 1024.0);
       float bump = mix(mix(0.35, 0.8, rockW), 0.1, snowW);
-      nb = normalize(nb - vec3(d2.y, 0.0, d2.z) * bump * f2 * 0.6);
+      nb = bumpN(nb, d2.yzw, bump * f2 * 0.6);
       // Grass clumps darker, stones lighter, cracks in rock darker.
       col *= 1.0 + f2 * ((d2.x - 0.5) * (0.35 * grassW + 0.3 * stoneW + 0.25 * rockW) - grassW * 0.06);
     }
     if (f3 > 0.0) {
-      vec3 d3 = vnoiseD(mat2(0.6, -0.8, 0.8, 0.6) * lp / 0.8 - 5.0, 5120.0);
-      d3.yz = d3.yz * mat2(0.6, -0.8, 0.8, 0.6);
-      nb = normalize(nb - vec3(d3.y, 0.0, d3.z) * 0.35 * f3 * (1.0 - snowW * 0.8));
+      vec4 d3 = detailBi(lq, nw, mat2(0.6, -0.8, 0.8, 0.6), 0.8, -5.0, 5120.0);
+      nb = bumpN(nb, d3.yzw, 0.35 * f3 * (1.0 - snowW * 0.8));
       float speck = smoothstep(0.72, 0.9, d3.x);
       col *= 1.0 + f3 * ((d3.x - 0.5) * 0.25 + speck * 0.25 * stoneW - speck * 0.2 * grassW);
       // Snow glints in the sun.
@@ -250,6 +278,7 @@ function terrainMaterial(): THREE.ShaderMaterial {
       uOrigin: { value: new THREE.Vector2() },
       uStripA: { value: stripA }, uStripB: { value: stripB }, uStrips: { value: Math.min(MAX_STRIPS, STRIPS.length) },
       uShowStrips: { value: 1 },
+      uDbg: { value: DEBUG.dbg },
     },
     vertexShader: terrainVS,
     fragmentShader: terrainFS,
@@ -294,7 +323,7 @@ let reqId = 0;
 
 function requestRing(r: Ring, cx: number, cz: number): void {
   r.pending = true;
-  const q: RingRequest = { type: 'ring', id: ++reqId, level: r.level, cx, cz, n: RING_N, step: r.step, skirt: r.level === 3 ? 0 : 30 + r.step };
+  const q: RingRequest = { type: 'ring', id: ++reqId, level: r.level, cx, cz, n: RING_N, step: r.step, skirt: r.level === 3 ? 0 : 30 + r.step, skip: DEBUG.hskip };
   workers[r.level % workers.length].postMessage(q);
 }
 

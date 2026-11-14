@@ -3,11 +3,11 @@
  * the minimap off the main thread.
  */
 
-import { heightAt, type SurfaceInfo } from '../../src/terrain/himalaya/height';
+import { DBG, heightAt, type SurfaceInfo } from '../../src/terrain/himalaya/height';
 import { MAP_HALF_M } from '../../src/terrain/himalaya/layout';
 import { perimeter } from './grid';
 
-export interface RingRequest { type: 'ring'; id: number; level: number; cx: number; cz: number; n: number; step: number; skirt: number }
+export interface RingRequest { type: 'ring'; id: number; level: number; cx: number; cz: number; n: number; step: number; skirt: number; skip?: number }
 export interface MinimapRequest { type: 'minimap'; size: number }
 export interface RingResult { type: 'ring'; id: number; level: number; cx: number; cz: number; positions: Float32Array; normals: Float32Array; surf: Float32Array; ms: number }
 export interface MinimapResult { type: 'minimap'; size: number; rgba: Uint8ClampedArray; heights: Float32Array }
@@ -96,6 +96,7 @@ function buildMinimap(size: number): MinimapResult {
 ctx.onmessage = (e: MessageEvent) => {
   const q = e.data as RingRequest | MinimapRequest;
   if (q.type === 'ring') {
+    DBG.skip = q.skip ?? 0;
     const r = buildRing(q);
     ctx.postMessage(r, [r.positions.buffer, r.normals.buffer, r.surf.buffer]);
   } else {
