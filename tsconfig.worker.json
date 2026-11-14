@@ -15,5 +15,5 @@
     "resolveJsonModule": true,
     "outDir": "dist-ts-check-worker"
   },
-  "include": ["src/core/sim.worker.ts", "src/terrain/terrain.worker.ts"]
+  "include": ["src/core/sim.worker.ts", "src/terrain/terrain.worker.ts", "src/render/detailTextures.worker.ts"]
 }

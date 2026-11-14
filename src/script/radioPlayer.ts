@@ -166,7 +166,9 @@ export function createRadioPlayer(bus: AudioBus, baseUrl: string, onSubtitle: (t
       }
     }
     sources = [];
-    const ac = bus.context();
+    // Only with the chain built: bus.context() creates the audio context, which silence() (every
+    // frame in the menus) must not do (~0.2 s on a slow PC as the menu opened).
+    const ac = chain ? bus.context() : null;
     if (chain && ac) chain.hiss.gain.setTargetAtTime(0, ac.currentTime, 0.02);
     playing = null;
     busyUntil = 0;

@@ -26,7 +26,7 @@ import { uploadFirst } from './attrUpload';
 import { StoreRack, storeSlotAt, storeSlotCode, storeSlotCount, storeSlotRack, storeSlotTwin, type QuatLike, type Vec3Like } from '../contracts/core';
 import { AIRCRAFT_SHADOW_LAYER } from './sunShadows';
 import type { AircraftModelTemplate, ArticulatedPart } from './aircraftModels/tejasModel';
-import { buildStoreModels, BOMB_RACK_Z, RAIL_DEPTH as RAIL_DEPTH_M, TWIN_RAIL_FRAMES, type StoreModel } from './aircraftModels/stores';
+import { sharedRails, sharedStoreModel, BOMB_RACK_Z, RAIL_DEPTH as RAIL_DEPTH_M, TWIN_RAIL_FRAMES, type StoreModel } from './aircraftModels/stores';
 import { createAircraftLights } from './aircraftLights';
 import { buildShockConeGeometry, buildVapourConeGeometry, buildVapourWingGeometry, createVapourDrive, DEV_VAPOUR_FORCE, createVapourMeshes, createVapourTrails, vapourDrive, type VapourMeshes } from './vapour';
 import { EntityFlag } from '../contracts/core';
@@ -213,6 +213,8 @@ export interface MeshAircraftRenderer {
   setFillLight(r: number, g: number, b: number): void;
   /** Hides instances not updated this frame and uploads the stores. */
   endFrame(): void;
+  /** Makes one (hidden) airframe, so its materials can be compiled before the first is drawn. */
+  prepare(): void;
   dispose(): void;
 }
 
@@ -233,8 +235,8 @@ export function createMeshAircraftRenderer(root: THREE.Object3D, template: Aircr
   const touched = new Uint8Array(capacity);
   let dt = 1 / 60;
 
-  // Stores: shared material (stores carry no team markings), one batch per model.
-  const storeModels = buildStoreModels();
+  // Stores: shared material (stores carry no team markings), one batch per model, made the first
+  // time that store is drawn (the models are shared and built on first use: stores.ts).
   const storeMat = createAircraftBodyMaterial(shared, template.nozzleAxisY);
   const batch = (geometry: THREE.BufferGeometry, max: number): StoreBatch => {
     const mesh = new THREE.InstancedMesh(geometry, storeMat, max);
@@ -242,14 +244,30 @@ export function createMeshAircraftRenderer(root: THREE.Object3D, template: Aircr
     mesh.frustumCulled = false;
     mesh.layers.enable(AIRCRAFT_SHADOW_LAYER);
     root.add(mesh);
-    return { mesh, n: 0 };
+    const b = { mesh, n: 0 };
+    allBatches.push(b);
+    return b;
   };
-  const storeBatches = storeModels.byCode.map((m) => (m ? batch(m.geometry, m.kind === 'missile' ? 512 : 192) : undefined));
-  const railBatch = batch(storeModels.rail, 512);
-  const twinBatch = batch(storeModels.twinRail, 256);
-  const balluteBatches = storeModels.byCode.map((m) => (m?.ballute ? batch(m.ballute, 48) : undefined));
-  const openBatches = storeModels.byCode.map((m) => (m?.bodyOpen ? batch(m.bodyOpen, 48) : undefined));
-  const allBatches = [...storeBatches, ...balluteBatches, ...openBatches].filter((b): b is StoreBatch => !!b).concat(railBatch, twinBatch);
+  const allBatches: StoreBatch[] = [];
+  const storeBatches: (StoreBatch | undefined)[] = [];
+  const balluteBatches: (StoreBatch | undefined)[] = [];
+  const openBatches: (StoreBatch | undefined)[] = [];
+  const batchesMade: boolean[] = [];
+  /** A store's model by code, with this renderer's batches for it made on first use. */
+  function storeModel(code: number): StoreModel | undefined {
+    const m = sharedStoreModel(code);
+    if (m && !batchesMade[code]) {
+      batchesMade[code] = true;
+      storeBatches[code] = batch(m.geometry, m.kind === 'missile' ? 512 : 192);
+      if (m.ballute) balluteBatches[code] = batch(m.ballute, 48);
+      if (m.bodyOpen) openBatches[code] = batch(m.bodyOpen, 48);
+    }
+    return m;
+  }
+  let railBatchMade: StoreBatch | undefined;
+  let twinBatchMade: StoreBatch | undefined;
+  const railBatch = (): StoreBatch => (railBatchMade ??= batch(sharedRails().rail, 512));
+  const twinBatch = (): StoreBatch => (twinBatchMade ??= batch(sharedRails().twinRail, 256));
   const lights = createAircraftLights(root, template.lights, shared);
   // Lamps light the skin round them (the shader works in the model's own frame, as LIGHTS are).
   const lampPositions = template.lights;
@@ -289,7 +307,7 @@ export function createMeshAircraftRenderer(root: THREE.Object3D, template: Aircr
     for (let k = 0; k < pylonFrames.length; k++) {
       const slot = storeSlotAt(packedA, packedB, k);
       const code = storeSlotCode(slot);
-      const model: StoreModel | undefined = storeModels.byCode[code];
+      const model = storeModel(code);
       if (!model) continue;
       const count = storeSlotCount(slot);
       mA.multiplyMatrices(body, pylonFrames[k]!);
@@ -323,11 +341,11 @@ export function createMeshAircraftRenderer(root: THREE.Object3D, template: Aircr
           if (count > 0) put(storeBatches[code], mB.multiplyMatrices(mC, model.mount));
           continue;
         }
-        put(railBatch, mA);
+        put(railBatch(), mA);
         if (count > 0) put(storeBatches[code], mB.multiplyMatrices(mA, model.mount));
         continue;
       }
-      put(twinBatch, mA);
+      put(twinBatch(), mA);
       // Both rails loaded, or only the outboard one (the inboard missile goes first).
       const outboard = template.pylons[k]!.z >= 0 ? 1 : 0;
       for (let side = 0; side < 2; side++) {
@@ -697,7 +715,7 @@ export function createMeshAircraftRenderer(root: THREE.Object3D, template: Aircr
     },
 
     updateMissile(code, pos, vel, rot, origin, flags = 0) {
-      const model = storeModels.byCode[code];
+      const model = storeModel(code);
       // Missiles and bombs (incl. guided and glide bombs) fly as missile entities; rocket pods stay on the pylon.
       if (!model || (model.kind !== 'missile' && model.kind !== 'bomb')) return;
       if (model.kind === 'bomb') {
@@ -716,7 +734,7 @@ export function createMeshAircraftRenderer(root: THREE.Object3D, template: Aircr
     },
 
     updateStore(code, pos, rot, origin, flags = 0) {
-      if (!storeModels.byCode[code]) return;
+      if (!storeModel(code)) return;
       qM.set(rot.x, rot.y, rot.z, rot.w);
       mA.makeRotationFromQuaternion(qM).setPosition(pos.x - origin.x, pos.y - origin.y, pos.z - origin.z);
       put(storeBatches[code], mA);
@@ -726,6 +744,12 @@ export function createMeshAircraftRenderer(root: THREE.Object3D, template: Aircr
 
     setHumidity(h) {
       humidity = h;
+    },
+
+    prepare() {
+      if (instances.length === 0) instances.push(build());
+      // The stores' (instanced) material too: every store batch shares it.
+      railBatch();
     },
 
     endFrame() {
@@ -752,7 +776,7 @@ export function createMeshAircraftRenderer(root: THREE.Object3D, template: Aircr
       instances.length = 0;
       for (const b of allBatches) {
         root.remove(b.mesh);
-        b.mesh.geometry.dispose();
+        // (The store geometry is shared: stores.ts sharedStoreModels.)
         b.mesh.dispose();
       }
       storeMat.dispose();

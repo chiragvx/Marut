@@ -83,6 +83,7 @@ import { airHumidity } from './vapour';
 const DEV_HUMIDITY = import.meta.env.DEV ? Number(new URLSearchParams(location.search).get('humid') ?? NaN) : NaN;
 import { createDroneRenderer } from './droneModel';
 import { buildTejasModel } from './aircraftModels/tejasModel';
+import { warmStoreModels } from './aircraftModels/stores';
 import { JF17_FIT, JF17_GLB_URL, loadGltfAircraftModel, TEJAS_GLB_URL } from './aircraftModels/gltfModel';
 import { LIVERY_MAP, tejasLiveryTexture } from './aircraftModels/tejasLivery';
 import { C17_FIT, loadC17Model } from './aircraftModels/c17Model';
@@ -200,31 +201,72 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
   const aircraftRoot = new THREE.Group();
   scene.add(aircraftRoot);
   // Solid articulated aircraft; it replaces the original wireframe, so registerAircraftModel's
-  // WireframeModel is no longer drawn. The procedural Tejas draws at once; the imported, textured
-  // model (public/models/tejas.glb) replaces it when loaded (aircraftModelReady: the loading screens
-  // wait for it). Dev aid: ?jetmodel=classic keeps the procedural one.
-  let aircraftRenderer = createMeshAircraftRenderer(aircraftRoot, withLivery(buildTejasModel()));
+  // WireframeModel is no longer drawn. The imported, textured Tejas (public/models/tejas.glb) is
+  // drawn once loaded (aircraftModelReady: the loading screens wait for it); the procedural one
+  // (~0.3 s to build on a slow PC, which used to be spent on every page load and then thrown away)
+  // only if the import fails, or is still loading PROCEDURAL_AFTER_MS on (a slow connection: it is
+  // then replaced when the import arrives). Dev aid: ?jetmodel=classic keeps the procedural one.
+  let lastHumidity = 0.45;
+  const proceduralTejas = (): MeshAircraftRenderer => createMeshAircraftRenderer(aircraftRoot, withLivery(buildTejasModel()));
   /** Target drones (EntityFlag.Drone) have their own model. */
   const drones = createDroneRenderer(aircraftRoot);
   let sceneDisposed = false;
   let modelReady = true;
   const importedModels = typeof location === 'undefined' || new URLSearchParams(location.search).get('jetmodel') !== 'classic';
+  let aircraftRenderer: MeshAircraftRenderer | undefined = importedModels ? undefined : proceduralTejas();
+  const PROCEDURAL_AFTER_MS = 8000;
+  const proceduralAt = performance.now() + PROCEDURAL_AFTER_MS;
+  /** The Tejas's renderer; undefined (nothing drawn) while the imported model is still loading. */
+  function tejasRenderer(): MeshAircraftRenderer | undefined {
+    if (!aircraftRenderer && !sceneDisposed && (modelReady || performance.now() > proceduralAt)) {
+      aircraftRenderer = proceduralTejas();
+      aircraftRenderer.setHumidity(lastHumidity);
+    }
+    return aircraftRenderer;
+  }
   if (importedModels) {
     modelReady = false;
     loadGltfAircraftModel(TEJAS_GLB_URL)
-      .then((template) => {
+      .then(async (template) => {
         if (sceneDisposed) return;
-        aircraftRenderer.dispose();
-        aircraftRenderer = createMeshAircraftRenderer(aircraftRoot, template);
+        const made = createMeshAircraftRenderer(aircraftRoot, template);
+        // Its shaders compiled (in parallel where the browser can) and its textures uploaded one at
+        // a time before it is first drawn: done in its first frame they froze the page for ~1 s.
+        const pause = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0));
+        try {
+          await pause();
+          made.prepare();
+          // Into the composer's buffer, as the world pass draws it (a program per output target).
+          const target = renderer.getRenderTarget();
+          renderer.setRenderTarget(composer.readBuffer);
+          const compiled = renderer.compileAsync(aircraftRoot, camera, scene);
+          renderer.setRenderTarget(target);
+          // (Never stuck on it: a lost context never reports its programs ready.)
+          await Promise.race([compiled, new Promise((resolve) => setTimeout(resolve, 5000))]);
+          for (const t of template.textures ? [template.textures.base, template.textures.normal, template.textures.metalRough] : []) {
+            await pause();
+            if (!sceneDisposed && !contextLost) renderer.initTexture(t);
+          }
+        } catch (err: unknown) {
+          console.warn('[aircraft] shader warm-up failed (compiled when first drawn instead)', err);
+        }
+        if (sceneDisposed) {
+          made.dispose();
+          return;
+        }
+        aircraftRenderer?.dispose();
+        aircraftRenderer = made;
+        aircraftRenderer.setHumidity(lastHumidity);
       })
-      .catch((err: unknown) => console.warn('[aircraft] imported model failed to load; keeping the procedural Tejas', err))
+      .catch((err: unknown) => console.warn('[aircraft] imported model failed to load; drawing the procedural Tejas', err))
       .finally(() => {
         modelReady = true;
+        // The stores' models (built as each is first drawn) are finished in idle time from here.
+        warmStoreModels();
       });
-  }
+  } else warmStoreModels();
   // Other types' models (contracts/core.ts AircraftModel, from the entity's flags), by model code:
   // each loads the first time one is seen (drawn as the Tejas until then, or if it fails).
-  let lastHumidity = 0.45;
   const typeRenderers: (MeshAircraftRenderer | undefined)[] = [];
   const typeRequested: boolean[] = [];
   const TYPE_MODELS: Partial<Record<number, () => Promise<MeshAircraftRenderer>>> = {
@@ -232,9 +274,9 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
     // A few at most in any mission (each is ~70 draw calls with its gear down).
     [AircraftModel.C17]: () => loadC17Model().then((t) => createMeshAircraftRenderer(aircraftRoot, t, 16)),
   };
-  function rendererFor(flags: number): MeshAircraftRenderer {
+  function rendererFor(flags: number): MeshAircraftRenderer | undefined {
     const code = aircraftModelOf(flags);
-    if (code === AircraftModel.Tejas) return aircraftRenderer;
+    if (code === AircraftModel.Tejas) return tejasRenderer();
     const r = typeRenderers[code];
     if (r) return r;
     const load = TYPE_MODELS[code];
@@ -251,11 +293,12 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
         })
         .catch((err: unknown) => console.warn(`[aircraft] model ${code} failed to load; drawn as the Tejas`, err));
     }
-    return aircraftRenderer;
+    return tejasRenderer();
   }
-  /** Every aircraft renderer (the Tejas's first). */
+  /** Every aircraft renderer (the Tejas's first; made here if it is due, so it gets the whole frame). */
   function eachRenderer(fn: (r: MeshAircraftRenderer) => void): void {
-    fn(aircraftRenderer);
+    const t = tejasRenderer();
+    if (t) fn(t);
     for (const r of typeRenderers) if (r) fn(r);
   }
   const aircraftState = {
@@ -851,11 +894,11 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
           showTime = sc.timeSec;
         }
         eachRenderer((r) => r.beginFrame(showDt, origin, cameraPose.pos, showTime));
-        for (const st of sc.stores ?? []) aircraftRenderer.updateMissile(st.code, st.pos, st.vel, st.rot, origin, st.flags ?? 0);
+        for (const st of sc.stores ?? []) aircraftRenderer?.updateMissile(st.code, st.pos, st.vel, st.rot, origin, st.flags ?? 0);
         for (const a of sc.aircraft) {
           // Another type's model not loaded yet: not drawn (rather than as a Tejas) until it is.
           const r = rendererFor(a.flags);
-          if (r === aircraftRenderer && aircraftModelOf(a.flags) !== AircraftModel.Tejas && importedModels) continue;
+          if (!r || (r === aircraftRenderer && aircraftModelOf(a.flags) !== AircraftModel.Tejas && importedModels)) continue;
           const st = aircraftState;
           clearTransportState(st);
           st.ramp = a.ramp;
@@ -1008,12 +1051,12 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
           }
           if (curr.alive[i] === 1 && curr.kind[i] === EntityKindCode.missile) {
             interpolateEntity(snapshotBuf, i, f, interpEntity);
-            aircraftRenderer.updateMissile(curr.stores[i]!, interpEntity.pos, interpEntity.vel, interpEntity.rot, origin, curr.flags[i]!);
+            aircraftRenderer?.updateMissile(curr.stores[i]!, interpEntity.pos, interpEntity.vel, interpEntity.rot, origin, curr.flags[i]!);
             continue;
           }
           if (curr.alive[i] === 1 && curr.kind[i] === EntityKindCode.effect) {
             interpolateEntity(snapshotBuf, i, f, interpEntity);
-            aircraftRenderer.updateStore(curr.stores[i]!, interpEntity.pos, interpEntity.rot, origin, curr.flags[i]!);
+            aircraftRenderer?.updateStore(curr.stores[i]!, interpEntity.pos, interpEntity.rot, origin, curr.flags[i]!);
             continue;
           }
           if (curr.alive[i] !== 1 || curr.kind[i] !== EntityKindCode.aircraft) continue;
@@ -1072,7 +1115,7 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
             devLiftedPos.z = interpEntity.pos.z;
             drawPos = devLiftedPos;
           }
-          rendererFor(flags).updateEntity(curr.id[i]!, drawPos, interpEntity.rot, st, origin);
+          rendererFor(flags)?.updateEntity(curr.id[i]!, drawPos, interpEntity.rot, st, origin);
         }
         drones.endFrame();
         eachRenderer((r) => r.endFrame());

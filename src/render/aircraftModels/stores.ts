@@ -1094,26 +1094,82 @@ export interface StoreModels {
   twinRail: THREE.BufferGeometry;
 }
 
+/** One store's model by id (undefined = nothing to draw). */
+function buildStoreModel(id: string): StoreModel | undefined {
+  const m = MISSILES[id];
+  if (m) return { kind: 'missile', geometry: buildMissile(m), mount: new THREE.Matrix4().makeTranslation(0.25, -(RAIL_DEPTH + HANGER + m.dia / 2), 0) };
+  const t = TANKS[id];
+  if (t) return { kind: 'tank', geometry: buildTank(t), mount: new THREE.Matrix4().makeTranslation(0, -(0.03 + t.dia / 2), 0) };
+  const b = BOMBS[id];
+  if (b) {
+    const model: StoreModel = { kind: 'bomb', geometry: buildBomb(b), mount: new THREE.Matrix4().makeTranslation(0, -(0.05 + b.dia / 2), 0) };
+    if (b.tail === 'snakeye') model.bodyOpen = buildBomb(b, true);
+    else if (b.retarded) model.ballute = buildBallute(b);
+    return model;
+  }
+  const p = PODS[id];
+  if (p) return { kind: 'pod', geometry: id === 'litening' ? buildTargetingPod(p) : id === 'el-l-8222' ? buildJammerPod(p) : buildRocketPod(p), mount: new THREE.Matrix4().makeTranslation(0.1, id === 'litening' ? -(p.dia / 2 + 0.005) : -(0.04 + p.dia / 2), 0) };
+  // The airdrop bundle: drawn only falling (an effect entity), its canopy once it is out.
+  if (id === 'cds-bundle') return { kind: 'cargo', geometry: buildCdsBundle(), mount: new THREE.Matrix4(), ballute: buildCargoCanopy() };
+  return undefined;
+}
+
 export function buildStoreModels(): StoreModels {
-  const byCode = STORE_IDS.map((id): StoreModel | undefined => {
-    const m = MISSILES[id];
-    if (m) return { kind: 'missile', geometry: buildMissile(m), mount: new THREE.Matrix4().makeTranslation(0.25, -(RAIL_DEPTH + HANGER + m.dia / 2), 0) };
-    const t = TANKS[id];
-    if (t) return { kind: 'tank', geometry: buildTank(t), mount: new THREE.Matrix4().makeTranslation(0, -(0.03 + t.dia / 2), 0) };
-    const b = BOMBS[id];
-    if (b) {
-      const model: StoreModel = { kind: 'bomb', geometry: buildBomb(b), mount: new THREE.Matrix4().makeTranslation(0, -(0.05 + b.dia / 2), 0) };
-      if (b.tail === 'snakeye') model.bodyOpen = buildBomb(b, true);
-      else if (b.retarded) model.ballute = buildBallute(b);
-      return model;
+  return { byCode: STORE_IDS.map(buildStoreModel), rail: buildRail(), twinRail: buildTwinRail() };
+}
+
+/**
+ * The store models, shared by every aircraft renderer (which never change or dispose their
+ * geometry), each built the first time it is asked for: building them all takes ~0.1 s (~0.45 s on
+ * a slow PC), and the game used to do it twice as the menu opened (for the procedural Tejas, then
+ * the imported one). warmStoreModels builds the rest in idle time, so no store is built in flight.
+ */
+const sharedByCode: (StoreModel | null | undefined)[] = [];
+interface Rails {
+  rail: THREE.BufferGeometry;
+  twinRail: THREE.BufferGeometry;
+}
+let rails: Rails | undefined;
+
+/** A store's shared model by code (contracts/core.ts STORE_IDS); undefined = nothing to draw. */
+export function sharedStoreModel(code: number): StoreModel | undefined {
+  const have = sharedByCode[code];
+  if (have !== undefined) return have ?? undefined;
+  const id = STORE_IDS[code];
+  const made = id === undefined ? undefined : buildStoreModel(id);
+  sharedByCode[code] = made ?? null;
+  return made;
+}
+
+/** The shared missile rails (single and twin). */
+export function sharedRails(): Rails {
+  return (rails ??= { rail: buildRail(), twinRail: buildTwinRail() });
+}
+
+/**
+ * Builds the store models not built yet, one per idle moment (a few ms each), so a store seen for
+ * the first time in flight (a released bomb's open tail, an enemy's missile) is never built then.
+ */
+let warming = false;
+export function warmStoreModels(): void {
+  if (warming) return;
+  warming = true;
+  const idle = (globalThis as { requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => number }).requestIdleCallback;
+  const later = (fn: () => void): void => {
+    if (idle) idle(fn, { timeout: 2000 });
+    else setTimeout(fn, 50);
+  };
+  let code = 0;
+  const step = (): void => {
+    while (code < STORE_IDS.length && sharedByCode[code] !== undefined) code++;
+    if (code >= STORE_IDS.length) {
+      sharedRails();
+      return;
     }
-    const p = PODS[id];
-    if (p) return { kind: 'pod', geometry: id === 'litening' ? buildTargetingPod(p) : id === 'el-l-8222' ? buildJammerPod(p) : buildRocketPod(p), mount: new THREE.Matrix4().makeTranslation(0.1, id === 'litening' ? -(p.dia / 2 + 0.005) : -(0.04 + p.dia / 2), 0) };
-    // The airdrop bundle: drawn only falling (an effect entity), its canopy once it is out.
-    if (id === 'cds-bundle') return { kind: 'cargo', geometry: buildCdsBundle(), mount: new THREE.Matrix4(), ballute: buildCargoCanopy() };
-    return undefined;
-  });
-  return { byCode, rail: buildRail(), twinRail: buildTwinRail() };
+    sharedStoreModel(code++);
+    later(step);
+  };
+  later(step);
 }
 
 /** Length and diameter of a store by id (for tests). */

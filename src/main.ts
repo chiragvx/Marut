@@ -97,8 +97,8 @@ import { ESTUARY_FLOATS, packEstuary } from './terrain/coastMath';
 import { buildAlpineEnvironment } from './terrain/himalaya';
 import { createAirportNavDb, isUnpaved } from './airport';
 import { buildPavementGeometry } from './airport/pavementGeometry';
-import { buildAirfieldMask } from './airport/airfieldMask';
-import { buildAirfieldAids } from './airport/airfieldAids';
+import { buildAirfieldMask, type AirfieldMask } from './airport/airfieldMask';
+import { buildAirfieldAids, type AirfieldAids } from './airport/airfieldAids';
 import { activeRunway, buildTaxiGraph, routeToRunway, routeToStand, type TaxiGraph } from './airport/taxiGraph';
 import { getAircraftDefinition, tejasDefinition } from './aircraft';
 import { isBuiltinMissionId, resolveBuiltinMission, type BuiltinMissionId } from './core/missions/index';
@@ -427,7 +427,7 @@ const playerAircraft = tejasDefinition;
 function showMainMenu(): void {
   destroyCurrentScreen();
   appState = 'mainMenu';
-  startShowcase();
+  startShowcaseSoon();
   const last = savedLastFlight();
   const progress = savedProgress();
   const fb = feedbackUrl({ screen: 'menu', quality: currentQualityTier });
@@ -1093,9 +1093,41 @@ function sendToTerrainWorker(msg: MainToTerrainMessage | MainToTerrainMessageExt
   terrainWorker.postMessage(msg);
 }
 
+/**
+ * Each airbase's aids and terrain mask: pure functions of its layout, but ~0.1-0.25 s each on a slow
+ * PC, so they are kept (a flight from the base the menu's cinematic shows reuses them) and the menu
+ * builds them a piece at a time (prepareAirfields) rather than in one long freeze.
+ */
+const aidsCache = new WeakMap<AirportLayout, AirfieldAids>();
+const maskCache = new WeakMap<AirportLayout, AirfieldMask>();
+function airfieldAidsFor(a: AirportLayout): AirfieldAids {
+  let v = aidsCache.get(a);
+  if (!v) aidsCache.set(a, (v = buildAirfieldAids(a)));
+  return v;
+}
+function airfieldMaskFor(a: AirportLayout): AirfieldMask {
+  let v = maskCache.get(a);
+  if (!v) maskCache.set(a, (v = buildAirfieldMask(a)));
+  return v;
+}
+/** Builds the airbases' aids and masks not built yet, yielding to the page between each. */
+async function prepareAirfields(layouts: readonly AirportLayout[]): Promise<void> {
+  const yieldNow = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0));
+  for (const a of layouts) {
+    if (!aidsCache.has(a)) {
+      airfieldAidsFor(a);
+      await yieldNow();
+    }
+    if (!maskCache.has(a)) {
+      airfieldMaskFor(a);
+      await yieldNow();
+    }
+  }
+}
+
 /** The theatre look for the renderer: ground style and water from the terrain, runways from the layouts. */
 function buildSceneEnvironment(terrainParams: TerrainParams, airportLayouts: readonly AirportLayout[], wind: { x: number; z: number } = { x: 0, z: 0 }): SceneEnvironment {
-  const aids = airportLayouts.map((a) => buildAirfieldAids(a));
+  const aids = airportLayouts.map(airfieldAidsFor);
   // Windsocks stream downwind (limp towards the south in calm air); floodlight masts at the aprons.
   const downwind = Math.hypot(wind.x, wind.z) > 0.2 ? Math.atan2(wind.x, -wind.z) : Math.PI;
   const aidStructures = aids.flatMap((a, i) => [
@@ -1157,7 +1189,7 @@ function buildSceneEnvironment(terrainParams: TerrainParams, airportLayouts: rea
     ...(coast ? { coast } : {}),
     ...(terrainParams.waterLevelM !== undefined ? { waterLevelM: terrainParams.waterLevelM } : {}),
     pavement: buildPavementGeometry(airportLayouts),
-    airfieldMasks: airportLayouts.map((a) => buildAirfieldMask(a)),
+    airfieldMasks: airportLayouts.map(airfieldMaskFor),
     structures: [
       ...airportLayouts.flatMap((a) =>
         (a.structures ?? []).map((s) => ({ kind: s.kind, worldX: s.worldX, worldY: a.elevationM, worldZ: s.worldZ, headingRad: s.headingRad, widthM: s.widthM, lengthM: s.lengthM, heightM: s.heightM, side: a.side ?? 'neutral', targetId: `${a.id}:${s.id}` }))
@@ -1872,6 +1904,33 @@ function devShowcaseFrame(sc: ShowcaseScene, t: number): ShowcaseFrame {
   return fr;
 }
 
+/** Resolves once the page has painted (or after 100 ms in a background tab, where frames stop). */
+function nextPaint(): Promise<void> {
+  return new Promise((resolve) => {
+    requestAnimationFrame(() => setTimeout(resolve, 0));
+    setTimeout(resolve, 100);
+  });
+}
+
+let showcaseStartPending = false;
+/**
+ * Starts the cinematic once the menu over it has painted: setting up its world (the base's
+ * airfield, the terrain streaming) takes a while on a slow PC, and done first it held the menu back
+ * (the cinematic is behind black until it has loaded either way).
+ */
+function startShowcaseSoon(): void {
+  if (showcaseActive || showcaseStartPending || !renderer) return;
+  showcaseStartPending = true;
+  hudCanvas.style.visibility = 'hidden';
+  setFade(true);
+  void nextPaint()
+    .then(() => prepareAirfields(resolveBuiltinMission(baseInfo('bathinda').freeMissionId).world.airports as readonly AirportLayout[]))
+    .then(() => {
+      showcaseStartPending = false;
+      if (appState === 'mainMenu') startShowcase();
+    });
+}
+
 function startShowcase(): void {
   if (showcaseActive || !renderer) return;
   showcaseActive = true;
@@ -1880,7 +1939,14 @@ function startShowcase(): void {
 }
 
 function stopShowcase(): void {
-  if (!showcaseActive) return;
+  if (!showcaseActive) {
+    // Left the menu before the cinematic started (startShowcaseSoon): undo its black and hidden HUD.
+    if (showcaseStartPending) {
+      hudCanvas.style.visibility = 'visible';
+      setFade(false);
+    }
+    return;
+  }
   showcaseActive = false;
   showcaseScene = undefined;
   // A flight loads its own world; the cinematic reloads the base's when it starts again.
@@ -2044,6 +2110,8 @@ async function boot(): Promise<void> {
   actionBarEnabled = persisted?.actionBar ?? true;
 
   loading.setProgress(0.3, 'Starting simulation…');
+  // Let the loading screen show before the renderer's set-up (a second or more on a slow PC).
+  await nextPaint();
   await initWorkersAndRenderer(currentQualityTier);
   hud.setSpeedUnit(currentSpeedUnit);
   inputSystem.setAlphaLimiterDisabled((persisted?.alphaLimiterEnabled ?? true) === false);
