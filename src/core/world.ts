@@ -149,6 +149,18 @@ const SIM_DT_SEC_LOCAL = 1 / 120; // avoid importing SIM_DT_SEC just to re-deriv
  */
 const RUNWAY_SPAWN_CLEARANCE_M = 1.7;
 
+/**
+ * The resting spawn height above the pavement for one aircraft type: its deepest wheel's body-frame
+ * depth below the CG (the same zero-penetration point as RUNWAY_SPAWN_CLEARANCE_M, which is the
+ * Tejas value: a C-17's wheels hang 4.5 m below its CG, and spawning it at 1.7 m buried the gear past
+ * its hard stop: a crash on the first tick).
+ */
+function groundSpawnClearanceM(aircraftDefId: string): number {
+  const gear = getAircraftDefinition(aircraftDefId)?.gear;
+  if (!gear || gear.length === 0) return RUNWAY_SPAWN_CLEARANCE_M;
+  return Math.max(...gear.map((g) => -g.posBodyM.y));
+}
+
 /** The aircraft the player flies unless the mission names another (MissionPlayerStart.aircraftId). */
 const PLAYER_DEFAULT_AIRCRAFT_ID = 'tejas-mk1a';
 
@@ -431,7 +443,7 @@ class WorldImpl implements World {
     let playerStartOnGround: boolean;
     const spot = ps.airportId !== undefined && ps.parkingSpotId !== undefined ? findParkingSpot(mission, ps.airportId, ps.parkingSpotId) : undefined;
     if (spot) {
-      playerPos = { x: spot.x, y: spot.elevationM + RUNWAY_SPAWN_CLEARANCE_M, z: spot.z };
+      playerPos = { x: spot.x, y: spot.elevationM + groundSpawnClearanceM(ps.aircraftId ?? PLAYER_DEFAULT_AIRCRAFT_ID), z: spot.z };
       playerHeadingRad = spot.headingRad;
       playerSpeedMps = 0;
       playerStartOnGround = true;
@@ -439,7 +451,7 @@ class WorldImpl implements World {
       const runway = this.deps.navDb.getRunway(ps.airportId, ps.runwayId);
       if (runway) {
         const fwd = forwardWorldInto(runway.headingRad, this.fwdScratch);
-        playerPos = { x: runway.thresholdPos.x + fwd.x * 200, y: runway.elevationM + RUNWAY_SPAWN_CLEARANCE_M, z: runway.thresholdPos.z + fwd.z * 200 };
+        playerPos = { x: runway.thresholdPos.x + fwd.x * 200, y: runway.elevationM + groundSpawnClearanceM(ps.aircraftId ?? PLAYER_DEFAULT_AIRCRAFT_ID), z: runway.thresholdPos.z + fwd.z * 200 };
         playerHeadingRad = runway.headingRad;
         playerSpeedMps = ps.speedMps ?? 0;
         playerStartOnGround = true;
@@ -484,7 +496,7 @@ class WorldImpl implements World {
           if (runway) {
             headingRad = runway.headingRad;
             speedMps = flight.startSpeedMps ?? 0;
-            pos = { x: runway.thresholdPos.x, y: runway.elevationM + RUNWAY_SPAWN_CLEARANCE_M, z: runway.thresholdPos.z };
+            pos = { x: runway.thresholdPos.x, y: runway.elevationM + groundSpawnClearanceM(flight.aircraftId), z: runway.thresholdPos.z };
             startOnGround = true;
           } else {
             headingRad = flight.startHeadingRad ?? 0;
