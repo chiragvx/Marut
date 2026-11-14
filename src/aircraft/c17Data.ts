@@ -113,6 +113,11 @@ export const c17Engine: EngineTables = {
   /** Flight idle 7% of rated thrust [P] EDB idle point (ground idle is ~3-5% [E]; one value used). */
   idleThrustFrac: 0.07,
   /**
+   * Ground idle [E] 3.5% (the pack's ~3-5%): four engines at 7% gave ~50 kN against ~34 kN of
+   * rolling resistance at 172 t, and the C-17 crept off its stand at ~2 m/s with the brakes off.
+   */
+  groundIdleThrustFrac: 0.035,
+  /**
    * [E] pack 2.3: tau 2.5 s below 60% N1, 1.2 s above, 1.5 s down. With thrust = N1^2 this takes
    * flight idle to 95% thrust in ~4.9 s, inside the 5 s of 14 CFR 33.73 [P].
    */

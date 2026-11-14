@@ -122,14 +122,16 @@ export function stepEngines(out: EntityState, inputs: PilotInputs, damage: Damag
     if (rev && (reverseWanted || e.reverserPos > 0)) {
       engineLever = reverseWanted && e.reverserPos >= 1 && (env.onGround || !rev.idleOnlyInFlight) ? 1 : 0;
     }
-    const n1Target = dead ? WINDMILL_N1 : Math.sqrt(idle + (1 - idle) * engineLever);
+    // Ground idle on the wheels (lower than flight idle, so an idling transport does not creep).
+    const idleHere = env.onGround && tables.groundIdleThrustFrac !== undefined ? tables.groundIdleThrustFrac : idle;
+    const n1Target = dead ? WINDMILL_N1 : Math.sqrt(idleHere + (1 - idleHere) * engineLever);
     let tau = tables.spoolTimeConstantSec;
     if (spool) tau = n1Target > e.n1 ? (e.n1 < spool.breakN1Frac ? spool.upLowTauSec : spool.upHighTauSec) : spool.downTauSec;
     e.n1 = n1Target + (e.n1 - n1Target) * Math.exp(-dtSub / tau);
 
     let axialN = 0;
     if (!dead) {
-      const thrustFrac = Math.max(idle, e.n1 * e.n1);
+      const thrustFrac = Math.max(idleHere, e.n1 * e.n1);
       const grossN = milN * thrustFrac;
       const r = e.reverserPos;
       const fwdN = grossN * (1 - r);
@@ -137,7 +139,7 @@ export function stepEngines(out: EntityState, inputs: PilotInputs, damage: Damag
       if (inst.posBodyM.z < 0) result.thrustLeftN += fwdN;
       else result.thrustRightN += fwdN;
       fuelFlowKgS += Math.max(tables.idleFuelFlowKgS, milFlowKgS * thrustFrac * (1 + PART_THROTTLE_TSFC_K * (1 - thrustFrac) * (1 - thrustFrac)));
-      powerSum += idle < 1 ? clamp((thrustFrac - idle) / (1 - idle), 0, 1) : 1;
+      powerSum += idleHere < 1 ? clamp((thrustFrac - idleHere) / (1 - idleHere), 0, 1) : 1;
       running++;
     } else if (rev && e.reverserPos > 0) {
       axialN = -e.reverserPos * ramDragN;

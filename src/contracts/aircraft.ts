@@ -161,6 +161,8 @@ export interface EngineTables {
    * throttle x military, today's single-engine model). Multi-engine model only.
    */
   idleThrustFrac?: number;
+  /** Ground idle (weight on wheels), fraction of `militaryThrustN`. Absent = `idleThrustFrac` on the ground too. */
+  groundIdleThrustFrac?: number;
   /**
    * Two-rate N1 spool model (multi-engine model only): spool-up time constant below / above
    * `breakN1Frac` of N1, spool-down time constant. Absent = `spoolTimeConstantSec` throughout.

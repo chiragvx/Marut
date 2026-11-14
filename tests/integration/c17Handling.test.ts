@@ -226,8 +226,8 @@ describe('C-17 handling', () => {
       ['empty', 0, 0],
       ['typical', 72000, 0],
       ['full fuel', def.maxFuelKg, 0],
-      ['max payload', def.maxTakeoffMassKg - def.emptyMassKg - def.massModel!.maxCargoKg, def.massModel!.maxCargoKg],
-      ['MTOW full fuel', def.maxFuelKg, def.maxTakeoffMassKg - def.emptyMassKg - def.maxFuelKg],
+      ['max payload', def.maxTakeoffMassKg! - def.emptyMassKg - def.massModel!.maxCargoKg, def.massModel!.maxCargoKg],
+      ['MTOW full fuel', def.maxFuelKg, def.maxTakeoffMassKg! - def.emptyMassKg - def.maxFuelKg],
     ];
     for (const [name, fuel, cargo] of cases) {
       const cg = cgMacFraction(def, fuel, cargo)!;
@@ -260,4 +260,25 @@ describe('C-17 handling', () => {
     expect(iH.zz).toBeGreaterThan(iL.zz * 1.3);
     expect(cgMacFraction(def, heavy.fuelKg, heavy.cargoMassKg)).not.toBeCloseTo(cgMacFraction(def, light.fuelKg, 0)!, 3);
   }, 60000);
+
+  test('parked at idle with the brakes off, it stays on its stand (ground idle)', () => {
+    const calm = { windWorldMps: { x: 0, y: 0, z: 0 }, gustMps: 0, turbulence: 0 };
+    for (const presetId of ['display', 'training']) {
+      const p = TRANSPORT_PRESETS.find((x) => x.id === presetId)!;
+      const mission = { ...withTransportLoad(freeFlightMission('fukche', 'parked', 'c-17'), p), weather: calm };
+      const world = createWorld(buildWorldDependencies(mission));
+      world.loadMission(mission);
+      const id = world.getPlayerEntityId();
+      const i = { ...inputs(0), gearDown: true };
+      let maxSpeed = 0;
+      for (let k = 0; k < 20 * 60; k++) {
+        world.setPlayerInput(id, i);
+        world.stepOnce();
+        const s = world.getEntityState(id)!;
+        if (k > 60) maxSpeed = Math.max(maxSpeed, Math.hypot(s.vel.x, s.vel.z));
+      }
+      console.log(`parked idle ${presetId}: max ground speed ${maxSpeed.toFixed(2)} m/s`);
+      expect(maxSpeed, presetId).toBeLessThan(0.3);
+    }
+  }, 120000);
 });
