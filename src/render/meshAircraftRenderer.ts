@@ -17,6 +17,9 @@
  * Every mesh also draws into the aircraft sun-shadow cascade (AIRCRAFT_SHADOW_LAYER).
  * Condensation in humid air (vapour.ts): the wing vapour sheet and tip trails in hard pulls, the
  * vapour cone near Mach 1, from each jet's own speed, height and angle of attack.
+ * Models with a keyframe rig (the C-17, aircraftModels/c17Model.ts) move those parts by their own
+ * keyframes (trackRig.ts), posed per aircraft by aircraftModels/c17Pose.ts; a node is re-posed only
+ * when its group's value changes (the fans every frame).
  */
 import * as THREE from 'three';
 import { StoreRack, storeSlotAt, storeSlotCode, storeSlotCount, storeSlotRack, storeSlotTwin, type QuatLike, type Vec3Like } from '../contracts/core';
@@ -27,6 +30,8 @@ import { createAircraftLights } from './aircraftLights';
 import { buildShockConeGeometry, buildVapourConeGeometry, buildVapourWingGeometry, createVapourDrive, DEV_VAPOUR_FORCE, createVapourMeshes, createVapourTrails, vapourDrive, type VapourMeshes } from './vapour';
 import { EntityFlag } from '../contracts/core';
 import { createAircraftBodyMaterial, createAircraftFlameMaterial, createAircraftSharedUniforms, type AircraftBodyUniforms, type AircraftFlameUniforms } from './aircraftMaterial';
+import { rigWorld } from './aircraftModels/trackRig';
+import { c17GroupValue, c17PoseTarget, createC17Pose, stepC17Pose, type C17Pose } from './aircraftModels/c17Pose';
 
 export const MAX_MESH_AIRCRAFT = 64;
 
@@ -54,6 +59,20 @@ export interface MeshAircraftState {
   flags: number;
   /** Ground height under the aircraft, world metres, when known (for the landing light's pool). */
   groundY?: number;
+  /**
+   * Transports' high lift, doors and engines (the C-17's rig, aircraftModels/c17Pose.ts), 0..1 each
+   * (0 = stowed / closed); absent = their defaults there (stowed; spoilers from AirbrakeOut; slats
+   * with the flaps). Per-engine arrays run from the left wingtip to the right.
+   */
+  flaps?: number;
+  slats?: number;
+  spoilers?: number;
+  reversers?: readonly number[];
+  ramp?: number;
+  troopDoors?: number;
+  crewDoor?: number;
+  /** Per-engine fan speed N1, 0..1 (absent = from the throttle). */
+  n1?: readonly number[];
 }
 
 /** Slat droop, 0..1, for the velocity in world axes and orientation `rot`. */
@@ -156,6 +175,19 @@ interface Instance {
   abVis: number;
   abFlash: number;
   abWasLit: boolean;
+  /** Keyframe rig (template.rig): a node per rig node, their body-frame world matrices, the value each
+   *  was last posed at (NaN = never), and the drawn and wanted pose. */
+  rig?: RigInstance;
+}
+
+interface RigInstance {
+  nodes: THREE.Group[];
+  world: THREE.Matrix4[];
+  lastX: Float64Array;
+  /** Scratch: which nodes were re-posed this frame. */
+  moved: Uint8Array;
+  pose: C17Pose;
+  target: C17Pose;
 }
 
 const NO_ID = -1;
@@ -219,6 +251,8 @@ export function createMeshAircraftRenderer(root: THREE.Object3D, template: Aircr
   // Lamps light the skin round them (the shader works in the model's own frame, as LIGHTS are).
   const lampPositions = template.lights;
   const landingPivot = template.parts.find((p) => p.name === template.landingPart)?.pivot ?? [0, 0, 0];
+  const rig = template.rig;
+  const rigScratch = new THREE.Matrix4();
   const vapourWingGeom = template.vapourWing ? buildVapourWingGeometry(template.vapourWing) : undefined;
   const vapourConeGeom = template.vapourCone ? buildVapourConeGeometry(template.vapourCone) : undefined;
   const shockConeGeom = buildShockConeGeometry();
@@ -356,9 +390,58 @@ export function createMeshAircraftRenderer(root: THREE.Object3D, template: Aircr
     flame.renderOrder = 1;
     airframe.add(flame);
     root.add(group);
-    const landingNode = parts.find((p) => p.part.name === template.landingPart)?.node;
+    // Keyframe rig: flat nodes under the airframe, each drawn at W(t) * W(rest)^-1 (set per frame).
+    let rigInst: RigInstance | undefined;
+    let rigLanding: THREE.Object3D | undefined;
+    if (rig) {
+      const nodes = rig.nodes.map((n, i) => {
+        const node = new THREE.Group();
+        node.name = n.name;
+        node.matrixAutoUpdate = false;
+        const g = rig.geometry[i];
+        if (g) {
+          const mesh = new THREE.Mesh(g, body);
+          mesh.layers.enable(AIRCRAFT_SHADOW_LAYER);
+          node.add(mesh);
+          airframe.add(node);
+        }
+        if (n.name === template.landingPart) rigLanding = node;
+        return node;
+      });
+      rigInst = { nodes, world: rig.nodes.map(() => new THREE.Matrix4()), lastX: new Float64Array(rig.nodes.length).fill(NaN), moved: new Uint8Array(rig.nodes.length), pose: createC17Pose(), target: createC17Pose() };
+    }
+    const landingNode = parts.find((p) => p.part.name === template.landingPart)?.node ?? rigLanding;
     const vapour = createVapourMeshes(airframe, vapourWingGeom, vapourConeGeom, shared, shockConeGeom);
-    return { root: group, parts, body, flameMat, flame, airframe, landingNode, assignedId: NO_ID, airbrake: 0, slat: 0, nozzle: 0, rolled: 0, rollSpeed: 0, steer: 0, oleo: {}, vapour, vapWing: 0, vapTip: 0, vapCone: 0, abVis: 0, abFlash: 0, abWasLit: false };
+    return { root: group, parts, body, flameMat, flame, airframe, landingNode, assignedId: NO_ID, airbrake: 0, slat: 0, nozzle: 0, rolled: 0, rollSpeed: 0, steer: 0, oleo: {}, vapour, vapWing: 0, vapTip: 0, vapCone: 0, abVis: 0, abFlash: 0, abWasLit: false, ...(rigInst ? { rig: rigInst } : {}) };
+  }
+
+  /** Poses the keyframe rig for this frame (only the nodes whose value moved, and what rides on them). */
+  function poseRig(inst: Instance, s: Readonly<MeshAircraftState>, fresh: boolean): void {
+    const ri = inst.rig!;
+    const defs = rig!.nodes;
+    c17PoseTarget(s, ri.target);
+    if (fresh) ri.lastX.fill(NaN);
+    stepC17Pose(ri.pose, ri.target, dt, fresh);
+    const moved = ri.moved;
+    moved.fill(0);
+    for (let i = 0; i < defs.length; i++) {
+      const n = defs[i]!;
+      const v = c17GroupValue(ri.pose, n.group);
+      let x = v;
+      if (n.mode === 'track') {
+        const w = rig!.windows[n.group];
+        // Keyframes run from fully out (window start) to clean (its end).
+        x = w ? w[1] - v * (w[1] - w[0]) : 0;
+      }
+      if (x === ri.lastX[i] && !(n.parent >= 0 && moved[n.parent])) continue;
+      ri.lastX[i] = x;
+      moved[i] = 1;
+      rigWorld(defs, i, x, ri.world, rigScratch);
+      const node = ri.nodes[i]!;
+      node.matrix.multiplyMatrices(ri.world[i]!, n.invRest);
+      node.matrixWorldNeedsUpdate = true;
+      node.visible = n.hideAt === undefined || Math.abs(v - n.hideAt) > 1e-4;
+    }
   }
 
   const camWorld = { x: 0, y: 0, z: 0 };
@@ -422,6 +505,7 @@ export function createMeshAircraftRenderer(root: THREE.Object3D, template: Aircr
       inst.body.uniforms.uInterior.value = tmpCam.x > ci.min[0] && tmpCam.x < ci.max[0] && tmpCam.y > ci.min[1] && tmpCam.y < ci.max[1] && tmpCam.z > ci.min[2] && tmpCam.z < ci.max[2] ? 1 : 0;
       inst.root.position.set(pos.x - origin.x, pos.y - origin.y, pos.z - origin.z);
       inst.root.quaternion.set(rot.x, rot.y, rot.z, rot.w);
+      if (inst.rig) poseRig(inst, s, fresh);
       for (const pn of inst.parts) {
         const p = pn.part;
         let angle = 0;
@@ -512,7 +596,7 @@ export function createMeshAircraftRenderer(root: THREE.Object3D, template: Aircr
       inst.abVis = fresh ? abStage : approach(inst.abVis, abStage, 2.5, 4, dt);
       u.uAB.value = s.afterburner ? 0.5 + 0.5 * inst.abVis : 0;
       u.uNozzle.value = inst.nozzle;
-      inst.flame.visible = s.afterburner;
+      inst.flame.visible = s.afterburner && !template.noAfterburner;
       const fu = inst.flameMat.uniforms;
       fu.uAB.value = s.afterburner ? 0.45 + 0.55 * inst.abVis : 0;
       fu.uStage.value = inst.abVis;
@@ -650,6 +734,7 @@ export function createMeshAircraftRenderer(root: THREE.Object3D, template: Aircr
       template.body.dispose();
       template.flame.dispose();
       for (const p of template.parts) p.geometry.dispose();
+      for (const g of rig?.geometry ?? []) g?.dispose();
     },
   };
 }

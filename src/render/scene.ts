@@ -10,7 +10,7 @@ import * as THREE from 'three';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 
-import { AircraftModel, aircraftModelOf, EntityFlag, EntityKindCode, HUD_BLOCK_START, ServiceStateCode, SnapshotHud, type QualityTier } from '../contracts/core';
+import { AIRCRAFT_MODEL_MASK, AIRCRAFT_MODEL_SHIFT, AircraftModel, aircraftModelOf, EntityFlag, EntityKindCode, HUD_BLOCK_START, ServiceStateCode, SnapshotHud, type QualityTier } from '../contracts/core';
 import {
   AntiAliasMode,
   CAMERA_FAR_M,
@@ -85,6 +85,43 @@ import { createDroneRenderer } from './droneModel';
 import { buildTejasModel } from './aircraftModels/tejasModel';
 import { JF17_FIT, JF17_GLB_URL, loadGltfAircraftModel, TEJAS_GLB_URL } from './aircraftModels/gltfModel';
 import { LIVERY_MAP, tejasLiveryTexture } from './aircraftModels/tejasLivery';
+import { C17_FIT, loadC17Model } from './aircraftModels/c17Model';
+import { applyC17PoseOverride, c17PoseCycle, parseC17PoseOverride } from './aircraftModels/c17Pose';
+
+/**
+ * Dev aids for looking at another type's model before it flies: ?model=c-17 (or jf-17) draws the
+ * player's aircraft with that model (its own flight model unchanged; a C-17 on the Tejas's physics
+ * is lifted so its wheels meet the ground), and with the C-17 ?pose=flaps:1,ramp:1,gear:0 (keys gear,
+ * flaps, slats, spoilers, rev, ramp, troop, door, n1; 0..1) or ?pose=cycle (each group in turn)
+ * poses its parts (c17Pose.ts).
+ */
+const DEV_PARAMS = import.meta.env.DEV && typeof location !== 'undefined' ? new URLSearchParams(location.search) : undefined;
+const DEV_MODEL = ((): number | undefined => {
+  const m = DEV_PARAMS?.get('model')?.toLowerCase().replace('-', '');
+  return m === 'c17' ? AircraftModel.C17 : m === 'jf17' ? AircraftModel.Jf17 : m === 'tejas' ? AircraftModel.Tejas : undefined;
+})();
+let devPose = parseC17PoseOverride(DEV_PARAMS?.get('pose'));
+let devPoseRaw: string | undefined;
+/** Dev: the pose override, also settable at run time (globalThis.__c17Pose = 'ramp:1'; for scripted checks). */
+function devPoseNow(): typeof devPose {
+  const g = (globalThis as { __c17Pose?: string }).__c17Pose;
+  if (import.meta.env.DEV && g !== undefined && g !== devPoseRaw) {
+    devPoseRaw = g;
+    devPose = parseC17PoseOverride(g);
+  }
+  return devPose;
+}
+/** Dev: ?camrel=dx,dy,dz[,lookY] holds the camera at that offset from the player (world axes, m), looking at it. */
+const DEV_CAMREL = ((): number[] | undefined => {
+  const v = DEV_PARAMS?.get('camrel')?.split(',').map(Number);
+  return v && v.length >= 3 && v.every(Number.isFinite) ? v : undefined;
+})();
+/** Tejas wheel contact below its CG (aircraft/tejasGeometry.ts gear y) less the C-17's (c17Model.ts C17_FIT), m. */
+const DEV_C17_LIFT_M = 3.36 - 1.7;
+/** Tejas length, m: the outside cameras scale with a model's length against it. */
+const TEJAS_LENGTH_M = 13.2;
+/** Each model's length against the Tejas's (cameraModes.ts subjectScale). */
+const MODEL_SCALE: Partial<Record<number, number>> = { [AircraftModel.C17]: C17_FIT.lengthM / TEJAS_LENGTH_M };
 
 /** The Tejas with its livery (markings, panel lines). */
 const withLivery = <T extends { livery?: unknown }>(m: T): T => ({ ...m, livery: { texture: tejasLiveryTexture(), map: LIVERY_MAP } });
@@ -185,6 +222,8 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
   const typeRequested: boolean[] = [];
   const TYPE_MODELS: Partial<Record<number, () => Promise<MeshAircraftRenderer>>> = {
     [AircraftModel.Jf17]: () => loadGltfAircraftModel(JF17_GLB_URL, JF17_FIT).then((t) => createMeshAircraftRenderer(aircraftRoot, t)),
+    // A few at most in any mission (each is ~70 draw calls with its gear down).
+    [AircraftModel.C17]: () => loadC17Model().then((t) => createMeshAircraftRenderer(aircraftRoot, t, 16)),
   };
   function rendererFor(flags: number): MeshAircraftRenderer {
     const code = aircraftModelOf(flags);
@@ -228,7 +267,30 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
     storesB: 0,
     flags: 0,
     groundY: undefined as number | undefined,
+    // Transports' parts (meshAircraftRenderer.ts MeshAircraftState; the C-17's rig): unset = stowed defaults.
+    flaps: undefined as number | undefined,
+    slats: undefined as number | undefined,
+    spoilers: undefined as number | undefined,
+    reversers: undefined as readonly number[] | undefined,
+    ramp: undefined as number | undefined,
+    troopDoors: undefined as number | undefined,
+    crewDoor: undefined as number | undefined,
+    n1: undefined as readonly number[] | undefined,
   };
+  /** Clears the transport fields (the state object is reused for every aircraft). */
+  function clearTransportState(st: typeof aircraftState): void {
+    st.flaps = undefined;
+    st.slats = undefined;
+    st.spoilers = undefined;
+    st.reversers = undefined;
+    st.ramp = undefined;
+    st.troopDoors = undefined;
+    st.crewDoor = undefined;
+    st.n1 = undefined;
+  }
+  /** Dev (?model=): the player's flags with the model swapped. */
+  const devFlags = (flags: number): number => (DEV_MODEL === undefined ? flags : (flags & ~AIRCRAFT_MODEL_MASK) | (DEV_MODEL << AIRCRAFT_MODEL_SHIFT));
+  const devLiftedPos = { x: 0, y: 0, z: 0 };
 
   const terrainRoot = new THREE.Group();
   scene.add(terrainRoot);
@@ -856,10 +918,20 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
           cameraPose.useLookAt = true;
           fovDeg = Math.max(0.3, curr.hud[SnapshotHud.POD_FOV_DEG] || 18);
         } else {
+          cameraModeState.subjectScale = MODEL_SCALE[aircraftModelOf(devFlags(curr.flags[playerSlot]!))] ?? 1;
           computeCameraPose(mode, interpEntity.pos, interpEntity.rot, interpEntity.vel, cameraModeState, frameDtSec, cameraPose, minOffsetY);
           if (cameraPose.fovDeg > 0) fovDeg = cameraPose.fovDeg;
         }
         if (mode !== CameraMode.Cockpit && mode !== CameraMode.Cockpit3d && mode !== CameraMode.Tgp && groundHeightAt) keepAboveGround(cameraPose, groundHeightAt, CAMERA_MIN_GROUND_CLEARANCE_M);
+        if (DEV_CAMREL) {
+          cameraPose.pos.x = interpEntity.pos.x + DEV_CAMREL[0]!;
+          cameraPose.pos.y = interpEntity.pos.y + DEV_CAMREL[1]!;
+          cameraPose.pos.z = interpEntity.pos.z + DEV_CAMREL[2]!;
+          cameraPose.lookAt.x = interpEntity.pos.x;
+          cameraPose.lookAt.y = interpEntity.pos.y + (DEV_CAMREL[3] ?? 0);
+          cameraPose.lookAt.z = interpEntity.pos.z;
+          cameraPose.useLookAt = true;
+        }
         if (debugCam) {
           // Dev aid (?cam=x,y,z,lookX,lookY,lookZ): a fixed camera anywhere, for checking scenery.
           cameraPose.pos.x = debugCam[0]!;
@@ -895,8 +967,9 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
           // No cockpit interior yet: from the cockpit, the player's own jet is not drawn.
           if (i === playerSlot && (mode === CameraMode.Cockpit || mode === CameraMode.Tgp) && !debugCam) continue;
           interpolateEntity(snapshotBuf, i, f, interpEntity);
-          const flags = curr.flags[i]!;
+          const flags = i === playerSlot ? devFlags(curr.flags[i]!) : curr.flags[i]!;
           const st = aircraftState;
+          clearTransportState(st);
           st.elevonL = interpEntity.elevonL;
           st.elevonR = interpEntity.elevonR;
           st.rudder = interpEntity.rudder;
@@ -913,7 +986,25 @@ export const createSceneRenderer: CreateSceneRenderer = (canvas, initialTier) =>
           st.flags = flags;
           // The player's ground height (from the HUD's height above ground) lights the runway ahead.
           st.groundY = i === playerSlot ? interpEntity.pos.y - (curr.hud[SnapshotHud.ALT_AGL_M] ?? 0) : undefined;
-          rendererFor(flags).updateEntity(curr.id[i]!, interpEntity.pos, interpEntity.rot, st, origin);
+          // C-17 HOOKUP (the C-17 flight model's snapshot fields, one line each; meshAircraftRenderer.ts
+          // MeshAircraftState, aircraftModels/c17Pose.ts). Until then these parts rest stowed, the
+          // spoilers follow AirbrakeOut and the fans the throttle:
+          //   st.flaps = <flap position 0..1>;          st.slats = <slat position 0..1>;
+          //   st.spoilers = <spoiler deflection 0..1>;  st.reversers = <per-engine reverser 0..1, engines 1..4>;
+          //   st.ramp = <ramp/aft door 0..1>;           st.troopDoors / st.crewDoor = <door 0..1>;
+          //   st.n1 = <per-engine N1 0..1>;
+          let drawPos = interpEntity.pos;
+          if (i === playerSlot && DEV_MODEL === AircraftModel.C17) {
+            const pose = devPoseNow();
+            if (pose?.cycle) c17PoseCycle(nowMs / 1000, st);
+            else if (pose) applyC17PoseOverride(pose, st);
+            // On the Tejas's physics: lifted so its own wheels meet the ground.
+            devLiftedPos.x = interpEntity.pos.x;
+            devLiftedPos.y = interpEntity.pos.y + DEV_C17_LIFT_M;
+            devLiftedPos.z = interpEntity.pos.z;
+            drawPos = devLiftedPos;
+          }
+          rendererFor(flags).updateEntity(curr.id[i]!, drawPos, interpEntity.rot, st, origin);
         }
         drones.endFrame();
         eachRenderer((r) => r.endFrame());

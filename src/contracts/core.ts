@@ -207,7 +207,7 @@ export const EntityFlag = {
  * in EntityFlags bits AIRCRAFT_MODEL_SHIFT.. (set at spawn): the renderer picks the model by it.
  * Types without a model of their own are drawn as the Tejas.
  */
-export const AircraftModel = { Tejas: 0, Jf17: 1 } as const;
+export const AircraftModel = { Tejas: 0, Jf17: 1, C17: 2 } as const;
 export type AircraftModelCode = (typeof AircraftModel)[keyof typeof AircraftModel];
 export const AIRCRAFT_MODEL_SHIFT = 12;
 export const AIRCRAFT_MODEL_MASK = 0xf << AIRCRAFT_MODEL_SHIFT;

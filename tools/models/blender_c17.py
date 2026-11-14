@@ -10,9 +10,13 @@ game-weight GLB, keeping its animation:
 - scales it to the real airframe (the source is ~12% small: 46.5 m long against 53.04 m);
 - turns it nose to Blender +X (glTF/three.js +X, as the Tejas model) with the static wheel bottoms
   at height 0 and the fuselage centred on x and y;
-- keeps the source's one 10 s animation (its parts move in turn; see PART_WINDOWS in the extras).
+- keeps the source's one 10 s animation (its parts move in turn; see PART_WINDOWS in the extras);
+  the game samples each part's tracks itself (render/aircraftModels/c17Model.ts);
+- with an atlas layout (build_c17.py makes it): moves each material's UVs into its tile of one
+  texture set and gives every surface but the glass one material, 'c17' (the game's aircraft shader
+  samples a single set); exports tangents for the normal map.
 
-Usage: blender -b --factory-startup --python blender_c17.py -- <scene.gltf> <out.glb>
+Usage: blender -b --factory-startup --python blender_c17.py -- <scene.gltf> <out.glb> [atlas.json]
 """
 import json
 import math
@@ -23,6 +27,7 @@ from mathutils import Matrix, Vector
 
 args = sys.argv[sys.argv.index('--') + 1:]
 SRC, OUT = args[0], args[1]
+ATLAS = args[2] if len(args) > 2 else None
 
 REAL_LENGTH_M = 53.04
 DECIMATE_GEAR = 0.45
@@ -128,17 +133,69 @@ root['c17'] = json.dumps({
     'note': 'nose +X, up +Y (glTF), wheel bottoms at y 0 with the gear down (frame 0)',
 })
 
-# Textures: the airframe's paint at 4K, its normal and metal-roughness at 2K, everything else at 1K
-# at most (only images the remaining materials use are exported).
-for img in bpy.data.images:
-    w, h = img.size[:]
-    if w == 0:
-        continue
-    cap = 4096 if img.name.startswith('airframemap_baseColor') else 2048 if img.name.startswith('airframemap') else 1024
-    if w > cap:
-        img.scale(cap, cap * h // w)
+if ATLAS:
+    # One texture set: each material's UVs into its tile (flat-colour materials onto a cell's centre),
+    # then one material for everything but the glass.
+    with open(ATLAS, encoding='utf-8') as f:
+        layout = json.load(f)
+    rects = layout['rects']
+    done = set()
+    for o in [o for o in sc.objects if o.type == 'MESH']:
+        me = o.data
+        if me.name in done:
+            continue
+        done.add(me.name)
+        if not me.uv_layers:
+            me.uv_layers.new(name='UVMap')
+        uv = me.uv_layers[0].data
+        for p in me.polygons:
+            m = me.materials[p.material_index] if me.materials else None
+            r = rects.get(m.name) if m else None
+            if r is None:
+                if m and m.name != 'glass':
+                    print('ATLAS: no tile for material', m.name, 'on', o.name)
+                continue
+            for li in p.loop_indices:
+                u, v = uv[li].uv
+                uv[li].uv = (r[0] + min(1, max(0, u)) * r[2], r[1] + min(1, max(0, v)) * r[3])
+    mat = bpy.data.materials.new('c17')
+    mat.use_nodes = True
+    nt = mat.node_tree
+    bsdf = next(n for n in nt.nodes if n.type == 'BSDF_PRINCIPLED')
+
+    def tex(fn, non_color):
+        n = nt.nodes.new('ShaderNodeTexImage')
+        n.image = bpy.data.images.load(layout['dir'] + '/' + fn)
+        if non_color:
+            n.image.colorspace_settings.name = 'Non-Color'
+        return n
+
+    nt.links.new(tex('atlas_baseColor.png', False).outputs['Color'], bsdf.inputs['Base Color'])
+    mr = tex('atlas_metallicRoughness.png', True)
+    sep = nt.nodes.new('ShaderNodeSeparateColor')
+    nt.links.new(mr.outputs['Color'], sep.inputs['Color'])
+    nt.links.new(sep.outputs['Green'], bsdf.inputs['Roughness'])
+    nt.links.new(sep.outputs['Blue'], bsdf.inputs['Metallic'])
+    nm = nt.nodes.new('ShaderNodeNormalMap')
+    nt.links.new(tex('atlas_normal.png', True).outputs['Color'], nm.inputs['Color'])
+    nt.links.new(nm.outputs['Normal'], bsdf.inputs['Normal'])
+    mat.use_backface_culling = True
+    for me in bpy.data.meshes:
+        for i, m in enumerate(me.materials):
+            if m is None or m.name != 'glass':
+                me.materials[i] = mat
+else:
+    # Textures: the airframe's paint at 4K, its normal and metal-roughness at 2K, everything else at 1K
+    # at most (only images the remaining materials use are exported).
+    for img in bpy.data.images:
+        w, h = img.size[:]
+        if w == 0:
+            continue
+        cap = 4096 if img.name.startswith('airframemap_baseColor') else 2048 if img.name.startswith('airframemap') else 1024
+        if w > cap:
+            img.scale(cap, cap * h // w)
 
 bpy.ops.export_scene.gltf(filepath=OUT, export_format='GLB', export_extras=True, export_yup=True, export_apply=True,
-                          export_image_format='JPEG', export_jpeg_quality=85, export_animations=True,
+                          export_image_format='JPEG', export_jpeg_quality=85, export_animations=True, export_tangents=bool(ATLAS),
                           export_skins=False, export_morph=False, export_cameras=False, export_lights=False)
 print('WROTE', OUT)
