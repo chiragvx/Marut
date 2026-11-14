@@ -91,7 +91,7 @@ import { buildCoastProfile, createHeightSampler } from './terrain';
 import { RIVER_FLOATS, packRiver } from './terrain/riverMath';
 import { ESTUARY_FLOATS, packEstuary } from './terrain/coastMath';
 import { buildAlpineEnvironment } from './terrain/himalaya';
-import { createAirportNavDb } from './airport';
+import { createAirportNavDb, isUnpaved } from './airport';
 import { buildPavementGeometry } from './airport/pavementGeometry';
 import { buildAirfieldMask } from './airport/airfieldMask';
 import { buildAirfieldAids } from './airport/airfieldAids';
@@ -1076,6 +1076,7 @@ function buildSceneEnvironment(terrainParams: TerrainParams, airportLayouts: rea
         headingRad: r.headingRad,
         lengthM: r.lengthM,
         widthM: r.widthM,
+        ...(isUnpaved(r.surface) ? { unpaved: true } : {}),
       });
     }
   }

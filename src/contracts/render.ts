@@ -435,7 +435,8 @@ export interface SceneEnvironment {
   /** Per airbase: where the airfield ground is (src/airport/airfieldMask.ts), for the ground shader. */
   airfieldMasks?: readonly { minX: number; minZ: number; sizeM: number; data: Uint8Array }[];
   /** One entry per physical runway (not per direction). */
-  runways: readonly { centerX: number; centerZ: number; headingRad: number; lengthM: number; widthM: number }[];
+  /** unpaved: a dirt or gravel strip (drawn as earth, no markings). */
+  runways: readonly { centerX: number; centerZ: number; headingRad: number; lengthM: number; widthM: number; unpaved?: boolean }[];
 }
 
 /** One aircraft in a showcase frame (the menu's cinematic): pose and what to draw. */

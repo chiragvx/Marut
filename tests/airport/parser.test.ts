@@ -31,7 +31,7 @@ describe('parseAirportLayout', () => {
   it('reports invalid_enum_value for an unknown runway surface', () => {
     const bad = {
       ...rangpurJson,
-      runways: [{ ...rangpurJson.runways[0], surface: 'dirt' }, rangpurJson.runways[1]],
+      runways: [{ ...rangpurJson.runways[0], surface: 'grass' }, rangpurJson.runways[1]],
     };
     const result = parseAirportLayout(bad);
     expect(result.ok).toBe(false);

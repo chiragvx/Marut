@@ -37,6 +37,7 @@ import {
 import { wrapAngleSigned } from '../math';
 import { pointInPolygon } from './geomUtils';
 import { parseAirportLayout } from './parser';
+import { isUnpaved } from './surfaces';
 
 function err(
   errors: AirportValidationError[],
@@ -130,7 +131,15 @@ export const validateAirportLayout: ValidateAirportLayout = (layout) => {
         if (r.widthM !== b.widthM) {
           err(errors, 'reciprocal_width_mismatch', 'error', `${path}.widthM`, `runway '${r.id}'/'${b.id}' width mismatch`);
         }
+        // Both ends of one strip are the same strip: one surface.
+        if (r.surface !== b.surface) {
+          err(errors, 'reciprocal_surface_mismatch', 'error', `${path}.surface`, `runway '${r.id}'/'${b.id}' surface mismatch`);
+        }
       }
+    }
+    // An unpaved strip has no ILS, approach lights or PAPI (nothing to mount them on).
+    if (isUnpaved(r.surface) && (r.ils !== undefined || r.lights?.approachLights || r.lights?.papi)) {
+      err(errors, 'unpaved_runway_with_instruments', 'warning', path, `unpaved runway '${r.id}' declares an ILS, approach lights or PAPI`);
     }
   }
 

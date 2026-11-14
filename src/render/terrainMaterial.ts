@@ -338,6 +338,7 @@ const FRAGMENT_SHADER = /* glsl */ `
     for (int i = 0; i < ${MAX_TERRAIN_RUNWAYS}; i++) {
       if (i >= uRunwayCount) break;
       vec4 r = uRunways[i];
+      r.w = abs(r.w); // negative: unpaved
       float hd = uRunwayHeadings[i];
       vec2 d = p - r.xy;
       float along = abs(dot(d, vec2(sin(hd), -cos(hd))));
@@ -724,6 +725,8 @@ const FRAGMENT_SHADER = /* glsl */ `
       for (int i = 0; i < ${MAX_TERRAIN_RUNWAYS}; i++) {
         if (i >= uRunwayCount) break;
         vec4 r = uRunways[i];
+        bool unpaved = r.w < 0.0;
+        r.w = abs(r.w);
         float hd = uRunwayHeadings[i];
         vec2 d = vWorld.xz - r.xy;
         vec2 fwd = vec2(sin(hd), -cos(hd));
@@ -743,6 +746,12 @@ const FRAGMENT_SHADER = /* glsl */ `
         float bars = step(r.z - 50.0, along) * step(along, r.z - 10.0) * step(0.5, fract(across / 3.6)) * step(across, r.w - 3.0);
         vec3 asphalt = vec3(0.23, 0.23, 0.24) * (0.92 + 0.12 * vnoise(vWorld.xz / 4.0));
         asphalt = mix(asphalt, vec3(0.85), max(centre, bars) * detail);
+        // An unpaved strip (seen far off, where the pavement mesh's dirt is sub-pixel): compacted
+        // earth, no paint, its edges soft.
+        if (unpaved) {
+          asphalt = vec3(0.47, 0.43, 0.37) * (0.92 + 0.12 * vnoise(vWorld.xz / 9.0));
+          onRwy = (1.0 - smoothstep(r.z - 20.0, r.z + 20.0 + px, along)) * (1.0 - smoothstep(r.w - 4.0, r.w + 6.0 + px, across)) * 0.9;
+        }
         col = mix(col, asphalt, onRwy);
       }
 
@@ -845,7 +854,8 @@ export function applyTerrainEnvironment(material: THREE.ShaderMaterial, env: Rea
   const nRwy = Math.min(env.runways.length, MAX_TERRAIN_RUNWAYS);
   for (let i = 0; i < nRwy; i++) {
     const r = env.runways[i]!;
-    runways[i]!.set(r.centerX, r.centerZ, r.lengthM / 2, r.widthM / 2);
+    // An unpaved strip is flagged by a negative half width (no extra uniform).
+    runways[i]!.set(r.centerX, r.centerZ, r.lengthM / 2, (r.widthM / 2) * (r.unpaved ? -1 : 1));
     headings[i] = r.headingRad;
   }
   u['uRunwayCount']!.value = nRwy;

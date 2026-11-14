@@ -23,8 +23,18 @@
  *    aircraft parks, 0, 0);
  *    blast pad (runway length, runway width, 0, 0). Designator code = number * 10 + letter
  *    (0 none, 1 L, 2 R, 3 C), e.g. 15R -> 152.
+ *
+ * Unpaved surfaces (dirt, gravel; runways, taxiways, aprons) are all PavementKind.Dirt, drawn as
+ * compacted earth with loose edges: each is widened by DIRT_FRINGE_M and p is its opacity, 1 from
+ * DIRT_INNER_M inside the declared edge, 0 at the fringe's outer edge (the shader breaks that ramp
+ * up with noise, so the strip frays into the ground around it):
+ *   surf = (Dirt, u along / world x, v across / world z, opacity),
+ *   extra = (1 if tyre tracks run along u, declared half width, 1 for edge stones (runways), 1 if gravel).
+ * Unpaved taxiways have no centreline.
  */
 import type { AirportLayout, RunwayDef } from '../contracts/airport';
+import { RunwaySurface } from '../contracts/airport';
+import { isUnpaved } from './surfaces';
 
 export const PavementKind = {
   Apron: 0,
@@ -34,6 +44,8 @@ export const PavementKind = {
   Runway: 4,
   /** A taxiway's yellow centreline, drawn over all taxiway surfaces: v = metres from the line. */
   TaxiLine: 5,
+  /** Any unpaved surface, dirt or gravel (see above). */
+  Dirt: 6,
 } as const;
 
 export interface PavementGeometry {
@@ -57,6 +69,9 @@ const MAX_PIECE_M = 80;
 const JOIN_SEGMENTS = 12;
 /** Half width of the strip each taxiway centreline is drawn in (the line itself is 0.4 m). */
 const LINE_STRIP_HW = 1.0;
+/** How far an unpaved surface's loose edge spreads beyond its declared edge, m, and starts inside it. */
+const DIRT_FRINGE_M = 8;
+const DIRT_INNER_M = 3;
 /** Largest radius, m, a taxiway bend is rounded to. */
 const MAX_BEND_RADIUS_M = 50;
 
@@ -228,7 +243,80 @@ export function buildPavementGeometry(layouts: readonly AirportLayout[]): Paveme
       for (let k = 0; k < JOIN_SEGMENTS; k++) index.push(c, ring[(k + 1) % JOIN_SEGMENTS]!, ring[k]!);
     };
 
-    const aprons = L.aprons.filter((a) => (a.kind ?? 'apron') === 'apron' || a.kind === 'stopway');
+    // --- Unpaved surfaces (PavementKind.Dirt). ---
+    type Dirt4 = [number, number, number, number];
+    /** A straight strip from (ax, az) along (dx, dz) for len m, (lx, lz) = v +, u from u0. */
+    const dirtStrip = (ax: number, az: number, dx: number, dz: number, lx: number, lz: number, len: number, hw: number, u0: number, e: Dirt4): void => {
+      const inner = Math.max(0, hw - DIRT_INNER_M);
+      const offs = [-(hw + DIRT_FRINGE_M), -inner, inner, hw + DIRT_FRINGE_M];
+      const alpha = [0, 1, 1, 0];
+      const pieces = Math.max(1, Math.ceil(len / MAX_PIECE_M));
+      let prev: number[] = [];
+      for (let k = 0; k <= pieces; k++) {
+        const sk = (len * k) / pieces;
+        const cx = ax + dx * sk;
+        const cz = az + dz * sk;
+        const row = offs.map((o, j) => vert(cx + lx * o, y, cz + lz * o, PavementKind.Dirt, u0 + sk, o, alpha[j]!, ...e));
+        if (k > 0) for (let j = 0; j < 3; j++) index.push(prev[j]!, row[j]!, prev[j + 1]!, prev[j + 1]!, row[j]!, row[j + 1]!);
+        prev = row;
+      }
+    };
+    /** A soft round patch (taxiway ends, joins and bends): opaque to hw - DIRT_INNER_M, gone at hw + DIRT_FRINGE_M. */
+    const dirtDisc = (px: number, pz: number, hw: number, e: Dirt4): void => {
+      const c = vert(px, y, pz, PavementKind.Dirt, 0, 0, 1, ...e);
+      const r1 = Math.max(0.5, hw - DIRT_INNER_M);
+      const r2 = hw + DIRT_FRINGE_M;
+      const n = JOIN_SEGMENTS * 2;
+      const inner: number[] = [];
+      const outer: number[] = [];
+      for (let k = 0; k < n; k++) {
+        const ang = (k / n) * Math.PI * 2;
+        inner.push(vert(px + Math.cos(ang) * r1, y, pz + Math.sin(ang) * r1, PavementKind.Dirt, 0, r1, 1, ...e));
+        outer.push(vert(px + Math.cos(ang) * r2, y, pz + Math.sin(ang) * r2, PavementKind.Dirt, 0, r2, 0, ...e));
+      }
+      for (let k = 0; k < n; k++) {
+        const k1 = (k + 1) % n;
+        index.push(c, inner[k1]!, inner[k]!, inner[k]!, inner[k1]!, outer[k]!, outer[k]!, inner[k1]!, outer[k1]!);
+      }
+    };
+    /** An unpaved apron: the polygon (opaque) and a ring round it fading out over DIRT_FRINGE_M. */
+    const dirtPolygon = (points: readonly { worldX: number; worldZ: number }[], e: Dirt4): void => {
+      const pts = points.map((q) => [q.worldX, q.worldZ] as [number, number]);
+      const n = pts.length;
+      let area = 0;
+      for (let i = 0; i < n; i++) area += pts[i]![0] * pts[(i + 1) % n]![1] - pts[(i + 1) % n]![0] * pts[i]![1];
+      const sgn = area >= 0 ? 1 : -1;
+      // Outward normal of edge i (point i to i + 1).
+      const en = pts.map(([x0, z0], i) => {
+        const [x1, z1] = pts[(i + 1) % n]!;
+        const l = Math.hypot(x1 - x0, z1 - z0) || 1;
+        return [((z1 - z0) / l) * sgn, (-(x1 - x0) / l) * sgn] as [number, number];
+      });
+      const base = pos.length / 3;
+      for (const [x, z] of pts) vert(x, y, z, PavementKind.Dirt, x, z, 1, ...e);
+      for (const t of triangulate(pts)) index.push(base + t);
+      const ob = pos.length / 3;
+      for (let i = 0; i < n; i++) {
+        const a = en[(i + n - 1) % n]!;
+        const b = en[i]!;
+        let bx = a[0] + b[0];
+        let bz = a[1] + b[1];
+        const bl = Math.hypot(bx, bz) || 1;
+        bx /= bl;
+        bz /= bl;
+        const k = DIRT_FRINGE_M / Math.max(0.35, bx * b[0] + bz * b[1]);
+        const [x, z] = pts[i]!;
+        vert(x + bx * k, y, z + bz * k, PavementKind.Dirt, x + bx * k, z + bz * k, 0, ...e);
+      }
+      for (let i = 0; i < n; i++) {
+        const j = (i + 1) % n;
+        index.push(base + i, base + j, ob + i, ob + i, base + j, ob + j);
+      }
+    };
+    const gravel = (sf: RunwaySurface | undefined): number => (sf === RunwaySurface.Gravel ? 1 : 0);
+
+    const aprons = L.aprons.filter((a) => ((a.kind ?? 'apron') === 'apron' || a.kind === 'stopway') && !isUnpaved(a.surface));
+    for (const a of L.aprons) if (((a.kind ?? 'apron') === 'apron' || a.kind === 'stopway') && isUnpaved(a.surface)) dirtPolygon(a.points, [0, 0, 0, gravel(a.surface)]);
     const pads = L.aprons.filter((a) => a.kind === 'shelter_pad');
     const blast = L.aprons.filter((a) => a.kind === 'blast_pad');
 
@@ -257,7 +345,26 @@ export function buildPavementGeometry(layouts: readonly AirportLayout[]): Paveme
     // Taxiways: centrelines smoothed through their bends (fillet arcs; junctions stay put), drawn as
     // surface strips with round joins, then the yellow centrelines on top of them all as their own
     // continuous strips, so lines flow through bends and meet cleanly at junctions.
-    const smoothed = L.taxiways.map((t) => ({ hw: t.widthM / 2, pts: smoothTaxiway(t.points, fixedPoints) }));
+    for (const t of L.taxiways) {
+      if (!isUnpaved(t.surface)) continue;
+      const hw = t.widthM / 2;
+      const e: Dirt4 = [1, hw, 0, gravel(t.surface)];
+      const P = smoothTaxiway(t.points, fixedPoints);
+      // Round joins and ends first (no tracks: their u, v are not along the taxiway), the strips over them.
+      for (const [px, pz] of P) dirtDisc(px, pz, hw, [0, hw, 0, e[3]]);
+      let u = 0;
+      for (let i = 0; i < P.length - 1; i++) {
+        const [ax, az] = P[i]!;
+        const [bx, bz] = P[i + 1]!;
+        const len = Math.hypot(bx - ax, bz - az);
+        if (len < 1e-3) continue;
+        const dx = (bx - ax) / len;
+        const dz = (bz - az) / len;
+        dirtStrip(ax, az, dx, dz, -dz, dx, len, hw, u, e);
+        u += len;
+      }
+    }
+    const smoothed = L.taxiways.filter((t) => !isUnpaved(t.surface)).map((t) => ({ hw: t.widthM / 2, pts: smoothTaxiway(t.points, fixedPoints) }));
     for (const { hw, pts: P } of smoothed) {
       let u = 0;
       for (let i = 0; i < P.length - 1; i++) {
@@ -364,6 +471,10 @@ export function buildPavementGeometry(layouts: readonly AirportLayout[]): Paveme
     for (const r of runways) {
       const f = frame(r);
       const hw = r.widthM / 2;
+      if (isUnpaved(r.surface)) {
+        dirtStrip(r.thresholdWorldX, r.thresholdWorldZ, f.fx, f.fz, f.rx, f.rz, r.lengthM, hw, 0, [1, hw, 1, gravel(r.surface)]);
+        continue;
+      }
       const other = r.reciprocalId !== undefined ? L.runways.find((x) => x.id === r.reciprocalId) : undefined;
       const e: [number, number, number, number] = [r.lengthM, r.widthM, designatorCode(r.id), other ? designatorCode(other.id) : 0];
       const ax = r.thresholdWorldX;

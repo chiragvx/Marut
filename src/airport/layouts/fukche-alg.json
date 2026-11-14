@@ -2,7 +2,7 @@
  "id": "fukche-alg",
  "name": "Fukche Advanced Landing Ground (IAF)",
  "side": "friendly",
- "attribution": "Runway from OpenStreetMap data, (c) OpenStreetMap contributors (ODbL); dispersal, camp and stands are interpretation or generic. The real strip is graded gravel; drawn as asphalt until layouts have a gravel surface.",
+ "attribution": "Runway from OpenStreetMap data, (c) OpenStreetMap contributors (ODbL); dispersal, camp and stands are interpretation or generic. Runway, taxiway and dispersal are unpaved (graded earth), as the real strip is.",
  "referenceWorldX": -80017.2,
  "referenceWorldZ": -88070.4,
  "elevationM": 4176,
@@ -55,6 +55,34 @@
    "elevationM": 4176,
    "flatRadiusM": 162,
    "blendRadiusM": 0
+  },
+  {
+   "centerWorldX": -80682.8,
+   "centerWorldZ": -88813.2,
+   "elevationM": 4176,
+   "flatRadiusM": 295,
+   "blendRadiusM": 0
+  },
+  {
+   "centerWorldX": -80237.2,
+   "centerWorldZ": -88338,
+   "elevationM": 4176,
+   "flatRadiusM": 295,
+   "blendRadiusM": 0
+  },
+  {
+   "centerWorldX": -79794.4,
+   "centerWorldZ": -87865.6,
+   "elevationM": 4176,
+   "flatRadiusM": 295,
+   "blendRadiusM": 0
+  },
+  {
+   "centerWorldX": -79351.6,
+   "centerWorldZ": -87393.3,
+   "elevationM": 4176,
+   "flatRadiusM": 295,
+   "blendRadiusM": 0
   }
  ],
  "runways": [
@@ -66,7 +94,7 @@
    "headingRad": 2.388437,
    "lengthM": 2593.8,
    "widthM": 45,
-   "surface": "asphalt",
+   "surface": "dirt",
    "reciprocalId": "32",
    "lights": {
     "edgeLights": false,
@@ -83,7 +111,7 @@
    "headingRad": 5.53003,
    "lengthM": 2593.8,
    "widthM": 45,
-   "surface": "asphalt",
+   "surface": "dirt",
    "reciprocalId": "14",
    "lights": {
     "edgeLights": false,
@@ -106,7 +134,8 @@
      "worldX": -79672.4,
      "worldZ": -87603.8
     }
-   ]
+   ],
+   "surface": "dirt"
   }
  ],
  "aprons": [
@@ -130,7 +159,8 @@
      "worldX": -79807.4,
      "worldZ": -87586.9
     }
-   ]
+   ],
+   "surface": "dirt"
   }
  ],
  "parkingSpots": [

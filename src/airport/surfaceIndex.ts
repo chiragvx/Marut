@@ -2,11 +2,12 @@
  * src/airport/surfaceIndex.ts — paved-surface friction lookup for
  * landing-gear physics (05-airport.md section 4.6). `frictionAt` is
  * documented as allocation-free and cheap: it always returns a reference to
- * one of 3 pre-built shared SurfaceFriction singletons, never a fresh object.
+ * one of 4 pre-built shared SurfaceFriction singletons, never a fresh object.
  */
 
 import type { AirportSurfaceIndex, CreateAirportSurfaceIndex, SurfaceFriction } from '../contracts/airport';
-import { SURFACE_BRAKING_FRICTION_PAVED_DRY, SURFACE_ROLLING_FRICTION_PAVED, SurfaceKind } from '../contracts/airport';
+import { SURFACE_BRAKING_FRICTION_PAVED_DRY, SURFACE_BRAKING_FRICTION_UNPAVED_DRY, SURFACE_ROLLING_FRICTION_PAVED, SURFACE_ROLLING_FRICTION_UNPAVED, SurfaceKind } from '../contracts/airport';
+import { isUnpaved } from './surfaces';
 import { pointInPolygon, pointToSegmentDistanceXZ } from './geomUtils';
 
 interface RunwayFootprint {
@@ -37,7 +38,13 @@ export const createAirportSurfaceIndex: CreateAirportSurfaceIndex = (layout) => 
     brakingCoeff: SURFACE_BRAKING_FRICTION_PAVED_DRY,
   };
 
-  const runwayFootprints: RunwayFootprint[] = layout.runways.map((r) => ({
+  const unpaved: SurfaceFriction = {
+    kind: SurfaceKind.Unpaved,
+    rollingCoeff: SURFACE_ROLLING_FRICTION_UNPAVED,
+    brakingCoeff: SURFACE_BRAKING_FRICTION_UNPAVED_DRY,
+  };
+
+  const runwayFootprints: (RunwayFootprint & { unpaved: boolean })[] = layout.runways.map((r) => ({
     thresholdWorldX: r.thresholdWorldX,
     thresholdWorldZ: r.thresholdWorldZ,
     dx: Math.sin(r.headingRad),
@@ -46,6 +53,7 @@ export const createAirportSurfaceIndex: CreateAirportSurfaceIndex = (layout) => 
     rz: Math.sin(r.headingRad),
     lengthM: r.lengthM,
     halfWidthM: r.widthM / 2,
+    unpaved: isUnpaved(r.surface),
   }));
 
   const taxiways = layout.taxiways;
@@ -59,7 +67,7 @@ export const createAirportSurfaceIndex: CreateAirportSurfaceIndex = (layout) => 
       const along = relX * f.dx + relZ * f.dz;
       const cross = relX * f.rx + relZ * f.rz;
       if (along >= 0 && along <= f.lengthM && Math.abs(cross) <= f.halfWidthM) {
-        return pavedRunway;
+        return f.unpaved ? unpaved : pavedRunway;
       }
     }
 
@@ -70,13 +78,13 @@ export const createAirportSurfaceIndex: CreateAirportSurfaceIndex = (layout) => 
         const p0 = t.points[j]!;
         const p1 = t.points[j + 1]!;
         const dist = pointToSegmentDistanceXZ(worldX, worldZ, p0.worldX, p0.worldZ, p1.worldX, p1.worldZ);
-        if (dist <= halfW) return pavedTaxiway;
+        if (dist <= halfW) return isUnpaved(t.surface) ? unpaved : pavedTaxiway;
       }
     }
 
     for (let i = 0; i < aprons.length; i++) {
       const a = aprons[i]!;
-      if (pointInPolygon(worldX, worldZ, a.points)) return pavedApron;
+      if (pointInPolygon(worldX, worldZ, a.points)) return isUnpaved(a.surface) ? unpaved : pavedApron;
     }
 
     return undefined;

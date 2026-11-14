@@ -224,8 +224,42 @@ const FS = /* glsl */ `
     vec3 white = vec3(0.9, 0.9, 0.88);
     vec3 yellow = vec3(0.86, 0.68, 0.16);
     vec3 col;
+    float outA = 1.0;
 
-    if (kind == 4) {
+    if (kind == 6) {
+      // Unpaved strip, taxiway or apron (dirt or gravel): compacted brown-grey earth, no paint.
+      // vSurf.w fades it out over its loose edge; noise breaks that ramp up so it frays into the
+      // ground instead of ending on a line.
+      float hwd = vExtra.y;
+      col = mix(vec3(0.46, 0.42, 0.36), vec3(0.50, 0.48, 0.44), vExtra.w);
+      col *= mix(vec3(1.0), detailAt(vLocal, 3.0, 9.0, px), 0.5 + 0.2 * vExtra.w);
+      col *= 0.86 + 0.24 * vnoise(vLocal / 19.0);
+      // Loose, paler patches and darker compacted ones.
+      col *= 1.0 + 0.1 * mix(0.0, smoothstep(0.5, 0.8, vnoise(vLocal / 5.0 + 7.0)) - smoothstep(0.55, 0.85, vnoise(vLocal / 8.0 + 3.0)), 1.0 - smoothstep(1.5, 5.0, px));
+      if (vExtra.x > 0.5) {
+        // Tyre tracks: darker, smoother lanes that wander a little along the strip (main wheels
+        // about 1.6 m either side, a wider pair from heavier traffic, the nose wheel down the middle).
+        float y = p.y + 0.7 * sin(p.x / 41.0) + 0.35 * sin(p.x / 13.0 + 1.7);
+        float ay = abs(y);
+        float t = smoothstep(0.75, 0.2, abs(ay - 1.6));
+        t = max(t, 0.55 * smoothstep(1.0, 0.3, abs(ay - 4.2)));
+        t = max(t, 0.45 * smoothstep(0.5, 0.1, ay));
+        // Pixels wider than a track see its average.
+        t = mix(t, 0.3 * smoothstep(5.5, 0.0, ay), smoothstep(0.3, 1.5, pw.y));
+        t *= 1.0 - smoothstep(hwd * 0.6, hwd, abs(p.y));
+        t *= 0.75 + 0.25 * vnoise(vLocal / 4.0);
+        col *= 1.0 - 0.2 * t;
+      }
+      float a = vSurf.w + 0.45 * (vnoise(vLocal / 6.0) - 0.5) + 0.2 * (vnoise(vLocal / 1.7 + 11.0) - 0.5) * fine;
+      outA = smoothstep(0.15, 0.85, a);
+      if (vExtra.z > 0.5) {
+        // Whitewashed stones marking the runway edges, every 30 m, a metre outside each edge.
+        float m = span(mod(p.x + 15.0, 30.0), 14.6, 15.4, pw.x) * span(abs(p.y), hwd + 0.75, hwd + 1.3, pw.y);
+        col = mix(col, white * 0.92, m);
+        outA = max(outA, m);
+      }
+      if (outA < 0.004) discard;
+    } else if (kind == 4) {
       float len = vExtra.x;
       float width = vExtra.y;
       float hw = width * 0.5;
@@ -325,7 +359,7 @@ const FS = /* glsl */ `
     vec3 L = normalize(uSunDir);
     float diff = max(L.y, 0.0) * cloudShadow(vWorld) * sunShadow(vWorld, L.y);
     col *= uAtmAmbSky * 0.9 + uAtmAmbGround * 0.1 + uAtmSunCol * diff + groundLamps(vWorld, vec3(0.0, 1.0, 0.0));
-    gl_FragColor = vec4(atmApply(col, vWorld), 1.0);
+    gl_FragColor = vec4(atmApply(col, vWorld), outA);
   }
 `;
 

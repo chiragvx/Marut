@@ -23,6 +23,10 @@ import type { Result, Vec3Like, AirportNavDb, RunwayInfo, IlsInfo } from './core
 export const RunwaySurface = {
   Asphalt: 'asphalt',
   Concrete: 'concrete',
+  /** Unpaved: compacted earth (an advanced landing ground). No paint: edge stones instead. */
+  Dirt: 'dirt',
+  /** Unpaved: graded gravel. Drawn and handled like dirt. */
+  Gravel: 'gravel',
 } as const;
 export type RunwaySurface = (typeof RunwaySurface)[keyof typeof RunwaySurface];
 
@@ -143,12 +147,16 @@ export interface TaxiwayDef {
   widthM: number;
   /** Centerline polyline, world (x,z), >= 2 points, in traversal order. */
   points: readonly WorldPoint2[];
+  /** Absent = paved (concrete). 'dirt' / 'gravel': unpaved, drawn as ground with soft edges, no centreline. */
+  surface?: RunwaySurface;
 }
 
 export interface ApronDef {
   id: string;
   /** Absent = 'apron'. */
   kind?: PavedKind;
+  /** Absent = paved (concrete). 'dirt' / 'gravel': unpaved, drawn as ground with soft edges. */
+  surface?: RunwaySurface;
   /** Closed polygon, world (x,z), >= 3 points, winding order irrelevant, do NOT repeat the first point at the end. */
   points: readonly WorldPoint2[];
 }
@@ -237,6 +245,8 @@ export const AirportValidationErrorCode = {
   StructureInvalid: 'structure_invalid',
   StructureOnRunway: 'structure_on_runway',
   StructureNotFlattened: 'structure_not_flattened',
+  ReciprocalSurfaceMismatch: 'reciprocal_surface_mismatch',
+  UnpavedRunwayWithInstruments: 'unpaved_runway_with_instruments',
 } as const;
 export type AirportValidationErrorCode = (typeof AirportValidationErrorCode)[keyof typeof AirportValidationErrorCode];
 
@@ -351,6 +361,8 @@ export const SurfaceKind = {
   PavedRunway: 'paved_runway',
   PavedTaxiway: 'paved_taxiway',
   PavedApron: 'paved_apron',
+  /** Any dirt or gravel runway, taxiway or apron. */
+  Unpaved: 'unpaved',
 } as const;
 export type SurfaceKind = (typeof SurfaceKind)[keyof typeof SurfaceKind];
 
@@ -363,7 +375,7 @@ export interface SurfaceFriction {
 }
 
 export interface AirportSurfaceIndex {
-  /** Returns the paved surface at world (x,z), or undefined outside every declared paved region (caller falls back to its own off-airport/natural-terrain friction model — out of this module's scope). No allocation: implementations return a reference to one of 3 pre-built shared SurfaceFriction instances (one per SurfaceKind), never a fresh object per call — callers must treat the result as read-only. */
+  /** Returns the paved (or unpaved: dirt, gravel) surface at world (x,z), or undefined outside every declared runway, taxiway and apron (caller falls back to its own off-airport/natural-terrain friction model — out of this module's scope). No allocation: implementations return a reference to one of 4 pre-built shared SurfaceFriction instances (one per SurfaceKind), never a fresh object per call — callers must treat the result as read-only. */
   frictionAt(worldX: number, worldZ: number): SurfaceFriction | undefined;
 }
 export type CreateAirportSurfaceIndex = (layout: AirportLayout) => AirportSurfaceIndex;
@@ -454,6 +466,9 @@ export const PAPI_LATERAL_OFFSET_FROM_CENTERLINE_M = 12;
 
 export const SURFACE_ROLLING_FRICTION_PAVED = 0.02;
 export const SURFACE_BRAKING_FRICTION_PAVED_DRY = 0.6;
+/** Compacted dirt / gravel: more rolling drag, less grip for the brakes. */
+export const SURFACE_ROLLING_FRICTION_UNPAVED = 0.05;
+export const SURFACE_BRAKING_FRICTION_UNPAVED_DRY = 0.45;
 
 export const RUNWAY_LENGTH_MIN_M = 300;
 export const RUNWAY_LENGTH_MAX_M = 6000;

@@ -221,7 +221,7 @@ function parseRunway(item: unknown, path: string, errors: ErrList): RunwayDef | 
   const headingRad = readNumber(item, 'headingRad', path, errors);
   const lengthM = readNumber(item, 'lengthM', path, errors);
   const widthM = readNumber(item, 'widthM', path, errors);
-  const surface = readEnum(item, 'surface', path, errors, [RunwaySurface.Asphalt, RunwaySurface.Concrete]);
+  const surface = readEnum(item, 'surface', path, errors, Object.values(RunwaySurface));
   const reciprocalId = readOptionalString(item, 'reciprocalId', path, errors);
 
   let ils: IlsDef | undefined;
@@ -270,8 +270,9 @@ function parseTaxiway(item: unknown, path: string, errors: ErrList): TaxiwayDef 
   const id = readString(item, 'id', path, errors);
   const widthM = readNumber(item, 'widthM', path, errors);
   const points = readObjectArray(item, 'points', path, errors, parseWorldPoint2);
-  if (id === undefined || widthM === undefined || points === undefined) return undefined;
-  return { id, widthM, points };
+  const surface = item['surface'] === undefined ? undefined : readEnum(item, 'surface', path, errors, Object.values(RunwaySurface));
+  if (id === undefined || widthM === undefined || points === undefined || (item['surface'] !== undefined && surface === undefined)) return undefined;
+  return surface === undefined ? { id, widthM, points } : { id, widthM, points, surface };
 }
 
 function parseApron(item: unknown, path: string, errors: ErrList): ApronDef | undefined {
@@ -282,8 +283,9 @@ function parseApron(item: unknown, path: string, errors: ErrList): ApronDef | un
   const id = readString(item, 'id', path, errors);
   const points = readObjectArray(item, 'points', path, errors, parseWorldPoint2);
   const kind = item['kind'] === undefined ? undefined : readEnum(item, 'kind', path, errors, Object.values(PavedKind));
-  if (id === undefined || points === undefined || (item['kind'] !== undefined && kind === undefined)) return undefined;
-  return kind === undefined ? { id, points } : { id, points, kind };
+  const surface = item['surface'] === undefined ? undefined : readEnum(item, 'surface', path, errors, Object.values(RunwaySurface));
+  if (id === undefined || points === undefined || (item['kind'] !== undefined && kind === undefined) || (item['surface'] !== undefined && surface === undefined)) return undefined;
+  return { id, points, ...(kind !== undefined ? { kind } : {}), ...(surface !== undefined ? { surface } : {}) };
 }
 
 function parseStructure(item: unknown, path: string, errors: ErrList): StructureDef | undefined {

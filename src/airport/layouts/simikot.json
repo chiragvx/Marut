@@ -55,6 +55,41 @@
    "elevationM": 2971,
    "flatRadiusM": 27,
    "blendRadiusM": 0
+  },
+  {
+   "centerWorldX": 61352.2,
+   "centerWorldZ": 58609.1,
+   "elevationM": 2971,
+   "flatRadiusM": 80,
+   "blendRadiusM": 0
+  },
+  {
+   "centerWorldX": 61511.1,
+   "centerWorldZ": 58647.6,
+   "elevationM": 2971,
+   "flatRadiusM": 80,
+   "blendRadiusM": 0
+  },
+  {
+   "centerWorldX": 61670,
+   "centerWorldZ": 58686.1,
+   "elevationM": 2971,
+   "flatRadiusM": 80,
+   "blendRadiusM": 0
+  },
+  {
+   "centerWorldX": 61825,
+   "centerWorldZ": 58723.7,
+   "elevationM": 2971,
+   "flatRadiusM": 80,
+   "blendRadiusM": 0
+  },
+  {
+   "centerWorldX": 61589.3,
+   "centerWorldZ": 58629.3,
+   "elevationM": 2971,
+   "flatRadiusM": 93,
+   "blendRadiusM": 0
   }
  ],
  "runways": [

@@ -8,6 +8,7 @@ import { PavementKind, buildPavementGeometry, designatorCode, smoothTaxiway, tri
 import { AIRFIELD_MASK_SIZE, buildAirfieldMask } from '../../src/airport/airfieldMask';
 import bhisiana from '../../src/airport/layouts/bhisiana-afs.json';
 import shahbaz from '../../src/airport/layouts/pafb-shahbaz.json';
+import fukche from '../../src/airport/layouts/fukche-alg.json';
 
 const load = (raw: unknown): AirportLayout => {
   const r = loadAirportLayout(raw);
@@ -41,7 +42,7 @@ describe('pavement geometry', () => {
     const g = buildPavementGeometry([load(bhisiana), load(shahbaz)]);
     const kinds = new Set<number>();
     for (let i = 0; i < g.surf.length; i += 4) kinds.add(g.surf[i]!);
-    for (const k of Object.values(PavementKind)) expect(kinds.has(k)).toBe(true);
+    for (const k of Object.values(PavementKind)) if (k !== PavementKind.Dirt) expect(kinds.has(k)).toBe(true);
     // 3 physical runways x 4 corners, each base's runways drawn after its other surfaces.
     const n = g.positions.length / 3;
     const rwy: number[] = [];
@@ -58,6 +59,35 @@ describe('pavement geometry', () => {
     const codes = new Set<number>();
     for (const v of rwy) codes.add(g.extra[v * 4 + 2]!).add(g.extra[v * 4 + 3]!);
     expect([...codes].sort()).toEqual([130, 151, 152, 310, 331, 332]);
+  });
+
+  test('an unpaved field (Fukche) is all dirt: no paint strips, soft edges, edge stones on the runway', () => {
+    const F = load(fukche);
+    expect(F.runways.every((r) => r.surface === 'dirt')).toBe(true);
+    expect(F.taxiways.every((t) => t.surface === 'dirt')).toBe(true);
+    const g = buildPavementGeometry([F]);
+    const n = g.positions.length / 3;
+    const kinds = new Set<number>();
+    const alpha = new Set<number>();
+    let stones = 0;
+    for (let v = 0; v < n; v++) {
+      kinds.add(g.surf[v * 4]!);
+      alpha.add(g.surf[v * 4 + 3]!);
+      if (g.extra[v * 4 + 2] === 1) stones++;
+    }
+    expect([...kinds]).toEqual([PavementKind.Dirt]);
+    expect([...alpha].sort()).toEqual([0, 1]);
+    expect(stones).toBeGreaterThan(0);
+    // The fringe reaches 8 m past the runway's declared edge.
+    const r = F.runways[0]!;
+    let maxAcross = 0;
+    for (let v = 0; v < n; v++) {
+      const dx = g.positions[v * 3]! - r.thresholdWorldX;
+      const dz = g.positions[v * 3 + 2]! - r.thresholdWorldZ;
+      const along = dx * Math.sin(r.headingRad) - dz * Math.cos(r.headingRad);
+      if (along > 10 && along < r.lengthM - 10 && g.extra[v * 4 + 2] === 1) maxAcross = Math.max(maxAcross, Math.abs(dx * Math.cos(r.headingRad) + dz * Math.sin(r.headingRad)));
+    }
+    expect(Math.abs(maxAcross - (r.widthM / 2 + 8))).toBeLessThan(0.02); // float32 positions
   });
 
   test('texture coordinates are local to each airbase (small enough for float32 on the GPU)', () => {

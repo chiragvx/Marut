@@ -14,5 +14,6 @@ export { generateApronGeometry } from './apronGeometry';
 export { generateAirportLights, papiColorAt } from './lights';
 export { generateAirportRenderGeometry } from './renderGeometry';
 export { createAirportSurfaceIndex } from './surfaceIndex';
+export { isUnpaved } from './surfaces';
 export { ilsDeviation } from './ils';
 export { createAirportNavDb } from './navDb';

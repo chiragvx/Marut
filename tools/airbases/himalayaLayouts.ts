@@ -10,8 +10,12 @@
  * moved, unrotated and unscaled, onto its pad in the procedural terrain
  * (src/terrain/himalaya/layout.ts AIRFIELDS: the runway midpoint), and given flatten zones that
  * sit inside that pad: the terrain there is already exactly level (src/terrain/himalaya/height.ts),
- * so the zones only state the elevation for the validator (one per runway coverage sample), and
+ * so the zones only state the elevation for the validator (one per runway coverage sample) and for
+ * the terrain mesh, which holds every vertex near a zone down to its elevation (so no coarse LOD
+ * triangle buries pavement: hence zones over every point of every runway, taxiway and apron), and
  * never reach the valley walls.
+ *
+ * Fukche's runway, taxiway and dispersal are unpaved (surface 'dirt').
  */
 import { readFileSync, writeFileSync } from 'node:fs';
 import { AIRFIELDS, geo } from '../../src/terrain/himalaya/layout';
@@ -45,12 +49,59 @@ function place(src: Json, ox: number, oz: number, notes: { surface?: string; att
     r['thresholdWorldZ'] = r1((r['thresholdWorldZ'] as number) + oz);
     if (notes.surface) r['surface'] = notes.surface;
   }
-  for (const t of L['taxiways'] as { points: Pt[] }[]) t.points.forEach(mv);
-  for (const a of L['aprons'] as { points: Pt[] }[]) a.points.forEach(mv);
+  for (const t of L['taxiways'] as { points: Pt[]; surface?: string }[]) {
+    t.points.forEach(mv);
+    if (notes.surface) t.surface = notes.surface;
+  }
+  for (const a of L['aprons'] as { points: Pt[]; kind?: string; surface?: string }[]) {
+    a.points.forEach(mv);
+    if (notes.surface && (a.kind ?? 'apron') === 'apron') a.surface = notes.surface;
+  }
   for (const p of L['parkingSpots'] as Pt[]) mv(p);
   for (const s of (L['structures'] as Pt[] | undefined) ?? []) mv(s);
   if (notes.attribution) L['attribution'] = `${L['attribution'] as string} ${notes.attribution}`;
   return L;
+}
+
+/** Points over all of a layout's runways, taxiways (straight segments) and aprons, ~4 m apart. */
+function pavementPoints(L: Json): Pt[] {
+  const out: Pt[] = [];
+  const strip = (ax: number, az: number, bx: number, bz: number, hw: number): void => {
+    const len = Math.hypot(bx - ax, bz - az);
+    const n = Math.max(1, Math.ceil(len / 4));
+    const m = Math.max(1, Math.ceil((2 * hw) / 4));
+    const lx = len > 0 ? -(bz - az) / len : 1, lz = len > 0 ? (bx - ax) / len : 0;
+    for (let i = 0; i <= n; i++) {
+      for (let j = 0; j <= m; j++) {
+        const c = -hw + (2 * hw * j) / m;
+        out.push({ worldX: ax + ((bx - ax) * i) / n + lx * c, worldZ: az + ((bz - az) * i) / n + lz * c });
+      }
+    }
+  };
+  for (const r of L['runways'] as Json[]) {
+    const tx = r['thresholdWorldX'] as number, tz = r['thresholdWorldZ'] as number;
+    const h = r['headingRad'] as number, len = r['lengthM'] as number;
+    strip(tx, tz, tx + Math.sin(h) * len, tz - Math.cos(h) * len, (r['widthM'] as number) / 2);
+  }
+  for (const t of L['taxiways'] as { points: Pt[]; widthM: number }[]) {
+    for (let i = 0; i + 1 < t.points.length; i++) strip(t.points[i]!.worldX, t.points[i]!.worldZ, t.points[i + 1]!.worldX, t.points[i + 1]!.worldZ, t.widthM / 2);
+  }
+  for (const a of L['aprons'] as { points: Pt[] }[]) {
+    const P = a.points;
+    const xs = P.map((p) => p.worldX), zs = P.map((p) => p.worldZ);
+    for (let x = Math.min(...xs); x <= Math.max(...xs); x += 4) {
+      for (let z = Math.min(...zs); z <= Math.max(...zs); z += 4) {
+        let inside = false;
+        for (let i = 0, j = P.length - 1; i < P.length; j = i++) {
+          const pi = P[i]!, pj = P[j]!;
+          if (pi.worldZ > z !== pj.worldZ > z && x < ((pj.worldX - pi.worldX) * (z - pi.worldZ)) / (pj.worldZ - pi.worldZ) + pi.worldX) inside = !inside;
+        }
+        if (inside) out.push({ worldX: x, worldZ: z });
+      }
+    }
+    out.push(...P);
+  }
+  return out;
 }
 
 const md = readFileSync(DOC, 'utf8');
@@ -60,7 +111,7 @@ for (const a of AIRFIELDS) {
   const pad = pads.find((p) => p.id === a.id)!;
   const [ox, oz] = geo(a.lat, a.lon);
   const src = docBlock(md, a.layoutId);
-  const L = place(src, ox, oz, a.id === 'fukche' ? { surface: 'asphalt', attribution: 'The real strip is graded gravel; drawn as asphalt until layouts have a gravel surface.' } : {});
+  const L = place(src, ox, oz, a.id === 'fukche' ? { surface: 'dirt', attribution: 'Runway, taxiway and dispersal are unpaved (graded earth), as the real strip is.' } : {});
   // Flatten zones: discs on the runway centreline at the validator's coverage samples (the middle
   // first: the airfield mask centres on zone 0), as big as fits inside the level pad.
   const rw = (L['runways'] as Json[])[0]!;
@@ -75,15 +126,17 @@ for (const a of AIRFIELDS) {
     flatRadiusM: Math.floor(r),
     blendRadiusM: 0,
   }));
-  // Then a disc on every structure no zone covers yet, as big as fits in the pad (so the validator
-  // knows they stand on level ground).
-  for (const s of (L['structures'] as Pt[] | undefined) ?? []) {
+  // Then a disc on every structure and every point of pavement (runways, taxiways, aprons, on a
+  // 4 m grid) no zone covers yet, as big as fits in the pad (so the validator knows they stand on
+  // level ground, and the terrain mesh keeps all of it at or below the pavement).
+  const need: Pt[] = [...((L['structures'] as Pt[] | undefined) ?? []), ...pavementPoints(L)];
+  for (const s of need) {
     if (zones.some((z) => Math.hypot(s.worldX - z.centerWorldX, s.worldZ - z.centerWorldZ) <= z.flatRadiusM)) continue;
     const dx = s.worldX - pad.x, dz = s.worldZ - pad.z;
     const al = dx * pad.dx + dz * pad.dz, cr = dx * pad.rx + dz * pad.rz;
     const rs = Math.min(300, pad.halfAlong - Math.abs(al), cr - pad.c0, pad.c1 - cr) - 5;
-    if (rs < 1) throw new Error(`${a.id}: structure at ${s.worldX}, ${s.worldZ} is outside the level pad`);
-    zones.push({ centerWorldX: s.worldX, centerWorldZ: s.worldZ, elevationM: a.elev, flatRadiusM: Math.floor(rs), blendRadiusM: 0 });
+    if (rs < 1) throw new Error(`${a.id}: structure or pavement at ${s.worldX}, ${s.worldZ} is outside the level pad`);
+    zones.push({ centerWorldX: r1(s.worldX), centerWorldZ: r1(s.worldZ), elevationM: a.elev, flatRadiusM: Math.floor(rs), blendRadiusM: 0 });
   }
   L['flattenZones'] = zones;
   if (L['elevationM'] !== a.elev) throw new Error(`${a.id}: layout elevation ${String(L['elevationM'])} != pad ${a.elev}`);

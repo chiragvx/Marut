@@ -118,6 +118,97 @@
    "elevationM": 4274,
    "flatRadiusM": 84,
    "blendRadiusM": 0
+  },
+  {
+   "centerWorldX": -38798.3,
+   "centerWorldZ": -81667.7,
+   "elevationM": 4274,
+   "flatRadiusM": 295,
+   "blendRadiusM": 0
+  },
+  {
+   "centerWorldX": -38895.1,
+   "centerWorldZ": -81946.7,
+   "elevationM": 4274,
+   "flatRadiusM": 295,
+   "blendRadiusM": 0
+  },
+  {
+   "centerWorldX": -39324.2,
+   "centerWorldZ": -82660.5,
+   "elevationM": 4274,
+   "flatRadiusM": 295,
+   "blendRadiusM": 0
+  },
+  {
+   "centerWorldX": -39421.1,
+   "centerWorldZ": -82939.5,
+   "elevationM": 4274,
+   "flatRadiusM": 295,
+   "blendRadiusM": 0
+  },
+  {
+   "centerWorldX": -39848.3,
+   "centerWorldZ": -83649.8,
+   "elevationM": 4274,
+   "flatRadiusM": 295,
+   "blendRadiusM": 0
+  },
+  {
+   "centerWorldX": -39945.2,
+   "centerWorldZ": -83928.8,
+   "elevationM": 4274,
+   "flatRadiusM": 295,
+   "blendRadiusM": 0
+  },
+  {
+   "centerWorldX": -40374.3,
+   "centerWorldZ": -84642.6,
+   "elevationM": 4274,
+   "flatRadiusM": 295,
+   "blendRadiusM": 0
+  },
+  {
+   "centerWorldX": -40471.1,
+   "centerWorldZ": -84921.5,
+   "elevationM": 4274,
+   "flatRadiusM": 295,
+   "blendRadiusM": 0
+  },
+  {
+   "centerWorldX": -39939.2,
+   "centerWorldZ": -84254.5,
+   "elevationM": 4274,
+   "flatRadiusM": 295,
+   "blendRadiusM": 0
+  },
+  {
+   "centerWorldX": -39415.3,
+   "centerWorldZ": -83264.7,
+   "elevationM": 4274,
+   "flatRadiusM": 295,
+   "blendRadiusM": 0
+  },
+  {
+   "centerWorldX": -38891.4,
+   "centerWorldZ": -82274.9,
+   "elevationM": 4274,
+   "flatRadiusM": 295,
+   "blendRadiusM": 0
+  },
+  {
+   "centerWorldX": -40573.8,
+   "centerWorldZ": -85630,
+   "elevationM": 4274,
+   "flatRadiusM": 295,
+   "blendRadiusM": 0
+  },
+  {
+   "centerWorldX": -40177.8,
+   "centerWorldZ": -84886,
+   "elevationM": 4274,
+   "flatRadiusM": 295,
+   "blendRadiusM": 0
   }
  ],
  "runways": [
