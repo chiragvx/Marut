@@ -70,7 +70,16 @@ const VS = /* glsl */ `
     vExtra = aExtra;
     vWorld = position;
     vLocal = aLocal;
-    gl_Position = projectionMatrix * modelViewMatrix * vec4(atmCurve(position), 1.0);
+    // Pulled towards the camera along its own view ray (same pixel, nearer depth) by 5 cm plus a
+    // term growing with distance squared, like the depth buffer's own step (~d^2 / 8.4e6 m with a
+    // 0.5 m near plane): the 4 cm lift alone lost to the flat ground beneath from a few hundred
+    // metres up, and whole triangles of strip and apron flickered into the ground (Fukche, from the
+    // orbit camera zoomed out). The slope-scaled polygon offset below still covers grazing angles.
+    vec4 mv = modelViewMatrix * vec4(atmCurve(position), 1.0);
+    float d = length(mv.xyz);
+    float pull = 0.05 + d * d * 3.0e-7;
+    mv.xyz *= 1.0 - min(pull / max(d, 0.5), 0.05);
+    gl_Position = projectionMatrix * mv;
   }
 `;
 
