@@ -25,6 +25,7 @@ import bmesh
 import bpy
 import numpy as np
 from mathutils import Matrix, Vector
+from mathutils.interpolate import poly_3d_calc
 from mathutils.bvhtree import BVHTree
 
 args = sys.argv[sys.argv.index('--') + 1:]
@@ -321,8 +322,9 @@ for side, sgn in (('R', 1), ('L', -1)):
         inner, d = edge_line(all_verts([name]), lambda v: abs(v.z), lambda v: v.x, False, mid=True)
         parts[name] = dict(driver='slat', pivot=inner, axis=unit_pos_z(d), travelRad=-20 * deg)
 
-    # Main gear: swings forward (and a little in) from the top of the leg into the bay ahead of it,
-    # under the forward bay door.
+    # Main gear: swings forward and in, along the well's arm, the wheel ending upright in the well's
+    # forward pocket (under the forward bay door). The pocket: where the belly seen from below is
+    # recessed to the well floor ahead of the leg.
     wv = all_verts(['mainWheel' + side])
     wc = Vector(((min(v.x for v in wv) + max(v.x for v in wv)) / 2, (min(v.y for v in wv) + max(v.y for v in wv)) / 2,
                  (min(v.z for v in wv) + max(v.z for v in wv)) / 2))
@@ -330,9 +332,21 @@ for side, sgn in (('R', 1), ('L', -1)):
     vs = [v for v in all_verts(['mainGear' + side]) if abs(v.x - wc.x) < 0.25]
     top = max(vs, key=lambda v: v.y)
     leg = wc - top
-    stow = Vector((1.0, 0.04, -0.1 * sgn)).normalized()
+    floor = []
+    for i in range(28):
+        x = -0.1 + i * 0.04
+        for k in range(16):
+            z = sgn * (0.2 + k * 0.04)
+            h = fuselage.ray_cast(blend((x, -4.0, z)), blend((0, 1, 0)))
+            if h[0] is not None and body(h[0]).y > -0.12:
+                floor.append(Vector((x, body(h[0]).y, z)))
+    pocket = sum(floor, Vector()) / len(floor)
+    wheel_r = (max(v.y for v in wv) - min(v.y for v in wv)) / 2
+    aim = Vector((pocket.x, pocket.y - wheel_r - 0.02, pocket.z))
+    stow = (aim - top).normalized()
     g_axis = leg.cross(stow).normalized()
     g_ang = leg.angle(stow)
+    print('MAIN WELL', side, 'pocket', tuple(round(c, 3) for c in pocket), len(floor), 'cells; wheel aimed at', tuple(round(c, 3) for c in aim))
     print('MAIN GEAR', side, 'top', tuple(round(c, 3) for c in top), 'wheel', tuple(round(c, 3) for c in wc), 'stowed at',
           tuple(round(c, 3) for c in top + stow * leg.length), 'angle', round(math.degrees(g_ang), 1))
     parts['mainGear' + side] = dict(driver='gear', pivot=Vector((top.x, top.y, top.z)), axis=g_axis, travelRad=g_ang)
@@ -347,8 +361,10 @@ for side, sgn in (('R', 1), ('L', -1)):
     dd = Vector((0, bot.y - pivot.y, bot.z - pivot.z)).normalized()
     cur = math.atan2(dd.z * sgn, -dd.y)  # 0 = straight down, + = outboard
     parts['noseDoor' + side] = dict(driver='gear', pivot=pivot, axis=Vector((sgn, 0, 0)), travelRad=math.pi / 2 + cur, keepVisible=True)
-    # Main gear doors: hinged along their top edge, swinging in and up to close their bay.
-    for name in ('mainBayDoor' + side, 'mainAftDoor' + side):
+    # The aft door is mounted on the leg: it moves with it (and folds away with it).
+    parts['mainAftDoor' + side] = dict(parts['mainGear' + side])
+    # The forward bay door: hinged along its top edge, swinging in and up to close the pocket.
+    for name in ('mainBayDoor' + side,):
         vs = all_verts([name])
         ymax = max(v.y for v in vs)
         topv = [v for v in vs if v.y > ymax - 0.04]
@@ -387,6 +403,243 @@ for wl, gl in (('noseWheels', 'noseGear'), ('mainWheelR', 'mainGearR'), ('mainWh
 # Where the physics should put the nose leg: under the nose wheel (the main legs are the physics' own).
 nw = parts['noseWheels']
 print('NOSE CONTACT x', round(nw['pivot'].x, 3), 'y', round(nw['pivot'].y - nw['radius'], 3))
+
+# --- 5b. Skin sampling, bay lids, speed brakes. ---
+def skin_hit(x, z):
+    """(body point, polygon index) of the first airframe surface seen from below at (x, z), or None."""
+    h = fuselage.ray_cast(blend((x, -4.0, z)), blend((0, 1, 0)))
+    return None if h[0] is None else (body(h[0]), h[2])
+
+
+uv_layer = main.data.uv_layers.active.data
+
+
+def skin_uv(x, z):
+    """The skin's texture coordinate under (x, z) (barycentric over the hit polygon)."""
+    h = fuselage.ray_cast(blend((x, -4.0, z)), blend((0, 1, 0)))
+    if h[0] is None:
+        return None
+    poly = main.data.polygons[h[2]]
+    cos = [main.data.vertices[i].co for i in poly.vertices]
+    w = poly_3d_calc(cos, h[0])
+    u = sum(wi * uv_layer[li].uv.x for wi, li in zip(w, poly.loop_indices))
+    v = sum(wi * uv_layer[li].uv.y for wi, li in zip(w, poly.loop_indices))
+    return (u, v)
+
+
+# Plain paint (the belly aft of the main bays) and the dark well lining (the main well's floor).
+PAINT_UV = skin_uv(-1.6, 0.0)
+WELL_UV = skin_uv(0.48, 0.5)
+
+
+def closed_door_bvh():
+    bm = bmesh.new()
+    for name, p in parts.items():
+        if p['driver'] != 'gear' or not p.get('keepVisible'):
+            continue
+        m = hinge_rotation(p['pivot'], p['axis'], math.degrees(p['travelRad']))
+        for o in groups.get(name, []):
+            me = o.data.copy()
+            me.transform(m)
+            bm.from_mesh(me)
+            bpy.data.meshes.remove(me)
+    tree = BVHTree.FromBMesh(bm)
+    bm.free()
+    return tree
+
+
+LID_STEP = 0.02
+
+
+def find_openings(doors, x0, x1, z0, z1):
+    """Cells of the box where the first surface seen from below is the well's lining (polygons
+    outside the skin's big UV islands: the source maps the wells' floors and walls as small
+    islands of their own), not the skin or a closed door. Also returns the visible surface's
+    height per cell."""
+    xs = [x0 + i * LID_STEP for i in range(int((x1 - x0) / LID_STEP) + 1)]
+    zs = [z0 + k * LID_STEP for k in range(int((z1 - z0) / LID_STEP) + 1)]
+    hit, rec = {}, set()
+    for i, x in enumerate(xs):
+        for k, z in enumerate(zs):
+            a = skin_hit(x, z)
+            b = doors.ray_cast(blend((x, -4.0, z)), blend((0, 1, 0)))
+            if b[0] is not None and (a is None or body(b[0]).y <= a[0].y + 0.002):
+                hit[(i, k)] = (body(b[0]).y, True)
+            elif a is not None:
+                hit[(i, k)] = (a[0].y, False)
+                if ISLAND_SIZE[ISLAND[a[1]]] < 20:
+                    rec.add((i, k))
+    return xs, zs, rec, hit
+
+
+def components2(cells):
+    seen, out = set(), []
+    for c in cells:
+        if c in seen:
+            continue
+        comp, stack = [], [c]
+        seen.add(c)
+        while stack:
+            i, k = stack.pop()
+            comp.append((i, k))
+            for n in ((i + 1, k), (i - 1, k), (i, k + 1), (i, k - 1)):
+                if n in cells and n not in seen:
+                    seen.add(n)
+                    stack.append(n)
+        out.append(comp)
+    return out
+
+
+def panel(name, cells, xs, zs, y_of, uv_of, proud):
+    """A skin-following panel over the given grid cells (each LID_STEP square), `proud` below the
+    skin, its texture from uv_of(x, z)."""
+    half = LID_STEP / 2
+    vid, vb, uvs, faces = {}, [], [], []
+
+    def vert(x, z):
+        key = (round(x, 4), round(z, 4))
+        if key not in vid:
+            y = y_of(x, z)
+            vid[key] = len(vb)
+            vb.append(Vector((x, (y if y is not None else -0.5) - proud, z)))
+            uvs.append(uv_of(x, z) or PAINT_UV)
+        return vid[key]
+    for (i, k) in cells:
+        x, z = xs[i], zs[k]
+        faces.append((vert(x - half, z - half), vert(x + half, z - half), vert(x + half, z + half), vert(x - half, z + half)))
+    me = bpy.data.meshes.new(name)
+    me.from_pydata([blend(v) for v in vb], [], faces)
+    me.update()
+    for poly in me.polygons:
+        if body(poly.normal).y > 0:  # face down (outwards)
+            poly.flip()
+    me.update()
+    uvl = me.uv_layers.new(name='UVMap')
+    for poly in me.polygons:
+        for vi, li in zip(poly.vertices, poly.loop_indices):
+            uvl.data[li].uv = uvs[vi]
+    me.materials.append(main.data.materials[0])
+    o = bpy.data.objects.new(name, me)
+    bpy.context.scene.collection.objects.link(o)
+    return o
+
+
+def skin_y_near(x, z):
+    """Skin height at (x, z), or at the nearest skin found searching outwards in z."""
+    for dz in (0.0, 0.03, -0.03, 0.06, -0.06, 0.1, -0.1, 0.15, -0.15, 0.2, -0.2):
+        h = skin_hit(x, z + dz)
+        if h is not None:
+            return h[0].y
+    return None
+
+
+def uv_islands(me):
+    """Polygon index -> island id: polygons joined across edges whose two sides share their UVs."""
+    bm = bmesh.new()
+    bm.from_mesh(me)
+    uvl = bm.loops.layers.uv.active
+    par = list(range(len(bm.faces)))
+
+    def f(x):
+        while par[x] != x:
+            par[x] = par[par[x]]
+            x = par[x]
+        return x
+    for e in bm.edges:
+        lf = e.link_loops
+        if len(lf) != 2:
+            continue
+        a, b = lf
+        # a runs v0->v1 in its face, b runs v1->v0: matching UVs at both ends = no seam.
+        if (a[uvl].uv - b.link_loop_next[uvl].uv).length < 1e-5 and (a.link_loop_next[uvl].uv - b[uvl].uv).length < 1e-5:
+            ra, rb = f(a.face.index), f(b.face.index)
+            if ra != rb:
+                par[ra] = rb
+    out = [f(i) for i in range(len(bm.faces))]
+    bm.free()
+    return out
+
+
+ISLAND = uv_islands(main.data)
+from collections import Counter
+ISLAND_SIZE = Counter(ISLAND)
+
+
+# Bay lids: whatever of the main wells stays open with the gear up gets a flush, painted lid that
+# opens 90 deg with the gear, hinged on its outboard edge (as the Tejas's, blender_tejas.py 5b).
+# Authored open, as every gear part is; the gear's travel closes it.
+doors_closed = closed_door_bvh()
+for side, sgn in (('R', 1), ('L', -1)):
+    za, zb = (0.2, 1.05) if sgn > 0 else (-1.05, -0.2)
+    xs, zs, rec, seen = find_openings(doors_closed, -1.2, 1.0, za, zb)
+    comps = [c for c in components2(rec) if len(c) >= 40]
+    print('MAIN WELL', side, len(rec), 'open cells in', len(comps), 'openings')
+    for n, comp in enumerate(sorted(comps, key=len, reverse=True)):
+        cells = set(comp)
+        # Lid height: along each fore-and-aft line, the visible surface (skin or closed door) just
+        # ahead of and behind the opening, interpolated; then smoothed across the lines.
+        raw = {}
+        for k in {k for (_, k) in cells}:
+            col = sorted(i for (i, kk) in cells if kk == k)
+            i0, i1 = col[0] - 1, col[-1] + 1
+            ya = seen.get((i0, k), (None,))[0]
+            yb = seen.get((i1, k), (None,))[0]
+            if ya is None or yb is None:
+                ya = yb = ya if yb is None else yb
+            for i in col:
+                t = (i - i0) / (i1 - i0)
+                raw[(i, k)] = (ya if ya is not None else -0.5) * (1 - t) + (yb if yb is not None else -0.5) * t
+        smooth = {}
+        for (i, k) in raw:
+            nb = [raw[(i + di, k + dk)] for di in range(-4, 5) for dk in range(-5, 6) if (i + di, k + dk) in raw]
+            smooth[(i, k)] = sum(nb) / len(nb)
+
+        def lid_y(x, z, _xs=xs, _zs=zs, _sm=smooth):
+            # A corner takes the mean of the cells meeting at it (so neighbouring cells share one
+            # height there: no steps); a cell centre takes its own.
+            near = [(i, k) for (i, k) in _sm if abs(_xs[i] - x) <= LID_STEP * 0.51 and abs(_zs[k] - z) <= LID_STEP * 0.51]
+            if near:
+                return sum(_sm[c] for c in near) / len(near)
+            return _sm[min(_sm, key=lambda c: (_xs[c[0]] - x) ** 2 + (_zs[c[1]] - z) ** 2)]
+        name = 'mainLid%s%d' % (side, n)
+        o = panel(name, cells, xs, zs, lid_y, lambda x, z: PAINT_UV, 0.004)
+        for poly in o.data.polygons:
+            poly.use_smooth = True
+        zs_c = [zs[k] for (_, k) in cells]
+        xs_c = [xs[i] for (i, _) in cells]
+        zh = max(zs_c) + LID_STEP / 2 if sgn > 0 else min(zs_c) - LID_STEP / 2
+        x0 = min(xs_c)
+        pivot = Vector((x0, (lid_y(x0, zh) or -0.5) - 0.003, zh))
+        # + about this axis swings the free (inboard) edge down (open); the gear's travel closes it.
+        axis = Vector((-1.0 if sgn > 0 else 1.0, 0, 0))
+        o.data.transform(hinge_rotation(pivot, axis, 90))
+        groups[name] = [o]
+        parts[name] = dict(driver='gear', pivot=pivot, axis=axis, travelRad=-90 * deg, keepVisible=True, window=[0.7, 1.0])
+        print('LID', name, len(cells), 'cells, x %.2f..%.2f z %.2f..%.2f' % (min(xs_c), max(xs_c), min(zs_c), max(zs_c)))
+
+# Speed brakes: the two belly panels each side of the centreline ahead of the nozzle shroud
+# (x -3.53..-4.23, |z| <= 0.52, measured off the source's panel lines), hinged at their front edge
+# and opening 50 deg down. Skin-following panels carrying the skin's own texture, over a dark recess.
+SB_X0, SB_X1, SB_Z = -4.2, -3.55, 0.5
+
+
+def sb_y(x, z):
+    h = skin_hit(x, z)
+    return h[0].y if h is not None else skin_y_near(x, z)
+
+
+for side, sgn in (('R', 1), ('L', -1)):
+    xs = [SB_X0 + i * LID_STEP for i in range(int((SB_X1 - SB_X0) / LID_STEP) + 1)]
+    zs = [sgn * (0.02 + k * LID_STEP) for k in range(int((SB_Z - 0.02) / LID_STEP) + 1)]
+    cells = {(i, k) for i in range(len(xs)) for k in range(len(zs))}
+    groups['body'].append(panel('speedBrakeWell' + side, cells, xs, zs, sb_y, lambda x, z: WELL_UV, 0.001))
+    name = 'speedBrake' + side
+    groups[name] = [panel(name, cells, xs, zs, sb_y, skin_uv, 0.005)]
+    front = max(xs) + LID_STEP / 2
+    pivot = Vector((front, sb_y(front - 0.01, sgn * SB_Z / 2) - 0.005, 0.0))
+    # + about +z swings the trailing edge down.
+    parts[name] = dict(driver='airbrake', pivot=pivot, axis=Vector((0, 0, 1)), travelRad=math.radians(50))
+    print('SPEED BRAKE', side, 'hinge x %.2f y %.2f' % (pivot.x, pivot.y))
 
 # --- 6. Scene data: pylons, lights, nozzle, canopy box. ---
 bm = bmesh.new()
@@ -434,9 +687,53 @@ for s, lst in by_side.items():
 order = ['wing-outer-l', 'wing-outer-r', 'wing-mid-l', 'wing-mid-r', 'wing-inner-l', 'wing-inner-r']
 pylons.sort(key=lambda p: order.index(p['stationId']))
 assert [p['stationId'] for p in pylons] == order, [p['stationId'] for p in pylons]
-# The centreline station: under the belly between the main legs (the source has no pylon there).
-belly = under_y(0.2, 0.0)
-pylons.append(dict(stationId='centreline', x=0.2, z=0.0, len=1.6, attachY=round(belly - 0.06, 3)))
+# The centreline station: the source has no pylon there, so a generated one (a streamlined slab,
+# as the Tejas's) under the belly between the main legs, the store hanging from its lower edge.
+CL_X0, CL_X1, CL_DEPTH = -0.5, 0.9, 0.15
+
+
+def add_body_box(x0, x1, y_top, y_bot, half_w, nose=0.25, tail=0.2):
+    """A streamlined pylon (rounded slab, tapered at both ends) joined to the airframe."""
+    nx, nr = 12, 12
+    vb, faces = [], []
+    for i in range(nx + 1):
+        x = x0 + (x1 - x0) * i / nx
+        k = min(1.0, (x - x0) / tail, (x1 - x) / nose)
+        k = max(0.15, math.sqrt(max(0.0, k)))
+        for j in range(nr):
+            a = 2 * math.pi * j / nr
+            ca, sa = math.cos(a), math.sin(a)
+            z = half_w * k * math.copysign(abs(ca) ** 0.5, ca)
+            y = (y_top + y_bot) / 2 + (y_top - y_bot) / 2 * math.copysign(abs(sa) ** 0.5, sa)
+            vb.append(blend((x, y, z)))
+    for i in range(nx):
+        for j in range(nr):
+            a, b = i * nr + j, i * nr + (j + 1) % nr
+            faces.append((a, b, b + nr, a + nr))
+    faces.append(tuple(range(nr)))
+    faces.append(tuple(nx * nr + j for j in reversed(range(nr))))
+    me = bpy.data.meshes.new('pylonGen')
+    me.from_pydata(vb, [], faces)
+    me.update()
+    bm2 = bmesh.new()
+    bm2.from_mesh(me)
+    bmesh.ops.triangulate(bm2, faces=bm2.faces[:])
+    bmesh.ops.recalc_face_normals(bm2, faces=bm2.faces[:])
+    bm2.to_mesh(me)
+    bm2.free()
+    uvl = me.uv_layers.new(name='UVMap')
+    for lp in uvl.data:
+        lp.uv = PAINT_UV
+    me.materials.append(main.data.materials[0])
+    o = bpy.data.objects.new('pylonGen', me)
+    bpy.context.scene.collection.objects.link(o)
+    groups['body'].append(o)
+
+
+belly = min(y for y in (under_y(x, 0.0) for x in (CL_X0 + 0.1, (CL_X0 + CL_X1) / 2, CL_X1 - 0.1)) if y is not None)
+add_body_box(CL_X0, CL_X1, belly + 0.04, belly - CL_DEPTH, 0.055)
+pylons.append(dict(stationId='centreline', x=round((CL_X0 + CL_X1) / 2, 3), z=0.0, len=round(CL_X1 - CL_X0, 3), attachY=round(belly - CL_DEPTH, 3)))
+print('CENTRELINE PYLON belly y', round(belly, 3))
 # A flush pod mount under the port intake.
 pod_y = under_y(1.6, -0.62)
 pod_mount = [1.6, round((pod_y if pod_y is not None else belly) - 0.02, 3), -0.62]
@@ -449,8 +746,16 @@ fin = [v for v in mv if abs(v.z) < 0.05]
 fin_top_y = max(v.y for v in fin)
 fin_aft = min([v for v in fin if v.y > fin_top_y - 0.25], key=lambda v: v.x)
 nose_top = parts['noseGear']['pivot']
+# The navigation lights sit on the wing's leading edge just inboard of the wingtip launcher (a
+# missile on the launcher hangs where a lamp on the launcher's nose would be).
+rail_in = min(abs(p['z']) for p in pylons if p['stationId'].startswith('wing-outer')) - 0.1
+nav_band = [v for v in mv if rail_in - 0.12 < v.z < rail_in]
+nav_le = max(nav_band, key=lambda v: v.x)
+nav_y = max(v.y for v in nav_band if abs(v.x - nav_le.x) < 0.12)
+nav = [round(nav_le.x - 0.06, 3), round(nav_y + 0.01, 3), round(rail_in - 0.06, 3)]
+print('NAV LIGHTS', nav)
 lights = dict(
-    navLeft=[round(tip_front - 0.12, 3), round(tip.y + 0.03, 3), -round(tip.z, 3)], navRight=[round(tip_front - 0.12, 3), round(tip.y + 0.03, 3), round(tip.z, 3)],
+    navLeft=[nav[0], nav[1], -nav[2]], navRight=[nav[0], nav[1], nav[2]],
     navTail=[round(fin_aft.x - 0.005, 3), round(fin_aft.y - 0.04, 3), 0], strobeLeft=[round(tip_rear + 0.08, 3), round(tip.y + 0.03, 3), -round(tip.z, 3)],
     strobeRight=[round(tip_rear + 0.08, 3), round(tip.y + 0.03, 3), round(tip.z, 3)], landing=[round(nose_top.x + 0.1, 3), round(nose_top.y - 0.45, 3), 0],
     landingDir=[math.cos(0.07), -math.sin(0.07), 0])
@@ -524,7 +829,7 @@ for name, p in parts.items():
     if p.get('radius'):
         o['radiusM'] = round(p['radius'], 4)
     if p['driver'] == 'gear':
-        o['travelWindow'] = [0.7, 1.0] if 'Door' in name else [0.0, 0.75]
+        o['travelWindow'] = p.get('window') or ([0.7, 1.0] if p.get('keepVisible') else [0.0, 0.75])
     keep.add(o)
     print('PART', name, o['driver'], list(o['pivot']), list(o['axis']), round(math.degrees(o['travelRad']), 1))
 for o in list(bpy.data.objects):
