@@ -19,6 +19,7 @@
  * The voice warnings and warning tones are not placed: they are in the pilot's headset.
  */
 import type { QuatLike, Vec3Like } from '../../contracts/core';
+import { TargetParam } from './targetParam';
 
 const SOUND_MPS = 343;
 /** Longest delay a source is heard at, s (5 km is ~14.6 s; a jet flying away stretches it). */
@@ -107,14 +108,16 @@ export function travelSec(rel: Vec3Like, vel: Vec3Like): number {
 }
 
 /**
- * The level of a source at `distM` (1 within 20 m): falling as distance^-3/4 (gentler than the
- * inverse law's distance^-1, so the far roar stays audible under the mix: -24 dB at 1 km, -36 dB
- * at 5 km), faded to nothing from HEAR_ENGINE_M to 1.5 km beyond.
+ * The level of a source at `distM` (1 within `refM`, 20 m for a fighter): falling as
+ * distance^-3/4 (gentler than the inverse law's distance^-1, so the far roar stays audible under
+ * the mix: -24 dB at 1 km, -36 dB at 5 km), faded to nothing from `hearM` (HEAR_ENGINE_M) to 30%
+ * beyond (1.5 km). A bigger, louder engine (src/ui/audio/heavyEngineModel.ts) has a larger `refM`
+ * (louder at every distance) and a larger `hearM` (heard further).
  */
-export function distanceGain(distM: number): number {
-  if (distM <= 20) return 1;
-  const u = Math.min(1, Math.max(0, (distM - HEAR_ENGINE_M) / 1500));
-  return Math.pow(20 / distM, 0.75) * (1 - u * u * (3 - 2 * u));
+export function distanceGain(distM: number, hearM = HEAR_ENGINE_M, refM = 20): number {
+  if (distM <= refM) return 1;
+  const u = Math.min(1, Math.max(0, (distM - hearM) / (0.3 * hearM)));
+  return Math.pow(refM / distM, 0.75) * (1 - u * u * (3 - 2 * u));
 }
 
 /** Air absorption: the low-pass corner for a distance, Hz. */
@@ -123,6 +126,14 @@ export const absorptionHz = (distM: number): number => Math.min(20000, 22000 / (
 export interface EmitterOptions {
   /** The sound is louder this way (a body-frame direction), quieter elsewhere. */
   cone?: { dir: Vec3Like; innerDeg: number; outerDeg: number; outerGain: number };
+  /** How far it is heard and how loud (distanceGain's hearM and refM). Absent: a fighter's engine. */
+  range?: { hearM: number; refM: number };
+  /**
+   * The panner: HRTF (default: direction all round, but costly on the audio thread) or equal-power
+   * (a plain left/right gain pan: cheap, and a strong left/right image even for low rumble, which
+   * HRTF hardly separates).
+   */
+  panning?: PanningModelType;
 }
 
 export interface Emitter {
@@ -132,6 +143,8 @@ export interface Emitter {
   place(listener: Listener, jet: Airframe, inside: boolean): void;
   /** Its body-frame point (changeable: e.g. a source that moves). */
   bodyPoint: Vec3Like;
+  /** Takes it out of the mix for good. */
+  dispose(): void;
 }
 
 /** The cockpit's room sound, shared by every emitter (its input; it plays into `dest`). */
@@ -175,7 +188,7 @@ export function createEmitter(ac: BaseAudioContext, dest: AudioNode, room: Audio
   air.frequency.value = 20000;
   air.Q.value = 0.5;
   const pan = ac.createPanner();
-  pan.panningModel = 'HRTF';
+  pan.panningModel = opts.panning ?? 'HRTF';
   pan.distanceModel = 'inverse';
   // The fall-off is `far` (distanceGain), not the panner's.
   pan.rolloffFactor = 0;
@@ -190,6 +203,20 @@ export function createEmitter(ac: BaseAudioContext, dest: AudioNode, room: Audio
   input.connect(delay).connect(air).connect(pan).connect(far).connect(dest);
   if (room) far.connect(send).connect(room);
 
+  // Only real changes reach the audio params (src/ui/audio/targetParam.ts): a source fixed
+  // relative to the camera (the cockpit, a steady chase) then costs nothing frame to frame.
+  const px = new TargetParam(pan.positionX, 0.005, 0.002);
+  const py = new TargetParam(pan.positionY, 0.005, 0.002);
+  const pz = new TargetParam(pan.positionZ, 0.005, 0.002);
+  const ox = new TargetParam(pan.orientationX, 0.002);
+  const oy = new TargetParam(pan.orientationY, 0.002);
+  const oz = new TargetParam(pan.orientationZ, 0.002);
+  const airHz = new TargetParam(air.frequency, 1, 0.01);
+  const farGain = new TargetParam(far.gain, 1e-5, 0.005);
+  const sendGain = new TargetParam(send.gain, 1e-4);
+  const hearM = opts.range?.hearM ?? HEAR_ENGINE_M;
+  const refM = opts.range?.refM ?? 20;
+  let coneInside: boolean | null = null;
   const rel = { x: 0, y: 0, z: 0 };
   const dir = { x: 0, y: 0, z: 0 };
   const world = { x: 0, y: 0, z: 0 };
@@ -220,31 +247,41 @@ export function createEmitter(ac: BaseAudioContext, dest: AudioNode, room: Audio
       prevSec = t;
       rotateInverse(listener.rot, world, rel);
       const dist = Math.hypot(rel.x, rel.y, rel.z);
-      pan.positionX.setTargetAtTime(rel.x, t, 0.02);
-      pan.positionY.setTargetAtTime(rel.y, t, 0.02);
-      pan.positionZ.setTargetAtTime(rel.z, t, 0.02);
+      px.to(rel.x, t, 0.02);
+      py.to(rel.y, t, 0.02);
+      pz.to(rel.z, t, 0.02);
       if (opts.cone) {
         dirToListener(listener, jet, opts.cone.dir, dir);
-        pan.orientationX.setTargetAtTime(dir.x, t, 0.02);
-        pan.orientationY.setTargetAtTime(dir.y, t, 0.02);
-        pan.orientationZ.setTargetAtTime(dir.z, t, 0.02);
+        ox.to(dir.x, t, 0.02);
+        oy.to(dir.y, t, 0.02);
+        oz.to(dir.z, t, 0.02);
         // Inside, there is no "in front of the intake": the cone would only mute it.
-        pan.coneOuterGain = inside ? 1 : opts.cone.outerGain;
+        if (inside !== coneInside) {
+          pan.coneOuterGain = inside ? 1 : opts.cone.outerGain;
+          coneInside = inside;
+        }
       }
       const d = Math.min(MAX_DELAY_SEC, travelSec(world, vel));
       // A jump (a new view) moves at once; a jet flying past glides (the Doppler shift).
       if (lastDelay < 0 || Math.abs(d - lastDelay) > 0.1) {
         delay.delayTime.cancelScheduledValues(t);
         delay.delayTime.setValueAtTime(d, t);
-      } else {
+        lastDelay = d;
+      } else if (Math.abs(d - lastDelay) > 2e-5) {
+        // (Under ~7 mm of travel: no call; the Doppler glide is unaffected.)
         delay.delayTime.setTargetAtTime(d, t, 0.05);
+        lastDelay = d;
       }
-      lastDelay = d;
-      air.frequency.setTargetAtTime(absorptionHz(dist), t, 0.1);
+      airHz.to(absorptionHz(dist), t, 0.1);
       // Inside, the sources are an arm's length to a few metres away: keep their level (the
       // engine's levels are set for the cockpit already) and only take their direction.
-      far.gain.setTargetAtTime(inside ? 1 : distanceGain(dist), t, 0.05);
-      send.gain.setTargetAtTime(inside ? 0.45 : 0, t, 0.05);
+      farGain.to(inside ? 1 : distanceGain(dist, hearM, refM), t, 0.05);
+      sendGain.to(inside ? 0.45 : 0, t, 0.05);
+    },
+    dispose() {
+      input.disconnect();
+      far.disconnect();
+      send.disconnect();
     },
   };
   return em;

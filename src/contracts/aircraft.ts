@@ -175,6 +175,12 @@ export interface EngineTables {
    * flat-rate temperature. Absent = no temperature effect. Multi-engine model only.
    */
   hotDay?: { flatRateIsaDevK: number; thrustLossPerK: number };
+  /**
+   * The engine's sound (multi-engine aircraft, src/ui/audio/heavyEngineModel.ts): fan diameter, m
+   * (sets the fan's shaft speed, so its whine and buzz-saw pitch), and fan blade count (the whine
+   * is the blade-passing frequency). Absent: the diameter from `reverser.fanAreaM2`, else 1 m; 24 blades.
+   */
+  sound?: { fanDiameterM?: number; fanBlades?: number };
 }
 
 /** Cascade thrust reversers. */

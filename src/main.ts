@@ -232,6 +232,9 @@ let playerFlapNames: readonly string[] | undefined;
 const hlScratch = [0, 0, 0, 0];
 const n1Scratch = [0, 0, 0, 0];
 const revScratch = [0, 0, 0, 0];
+/** The player's engines' N1 and reversers for the engine sound (multi-engine aircraft). */
+const audioN1 = [0, 0, 0, 0];
+const audioRev = [0, 0, 0, 0];
 
 /** Camera and radar-scope range changes this flight (Flight School counts them). */
 let cameraChangeCount = 0;
@@ -983,7 +986,7 @@ async function initWorkersAndRenderer(qualityTier: QualityTier): Promise<void> {
       hud.ingestSnapshot(view);
       if (appState === 'gameplay') {
         releaseTone.update(view[HUD_BLOCK_START + HUD_EXT_BASE + SnapshotHudExt.AG_CUE] ?? 0, view[HUD_BLOCK_START + SnapshotHud.AG_TIME_SEC] ?? 0);
-        updateFlightAudio(view, header.playerIndex >= 0 ? entityViewScratch : null, header.simTimeSec);
+        updateFlightAudio(view, header.playerIndex >= 0 ? entityViewScratch : null, header.simTimeSec, header.playerIndex);
       }
       if (missionScript && appState === 'gameplay') tickMissionScript(view, header.entityCount, header.playerIndex, header.simTimeSec);
       updateFlightOverlay(view);
@@ -1825,6 +1828,7 @@ function launchMission(missionIn: Mission, opts: { title: string; airStart: bool
   const playerDef = getAircraftDefinition(mission.playerStart.aircraftId ?? tejasDefinition.id) ?? tejasDefinition;
   playerFlapNames = playerDef.highLift?.detents.map((d) => d.name);
   hud.setFlapDetents?.(playerFlapNames);
+  ambience.setAircraft(playerDef);
   systemNotices.reset({ transport: playerDef.highLift !== undefined, ...(playerFlapNames ? { flapNames: playerFlapNames } : {}) });
   systemToasts?.clear();
   lightMode = DEFAULT_LIGHT_MODE;
@@ -2406,7 +2410,7 @@ function applyAudioVolumes(v: AudioVolumes): void {
   radioPlayer.setEnabled(v.voice > 0);
 }
 /** In flight, from each snapshot: the RWR tones, the voice warnings, and the engine and wind. */
-function updateFlightAudio(view: Float64Array, player: SnapshotEntityView | null, simSec: number): void {
+function updateFlightAudio(view: Float64Array, player: SnapshotEntityView | null, simSec: number, playerIndex: number): void {
   const dt = lastAudioSimSec < 0 ? 0 : Math.max(0, Math.min(0.1, simSec - lastAudioSimSec));
   lastAudioSimSec = simSec;
   const hb = HUD_BLOCK_START;
@@ -2431,6 +2435,8 @@ function updateFlightAudio(view: Float64Array, player: SnapshotEntityView | null
     voicePlayer.silence();
   }
   bettyWasInCockpit = inCockpit;
+  // Multi-engine aircraft: each engine's N1 and reverser (0 on the fighters, which ignore them).
+  unpackEngines(playerIndex >= 0 ? view[entityFieldOffset(playerIndex, SnapshotEntity.ENGINES)] ?? 0 : 0, audioN1, audioRev);
   ambience.update({
     alive,
     throttle: player?.throttle ?? 0,
@@ -2440,6 +2446,8 @@ function updateFlightAudio(view: Float64Array, player: SnapshotEntityView | null
     gearPos: view[hb + SnapshotHud.GEAR_POS] ?? 0,
     airbrake: lastPlayerAirbrake,
     inCockpit,
+    engineN1: audioN1,
+    engineRev: audioRev,
   }, dt);
 }
 function applyCentreHud(): void {

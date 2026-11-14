@@ -16,6 +16,7 @@
  * Each goes through a low-pass (the canopy and helmet in the cockpit) first.
  */
 import type { EngineVoiceParams } from './engineModel';
+import { TargetParam } from './targetParam';
 
 export interface EngineVoice {
   set(p: EngineVoiceParams): void;
@@ -25,7 +26,7 @@ export interface EngineVoice {
 }
 
 /** Noise buffers shared by every engine (built once per context). */
-interface Buffers {
+export interface Buffers {
   pink: AudioBuffer;
   brown: AudioBuffer;
   crackle: AudioBuffer;
@@ -95,12 +96,18 @@ function buildBuffers(ac: BaseAudioContext): Buffers {
   return { pink, brown, crackle, wander };
 }
 
-export function createEngineVoice(ac: BaseAudioContext, outs: { front: AudioNode; rear: AudioNode }): EngineVoice {
+/** The shared noise buffers for a context (also src/ui/audio/heavyEngineVoice.ts's). */
+export function engineNoiseBuffers(ac: BaseAudioContext): Buffers {
   let bufs = buffersFor.get(ac);
   if (!bufs) {
     bufs = buildBuffers(ac);
     buffersFor.set(ac, bufs);
   }
+  return bufs;
+}
+
+export function createEngineVoice(ac: BaseAudioContext, outs: { front: AudioNode; rear: AudioNode }): EngineVoice {
+  const bufs = engineNoiseBuffers(ac);
   const muffleFor = (dest: AudioNode): BiquadFilterNode => {
     const m = ac.createBiquadFilter();
     m.type = 'lowpass';
@@ -191,29 +198,38 @@ export function createEngineVoice(ac: BaseAudioContext, outs: { front: AudioNode
   loop(bufs.crackle).connect(filter('highpass', 700)).connect(crackleOut);
 
   const t = (): number => ac.currentTime;
-  const to = (p: AudioParam, v: number, tc = 0.05): void => {
-    p.setTargetAtTime(v, t(), tc);
-  };
+  // Only real changes are sent (src/ui/audio/targetParam.ts): steady flight costs no calls. The
+  // margins (0.05% of a frequency, 0.1% of a level) are far below hearing.
+  const hz = (p: AudioParam): TargetParam => new TargetParam(p, 1e-3, 5e-4);
+  const lvl = (p: AudioParam): TargetParam => new TargetParam(p, 1e-6, 1e-3);
+  const w1Hz = hz(whine1.frequency), w2Hz = hz(whine2.frequency), j1 = lvl(jitter1.gain), j2 = lvl(jitter2.gain);
+  const whineG = lvl(whineOut.gain), buzzHz = hz(buzzOsc.frequency), buzzG = lvl(buzzOut.gain);
+  const jetHz = hz(jetLp.frequency), jetG = lvl(jetOut.gain), jetW = lvl(jetWander.gain);
+  const rumbleG = lvl(rumbleOut.gain), rumbleR = lvl(rumbleRough.gain);
+  const abG = lvl(abOut.gain), abW = lvl(abWander.gain), crackleG = lvl(crackleOut.gain);
+  const muffleHz = hz(muffle.frequency), frontHz = hz(front.frequency);
+  const gains = [whineG, buzzG, jetG, rumbleG, abG, crackleG, jetW, abW, rumbleR];
 
   return {
     set(p) {
-      to(whine1.frequency, p.whineHz);
-      to(whine2.frequency, p.whineHz * 2);
-      jitter1.gain.setTargetAtTime(p.whineHz * 0.004, t(), 0.1);
-      jitter2.gain.setTargetAtTime(p.whineHz * 0.008, t(), 0.1);
-      to(whineOut.gain, p.whine);
-      to(buzzOsc.frequency, Math.max(1, p.shaftHz));
-      to(buzzOut.gain, p.buzz);
-      to(jetLp.frequency, p.jetHz);
-      to(jetOut.gain, p.jet);
-      to(jetWander.gain, p.jet * 0.25, 0.2);
-      to(rumbleOut.gain, p.rumble);
-      to(rumbleRough.gain, p.rumble * 0.5, 0.2);
-      to(abOut.gain, p.ab, 0.08);
-      to(abWander.gain, p.ab * 0.3, 0.2);
-      to(crackleOut.gain, p.crackle, 0.08);
-      to(muffle.frequency, p.muffleHz, 0.1);
-      to(front.frequency, p.muffleHz, 0.1);
+      const now = t();
+      w1Hz.to(p.whineHz, now, 0.05);
+      w2Hz.to(p.whineHz * 2, now, 0.05);
+      j1.to(p.whineHz * 0.004, now, 0.1);
+      j2.to(p.whineHz * 0.008, now, 0.1);
+      whineG.to(p.whine, now, 0.05);
+      buzzHz.to(Math.max(1, p.shaftHz), now, 0.05);
+      buzzG.to(p.buzz, now, 0.05);
+      jetHz.to(p.jetHz, now, 0.05);
+      jetG.to(p.jet, now, 0.05);
+      jetW.to(p.jet * 0.25, now, 0.2);
+      rumbleG.to(p.rumble, now, 0.05);
+      rumbleR.to(p.rumble * 0.5, now, 0.2);
+      abG.to(p.ab, now, 0.08);
+      abW.to(p.ab * 0.3, now, 0.2);
+      crackleG.to(p.crackle, now, 0.08);
+      muffleHz.to(p.muffleHz, now, 0.1);
+      frontHz.to(p.muffleHz, now, 0.1);
     },
     thump(g) {
       const t0 = t() + 0.005;
@@ -229,7 +245,8 @@ export function createEngineVoice(ac: BaseAudioContext, outs: { front: AudioNode
       osc.stop(t0 + 0.45);
     },
     silence() {
-      for (const g of [whineOut, buzzOut, jetOut, rumbleOut, abOut, crackleOut, jetWander, abWander, rumbleRough]) to(g.gain, 0, 0.05);
+      const now = t();
+      for (const g of gains) g.to(0, now, 0.05);
     },
   };
 }

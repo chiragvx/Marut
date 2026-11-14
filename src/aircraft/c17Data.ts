@@ -137,6 +137,8 @@ export const c17Engine: EngineTables = {
   },
   /** [E] pack 2.2: -0.75%/K above an assumed ISA+15 flat-rate temperature (Raymer via [SCH]). */
   hotDay: { flatRateIsaDevK: 15, thrustLossPerK: 0.0075 },
+  /** The F117's (PW2040's) 78.5 in fan [S] AC, 36 wide-chord blades [E] (PW2000 family). */
+  sound: { fanDiameterM: 1.994, fanBlades: 36 },
 };
 
 /**
