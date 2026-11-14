@@ -82,7 +82,7 @@ import type { LoadoutFit } from './aircraft/loadout';
 import { PROMO_SHOTS } from './ui/promo';
 import { createFlightOverlay, hintText, pickHint, type FlightOverlay, type HintId, type HintKeys } from './ui/flightOverlay';
 import { DEFAULT_INPUT_MAP_DATA } from './input/inputMap';
-import { BASES, MISSIONS, TRAINING, baseInfo, freeFlightMission, isTraining, missionEntry, missionLocked, playableMissions, trainingEntry, type BaseId } from './core/missions/catalogue';
+import { BASES, MISSIONS, TRAINING, baseInfo, freeFlightMission, isFreeFlightAircraft, isTraining, missionEntry, missionLocked, playableMissions, trainingEntry, type BaseId } from './core/missions/catalogue';
 import { createActionBar, type ActionBar, type ActionId } from './ui/actionBar';
 import { createLessonBriefing, createTrainingList } from './ui/training';
 import type { PromptControl } from './script';
@@ -375,6 +375,7 @@ function savedFreeFlight(): FreeFlightSetup {
     timeOfDayH: typeof s.timeOfDayH === 'number' && s.timeOfDayH >= 0 && s.timeOfDayH <= 24 ? s.timeOfDayH : d.timeOfDayH,
     weather: isWeather(s.weather) && s.weather !== 'off' ? s.weather : d.weather,
     loadout: s.loadout && typeof s.loadout === 'object' ? s.loadout : d.loadout,
+    ...(isFreeFlightAircraft(s.aircraftId) ? { aircraftId: s.aircraftId } : {}),
   };
 }
 
@@ -391,7 +392,7 @@ function savedLastFlight(): Flight | undefined {
 }
 
 function flightTitle(f: Flight): string {
-  if (f.kind === 'free') return `Free Flight · ${baseInfo(f.setup.baseId).name}`;
+  if (f.kind === 'free') return `Free Flight · ${baseInfo(f.setup.baseId).name}${f.setup.aircraftId === 'c-17' ? ' · C-17' : ''}`;
   const t = trainingEntry(f.id);
   if (t) return `Flight School ${t.lesson} · ${t.title}`;
   return missionEntry(f.id)?.title ?? 'Mission';
@@ -638,7 +639,7 @@ function launchFlight(flight: Flight): void {
     weatherMode = s.weather;
     timeOfDayH = s.timeOfDayH;
     renderer.setTimeOfDay(timeOfDayH);
-    launchMission(withLoadout(freeFlightMission(s.baseId, s.start), s.loadout), { title: flightTitle(flight), airStart: s.start === 'air' });
+    launchMission(s.aircraftId === 'c-17' ? freeFlightMission(s.baseId, s.start, s.aircraftId) : withLoadout(freeFlightMission(s.baseId, s.start, s.aircraftId), s.loadout), { title: flightTitle(flight), airStart: s.start === 'air' });
     return;
   }
   const base = resolveBuiltinMission(flight.id);

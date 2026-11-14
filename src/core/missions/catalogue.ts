@@ -292,20 +292,43 @@ export function missionEntry(id: string): MissionEntry | undefined {
 /** Air start: this far out on the runway's approach, this high above the field, at this speed. */
 export const AIR_START = { distanceM: 9000, heightM: 3000, speedMps: 180 } as const;
 
+/** The aircraft Free Flight offers: the Tejas, and the C-17 to fly around in. */
+export type FreeFlightAircraftId = 'tejas-mk1a' | 'c-17';
+export const FREE_FLIGHT_AIRCRAFT: readonly { id: FreeFlightAircraftId; label: string; blurb: string }[] = [
+  { id: 'tejas-mk1a', label: 'Tejas Mk1A', blurb: 'Light multirole fighter.' },
+  { id: 'c-17', label: 'C-17 Globemaster III', blurb: 'Heavy transport: four engines, flaps (, .), reverse (/), ramp (;). No weapons.' },
+];
+export const isFreeFlightAircraft = (id: unknown): id is FreeFlightAircraftId => FREE_FLIGHT_AIRCRAFT.some((a) => a.id === id);
+
+/** Transports park on an apron stand, never in a fighter shelter. */
+const isTransport = (aircraftId: FreeFlightAircraftId | undefined): boolean => aircraftId === 'c-17';
+
+/** Where this aircraft parks at this base (undefined: no stand fits it, so no Parked start). */
+export function parkingSpotFor(baseId: BaseId, aircraftId?: FreeFlightAircraftId): string | undefined {
+  const base = baseInfo(baseId);
+  if (!isTransport(aircraftId)) return base.parkingSpotId;
+  const m = resolveBuiltinMission(base.freeMissionId);
+  const layout = (m.world.airports as readonly AirportLayout[]).find((a) => a.id === base.airportId);
+  return layout?.parkingSpots.find((p) => p.type === 'transport')?.id;
+}
+
 /**
  * The Free Flight mission for a base and start: parked (its parking spot), on the runway in use
- * (into the wind), or in the air on the approach to that runway.
+ * (into the wind), or in the air on the approach to that runway. `aircraftId` flies another type
+ * than the mission's own (the C-17: an apron stand when parked, slower on an air start).
  */
-export function freeFlightMission(baseId: BaseId, start: StartMode): Mission {
+export function freeFlightMission(baseId: BaseId, start: StartMode, aircraftIdIn?: FreeFlightAircraftId): Mission {
   const base = baseInfo(baseId);
   const m = resolveBuiltinMission(base.freeMissionId);
   const layout = (m.world.airports as readonly AirportLayout[]).find((a) => a.id === base.airportId);
-  const aircraftId = m.playerStart.aircraftId;
+  const aircraftId = aircraftIdIn ?? m.playerStart.aircraftId;
   const common = { airportId: base.airportId, ...(aircraftId ? { aircraftId } : {}) };
-  if (start === 'parked' || !layout) return { ...m, playerStart: { ...common, parkingSpotId: base.parkingSpotId, speedMps: 0 } };
+  const spot = parkingSpotFor(baseId, aircraftIdIn);
+  if (start === 'parked' && spot && layout) return { ...m, playerStart: { ...common, parkingSpotId: spot, speedMps: 0 } };
+  if (!layout) return { ...m, playerStart: { ...common, parkingSpotId: base.parkingSpotId, speedMps: 0 } };
   const rwy = activeRunway(layout, { x: m.weather.windWorldMps.x, z: m.weather.windWorldMps.z });
   const runway = layout.runways.find((r) => r.id === rwy) ?? layout.runways[0]!;
-  if (start === 'runway') return { ...m, playerStart: { ...common, runwayId: runway.id, speedMps: 0 } };
+  if (start !== 'air') return { ...m, playerStart: { ...common, runwayId: runway.id, speedMps: 0 } };
   // Heading 0 = north, +x east, -z north: the approach is behind the threshold.
   const dirX = Math.sin(runway.headingRad);
   const dirZ = -Math.cos(runway.headingRad);
@@ -314,5 +337,6 @@ export function freeFlightMission(baseId: BaseId, start: StartMode): Mission {
     y: layout.elevationM + AIR_START.heightM,
     z: runway.thresholdWorldZ - dirZ * AIR_START.distanceM,
   };
-  return { ...m, playerStart: { ...(aircraftId ? { aircraftId } : {}), pos, headingRad: runway.headingRad, speedMps: AIR_START.speedMps } };
+  const speedMps = isTransport(aircraftIdIn) ? 120 : AIR_START.speedMps;
+  return { ...m, playerStart: { ...(aircraftId ? { aircraftId } : {}), pos, headingRad: runway.headingRad, speedMps } };
 }
