@@ -9,7 +9,7 @@ import type { Mission, Vec3Like } from '../../contracts/core';
 import { activeRunway } from '../../airport/taxiGraph';
 import { resolveBuiltinMission, type BuiltinMissionId } from './index';
 
-export type BaseId = 'hansa' | 'bathinda';
+export type BaseId = 'hansa' | 'bathinda' | 'fukche';
 export type StartMode = 'parked' | 'runway' | 'air';
 
 export interface BaseInfo {
@@ -56,6 +56,17 @@ export const BASES: readonly BaseInfo[] = [
     parkedLabel: 'on the apron',
     untested: true,
     locked: true,
+  },
+  {
+    id: 'fukche',
+    name: 'Fukche ALG',
+    place: 'Ladakh, Himalaya',
+    blurb: 'A 2.6 km strip at 4,176 m in a high desert valley: the Ngari Gunsa air base 40 km east, Kailash and Mansarovar beyond, 7,000 m peaks all round.',
+    airportId: 'fukche-alg',
+    freeMissionId: 'himalaya-free',
+    parkingSpotId: 'STAND-1',
+    parkedLabel: 'at the dispersal',
+    untested: true,
   },
 ];
 

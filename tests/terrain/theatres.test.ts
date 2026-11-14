@@ -14,10 +14,11 @@ import { buildCoastProfile, createHeightSampler } from '../../src/terrain';
 import { buildWorldDependencies, createWorld, resolveBuiltinMission } from '../../src/core';
 import { Quat } from '../../src/math';
 
-const MISSION_FOR: Readonly<Record<TheatreId, 'konkan-free' | 'punjab-free' | 'border-free'>> = {
+const MISSION_FOR: Readonly<Record<TheatreId, 'konkan-free' | 'punjab-free' | 'border-free' | 'himalaya-free'>> = {
   konkan: 'konkan-free',
   punjab: 'punjab-free',
   border: 'border-free',
+  himalaya: 'himalaya-free',
 };
 
 function theatreSampler(id: TheatreId) {
@@ -26,7 +27,7 @@ function theatreSampler(id: TheatreId) {
   return { sampler: createHeightSampler(THEATRE_TERRAIN_PARAMS[id], layouts.flatMap((a) => a.flattenZones)), layout: layouts[0]!, layouts };
 }
 
-describe.each(['konkan', 'punjab', 'border'] as const)('theatre %s', (id) => {
+describe.each(['konkan', 'punjab', 'border', 'himalaya'] as const)('theatre %s', (id) => {
   test('stays within its declared height bounds (2 km grid over the whole world)', () => {
     const { sampler } = theatreSampler(id);
     const bounds = THEATRE_TERRAIN_PARAMS[id].heightBoundsM!;

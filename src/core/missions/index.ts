@@ -46,12 +46,18 @@ import trainTakeoffRaw from './trainTakeoff.json';
 import trainLandingRaw from './trainLanding.json';
 import trainWeatherRaw from './trainWeather.json';
 import trainDroneRaw from './trainDrone.json';
+import himalayaFreeFlightRaw from './himalayaFreeFlight.json';
+import himalayaNgariRaw from './himalayaNgari.json';
+import himalayaSimikotRaw from './himalayaSimikot.json';
 import rangpurAfbRaw from '../../airport/layouts/rangpur-afb.json';
 import konarakCoastalRaw from '../../airport/layouts/konarak-coastal.json';
 import insHansaRaw from '../../airport/layouts/ins-hansa.json';
 import adampurAfsRaw from '../../airport/layouts/adampur-afs.json';
 import bhisianaAfsRaw from '../../airport/layouts/bhisiana-afs.json';
 import pafbShahbazRaw from '../../airport/layouts/pafb-shahbaz.json';
+import ngariGunsaRaw from '../../airport/layouts/ngari-gunsa.json';
+import simikotRaw from '../../airport/layouts/simikot.json';
+import fukcheAlgRaw from '../../airport/layouts/fukche-alg.json';
 
 export const loadMissionDescriptor: LoadMissionDescriptor = (
   descriptor: MissionDescriptor,
@@ -94,6 +100,9 @@ const BUILTIN_AIRPORT_JSON: Readonly<Record<string, unknown>> = {
   'adampur-afs': adampurAfsRaw,
   'bhisiana-afs': bhisianaAfsRaw,
   'pafb-shahbaz': pafbShahbazRaw,
+  'ngari-gunsa': ngariGunsaRaw,
+  simikot: simikotRaw,
+  'fukche-alg': fukcheAlgRaw,
 };
 
 function resolveBuiltinAirport(id: string): AirportLayout | undefined {
@@ -140,6 +149,10 @@ const BUILTIN_DESCRIPTORS = {
   'train-landing': trainLandingRaw as unknown as MissionDescriptor,
   'train-weather': trainWeatherRaw as unknown as MissionDescriptor,
   'train-drone': trainDroneRaw as unknown as MissionDescriptor,
+  'himalaya-free': himalayaFreeFlightRaw as unknown as MissionDescriptor,
+  // Dev starts (?mission=): Ngari Gunsa runway 33; on the approach to Simikot.
+  'himalaya-ngari': himalayaNgariRaw as unknown as MissionDescriptor,
+  'himalaya-simikot': himalayaSimikotRaw as unknown as MissionDescriptor,
 } as const satisfies Readonly<Record<string, MissionDescriptor>>;
 
 export type BuiltinMissionId = keyof typeof BUILTIN_DESCRIPTORS;

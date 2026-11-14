@@ -1,0 +1,39 @@
+{
+  "id": "himalaya-free",
+  "name": "Free Flight — Fukche, Himalaya",
+  "seed": 4176,
+  "terrain": {
+    "seed": 4176,
+    "theatre": "himalaya"
+  },
+  "airportIds": [
+    "fukche-alg",
+    "ngari-gunsa",
+    "simikot"
+  ],
+  "playerStart": {
+    "airportId": "fukche-alg",
+    "runwayId": "14",
+    "speedMps": 0
+  },
+  "aiFlights": [],
+  "weather": {
+    "windWorldMps": {
+      "x": -2,
+      "y": 0,
+      "z": 2
+    },
+    "gustMps": 1.5,
+    "turbulence": 0.08
+  },
+  "objectives": [
+    {
+      "id": "obj-survive",
+      "kind": "survive_time",
+      "description": "Fly the Himalaya: Ngari Gunsa 40 km east-south-east, Mansarovar and Kailash further south-east, Simikot in the Nepal hills.",
+      "params": {
+        "seconds": 3600
+      }
+    }
+  ]
+}

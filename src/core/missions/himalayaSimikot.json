@@ -1,0 +1,43 @@
+{
+  "id": "himalaya-simikot",
+  "name": "Free Flight — Simikot approach, Himalaya",
+  "seed": 2971,
+  "terrain": {
+    "seed": 2971,
+    "theatre": "himalaya"
+  },
+  "airportIds": [
+    "simikot",
+    "fukche-alg",
+    "ngari-gunsa"
+  ],
+  "playerStart": {
+    "pos": {
+      "x": 67759,
+      "y": 5200,
+      "z": 60170
+    },
+    "headingRad": 4.950078,
+    "speedMps": 150
+  },
+  "aiFlights": [],
+  "weather": {
+    "windWorldMps": {
+      "x": 0,
+      "y": 0,
+      "z": 0
+    },
+    "gustMps": 0.5,
+    "turbulence": 0.05
+  },
+  "objectives": [
+    {
+      "id": "obj-survive",
+      "kind": "survive_time",
+      "description": "Dev start 6 km out on the runway 28 approach to Simikot (2,971 m, 650 m strip).",
+      "params": {
+        "seconds": 3600
+      }
+    }
+  ]
+}

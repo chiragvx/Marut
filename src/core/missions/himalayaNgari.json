@@ -1,0 +1,39 @@
+{
+  "id": "himalaya-ngari",
+  "name": "Free Flight — Ngari Gunsa, Himalaya",
+  "seed": 4274,
+  "terrain": {
+    "seed": 4274,
+    "theatre": "himalaya"
+  },
+  "airportIds": [
+    "ngari-gunsa",
+    "fukche-alg",
+    "simikot"
+  ],
+  "playerStart": {
+    "airportId": "ngari-gunsa",
+    "runwayId": "33",
+    "speedMps": 0
+  },
+  "aiFlights": [],
+  "weather": {
+    "windWorldMps": {
+      "x": 2,
+      "y": 0,
+      "z": -3
+    },
+    "gustMps": 1.5,
+    "turbulence": 0.08
+  },
+  "objectives": [
+    {
+      "id": "obj-survive",
+      "kind": "survive_time",
+      "description": "Dev start on Ngari Gunsa runway 33 (4,274 m).",
+      "params": {
+        "seconds": 3600
+      }
+    }
+  ]
+}

@@ -133,7 +133,7 @@ describe('menu cinematic shots', () => {
     expect(end.aircraft[0]!.pos.y - layout.elevationM).toBeGreaterThan(100);
   });
 
-  test('only INS Hansa is marked as not fully tested', () => {
-    expect(BASES.filter((b) => b.untested).map((b) => b.id)).toEqual(['hansa']);
+  test('only INS Hansa and the new Himalaya base (Fukche) are marked as not fully tested', () => {
+    expect(BASES.filter((b) => b.untested).map((b) => b.id)).toEqual(['hansa', 'fukche']);
   });
 });
