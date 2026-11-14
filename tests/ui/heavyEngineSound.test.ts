@@ -35,7 +35,11 @@ const state = (n1: number, rev = 0): HeavyEngineState => ({ n1, rev, accel: 0, i
 const params = (i: number, n1: number, opts: { rev?: number; ear?: 'cockpit' | 'outside'; aspect?: number; p?: HeavyEngineProfile } = {}): HeavyVoiceParams =>
   heavyEngineParams(opts.p ?? prof, i, state(n1, opts.rev ?? 0), opts.ear ?? 'outside', opts.aspect ?? 0, createHeavyVoiceParams());
 /** A rough loudness: the broadband parts, incoherent sum. */
-const energy = (p: HeavyVoiceParams): number => p.jet ** 2 + p.rumble ** 2 + p.reverse ** 2 + p.whine ** 2 + p.buzz ** 2;
+const energy = (p: HeavyVoiceParams): number => p.jet ** 2 + p.rumble ** 2 + p.reverse ** 2 + p.hiss ** 2 + p.fan ** 2 + p.rasp ** 2 + p.crackle ** 2;
+/** The tonal-ish parts (fan band, rasp) against the broadband roar. */
+const tonal = (p: HeavyVoiceParams): number => p.fan ** 2 + p.rasp ** 2;
+const broadband = (p: HeavyVoiceParams): number => p.jet ** 2 + p.rumble ** 2 + p.hiss ** 2;
+const dB = (powerRatio: number): number => 10 * Math.log10(powerRatio);
 
 describe('heavy engine profile (from the aircraft data)', () => {
   it('the C-17: four engines at their nacelles, a big slow fan', () => {
@@ -72,43 +76,58 @@ describe('heavy engine profile (from the aircraft data)', () => {
 });
 
 describe('heavy engine voice: N1 to frequencies and levels', () => {
-  it('the whine is the blade-pass frequency, the buzz-saw the shaft, both following N1 per engine', () => {
+  it('the fan band sits on the blade-pass frequency, the rasp on the shaft, both following N1 per engine', () => {
     for (let i = 0; i < 4; i++) {
       const p = params(i, 0.9);
       expect(p.shaftHz).toBeCloseTo(prof.shaftHz * 0.9 * prof.detune[i]!, 6);
-      expect(p.whineHz).toBeCloseTo(p.shaftHz * 36, 6);
+      expect(p.fanHz).toBeCloseTo(p.shaftHz * 36, 6);
     }
-    expect(params(0, 1).whineHz).toBeGreaterThan(2000);
-    expect(params(0, GROUND_IDLE_N1).whineHz).toBeLessThan(600);
-    // At the same N1 the engines' tones differ by a few hertz: the beat.
-    const beat = Math.abs(params(0, 0.9).whineHz - params(1, 0.9).whineHz);
-    expect(beat).toBeGreaterThan(1);
-    expect(beat).toBeLessThan(30);
+    expect(params(0, 1).fanHz).toBeGreaterThan(2000);
+    // Engines at the same N1 differ by a few tenths of a percent (never exactly in step).
+    const d = Math.abs(params(0, 0.9).fanHz - params(1, 0.9).fanHz);
+    expect(d).toBeGreaterThan(1);
+    expect(d).toBeLessThan(30);
   });
 
-  it('idle to take-off power: the roar and rumble rise steeply, the buzz-saw comes in near full power', () => {
+  it('mostly broadband: the tones are faint (>= 20 dB under the roar) and absent at idle', () => {
+    const idle = params(0, GROUND_IDLE_N1, { aspect: 1 });
+    expect(idle.fan).toBeLessThan(1e-3);
+    expect(idle.rasp).toBe(0);
+    expect(idle.crackle).toBe(0);
+    // Idle: a soft whoosh and the rumble.
+    expect(idle.hiss).toBeGreaterThan(0);
+    expect(idle.rumble).toBeGreaterThan(idle.jet);
+    for (const aspect of [1, 0, -1]) {
+      const to = params(0, 1, { aspect });
+      expect(dB(tonal(to) / broadband(to))).toBeLessThan(-20);
+    }
+    expect(dB(tonal(params(0, 1, { ear: 'cockpit' })) / broadband(params(0, 1, { ear: 'cockpit' })))).toBeLessThan(-20);
+  });
+
+  it('idle to take-off power: the roar and rumble rise steeply, the roar stays low', () => {
     const idle = params(0, GROUND_IDLE_N1);
     const mid = params(0, 0.7);
     const to = params(0, 1);
     expect(to.jet).toBeGreaterThan(8 * idle.jet);
     expect(mid.jet).toBeGreaterThan(idle.jet);
     expect(to.jet).toBeGreaterThan(mid.jet);
-    expect(to.rumble).toBeGreaterThan(2 * idle.rumble);
+    expect(to.rumble).toBeGreaterThan(1.8 * idle.rumble);
     expect(to.jetHz).toBeGreaterThan(idle.jetHz);
-    expect(idle.buzz).toBe(0);
-    expect(mid.buzz).toBe(0);
-    expect(to.buzz).toBeGreaterThan(0);
+    // A big, slow exhaust: the roar's corner stays under ~800 Hz.
+    expect(to.jetHz).toBeLessThan(800);
+    expect(idle.jetHz).toBeLessThan(350);
+    // The rasp and the crackle (behind) only near take-off power.
+    expect(mid.rasp).toBe(0);
+    expect(to.rasp).toBeGreaterThan(0);
+    expect(params(0, 0.7, { aspect: -1 }).crackle).toBe(0);
+    expect(params(0, 1, { aspect: -1 }).crackle).toBeGreaterThan(0);
     // Idling, it is still clearly heard.
     expect(idle.rumble).toBeGreaterThan(0.05);
   });
 
   it('an engine out (windmilling) is silent; the others are not', () => {
     const dead = params(0, WINDMILL_N1);
-    expect(dead.whine).toBe(0);
-    expect(dead.buzz).toBe(0);
-    expect(dead.jet).toBe(0);
-    expect(dead.rumble).toBe(0);
-    expect(dead.reverse).toBe(0);
+    for (const k of ['fan', 'rasp', 'jet', 'rumble', 'hiss', 'reverse', 'crackle'] as const) expect(dead[k]).toBe(0);
     expect(params(0, 0).jet).toBe(0);
     expect(params(1, 1).jet).toBeGreaterThan(0.1);
     // Even with its reverser deployed.
@@ -126,14 +145,15 @@ describe('heavy engine voice: N1 to frequencies and levels', () => {
     expect(params(0, 1, { rev: 0.5 }).reverse).toBeCloseTo(revFull.reverse / 2, 6);
   });
 
-  it('cockpit: muffled, the whine faint, a strong low rumble', () => {
+  it('cockpit: a deep muffled rumble, very little mid or high', () => {
     const inside = params(0, 1, { ear: 'cockpit' });
     const outside = params(0, 1);
-    expect(inside.muffleHz).toBeLessThan(1000);
+    expect(inside.muffleHz).toBeLessThan(500);
     expect(outside.muffleHz).toBeGreaterThan(10000);
     expect(inside.rumble).toBeGreaterThan(inside.jet);
-    expect(inside.rumble).toBeGreaterThan(10 * inside.whine);
-    expect(inside.whine).toBeLessThan(outside.whine);
+    expect(inside.fan).toBe(0);
+    expect(inside.crackle).toBe(0);
+    expect(inside.rumble).toBeGreaterThan(20 * inside.hiss);
     // Stronger than a fighter's in its cockpit (four big engines).
     const fs = createEngineSoundState();
     stepEngineSound(fs, { throttle: 1, afterburner: false, running: true, iasMps: 0 }, 0, { abLit: false, abOut: false });
@@ -143,19 +163,21 @@ describe('heavy engine voice: N1 to frequencies and levels', () => {
     expect(params(0, 1, { ear: 'cockpit', aspect: 1 })).toEqual(inside);
   });
 
-  it('outside: the whine and buzz-saw radiate forward, the roar aft', () => {
+  it('outside: the fan band and whoosh radiate forward, the roar and crackle aft', () => {
     const ahead = params(0, 1, { aspect: 1 });
     const behind = params(0, 1, { aspect: -1 });
-    expect(ahead.whine).toBeGreaterThan(1.5 * behind.whine);
-    expect(ahead.buzz).toBeGreaterThan(1.5 * behind.buzz);
+    expect(ahead.fan).toBeGreaterThan(3 * behind.fan);
+    expect(ahead.hiss).toBeGreaterThan(behind.hiss);
     expect(behind.jet).toBeGreaterThan(1.5 * ahead.jet);
+    expect(behind.crackle).toBeGreaterThan(0);
+    expect(ahead.crackle).toBe(0);
   });
 
   it('four engines at take-off power are much louder than a fighter at military power', () => {
     const fs = createEngineSoundState();
     stepEngineSound(fs, { throttle: 1, afterburner: false, running: true, iasMps: 0 }, 0, { abLit: false, abOut: false });
     const f = engineVoiceParams(fs, 'outside', {} as EngineVoiceParams);
-    const fighter = f.jet ** 2 + f.rumble ** 2 + f.whine ** 2 + f.buzz ** 2;
+    const fighter = f.jet ** 2 + f.rumble ** 2;
     let heavy = 0;
     for (let i = 0; i < 4; i++) heavy += energy(params(i, 1));
     // More than +3 dB at the source, before the distance law's own boost.
@@ -228,12 +250,12 @@ describe('TargetParam (fewer setTargetAtTime calls)', () => {
   it('a steady heavy engine costs no calls after the first update', () => {
     let n = 0;
     const sink = { setTargetAtTime: () => n++ };
-    const slots = Array.from({ length: 7 }, () => new TargetParam(sink, 1e-5, 2e-3));
+    const slots = Array.from({ length: 9 }, () => new TargetParam(sink, 1e-5, 2e-3));
     const p = createHeavyVoiceParams();
     for (let k = 0; k < 30; k++) {
       heavyEngineParams(prof, 0, state(0.6), 'outside', 0.3, p);
-      [p.whineHz, p.whine, p.buzz, p.jet, p.jetHz, p.rumble, p.reverse].forEach((v, j) => slots[j]!.to(v, 0, 0.08));
+      [p.fanHz, p.fan, p.rasp, p.jet, p.jetHz, p.rumble, p.hiss, p.reverse, p.crackle].forEach((v, j) => slots[j]!.to(v, 0, 0.08));
     }
-    expect(n).toBe(7);
+    expect(n).toBe(9);
   });
 });

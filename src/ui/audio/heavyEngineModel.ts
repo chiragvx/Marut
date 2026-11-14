@@ -7,21 +7,25 @@
  * - Each engine is its own voice, driven by its own N1 from the snapshot (SnapshotEntity.ENGINES,
  *   already spooled by src/physics/engines.ts — big engines are slow: seconds to spool up). A failed
  *   engine windmills (~8% N1) and falls silent, so an engine out is heard on its side.
- * - The fan: a big fan turns slowly (tip speed ~430 m/s over a ~2 m fan: ~69 Hz at 100% N1), so
- *   its blade-passing whine (`fanBlades` x shaft) is lower than a fighter's and its buzz-saw (the
- *   shaft's harmonics, once the blade tips go supersonic above ~85% N1) is a deep growl.
+ * - Mostly broadband, as a real big turbofan is heard: the jet's mixing noise, a rich low roar (a
+ *   big, slow exhaust peaks low, ~60-400 Hz) rising steeply with thrust (thrust ~ N1^2 here, as in
+ *   the physics), its soft corner opening with power and wandering a little; under it a low rumble
+ *   with turbulence flutter; at idle mostly a soft whoosh and the rumble.
+ * - The fan (tip speed ~430 m/s over a ~2 m fan: ~69 Hz shaft at 100% N1): its blade-passing tone
+ *   (`fanBlades` x shaft, ~2.5 kHz at take-off) is only a faint narrowband-noise hint, ahead of the
+ *   aircraft and near full power. Near take-off power the roar gets a subtle rasp at the shaft
+ *   rate and, behind the jet, a little crackle.
  * - Each engine's shaft is detuned by a few tenths of a percent from the others (no two engines
- *   ever run at exactly the same N1): their tones beat — the throb of a four-engine heavy.
- * - Jet noise: a broad, deep roar rising steeply with thrust (thrust ~ N1^2 here, as in the
- *   physics), its upper corner opening up with power; under it the rumble of the core and the jet.
+ *   ever run at exactly the same N1) and each has its own slow throb in the low band: together a
+ *   subtle, slow pulse, never a tonal beat.
  * - Thrust reversers: deployed, the fan stream is thrown forward through the cascades — a big
  *   broadband roar, loudest at reverse power.
- * - Directivity (outside): the fan's whine and buzz-saw radiate forward out of the intakes, the
- *   roar aft from the nozzles (`aspect`: +1 listener ahead of the aircraft, -1 behind).
+ * - Directivity (outside): the fan's tone and the intake's whoosh radiate forward, the roar and
+ *   crackle aft from the nozzles (`aspect`: +1 listener ahead of the aircraft, -1 behind).
  * - Size: the total thrust sets how loud it is at a distance and how far it is heard
  *   (`refM`/`hearM` for src/ui/audio/spatial.ts's distanceGain): a C-17 is far louder than a
  *   fighter at the same distance and heard ~12 km off.
- * - In the cockpit: muffled, the whine faint, the four engines a strong low rumble.
+ * - In the cockpit: a deep, muffled rumble; very little in the mids and highs.
  */
 import type { AircraftDefinition } from '../../contracts/aircraft';
 import type { Vec3Like } from '../../contracts/core';
@@ -120,23 +124,28 @@ export function stepHeavyEngine(st: HeavyEngineState, n1In: number, revIn: numbe
 }
 
 export interface HeavyVoiceParams {
-  /** Blade-pass whine, Hz, and level. */
-  whineHz: number;
-  whine: number;
-  /** Fan shaft (buzz-saw fundamental), Hz, and buzz-saw level. */
+  /** The fan's blade-passing frequency, Hz, and level (a faint narrowband-noise tone, not a sine). */
+  fanHz: number;
+  fan: number;
+  /** The fan shaft, Hz: the rate of the low rasp (the roar roughened at the shaft rate near full power). */
   shaftHz: number;
-  buzz: number;
-  /** Jet roar level and its upper corner, Hz. */
+  rasp: number;
+  /** Jet mixing roar: level and its soft upper corner, Hz. */
   jet: number;
   jetHz: number;
+  /** The low rumble under it (turbulence flutter and a slow throb). */
   rumble: number;
+  /** The intake's soft whoosh (heard at idle too). */
+  hiss: number;
   /** Thrust-reverser roar. */
   reverse: number;
+  /** Crackle behind the jet near take-off power. */
+  crackle: number;
   /** Everything above this is muffled (the cockpit), Hz. */
   muffleHz: number;
 }
 
-export const createHeavyVoiceParams = (): HeavyVoiceParams => ({ whineHz: 0, whine: 0, shaftHz: 0, buzz: 0, jet: 0, jetHz: 0, rumble: 0, reverse: 0, muffleHz: 0 });
+export const createHeavyVoiceParams = (): HeavyVoiceParams => ({ fanHz: 0, fan: 0, shaftHz: 0, rasp: 0, jet: 0, jetHz: 0, rumble: 0, hiss: 0, reverse: 0, crackle: 0, muffleHz: 0 });
 
 const smoothstep = (a: number, b: number, x: number): number => {
   const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
@@ -152,32 +161,38 @@ export function heavyEngineParams(prof: HeavyEngineProfile, i: number, st: Heavy
   const spin = smoothstep(SILENT_N1, RUNNING_N1, n1); // 0 windmilling/stopped .. 1 running
   const thrust = Math.min(1.2, n1 * n1); // thrust fraction, as src/physics/engines.ts
   const power = Math.min(1, Math.max(0, (n1 - prof.idleN1) / (1 - prof.idleN1)));
-  const howl = Math.min(1, Math.max(0, st.accel) * 4);
   out.shaftHz = prof.shaftHz * n1 * (prof.detune[i] ?? 1);
-  out.whineHz = out.shaftHz * prof.blades;
-  const buzz = smoothstep(0.8, 0.96, n1);
+  out.fanHz = out.shaftHz * prof.blades;
+  // The fan's tone only shows towards full power; the rasp and crackle only near take-off power.
+  const fanTone = smoothstep(0.55, 1, n1) * spin;
+  const high = smoothstep(0.85, 0.98, n1) * spin;
   // Jet noise rises steeply with thrust (eased from Lighthill's V^8 for a game): ~-20 dB at ground idle.
   const jetLevel = spin * (0.06 + 0.94 * Math.pow(thrust, 0.8));
-  out.jetHz = 450 + 1600 * Math.sqrt(thrust);
-  const rumbleLevel = spin * (0.3 + 0.7 * Math.pow(thrust, 0.6));
+  // A big, slow exhaust: the roar peaks low; its soft corner opens from ~300 Hz at idle to ~750 Hz.
+  out.jetHz = 230 + 520 * Math.sqrt(thrust);
+  const rumbleLevel = spin * (0.35 + 0.65 * Math.pow(thrust, 0.6));
   // The reverser's roar: the fan stream thrown forward, loudest at reverse power.
   const rev = st.rev * spin * (0.25 + 0.75 * thrust);
   if (ear === 'cockpit') {
-    // Far behind the flight deck: the whine faint, the roar dulled, a strong low rumble through the airframe.
-    out.whine = (0.004 + 0.004 * power + 0.006 * howl) * spin;
-    out.buzz = 0.025 * buzz * spin;
-    out.jet = 0.07 * jetLevel;
-    out.rumble = 0.24 * rumbleLevel;
+    // Far behind the flight deck: a deep, muffled rumble; almost nothing in the mids and highs.
+    out.fan = 0;
+    out.rasp = 0.02 * high;
+    out.jet = 0.09 * jetLevel;
+    out.rumble = 0.3 * rumbleLevel;
+    out.hiss = 0.006 * spin;
     out.reverse = 0.1 * rev;
-    out.muffleHz = 750;
+    out.crackle = 0;
+    out.muffleHz = 420;
   } else {
     const fwd = Math.max(0, Math.min(1, aspect));
     const aft = Math.max(0, Math.min(1, -aspect));
-    out.whine = (0.022 + 0.018 * power + 0.03 * howl) * spin * (0.55 + 0.9 * fwd);
-    out.buzz = 0.16 * buzz * spin * (0.4 + 1.2 * fwd);
-    out.jet = 0.4 * jetLevel * (0.65 + 0.7 * aft);
-    out.rumble = 0.45 * rumbleLevel * (0.85 + 0.3 * aft);
-    out.reverse = 0.4 * rev * (0.8 + 0.5 * fwd);
+    out.fan = 0.01 * fanTone * (0.25 + fwd);
+    out.rasp = 0.03 * high * (0.5 + 0.8 * fwd);
+    out.jet = 0.48 * jetLevel * (0.7 + 0.6 * aft);
+    out.rumble = 0.5 * rumbleLevel * (0.9 + 0.2 * aft);
+    out.hiss = (0.03 + 0.03 * power) * spin * (0.8 + 0.4 * fwd);
+    out.reverse = 0.45 * rev * (0.8 + 0.4 * fwd);
+    out.crackle = 0.05 * high * aft;
     out.muffleHz = 16000;
   }
   return out;

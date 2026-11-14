@@ -6,7 +6,8 @@
  *   thump; muffled in the cockpit, where the air conditioning's steady rush is louder (the
  *   loudest thing in a Tejas cockpit, its test pilots say);
  * - a multi-engine aircraft (AircraftDefinition.engines, e.g. the C-17) instead gets one big
- *   high-bypass turbofan voice per engine (src/ui/audio/heavyEngineModel.ts, heavyEngineVoice.ts),
+ *   high-bypass turbofan voice per engine (src/ui/audio/heavyEngineModel.ts, heavyEngineVoice.ts:
+ *   mostly a deep broadband roar and rumble),
  *   each driven by its own N1 and reverser and placed at its engine, louder and heard further;
  * - the wind rising with the airspeed (more with the airbrake out or the gear down);
  * - all of it placed in 3D (src/ui/audio/spatial.ts): the whine at the intakes, the roar and
@@ -428,7 +429,7 @@ export function createAmbience(bus: AudioBus): Ambience {
       for (const e of emitters) if (!heavyOn || !engineEmitters.includes(e)) e.place(listener, jet, inside, doppler);
       if (heavy) {
         for (const e of heavy.emitters) e.place(listener, jet, inside, doppler);
-        // Where the listener is round the aircraft (the fan's whine ahead, the roar behind).
+        // Where the listener is round the aircraft (the fan's hiss ahead, the roar behind).
         toEar.x = listener.pos.x - jet.pos.x;
         toEar.y = listener.pos.y - jet.pos.y;
         toEar.z = listener.pos.z - jet.pos.z;
