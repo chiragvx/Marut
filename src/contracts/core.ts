@@ -721,6 +721,14 @@ export interface HeightSampler {
    * `waterLevelM` is absent): the water surface at (x, z), -Infinity where there is none.
    */
   waterLevelAt?(x: number, z: number): number;
+  /**
+   * Present where airports flatten the ground. For a terrain mesh vertex grid of spacing ~reachM
+   * over the box: undefined when no flatten zone comes within reachM of it, else a function giving
+   * the lowest zone elevation whose flat disc lies within reachM of (x, z) (+Infinity where none).
+   * The mesh clamps its vertices to it, so no coarse triangle spanning a pad's edge rises above
+   * the pavement lying on it.
+   */
+  airfieldFloorNear?(minX: number, minZ: number, maxX: number, maxZ: number, reachM: number): ((x: number, z: number) => number) | undefined;
 }
 
 // -----------------------------------------------------------------------------

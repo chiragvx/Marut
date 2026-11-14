@@ -83,10 +83,31 @@ export const createHeightSampler: CreateHeightSampler = (
     return out;
   }
 
+  function airfieldFloorNear(minX: number, minZ: number, maxX: number, maxZ: number, reachM: number): ((x: number, z: number) => number) | undefined {
+    const near = flattenZones.filter((zn) => {
+      const r = zn.flatRadiusM + reachM;
+      const dx = Math.max(minX - zn.centerWorldX, 0, zn.centerWorldX - maxX);
+      const dz = Math.max(minZ - zn.centerWorldZ, 0, zn.centerWorldZ - maxZ);
+      return dx * dx + dz * dz <= r * r;
+    });
+    if (near.length === 0) return undefined;
+    return (x, z) => {
+      let floor = Infinity;
+      for (const zn of near) {
+        const r = zn.flatRadiusM + reachM;
+        const dx = x - zn.centerWorldX;
+        const dz = z - zn.centerWorldZ;
+        if (dx * dx + dz * dz <= r * r && zn.elevationM < floor) floor = zn.elevationM;
+      }
+      return floor;
+    };
+  }
+
   return {
     seed: params.seed,
     heightAt,
     normalAt,
+    ...(flattenZones.length > 0 ? { airfieldFloorNear } : {}),
     ...(lakeLevelAt ? { isWaterAt, groundHeightAt, waterLevelAt: lakeLevelAt } : waterLevelM !== undefined ? { isWaterAt, waterLevelM, groundHeightAt } : {}),
   };
 };

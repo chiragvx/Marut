@@ -86,11 +86,21 @@ export function buildChunkGeometryAndSurface(
   // shader draws the water where the view ray meets each lake's level, so the shore is the smooth
   // line where the bed crosses it at any LOD rather than the stair-step of whole flat triangles.
   const meshHeightAt = sampler.waterLevelAt && sampler.groundHeightAt ? sampler.groundHeightAt : sampler.heightAt;
+  // Airfields: a coarse triangle with one corner on the level pad and another up the slope beside
+  // it is interpolated straight across the pad's edge and buries the pavement lying there (it is
+  // drawn 4 cm above the ground). Every vertex within a cell diagonal (and a little) of a flatten
+  // zone's level disc is held down to the zone's elevation, so every triangle touching the pad
+  // stays at or below it at any LOD. On fine chunks that is the ground itself.
+  const reach = step * Math.SQRT2 + 3;
+  const floorAt = sampler.airfieldFloorNear?.(bounds.minX - B * step, bounds.minZ - B * step, bounds.maxX + B * step, bounds.maxZ + B * step, reach);
   for (let j = -B; j <= res + B; j++) {
     const outJ = j < 0 || j > res;
     for (let i = -B; i <= res + B; i++) {
       if (outJ && (i < 0 || i > res)) continue;
-      heights[(j + B) * bw + (i + B)] = meshHeightAt(bounds.minX + i * step, bounds.minZ + j * step);
+      const x = bounds.minX + i * step;
+      const z = bounds.minZ + j * step;
+      const h = meshHeightAt(x, z);
+      heights[(j + B) * bw + (i + B)] = floorAt ? Math.min(h, floorAt(x, z)) : h;
     }
   }
   const waterLevelM = sampler.waterLevelM;
