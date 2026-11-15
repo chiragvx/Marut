@@ -9,6 +9,7 @@
  */
 
 import { Noise2, gullies } from './noise';
+import { humlaHeight, humlaInfo } from './humla';
 // Everything below is built in the map frame (geoMap); the exported functions take and give world
 // coordinates (world = map - MAP_SHIFT, layout.ts).
 import { AIRFIELDS, BASINS, CONTROL, LAKES, MAP_SHIFT_X as SX, MAP_SHIFT_Z as SZ, PEAKS, VALLEYS, geoMap as geo } from './layout';
@@ -150,12 +151,16 @@ function mountains(x: number, z: number, base: number, relief: number, dissect: 
   const wx = x + 3500 * N2.fbm(x / 22000, z / 22000, 3);
   const wz = z + 3500 * N2.fbm(x / 22000 + 50.3, z / 22000 - 30.1, 3);
   const tu = (wx * 0.866 + wz * 0.5) / 1.6, tv = -wx * 0.5 + wz * 0.866;
-  const r = N.ridged(tu / 18000 + 11.1, tv / 18000 - 7.7, coarse ? 4 : 8);
+  // Rounded crests (soft ridged noise) and fewer fine octaves than a knife-edge multifractal; the
+  // eroded fbm and the gullies below add the fine relief, following the slopes.
+  const r = N.ridged(tu / 18000 + 11.1, tv / 18000 - 7.7, coarse ? 4 : 6, 0.18);
   let m = Math.pow(Math.max(0, (r - 0.3) / 0.9), 1.7);
   if (dissect > 0.01) {
-    const rf = N2.ridged(wx / 6000 + 3.3, wz / 6000 + 9.9, coarse ? 3 : 7);
-    m = m * (1 - 0.6 * dissect) + 0.6 * dissect * Math.pow(Math.max(0, (rf - 0.3) / 0.9), 1.4);
+    const rf = N2.ridged(wx / 6000 + 3.3, wz / 6000 + 9.9, coarse ? 3 : 5, 0.22);
+    m = m * (1 - 0.5 * dissect) + 0.5 * dissect * Math.pow(Math.max(0, (rf - 0.3) / 0.9), 1.4);
   }
+  // Ranges are not all one height: massifs and saddles over 30-60 km.
+  m *= 0.78 + 0.32 * (0.5 + 0.5 * N2.fbm(x / 45000 + 21.7, z / 45000 - 13.9, 2));
   // Rolling hills where the ranges die out (the plateau is never a plane).
   if (coarse) return peaksOver(x, z, base, base + relief * m, true);
   const hills = 0.5 + 0.5 * N2.erodedFbm(wx / 6000 - 2.2, wz / 6000 + 5.1, 6);
@@ -186,7 +191,7 @@ function peaksOver(x: number, z: number, base: number, h: number, coarse: boolea
   return h;
 }
 
-/** Debug: bit mask of feature passes to skip (1 peaks, 2 basins, 4 valleys, 8 lakes, 16 airfields, 32 slope gullies, 64 eroded fbm). */
+/** Debug: bit mask of feature passes to skip (1 peaks, 2 basins, 4 valleys, 8 lakes, 16 airfields, 32 slope gullies, 64 eroded fbm, 128 Humla). */
 export const DBG = { skip: 0 };
 
 export interface SurfaceInfo { flat: number; river: number; dry: number }
@@ -292,6 +297,13 @@ function heightAtMap(x: number, z: number, info?: SurfaceInfo): number {
         river = Math.max(river, kk);
       }
     }
+  }
+
+  // Humla: the Karnali's terraced valley system and Simikot's terrace (humla.ts).
+  if (!(DBG.skip & 128)) {
+    h = humlaHeight(x, z, h);
+    flat = Math.max(flat, humlaInfo.flat);
+    river = Math.max(river, humlaInfo.river);
   }
 
   // Lakes: carved below their own water level, with a gentle shore.

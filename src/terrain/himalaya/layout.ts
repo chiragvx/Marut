@@ -137,24 +137,10 @@ export const VALLEYS: Valley[] = [
     ],
   },
   {
-    id: 'karnali', name: 'Karnali (Purang, Humla)', river: true, nodes: [
-      vn(30.60, 81.28, 4500, 1500), vn(30.45, 81.20, 4150, 2200), vn(30.30, 81.18, 3900, 1500),
-      vn(30.15, 81.34, 3650, 300, 1.5), vn(30.05, 81.58, 3100, 150, 1.8), vn(29.955, 81.83, 2300, 120, 1.8),
-      vn(29.78, 82.05, 1900, 120, 1.8), vn(29.55, 82.35, 1450, 150, 1.6),
-    ],
-  },
-  {
-    // The ravine east of Simikot: the runway 28 final comes up it, over a drop just short of the
-    // threshold (docs/spec/himalaya-airfields.md section 2.5).
-    id: 'simikot-east', name: 'Simikot approach ravine', river: true, nodes: [
-      vn(29.9677, 81.8327, 2680, 70, 1.5), vn(29.9617, 81.8615, 2480, 140, 1.4), vn(29.90, 81.90, 2200, 150, 1.5),
-    ],
-  },
-  {
-    // A dry notch from Simikot's west end down to the Karnali: the climb-out after an airdrop on the
-    // strip (run in up the gorge on 315, turn left with the valley) clears the knoll there.
-    id: 'simikot-west', name: 'Simikot west notch', river: false, nodes: [
-      vn(29.97197, 81.81127, 2930, 150, 1.3), vn(29.97437, 81.7982, 2800, 180, 1.3), vn(29.97677, 81.78251, 2650, 200, 1.3),
+    // The Karnali on the Purang plain; from the end of the plain down through Hilsa and Humla it is
+    // HUMLA_RIVER (humla.ts), a broad terraced valley rather than a carved corridor.
+    id: 'karnali', name: 'Karnali (Purang)', river: true, nodes: [
+      vn(30.60, 81.28, 4500, 1500), vn(30.45, 81.20, 4150, 2200), vn(30.30, 81.18, 3900, 900),
     ],
   },
   {
@@ -185,6 +171,83 @@ export const VALLEYS: Valley[] = [
     ],
   },
 ];
+
+/**
+ * Humla (src/terrain/himalaya/humla.ts): the Humla Karnali from the Purang plain down past Hilsa,
+ * Yari, Muchu, Yalbang, Kermi and Simikot towards Kharpunath, its side valleys, and the terrace
+ * Simikot stands on. Placed from published maps and descriptions (river course, villages, the
+ * Hilsa-Simikot road), but every metre of it is generated: a valley cross-profile along each river
+ * (a gravel floor, a short steep inner bank, terraced middle slopes, rounded spurs and ridges of
+ * 4,000-4,500 m), the generic mountains above it.
+ *
+ * Each node: `bed` the river's height (m), `floor` the floor's half-width, `wall` how far from the
+ * floor's edge the ridge line stands and `relief` how high above the bed (world metres), `tilt`
+ * (-1..1) raises the left bank (looking downstream) by that fraction and lowers the right.
+ */
+export interface HumlaNode { lat: number; lon: number; bed: number; floor: number; wall: number; relief: number; tilt?: number }
+export interface HumlaRiver { id: string; name: string; nodes: HumlaNode[] }
+
+const hn = (lat: number, lon: number, bed: number, floor: number, wall: number, relief: number, tilt = 0): HumlaNode => ({ lat, lon, bed, floor, wall, relief, tilt });
+
+/**
+ * The main river. Below Simikot it runs straight on ~125 for 30 km (the drop's run-in comes up it
+ * on 305: src/script/missions/simikotAirdrop.ts); there it passes ~2 km south of the strip, below
+ * the terrace, and bends round its west end towards Kermi.
+ */
+export const HUMLA_RIVER: HumlaRiver = {
+  id: 'humla-karnali', name: 'Humla Karnali', nodes: [
+    hn(30.30, 81.18, 3900, 450, 5000, 1100),
+    hn(30.225, 81.265, 3770, 280, 4500, 1400),
+    hn(30.152, 81.336, 3650, 220, 4500, 1500), // Hilsa
+    hn(30.125, 81.41, 3490, 200, 5000, 1600),
+    hn(30.098, 81.48, 3330, 230, 5200, 1700), // Tumkot / Limi side valley
+    hn(30.068, 81.55, 3140, 200, 5500, 1700), // Muchu
+    hn(30.04, 81.62, 2930, 230, 5800, 1750), // Yalbang
+    hn(30.012, 81.69, 2710, 230, 6000, 1750, 0.1), // Kermi
+    hn(29.99, 81.735, 2560, 220, 6000, 1800, 0.15),
+    hn(29.968, 81.772, 2440, 200, 6000, 1850, 0.2), // round Simikot's terrace
+    hn(29.95, 81.80, 2370, 200, 6000, 1850, 0.2),
+    hn(29.9373, 81.824, 2320, 220, 6000, 1850, 0.15),
+    hn(29.9245, 81.8562, 2290, 240, 6200, 1850),
+    hn(29.9085, 81.8963, 2250, 260, 6200, 1900),
+    hn(29.8882, 81.9436, 2200, 280, 6500, 1950), // Kharpunath
+    hn(29.8624, 81.9865, 2150, 280, 6500, 2000),
+    hn(29.8366, 82.0293, 2100, 280, 6500, 2050),
+    hn(29.8108, 82.0722, 2050, 300, 6500, 2100),
+    hn(29.785, 82.115, 1990, 300, 6500, 2100),
+    hn(29.7592, 82.1579, 1940, 300, 6500, 2100),
+    hn(29.7334, 82.2007, 1890, 300, 6500, 2100),
+    hn(29.7077, 82.2435, 1840, 300, 6500, 2100),
+    hn(29.62, 82.30, 1620, 300, 6500, 2100),
+    hn(29.55, 82.35, 1450, 300, 6500, 2100),
+  ],
+};
+
+/** Side valleys; each ends on the main river (its last node's bed is the river's there). */
+export const HUMLA_TRIBUTARIES: HumlaRiver[] = [
+  // The Limi valley, from the north-east, joining near Tumkot.
+  { id: 'limi', name: 'Limi Khola', nodes: [hn(30.29, 81.60, 4450, 120, 3500, 900), hn(30.258, 81.545, 4000, 150, 3500, 1000), hn(30.17, 81.50, 3550, 150, 3500, 1100), hn(30.10, 81.476, 3320, 150, 3500, 1100)] },
+  // The stream down from Yari and the Nara La road.
+  { id: 'yari', name: 'Yari Khola', nodes: [hn(30.20, 81.47, 4400, 60, 2500, 800), hn(30.15, 81.445, 3800, 80, 3000, 900), hn(30.122, 81.42, 3480, 100, 3000, 900)] },
+  // Kermi's stream, from the north.
+  { id: 'kermi', name: 'Kermi Khola', nodes: [hn(30.07, 81.72, 3900, 50, 2500, 800), hn(30.035, 81.705, 3150, 70, 2800, 900), hn(30.012, 81.692, 2710, 90, 3000, 900)] },
+  // The stream east of Simikot's terrace: the strip's east end looks down into it.
+  { id: 'simikot-khola', name: 'Simikot stream', nodes: [hn(30.0, 81.85, 3550, 30, 1800, 500), hn(29.975, 81.842, 2950, 40, 1800, 500), hn(29.952, 81.845, 2560, 60, 2200, 600), hn(29.931, 81.84, 2305, 80, 2500, 700)] },
+  // From the south-west, opposite Simikot.
+  { id: 'dojam', name: 'Dojam Khola', nodes: [hn(29.87, 81.74, 3700, 60, 2800, 900), hn(29.915, 81.765, 2900, 90, 3200, 1000), hn(29.947, 81.796, 2375, 120, 3500, 1100)] },
+  // Down-valley, from the north, at Kharpunath.
+  { id: 'chuwa', name: 'Chuwa Khola', nodes: [hn(29.98, 81.98, 3800, 60, 2800, 1000), hn(29.93, 81.955, 2800, 90, 3200, 1100), hn(29.886, 81.94, 2200, 120, 3500, 1100)] },
+  // And one from the south.
+  { id: 'lali', name: 'Lali Khola', nodes: [hn(29.76, 81.98, 3600, 60, 3000, 1000), hn(29.82, 82.01, 2600, 100, 3500, 1100), hn(29.845, 82.02, 2115, 120, 3500, 1100)] },
+];
+
+/**
+ * Simikot's terrace: a broad shelf on the north bank, ~650 m above the river, sloping gently down to
+ * the south and east; the strip and the town stand on it. `alongM` / `northM` / `southM` are its
+ * half-extents (world metres) along the strip's heading and to either side; `elev` its height at the
+ * strip's middle; `slopeAlong` (down to the east) and `slopeCross` (down to the south), m/m.
+ */
+export const SIMIKOT_SHELF = { lat: 29.9712, lon: 81.8188, headingDeg: 103.6186, alongM: 1700, northM: 750, southM: 650, elev: 2975, slopeAlong: 0.025, slopeCross: 0.035 } as const;
 
 /** Broad flat basins (ellipses in world metres, `rot` in degrees from east toward south). */
 export interface Basin { id: string; lat: number; lon: number; rx: number; rz: number; rot: number; level: number }
@@ -235,8 +298,9 @@ export const AIRFIELDS: Airfield[] = [
   { id: 'burang', name: 'Burang (Purang)', lat: 30.3975, lon: 81.1386, headingDeg: 329, lengthM: 4500, widthM: 50, elev: 4250, taxiway: { offsetM: 180, widthM: 23 } },
   { id: 'naini', name: 'Naini Saini (Pithoragarh)', lat: 29.5914, lon: 80.2400, headingDeg: 140, lengthM: 2400, widthM: 45, elev: 1500 },
   { id: 'gunji', name: 'Gunji ALG', lat: 30.178, lon: 80.868, headingDeg: 68, lengthM: 1450, widthM: 30, elev: 3250 },
-  // A shelf above the Humla Karnali gorge: a small pad (town and apron to the north), short blend.
-  { id: 'simikot', name: 'Simikot', lat: 29.97047, lon: 81.81912, headingDeg: 103.6186, lengthM: 650, widthM: 20, elev: 2971, layoutId: 'simikot', stripEndM: 30, padAlongM: 30, padLeftM: 95, padRightM: 25, blendM: 260 },
+  // On a broad terrace ~650 m above the Humla Karnali (humla.ts SIMIKOT_SHELF): the strip, the apron
+  // and the town to its north graded level on the gently sloping shelf.
+  { id: 'simikot', name: 'Simikot', lat: 29.97047, lon: 81.81912, headingDeg: 103.6186, lengthM: 650, widthM: 20, elev: 2971, layoutId: 'simikot', stripEndM: 30, padAlongM: 70, padLeftM: 300, padRightM: 40, blendM: 220 },
   // Fictional placement inside the map (real Fukche is 39 km beyond its north edge); the army camp
   // is 0.9-1.1 km SW of the runway.
   { id: 'fukche', name: 'Fukche ALG', lat: 32.17, lon: 79.35, headingDeg: 136.8473, lengthM: 2594, widthM: 45, elev: 4176, layoutId: 'fukche-alg', padRightM: 1060 },
@@ -276,13 +340,13 @@ export const VIEWS: ViewPreset[] = [
   { label: 'Nanda Devi', place: 'nandadevi', targetAlt: 7000, bearingDeg: 210, distM: 22_000, alt: 6500 },
   { label: 'Kamet and Niti', place: 'kamet', targetAlt: 6500, bearingDeg: 160, distM: 22_000, alt: 7000 },
   { label: 'Zanda canyon', place: 'zanda', targetAlt: 3800, bearingDeg: 120, distM: 9000, alt: 4600 },
-  { label: 'Simikot gorge', place: 'simikot', targetAlt: 2700, bearingDeg: 255, distM: 7000, alt: 4900 },
+  { label: 'Simikot and the Karnali valley', place: 'simikot', targetAlt: 2700, bearingDeg: 255, distM: 7000, alt: 4900 },
   { label: 'Naini Saini (Pithoragarh)', place: 'naini', targetAlt: 1500, bearingDeg: 320, distM: 7000, alt: 2100 },
   // Airfield close-ups (the layouts drawn from src/airport/layouts).
   { label: 'Ngari Gunsa: north apron and shelters', place: 'ngari', offsetM: [-600, -1800], targetAlt: 4274, bearingDeg: 230, distM: 2200, alt: 4750 },
   { label: 'Ngari Gunsa: runway 15 approach', place: 'ngari', targetAlt: 4274, bearingDeg: 332, distM: 9000, alt: 4800 },
-  { label: 'Simikot: runway 28 final, out of the gorge', place: 'simikot', targetAlt: 2971, bearingDeg: 104, distM: 3500, alt: 3250 },
-  { label: 'Simikot: the shelf from the south', place: 'simikot', targetAlt: 2971, bearingDeg: 190, distM: 2500, alt: 3300 },
+  { label: 'Simikot: runway 28 final, up the valley', place: 'simikot', targetAlt: 2971, bearingDeg: 104, distM: 3500, alt: 3250 },
+  { label: 'Simikot: the terrace from the south', place: 'simikot', targetAlt: 2971, bearingDeg: 190, distM: 2500, alt: 3300 },
   { label: 'Fukche: runway 14 approach', place: 'fukche', targetAlt: 4176, bearingDeg: 317, distM: 8000, alt: 4650 },
   { label: 'Fukche: runway 32 approach', place: 'fukche', targetAlt: 4176, bearingDeg: 137, distM: 8000, alt: 4650 },
   { label: 'Fukche: dispersal and camp', place: 'fukche', offsetM: [150, 900], targetAlt: 4176, bearingDeg: 200, distM: 1600, alt: 4450 },

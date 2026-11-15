@@ -96,11 +96,16 @@ export class Noise2 {
     return sum / norm * 1.6;
   }
 
-  /** Ridged multifractal: sharp crests where the noise crosses zero, about [0, 1]. */
-  ridged(x: number, z: number, octaves: number): number {
+  /**
+   * Ridged multifractal: crests where the noise crosses zero, about [0, 1]. `soft` > 0 rounds the
+   * crests (|v| becomes sqrt(v^2 + soft^2) - soft, rescaled): rounded ridges instead of knife edges.
+   */
+  ridged(x: number, z: number, octaves: number, soft = 0): number {
     let sum = 0, amp = 1, norm = 0, w = 1, px = x, pz = z;
+    const sk = soft > 0 ? 1 / (Math.sqrt(1 + soft * soft) - soft) : 1;
     for (let i = 0; i < octaves; i++) {
-      let n = 1 - Math.abs(this.noise(px, pz));
+      const v = this.noise(px, pz);
+      let n = 1 - (soft > 0 ? (Math.sqrt(v * v + soft * soft) - soft) * sk : Math.abs(v));
       n *= n;
       n *= w;
       w = Math.min(1, Math.max(0, n * 1.8));

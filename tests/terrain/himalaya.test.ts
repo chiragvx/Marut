@@ -195,7 +195,7 @@ describe('Himalaya missions', () => {
     for (const s of ['parked', 'runway', 'air'] as const) expect(home(freeFlightMission('fukche', s))).toBe('fukche-alg');
   });
 
-  test('the dev starts at Ngari and Simikot resolve; the Simikot air start is clear of the ravine walls', () => {
+  test('the dev starts at Ngari and Simikot resolve; the Simikot air start is clear of the valley walls', () => {
     expect(resolveBuiltinMission('himalaya-ngari').playerStart.runwayId).toBe('33');
     const s = resolveBuiltinMission('himalaya-simikot').playerStart;
     const dx = Math.sin(s.headingRad!), dz = -Math.cos(s.headingRad!);
