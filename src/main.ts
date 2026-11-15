@@ -83,12 +83,16 @@ import type { LoadoutFit } from './aircraft/loadout';
 import { PROMO_SHOTS } from './ui/promo';
 import { createFlightOverlay, hintText, pickHint, type FlightOverlay, type HintId, type HintKeys } from './ui/flightOverlay';
 import { DEFAULT_INPUT_MAP_DATA } from './input/inputMap';
-import { BASES, MISSIONS, TRAINING, baseInfo, freeFlightMission, isFreeFlightAircraft, isTraining, missionEntry, missionLocked, playableMissions, trainingEntry, type BaseId } from './core/missions/catalogue';
+import { BASES, MISSIONS, TRAINING, baseInfo, freeFlightMission, isFreeFlightAircraft, isTraining, missionEntry, missionKind, missionLocked, playableMissions, trainingEntry, type BaseId } from './core/missions/catalogue';
 import { createActionBar, type ActionBar, type ActionId } from './ui/actionBar';
 import { createToastStack, type ToastStack } from './ui/toasts';
 import { createSystemNotices } from './ui/systemNotices';
 import { flapSetting } from './hud/flapStatus';
 import { createLessonBriefing, createTrainingList } from './ui/training';
+import { campaignMissionOpen, campaignOf } from './core/missions/campaigns';
+import { briefingFor } from './briefing';
+import { briefingGrid, createBriefingIntro, type BriefingIntro } from './briefing/intro';
+import type { BriefingScript } from './briefing/script';
 import type { PromptControl } from './script';
 import { createChunkManager } from './terrain';
 import { buildCoastProfile, createHeightSampler } from './terrain';
@@ -141,6 +145,8 @@ interface PersistedSettings {
   aimingHelp?: AimingHelp;
   /** Centre HUD (pitch ladder, flight-path marker) in the outside views (Settings -> Gameplay); missing = on. */
   centreHudOutside?: boolean;
+  /** The cinematic intro before a campaign mission (Settings -> Gameplay); missing = on. */
+  missionIntros?: boolean;
   /** Control rates, multipliers 0.5..1.5 (Settings -> Controls); missing = 1 each. */
   controlRates?: { pitch: number; roll: number; yaw: number };
   /** Camera look / zoom (Settings -> Controls); missing = DEFAULT_CAMERA_SETTINGS. */
@@ -162,6 +168,7 @@ function loadPersistedSettings(): PersistedSettings | undefined {
     if (parsed.weatherMode !== undefined && !(Object.values(WeatherMode) as string[]).includes(parsed.weatherMode)) delete parsed.weatherMode;
     if (parsed.timeOfDayH !== undefined && !(typeof parsed.timeOfDayH === 'number' && parsed.timeOfDayH >= 0 && parsed.timeOfDayH <= 24)) delete parsed.timeOfDayH;
     if (parsed.centreHudOutside !== undefined && typeof parsed.centreHudOutside !== 'boolean') delete parsed.centreHudOutside;
+    if (parsed.missionIntros !== undefined && typeof parsed.missionIntros !== 'boolean') delete parsed.missionIntros;
     if (parsed.aimingHelp !== undefined && !(Object.values(AimingHelp) as string[]).includes(parsed.aimingHelp)) delete parsed.aimingHelp;
     const au = parsed.audio;
     if (au !== undefined && !(typeof au === 'object' && au !== null && [au.master, au.voice, au.tones, au.ambience].every((v) => typeof v === 'number' && v >= 0 && v <= 1))) delete parsed.audio;
@@ -519,7 +526,10 @@ function showBriefing(id: string): void {
   const open = playableMissions();
   const index = open.findIndex((m) => m.id === id);
   const entry = open[index];
-  if (!entry) return showMissions();
+  if (!entry || !campaignMissionOpen(entry.id, savedProgress(), (m) => !missionLocked(m))) return showMissions();
+  const camp = campaignOf(entry.id);
+  // The intro's map is sampled in a worker while the player reads the briefing, so it is there at Start.
+  if (camp && briefingFor(entry.id) && missionIntrosOn()) void briefingGrid();
   destroyCurrentScreen();
   appState = 'missionSelect';
   const prefs = loadJson<{ difficulty?: AiDifficulty; loadout?: LoadoutSelection; loadouts?: Record<string, LoadoutSelection>; transport?: Record<string, unknown> }>(STORAGE.missionPrefs) ?? {};
@@ -534,6 +544,7 @@ function showBriefing(id: string): void {
       entry,
       base: baseInfo(entry.baseId),
       index,
+      ...(camp ? { eyebrow: `${camp.campaign.name} · Mission ${camp.slot.slot} of ${camp.campaign.slots.length} · ${missionKind(entry)} · ${baseInfo(entry.baseId).name}` } : {}),
       def: playerAircraft,
       difficulty,
       loadout: prefs.loadouts?.[entry.id] ?? (missionDefault ? { presetId: missionDefault } : {}),
@@ -551,7 +562,7 @@ function showBriefing(id: string): void {
     {
       onStart: (d, loadout, transport) => {
         saveJson(STORAGE.missionPrefs, { ...prefs, difficulty: d, loadouts: { ...(prefs.loadouts ?? {}), [entry.id]: loadout }, ...(transport ? { transport: { ...(prefs.transport ?? {}), [entry.id]: transport } } : {}) });
-        launchFlight({ kind: 'mission', id: entry.id, difficulty: d, loadout, ...(transport ? { transport } : {}) });
+        launchFlight({ kind: 'mission', id: entry.id, difficulty: d, loadout, ...(transport ? { transport } : {}) }, { intro: true });
       },
       onBack: showMissions,
     }
@@ -669,9 +680,24 @@ function withLoadout(m: Mission, sel: LoadoutSelection): Mission {
   return { ...m, playerStart };
 }
 
-function launchFlight(flight: Flight): void {
+/** The cinematic intros are on (Settings -> Gameplay; the dev ?briefing= plays one regardless). */
+function missionIntrosOn(): boolean {
+  return loadPersistedSettings()?.missionIntros ?? true;
+}
+
+/**
+ * `intro`: started from the Missions screen, so a campaign mission plays its war-room intro while it
+ * loads (not on Restart, Fly again or Continue).
+ */
+function launchFlight(flight: Flight, opts: { intro?: boolean; introHoldSec?: number } = {}): void {
   currentFlight = flight;
   saveJson(STORAGE.lastFlight, flight);
+  pendingIntro = undefined;
+  stopBriefingIntro();
+  if (flight.kind === 'mission' && opts.intro && campaignOf(flight.id)) {
+    const script = briefingFor(flight.id);
+    if (script && (missionIntrosOn() || opts.introHoldSec !== undefined || devBriefing)) pendingIntro = { script, ...(opts.introHoldSec !== undefined ? { holdSec: opts.introHoldSec } : {}) };
+  }
   if (flight.kind === 'free') {
     const s = flight.setup;
     weatherMode = s.weather;
@@ -751,6 +777,7 @@ function showSettingsOverlay(): void {
     actionBar: actionBarEnabled,
     aimingHelp: persisted?.aimingHelp ?? AimingHelp.Cues,
     centreHudOutside,
+    missionIntros: persisted?.missionIntros ?? true,
     controlRates: inputSystem ? inputSystem.getControlRates() : { pitch: 1, roll: 1, yaw: 1 },
     audio: persisted?.audio ?? { ...DEFAULT_AUDIO_VOLUMES },
     camera: { ...cameraSettings },
@@ -767,6 +794,7 @@ function showSettingsOverlay(): void {
         actionBar: next.actionBar ?? true,
         aimingHelp: next.aimingHelp ?? AimingHelp.Cues,
         centreHudOutside: next.centreHudOutside ?? true,
+        missionIntros: next.missionIntros ?? true,
         ...(next.controlRates ? { controlRates: next.controlRates } : {}),
         ...(next.audio ? { audio: next.audio } : {}),
         ...(next.camera ? { camera: next.camera } : {}),
@@ -1706,16 +1734,50 @@ let devAutoStart = false;
 /** A flight being loaded: waits for the terrain around the aircraft, then for Start. */
 let pendingStart: { loading: LoadingScreenHandle; simReady: boolean; t0: number; shown: boolean } | undefined;
 
+/** The intro the next launch plays (launchFlight sets it, launchMission starts it). */
+let pendingIntro: { script: BriefingScript; holdSec?: number } | undefined;
+/** The campaign mission intro playing over the loading flight (src/briefing/intro.ts). */
+let briefingIntro: BriefingIntro | undefined;
+/** Dev aid: ?briefing=<mission id>[,<t>] starts that campaign mission from its intro (held at t s). */
+const devBriefing = ((): { id: BuiltinMissionId; holdSec?: number } | undefined => {
+  const v = new URLSearchParams(location.search).get('briefing')?.split(',');
+  if (!v?.[0] || !isBuiltinMissionId(v[0]) || !briefingFor(v[0])) return undefined;
+  const t = v[1] !== undefined ? Number(v[1]) : NaN;
+  return { id: v[0], ...(Number.isFinite(t) ? { holdSec: t } : {}) };
+})();
+
+function stopBriefingIntro(): void {
+  briefingIntro?.destroy();
+  briefingIntro = undefined;
+}
+
 function tickPendingStart(nowMs: number): void {
   const p = pendingStart;
-  if (!p || !p.simReady || p.shown) return;
+  if (!p) return;
+  if (!p.simReady) {
+    briefingIntro?.setProgress(0.1, 'Starting simulation…');
+    return;
+  }
+  if (p.shown) return;
   const prog = chunkManager?.loadProgress() ?? { resident: 0, desired: 0 };
   const frac = prog.desired > 0 ? prog.resident / prog.desired : 0;
   const elapsed = nowMs - p.t0;
   const jetReady = renderer.aircraftModelReady();
-  p.loading.setProgress(0.2 + 0.8 * frac, frac >= 0.9 && !jetReady ? 'Loading aircraft…' : 'Loading terrain…');
+  const label = frac >= 0.9 && !jetReady ? 'Loading aircraft…' : 'Loading terrain…';
+  p.loading.setProgress(0.2 + 0.8 * frac, label);
+  briefingIntro?.setProgress(0.2 + 0.8 * frac, label);
   if ((playerEntityId !== NO_ENTITY_ID && frac >= 0.9 && jetReady && elapsed > 800) || elapsed > 20000) {
     p.shown = true;
+    if (briefingIntro) {
+      // The intro covers the loading screen: its Skip / Continue starts the flight.
+      briefingIntro.setReady(() => {
+        stopBriefingIntro();
+        if (pendingStart !== p) return;
+        pendingStart = undefined;
+        resumeFlight();
+      });
+      return;
+    }
     if (devAutoStart) {
       pendingStart = undefined;
       resumeFlight();
@@ -2001,6 +2063,27 @@ function tickShowcase(dtSec: number): void {
 }
 
 function launchMission(missionIn: Mission, opts: { title: string; airStart: boolean; throttle?: number; ownWeather?: boolean }): void {
+  if (pendingIntro && !briefingIntro) {
+    // A campaign mission's intro goes up first and paints its opening (black, the security card):
+    // the set-up below holds the page for a few seconds on a slow PC, and it now does so under the
+    // intro instead of over a frozen briefing screen.
+    const pi = pendingIntro;
+    stopShowcase();
+    destroyCurrentScreen();
+    appState = 'loading';
+    briefingIntro = createBriefingIntro(uiRoot.parentElement ?? document.body, pi.script, {
+      tier: currentQualityTier,
+      audio: { bus: audioBus, baseUrl: SITE_ROOT },
+      grid: briefingGrid(),
+      ...(pi.holdSec !== undefined ? { holdAtSec: pi.holdSec } : {}),
+    });
+    setTimeout(() => {
+      if (pendingIntro !== pi) return;
+      pendingIntro = undefined;
+      launchMission(missionIn, opts);
+    }, 650);
+    return;
+  }
   stopShowcase();
   // A Flight School lesson flies its own (tuned) wind and gusts whatever the sky looks like.
   const mission = opts.ownWeather ? applyDevStart(missionIn) : applyWeatherSetting(applyDevStart(missionIn));
@@ -2168,6 +2251,11 @@ async function boot(): Promise<void> {
         showMainMenu();
       },
     });
+  } else if (devBriefing) {
+    // Dev aid (?briefing=<mission id>[,<t>]): the campaign mission's intro over its loading, as from the Missions screen.
+    const id = devBriefing.id;
+    const own = missionEntry(id);
+    launchFlight({ kind: 'mission', id, difficulty: 'veteran', loadout: {}, ...(own?.transport ? { transport: { ...own.transport } } : {}) }, { intro: true, ...(devBriefing.holdSec !== undefined ? { introHoldSec: devBriefing.holdSec } : {}) });
   } else if (devMissionId()) {
     // Dev aid: feed SimEvents straight to the renderer (e.g. groundImpact / groundKill to look at effects).
     (globalThis as { __injectEvents?: (evs: SimEvent[]) => void }).__injectEvents = (evs) => renderer.ingestEvents(evs);
@@ -2222,6 +2310,8 @@ const pilotInputsScratch: PilotInputs = {
 };
 
 let lastFrameMs = performance.now();
+let introSkipFrames = 0;
+let lastWorldCamera: CameraState | undefined;
 function frame(nowMs: number): void {
   const dtSec = Math.min((nowMs - lastFrameMs) / 1000, 0.25);
   lastFrameMs = nowMs;
@@ -2276,12 +2366,16 @@ function frame(nowMs: number): void {
       hud.setOverlayMode(glancing ? 'helmet' : 'full');
     }
   } else hudGlanceHidden = false;
-  if (renderer && hud) {
+  // Under the mission intro the world is hidden: drawn one frame in four (terrain still streams and
+  // uploads), so the intro and the loading get the time on a slow PC.
+  const underIntro = briefingIntro?.covering() === true;
+  if (renderer && hud && (!underIntro || ++introSkipFrames % 4 === 0 || !lastWorldCamera)) {
     const camera: CameraState = renderer.renderFrame(nowMs);
+    lastWorldCamera = camera;
     if (appState === 'gameplay') ambience.listen(camera, podView, CAMERA_MODE_CYCLE[cameraModeIndex] === 'flyby');
     hud.renderFrame(nowMs, camera);
     chunkManager?.update(camera.worldPos, currentQualityTier);
-  }
+  } else if (lastWorldCamera) chunkManager?.update(lastWorldCamera.worldPos, currentQualityTier);
   requestAnimationFrame(frame);
 }
 

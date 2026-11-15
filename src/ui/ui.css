@@ -551,6 +551,30 @@ a.tj-link { color: var(--tj-ink); }
 .tj-op-mini .tj-op-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .tj-op-mini .tj-op-type { background: none; padding: 0; color: #6f7a83; font-size: 11px; letter-spacing: 0.14em; white-space: nowrap; }
 
+/* A campaign (src/core/missions/campaigns.ts): a heading, a line of story, its numbered slots. */
+.tj-camp { display: grid; gap: 10px; max-width: 980px; padding-top: 6px; }
+.tj-camp-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 14px; }
+.tj-camp-region { font: 600 12px/1 var(--tj-display); letter-spacing: 0.26em; text-transform: uppercase; color: var(--tj-accent); }
+.tj-camp-name { font: 700 clamp(22px, 2.4vw, 30px)/1 var(--tj-display); letter-spacing: 0.06em; text-transform: uppercase; color: #fff; }
+.tj-camp-count { margin-left: auto; font: 600 11px/1 var(--tj-display); letter-spacing: 0.18em; text-transform: uppercase; color: #7f8b95; white-space: nowrap; }
+.tj-camp-blurb { margin: 0; color: #b9c2c9; font-size: 15px; max-width: 70ch; }
+/* Three slots a row at 1080p, two on a tablet, one on a phone; the playable one is a full tile. */
+.tj-camp-slots { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr)); gap: 10px; }
+.tj-screen .tj-camp-op { min-height: clamp(170px, 24vh, 230px); }
+.tj-camp-op .tj-op-title { font-size: clamp(26px, 2.4vw, 34px); }
+.tj-screen .tj-camp-slot { display: grid; align-content: start; gap: 8px; padding: 12px 14px; min-height: 120px; }
+.tj-camp-slot .tj-op-row { display: flex; align-items: center; gap: 10px; }
+.tj-camp-slot .tj-op-row > :last-child { margin-left: auto; }
+.tj-camp-slot .tj-op-num { color: #8d9aa5; }
+.tj-camp-slot .tj-op-type { background: none; padding: 0; color: #6f7a83; font-size: 11px; letter-spacing: 0.16em; }
+.tj-camp-slot .tj-op-title { font-size: 22px; }
+.tj-camp-teaser { color: #8f9aa3; font-size: 14px; line-height: 1.35; }
+.tj-camp-soon { font: 600 10px/1 var(--tj-display); letter-spacing: 0.2em; text-transform: uppercase; color: #9aa4ad; border: 1px solid rgba(255, 255, 255, 0.16); padding: 4px 6px; white-space: nowrap; }
+@media (max-width: 600px) {
+  .tj-camp-count { margin-left: 0; width: 100%; }
+  .tj-screen .tj-camp-slot { min-height: 0; }
+}
+
 @media (max-width: 760px) {
   .tj-screen .tj-title { font-size: clamp(30px, 10vw, 40px); }
   .tj-screen .tj-crumb { letter-spacing: 0.14em; font-size: 11px; }
@@ -574,6 +598,71 @@ a.tj-link { color: var(--tj-ink); }
 @media (prefers-reduced-motion: reduce) {
   .tj-screen > .tj-panel { animation: none; }
   .tj-op-art { transition: none; }
+}
+
+/* ---- Mission intro: the war-room briefing (src/briefing/intro.ts) ------------------------- */
+
+.tj-brief { position: absolute; inset: 0; z-index: 20; overflow: hidden; background: #020304; color: #e9edef; font: 400 16px/1.4 var(--tj-font, system-ui); user-select: none; transition: opacity 0.38s ease; }
+.tj-brief--out { opacity: 0; }
+.tj-brief-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+.tj-brief-fade { position: absolute; inset: 0; background: #000; pointer-events: none; }
+.tj-brief-vignette { position: absolute; inset: 0; pointer-events: none; background: radial-gradient(ellipse 75% 70% at 50% 46%, rgba(0, 0, 0, 0) 52%, rgba(0, 0, 0, 0.62) 100%); }
+/* Film grain: a small noise tile (SVG turbulence) jittered a few times a second. */
+.tj-brief-grain {
+  position: absolute; inset: -40px; pointer-events: none; opacity: 0.11; mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/></filter><rect width='160' height='160' filter='url(%23n)'/></svg>");
+  animation: tj-brief-grain 0.5s steps(4) infinite;
+}
+@keyframes tj-brief-grain { 0% { transform: translate(0, 0); } 25% { transform: translate(-17px, 9px); } 50% { transform: translate(11px, -21px); } 75% { transform: translate(-7px, 15px); } 100% { transform: translate(0, 0); } }
+.tj-brief-bar { position: absolute; left: 0; right: 0; background: #000; pointer-events: none; }
+.tj-brief-bar--top { top: 0; }
+.tj-brief-bar--bottom { bottom: 0; }
+
+/* Cards: the opening security card (centre), the mission card (lower left). */
+.tj-brief-card { position: absolute; pointer-events: none; opacity: 0; --tj-brief-reveal: 1; }
+.tj-brief-card--classified { left: 50%; top: 50%; transform: translate(-50%, -50%); text-align: center; display: grid; gap: 10px; justify-items: center; padding: 34px 64px; background: radial-gradient(ellipse closest-side, rgba(0, 0, 0, 0.82), rgba(0, 0, 0, 0)); }
+.tj-brief-card--classified .tj-brief-card-line--0 {
+  font: 700 clamp(13px, 1.4vw, 17px)/1 var(--tj-mono); letter-spacing: 0.5em; text-transform: uppercase; color: #ff6a55;
+  border: 1px solid rgba(255, 106, 85, 0.7); padding: 7px 10px 7px 16px;
+}
+.tj-brief-card--classified .tj-brief-card-line--1 { font: 500 clamp(12px, 1.2vw, 15px)/1 var(--tj-mono); letter-spacing: 0.32em; text-transform: uppercase; color: #9fb0b8; }
+.tj-brief-card--classified .tj-brief-card-line--2 {
+  font: 700 clamp(30px, 5.4vw, 68px)/1 var(--tj-display); letter-spacing: calc(0.08em + 0.3em * (1 - var(--tj-brief-reveal))); text-transform: uppercase; color: #fff;
+  text-shadow: 0 0 28px rgba(0, 0, 0, 0.9);
+}
+.tj-brief-card--mission { left: max(16px, 6vw); bottom: max(118px, 22vh); display: grid; gap: 6px; border-left: 3px solid var(--tj-accent); padding: 4px 0 4px 16px; max-width: calc(100% - 32px); }
+.tj-brief-card--mission .tj-brief-card-line--0 { font: 600 clamp(12px, 1.2vw, 15px)/1 var(--tj-display); letter-spacing: 0.34em; text-transform: uppercase; color: var(--tj-accent); }
+.tj-brief-card--mission .tj-brief-card-line--1 { font: 700 clamp(32px, 4.6vw, 62px)/0.95 var(--tj-display); letter-spacing: 0.05em; text-transform: uppercase; color: #fff; text-shadow: 0 2px 24px rgba(0, 0, 0, 0.8); }
+.tj-brief-card--mission .tj-brief-card-line--2, .tj-brief-card--mission .tj-brief-card-line--3 { font: 500 clamp(11px, 1.1vw, 14px)/1.3 var(--tj-mono); letter-spacing: 0.14em; text-transform: uppercase; color: #c8d2d7; }
+
+.tj-brief-stamp { position: absolute; left: max(16px, 5vw); top: max(18px, 9vh); white-space: pre; font: 500 clamp(11px, 1.15vw, 14px)/1.6 var(--tj-mono); letter-spacing: 0.18em; color: #dfe7ea; text-shadow: 0 0 10px rgba(0, 0, 0, 0.9); pointer-events: none; }
+
+.tj-brief-sub {
+  position: absolute; left: 50%; bottom: max(40px, 11vh); transform: translateX(-50%); width: min(880px, calc(100% - 32px)); margin: 0; text-align: center;
+  font: 500 clamp(16px, 1.6vw, 22px)/1.4 var(--tj-font, system-ui); color: #f3f5f6; text-shadow: 0 1px 2px #000, 0 0 16px rgba(0, 0, 0, 0.9); pointer-events: none; min-height: 2.8em;
+}
+
+.tj-brief-status { position: absolute; right: max(16px, 4vw); top: max(18px, 9vh); display: grid; gap: 6px; justify-items: end; font: 500 11px/1 var(--tj-mono); letter-spacing: 0.16em; text-transform: uppercase; color: rgba(220, 230, 234, 0.55); pointer-events: none; }
+.tj-brief-status-track { width: 120px; height: 2px; background: rgba(255, 255, 255, 0.14); }
+.tj-brief-status-bar { display: block; height: 100%; width: 0; background: rgba(255, 154, 31, 0.75); transition: width 0.3s ease; }
+.tj-brief-status--ready .tj-brief-status-track { display: none; }
+.tj-brief-skip, .tj-brief-continue {
+  position: absolute; right: max(16px, 4vw); bottom: max(18px, 4vh); background: rgba(6, 8, 10, 0.4); border: 1px solid rgba(255, 255, 255, 0.22); color: #e9edef; cursor: pointer;
+  font: 600 13px/1 var(--tj-display); letter-spacing: 0.24em; text-transform: uppercase; padding: 10px 14px 10px 18px;
+}
+.tj-brief-skip:hover, .tj-brief-skip:focus-visible { border-color: var(--tj-accent); color: #fff; outline: none; }
+.tj-brief-continue { left: 50%; right: auto; transform: translateX(-50%); bottom: max(28px, 5vh); font-size: clamp(16px, 1.5vw, 20px); padding: 12px 26px 12px 30px; color: var(--tj-primary-ink, #111); background: var(--tj-accent); border-color: var(--tj-accent); animation: tj-brief-in 0.5s ease both; }
+.tj-brief-continue::after { content: "  ›"; }
+@keyframes tj-brief-in { from { opacity: 0; transform: translate(-50%, 8px); } to { opacity: 1; transform: translate(-50%, 0); } }
+.tj-brief-skip[hidden], .tj-brief-continue[hidden] { display: none; }
+@media (max-width: 600px) {
+  .tj-brief-sub { bottom: max(64px, 12vh); font-size: 16px; }
+  .tj-brief-card--mission { bottom: max(150px, 28vh); }
+  .tj-brief-status { top: 14px; }
+  .tj-brief-stamp { top: 14px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tj-brief-grain { animation: none; }
 }
 
 /* ---- On-screen buttons in flight (src/ui/actionBar.ts) ------------------------------------ */

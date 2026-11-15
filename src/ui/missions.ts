@@ -11,6 +11,7 @@ import type { AircraftDefinition } from '../contracts/aircraft';
 import type { ScreenHandle } from '../contracts/ui';
 import type { BaseInfo, MissionEntry } from '../core/missions/catalogue';
 import { LOCKED_NOTE, UNTESTED_BADGE, UNTESTED_NOTE, missionKind, missionLocked } from '../core/missions/catalogue';
+import { CAMPAIGNS, campaignMissionIds, campaignSlotStates, type Campaign } from '../core/missions/campaigns';
 import { mountScreen } from './screenHandle';
 import { button, field, h, keyCap, lockTag, menuKeys, segmented, shell } from './kit';
 import duelArt from './art/op-duel.webp';
@@ -40,13 +41,16 @@ export function createMissionList(
   opts: { missions: readonly MissionEntry[]; bases: readonly BaseInfo[]; progress: Readonly<Record<string, MissionProgress>> },
   cb: { onSelect(id: string): void; onBack(): void }
 ): ScreenHandle {
-  const open = opts.missions.filter((m) => !missionLocked(m.id) && !opts.bases.find((b) => b.id === m.baseId)?.locked);
-  const locked = opts.missions.filter((m) => !open.includes(m));
+  // A campaign's missions are listed in their campaign (below), not with the others.
+  const inCampaign = new Set<string>(campaignMissionIds());
+  const missions = opts.missions.filter((m) => !inCampaign.has(m.id));
+  const open = missions.filter((m) => !missionLocked(m.id) && !opts.bases.find((b) => b.id === m.baseId)?.locked);
+  const locked = missions.filter((m) => !open.includes(m));
   const s = shell({ title: 'Missions', eyebrow: 'Punjab · Himalaya', sub: 'Take off from Bhisiana, the enemy already on its way, or fly a C-17 into the Himalaya.', back: { onClick: () => cb.onBack() } });
   // Not 'tj-missions': that is the loadout's preset-tile grid (ui.css), and on the screen root it
   // turned the whole screen into a four-column grid with the panel squeezed into the first column.
   s.root.classList.add('tj-mission-select');
-  const tiles = open.map((m, i) => {
+  const opTile = (m: MissionEntry, num: string): HTMLElement => {
     const base = opts.bases.find((b) => b.id === m.baseId);
     const p = opts.progress[m.id];
     const status = p?.completed ? h('span', { className: 'tj-badge tj-badge--ok', text: p.bestSec !== undefined ? `Done · ${formatDuration(p.bestSec)}` : 'Done' }) : m.recommended ? h('span', { className: 'tj-op-first', text: 'Fly this one first' }) : h('span', { className: 'tj-badge', text: 'Not flown' });
@@ -55,7 +59,7 @@ export function createMissionList(
       'button',
       { className: 'tj-card tj-op', attrs: { type: 'button', 'data-mission': m.id } },
       art ? h('img', { className: 'tj-op-art', attrs: { src: art, alt: '', loading: 'lazy', decoding: 'async' } }) : false,
-      h('span', { className: 'tj-op-top' }, h('span', { className: 'tj-op-num', text: String(i + 1).padStart(2, '0') }), h('span', { className: 'tj-op-type', text: missionKind(m) }), status),
+      h('span', { className: 'tj-op-top' }, h('span', { className: 'tj-op-num', text: num }), h('span', { className: 'tj-op-type', text: missionKind(m) }), status),
       h(
         'span',
         { className: 'tj-op-main' },
@@ -67,7 +71,39 @@ export function createMissionList(
     );
     tile.addEventListener('click', () => cb.onSelect(m.id));
     return tile;
-  });
+  };
+  const tiles = open.map((m, i) => opTile(m, String(i + 1).padStart(2, '0')));
+  function campaignSection(c: Campaign): HTMLElement {
+    const states = campaignSlotStates(c, opts.progress, (id) => !missionLocked(id) && opts.missions.some((m) => m.id === id));
+    const cards = c.slots.map((slot, i) => {
+      const m = slot.missionId ? opts.missions.find((x) => x.id === slot.missionId) : undefined;
+      const num = String(slot.slot).padStart(2, '0');
+      if (states[i] === 'open' && m) {
+        const tile = opTile(m, num);
+        tile.classList.add('tj-camp-op');
+        return tile;
+      }
+      const soon = states[i] === 'soon';
+      return h(
+        'div',
+        {
+          className: `tj-card tj-camp-slot tj-locked${soon ? ' tj-camp-slot--soon' : ''}`,
+          attrs: { 'data-slot': String(slot.slot), ...(slot.missionId ? { 'data-mission': slot.missionId } : {}), 'aria-disabled': 'true', title: soon ? 'Coming soon' : 'Fly the mission before it to unlock' },
+        },
+        h('span', { className: 'tj-op-row' }, h('span', { className: 'tj-op-num', text: num }), h('span', { className: 'tj-op-type', text: slot.aircraft }), soon ? h('span', { className: 'tj-camp-soon', text: 'Coming soon' }) : lockTag()),
+        h('span', { className: 'tj-op-title', text: slot.title }),
+        h('span', { className: 'tj-camp-teaser', text: slot.teaser })
+      );
+    });
+    return h(
+      'section',
+      { className: 'tj-camp', attrs: { 'data-campaign': c.id, 'aria-label': `${c.region}: ${c.name}` } },
+      h('div', { className: 'tj-camp-head' }, h('span', { className: 'tj-camp-region', text: `Campaign · ${c.region}` }), h('span', { className: 'tj-camp-name', text: c.name }), h('span', { className: 'tj-camp-count', text: `${c.slots.filter((x) => x.missionId).length} of ${c.slots.length} missions ready` })),
+      h('p', { className: 'tj-camp-blurb', text: c.blurb }),
+      h('div', { className: 'tj-camp-slots' }, ...cards)
+    );
+  }
+  const campaigns = CAMPAIGNS.map(campaignSection);
   const lockedTiles = locked.map((m) =>
     h(
       'div',
@@ -78,6 +114,7 @@ export function createMissionList(
   );
   s.body.append(
     h('div', { className: 'tj-ops' }, ...tiles),
+    ...campaigns,
     ...(lockedTiles.length === 0 ? [] : [h('section', { className: 'tj-ops-more', attrs: { 'aria-label': 'Locked missions' } }, h('div', { className: 'tj-ops-more-head', text: `Locked · ${LOCKED_NOTE}` }), h('div', { className: 'tj-ops-locked' }, ...lockedTiles))])
   );
   const handle = mountScreen(container, s.root);
@@ -101,14 +138,14 @@ export interface TransportBriefing {
 
 export function createBriefing(
   container: HTMLElement,
-  opts: { entry: MissionEntry; base: BaseInfo | undefined; index: number; def: AircraftDefinition; difficulty: AiDifficulty; loadout: LoadoutSelection; keys: BriefingKeys; transport?: TransportBriefing },
+  opts: { entry: MissionEntry; base: BaseInfo | undefined; index: number; def: AircraftDefinition; difficulty: AiDifficulty; loadout: LoadoutSelection; keys: BriefingKeys; transport?: TransportBriefing; eyebrow?: string },
   cb: { onStart(difficulty: AiDifficulty, loadout: LoadoutSelection, transport?: TransportLoad): void; onBack(): void }
 ): ScreenHandle {
   if (opts.transport) return createTransportBriefing(container, { ...opts, transport: opts.transport }, cb);
   let difficulty = opts.difficulty;
   let loadout = opts.loadout;
   const m = opts.entry;
-  const s = shell({ title: m.title, eyebrow: `Mission ${String(opts.index + 1).padStart(2, '0')} · ${missionKind(m)} · ${opts.base?.name ?? ''}`, back: { label: 'Missions', onClick: () => cb.onBack() }, crumb: ['Missions', 'Briefing'] });
+  const s = shell({ title: m.title, eyebrow: opts.eyebrow ?? `Mission ${String(opts.index + 1).padStart(2, '0')} · ${missionKind(m)} · ${opts.base?.name ?? ''}`, back: { label: 'Missions', onClick: () => cb.onBack() }, crumb: ['Missions', 'Briefing'] });
   s.root.classList.add('tj-briefing');
 
   const k = opts.keys;
@@ -189,13 +226,13 @@ export function createBriefing(
 /** The briefing for a transport mission (no difficulty: no enemy aircraft): situation, how to drop, the load. */
 function createTransportBriefing(
   container: HTMLElement,
-  opts: { entry: MissionEntry; base: BaseInfo | undefined; index: number; difficulty: AiDifficulty; loadout: LoadoutSelection; transport: TransportBriefing },
+  opts: { entry: MissionEntry; base: BaseInfo | undefined; index: number; difficulty: AiDifficulty; loadout: LoadoutSelection; transport: TransportBriefing; eyebrow?: string },
   cb: { onStart(difficulty: AiDifficulty, loadout: LoadoutSelection, transport?: TransportLoad): void; onBack(): void }
 ): ScreenHandle {
   const t = opts.transport;
   let load = t.load;
   const m = opts.entry;
-  const s = shell({ title: m.title, eyebrow: `Mission ${String(opts.index + 1).padStart(2, '0')} · ${missionKind(m)} · ${opts.base?.name ?? ''}`, back: { label: 'Missions', onClick: () => cb.onBack() }, crumb: ['Missions', 'Briefing'] });
+  const s = shell({ title: m.title, eyebrow: opts.eyebrow ?? `Mission ${String(opts.index + 1).padStart(2, '0')} · ${missionKind(m)} · ${opts.base?.name ?? ''}`, back: { label: 'Missions', onClick: () => cb.onBack() }, crumb: ['Missions', 'Briefing'] });
   s.root.classList.add('tj-briefing');
   const k = t.keys;
   const row = (...parts: (HTMLElement | string)[]): HTMLElement => h('div', { className: 'tj-row' }, ...parts.map((p) => (typeof p === 'string' ? h('span', { text: p }) : p)));

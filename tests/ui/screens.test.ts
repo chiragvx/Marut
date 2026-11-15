@@ -383,6 +383,32 @@ describe('locked content', () => {
     expect(onSelect.mock.calls.map((c) => c[0])).toEqual(['border-duel', 'border-strike', 'himalaya-airdrop']);
   });
 
+  it('groups the Himalaya missions as a campaign: Simikot Lifeline open in slot 2, the other five coming soon', () => {
+    const onSelect = vi.fn();
+    const list = makeContainer();
+    createMissionList(list, { missions: MISSIONS, bases: BASES, progress: {} }, { onSelect, onBack: noop });
+    const camp = list.querySelector<HTMLElement>('[data-campaign="himalaya"]')!;
+    expect(camp.textContent).toContain('Operation Him Setu');
+    // In the campaign, not with the border missions.
+    expect(list.querySelector('.tj-ops [data-mission="himalaya-airdrop"]')).toBeNull();
+    const cards = Array.from(camp.querySelectorAll<HTMLElement>('.tj-camp-slots > *'));
+    expect(cards).toHaveLength(6);
+    expect(cards[1]!.dataset.mission).toBe('himalaya-airdrop');
+    expect(cards[1]!.classList.contains('tj-locked')).toBe(false);
+    const soon = cards.filter((c) => c.classList.contains('tj-camp-slot--soon'));
+    expect(soon.map((c) => c.dataset.slot)).toEqual(['1', '3', '4', '5', '6']);
+    for (const c of soon) {
+      expect(c.dataset.mission).toBeUndefined();
+      expect(c.textContent).toContain('Coming soon');
+      c.click();
+    }
+    expect(onSelect).not.toHaveBeenCalled();
+    cards[1]!.click();
+    expect(onSelect).toHaveBeenCalledWith('himalaya-airdrop');
+    // Free Flight's Himalaya entries are not missions here.
+    expect(list.querySelector('[data-mission="himalaya-free"]')).toBeNull();
+  });
+
   it('shows INS Hansa locked in Free Flight: it cannot be picked, and a saved Hansa setup falls back to Bhisiana', () => {
     const ff = makeContainer();
     const onFly = vi.fn();

@@ -245,6 +245,8 @@ export interface SettingsState {
   aimingHelp?: AimingHelp;
   /** The centre HUD (pitch ladder / horizon, flight-path marker) in the outside views. Absent = on. */
   centreHudOutside?: boolean;
+  /** The cinematic war-room intro before a campaign mission (src/briefing). Absent = on. */
+  missionIntros?: boolean;
   /** Control rates (multipliers 0.5..1.5). Absent = 1 each. */
   controlRates?: { pitch: number; roll: number; yaw: number };
   /** Camera (Settings -> Controls): look speed and zoom speed multipliers (0.3..3), invert the drag's up/down, chase view re-centre delay s (0 = never). Absent = the defaults. */

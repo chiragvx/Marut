@@ -214,6 +214,7 @@ export const createSettingsScreen: CreateSettingsScreen = (container, initial, c
     row('First-flight hints', checkbox('On', current.hintsEnabled ?? true, (v) => { current.hintsEnabled = v; fireChange(); }, { 'data-role': 'hints' })),
     row('On-screen buttons (camera, radar, weapons, gear)', checkbox('On', current.actionBar ?? true, (v) => { current.actionBar = v; fireChange(); }, { 'data-role': 'action-bar' })),
     row('Horizon and flight-path marker in outside views', checkbox('On', current.centreHudOutside ?? true, (v) => { current.centreHudOutside = v; fireChange(); }, { 'data-role': 'centre-hud-outside' })),
+    row('Cinematic briefing before campaign missions', checkbox('On', current.missionIntros ?? true, (v) => { current.missionIntros = v; fireChange(); }, { 'data-role': 'mission-intros' })),
     row('Bombing aiming help', select(AIMING_HELP_OPTIONS, current.aimingHelp ?? 'cues', (v) => { current.aimingHelp = v; fireChange(); }, { 'data-action': 'aiming-help' })),
     h('p', { className: 'tj-note', text: 'How much the HUD helps you aim bombs and rockets. Off shows only what to do next (STEER, HOLD, RELEASE). Cues adds a hint line and a release tone. Full also draws where the bomb will land on the ground, and its fall.' })
   );

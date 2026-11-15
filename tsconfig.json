@@ -16,5 +16,5 @@
     "outDir": "dist-ts-check"
   },
   "include": ["src", "tests", "tools"],
-  "exclude": ["src/core/sim.worker.ts", "src/terrain/terrain.worker.ts", "src/render/detailTextures.worker.ts"]
+  "exclude": ["src/core/sim.worker.ts", "src/terrain/terrain.worker.ts", "src/render/detailTextures.worker.ts", "src/briefing/map.worker.ts"]
 }
