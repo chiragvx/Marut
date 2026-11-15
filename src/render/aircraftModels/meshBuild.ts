@@ -48,6 +48,8 @@ export const PART = {
   gunmetal: 29,
   /** Stores: medium grey paint (targeting pod, HAMMER kit, access panels). */
   podGrey: 30,
+  /** Airdrop loads: kraft paper honeycomb and webbing (tan). */
+  cargoTan: 31,
 } as const;
 
 /** Monotone cubic through (xs ascending, ys). */

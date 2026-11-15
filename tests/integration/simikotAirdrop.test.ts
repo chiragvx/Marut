@@ -19,6 +19,11 @@ import {
   SnapshotHud,
   SnapshotHudAirdrop,
   WarningBit,
+  EntityFlag,
+  EntityKind,
+  STORE_IDS,
+  type EntityId,
+  type EntityState,
   type AirdropLandedEvent,
   type Mission,
   type PilotInputs,
@@ -27,7 +32,8 @@ import {
 import { buildWorldDependencies, createWorld } from '../../src/core';
 import { resolveBuiltinMission } from '../../src/core/missions';
 import { missionLocked, MISSIONS, PLAYABLE_MISSIONS } from '../../src/core/missions/catalogue';
-import { predictCdsDrop } from '../../src/core/airdrop';
+import { CDS, cdsRollOut, predictCdsDrop } from '../../src/core/airdrop';
+import { Quat } from '../../src/math';
 import { dropBeamAt, dropPathAltM, newDropBeamState } from '../../src/core/dropBeam';
 import { c17Definition } from '../../src/aircraft/c17Definition';
 import { createMissionScript } from '../../src/script';
@@ -93,21 +99,33 @@ function flyDrop(w: ReturnType<typeof runInWorld>, iasKt: number, release: (s: {
   const landed: AirdropLandedEvent[] = [];
   let released = false;
   let releaseIas = 0;
+  let releasedTick = -1;
   let throttle = 0.8;
   for (let i = 0; i < Math.round(150 / SIM_DT_SEC); i++) {
     const s = world.getEntityState(id);
     const tel = world.getTelemetry(id);
-    if (!s || !s.alive || !tel) break;
+    if (!s || !s.alive || !tel) {
+      // The jet flew on into the hills after the release (the test flies it straight on): the loads still come down.
+      if (!released) break;
+      world.stepOnce();
+      const n = world.drainEvents(events);
+      for (let k = 0; k < n; k++) if (events[k]!.type === 'airdropLanded') landed.push(events[k] as AirdropLandedEvent);
+      if (landed.length >= 4) break;
+      continue;
+    }
     const inputs = baseInputs();
     inputs.rampOpen = true;
     inputs.flapLever = 2;
     if (tel.iasMps > 10) throttle = Math.min(1, Math.max(0.05, throttle + (iasKt * KT - tel.iasMps) * 0.004));
     inputs.throttle = released ? 1 : throttle;
-    inputs.pitch = Math.max(-0.5, Math.min(0.5, ((released ? holdY + 300 : holdY) - s.pos.y) * 0.006 - s.vel.y * 0.04));
+    // Level through the roll-out (the stick takes ~4 s to leave), then climb away.
+    const climbing = released && (i - releasedTick) * SIM_DT_SEC > 5;
+    inputs.pitch = Math.max(-0.5, Math.min(0.5, ((climbing ? holdY + 300 : holdY) - s.pos.y) * 0.006 - s.vel.y * 0.04));
     if (!released && (s.rampPos ?? 0) >= 0.99 && release(s)) {
       inputs.launch = true;
       released = true;
       releaseIas = tel.iasMps;
+      releasedTick = i;
     }
     world.setPlayerInput(id, inputs);
     world.stepOnce();
@@ -122,11 +140,11 @@ function flyDrop(w: ReturnType<typeof runInWorld>, iasKt: number, release: (s: {
 }
 
 /** Release on the CARP: when a stick released now would land on the DZ (the mission's green light). */
-function onCarp(wind: { x: number; y: number; z: number }) {
+function onCarp(wind: { x: number; y: number; z: number }, earlyM = 0) {
   return (s: { pos: { x: number; y: number; z: number }; vel: { x: number; y: number; z: number } }): boolean => {
     const hit = predictCdsDrop(s.pos, s.vel, DZ_GROUND_M, wind);
     const gs = Math.hypot(s.vel.x, s.vel.z);
-    return ((DZ.x - hit.x) * s.vel.x + (DZ.z - hit.z) * s.vel.z) / gs <= 0;
+    return ((DZ.x - hit.x) * s.vel.x + (DZ.z - hit.z) * s.vel.z) / gs <= earlyM;
   };
 }
 
@@ -456,6 +474,8 @@ describe('Simikot Lifeline (C-17 airdrop)', () => {
     expect(tiles['Passes']).toBe('1');
     expect(tiles['Missiles evaded']).toBe(`${r.launches - r.hits} of ${r.launches}`);
     expect(tiles['Simikot']).toBeUndefined();
+    // Nobody offers a landing at Simikot: the mission just ends.
+    for (const tx of r.said) expect(tx.text).not.toMatch(/\bland\b|landing|runway two eight|runway 28/i);
   }, 90_000);
 
   test('the script runs: brief, glidepath, run-in, a good stick, climb-out, the end', () => {
@@ -540,10 +560,125 @@ describe('Simikot Lifeline (C-17 airdrop)', () => {
     expect(['excellent', 'good']).toContain(gradeDrop(r.distM, r.destroyed, r.landed.length));
   });
 
+  test('A-22 bundles under G-12s: a normal release lands skid first at the canopy sink rate and survives', () => {
+    const w = runInWorld(3000, 150, DROP_KT, { calm: true, rampOpen: true });
+    const r = flyDrop(w, DROP_KT, onCarp({ x: 0, y: 0, z: 0 }), DZ_GROUND_M + 150);
+    expect(r.landed.length).toBe(4);
+    for (const l of r.landed) {
+      expect(l.destroyed).toBe(false);
+      // ~10 m/s under the canopy at 3,000 m (8.5 at sea level), drifting little in calm air.
+      expect(l.impactMps).toBeGreaterThan(8);
+      expect(l.impactMps).toBeLessThan(CDS.maxImpactMps);
+    }
+    // Sea level: the G-12's published ~8.5 m/s with 1,000 kg.
+    const sl = predictCdsDrop({ x: 0, y: 300, z: 0 }, { x: 70, y: 0, z: 0 }, 0, { x: 0, y: 0, z: 0 });
+    expect(sl.sinkMps).toBeGreaterThan(7.8);
+    expect(sl.sinkMps).toBeLessThan(9.2);
+  });
+
+  test('the stick rolls out of the ramp in sequence, ~0.5 s apart, and lands spread along the track; the loads stay on the ground with their canopies', () => {
+    // The roll-out: the aftmost first, the rest at decreasing intervals, all within ~4 s.
+    const outs = [0, 1, 2, 3].map((i) => cdsRollOut(i));
+    for (let i = 1; i < 4; i++) {
+      const gap = outs[i]!.sec - outs[i - 1]!.sec;
+      expect(gap).toBeGreaterThan(0.35);
+      expect(gap).toBeLessThan(0.8);
+    }
+    expect(outs[0]!.sec).toBeGreaterThan(1.5);
+    expect(outs[3]!.sec).toBeLessThan(4.5);
+    // Steeper deck, faster out.
+    expect(cdsRollOut(0, 0.17).sec).toBeLessThan(outs[0]!.sec);
+
+    const w = runInWorld(3000, 150, DROP_KT, { calm: true, rampOpen: true });
+    const { world, id } = w;
+    const code = STORE_IDS.indexOf('cds-bundle');
+    const loads = (): EntityState[] => {
+      const out: EntityState[] = [];
+      for (let e = 0; e < 4096; e++) {
+        const st = world.getEntityState(e as EntityId);
+        if (st && st.alive && st.kind === EntityKind.Effect && st.stores === code) out.push(st);
+      }
+      return out;
+    };
+    const snap = new Float64Array(SNAPSHOT_FLOATS);
+    const left = (): number => {
+      world.writeSnapshot(snap);
+      return snap[HUD_BLOCK_START + HUD_EXT_BASE + HUD_AIRDROP_OFFSET + SnapshotHudAirdrop.LEFT]!;
+    };
+    const exitAt: number[] = [];
+    const events: SimEvent[] = new Array(4096);
+    const landed: AirdropLandedEvent[] = [];
+    let releasedAt = -1;
+    let inHoldAtRelease = 0;
+    let prevLeft = 16;
+    const carp = onCarp({ x: 0, y: 0, z: 0 });
+    for (let i = 0; i < Math.round(60 / SIM_DT_SEC) && landed.length < 4; i++) {
+      const t = i * SIM_DT_SEC;
+      const s = world.getEntityState(id)!;
+      const inp = baseInputs();
+      inp.rampOpen = true;
+      inp.flapLever = 2;
+      inp.throttle = 0.7;
+      inp.pitch = Math.max(-0.5, Math.min(0.5, (DZ_GROUND_M + 150 - s.pos.y) * 0.006 - s.vel.y * 0.04));
+      if (releasedAt < 0 && carp(s)) {
+        inp.launch = true;
+        releasedAt = t;
+      }
+      world.setPlayerInput(id, inp);
+      world.stepOnce();
+      if (releasedAt >= 0 && inHoldAtRelease === 0) {
+        // Just released: four bundles on the rollers, in the hold behind the jet's centre, moving with it.
+        const l = loads();
+        inHoldAtRelease = l.length;
+        const jet = world.getEntityState(id)!;
+        for (const b of l) {
+          expect(Math.hypot(b.pos.x - jet.pos.x, b.pos.y - jet.pos.y, b.pos.z - jet.pos.z)).toBeLessThan(25);
+          expect(Math.hypot(b.vel.x - jet.vel.x, b.vel.z - jet.vel.z)).toBeLessThan(1);
+        }
+      }
+      if (releasedAt >= 0) {
+        const n = left();
+        if (n < prevLeft) exitAt.push(t - releasedAt);
+        prevLeft = n;
+      }
+      const n = world.drainEvents(events);
+      for (let k = 0; k < n; k++) if (events[k]!.type === 'airdropLanded') landed.push(events[k] as AirdropLandedEvent);
+    }
+    expect(inHoldAtRelease).toBe(4);
+    // Out one at a time: 16 -> 12 in four steps, the first ~2 s after the release.
+    expect(exitAt.length).toBe(4);
+    expect(exitAt[0]!).toBeGreaterThan(1.5);
+    for (let i = 1; i < 4; i++) expect(exitAt[i]! - exitAt[i - 1]!).toBeGreaterThan(0.3);
+    // On the ground in their order along the track, tens of metres apart.
+    expect(landed.length).toBe(4);
+    const hd = (RUN_IN_DEG * Math.PI) / 180;
+    const along = landed.sort((a, b) => a.index - b.index).map((l) => l.pos.x * Math.sin(hd) - l.pos.z * Math.cos(hd));
+    for (let i = 1; i < 4; i++) {
+      expect(along[i]! - along[i - 1]!).toBeGreaterThan(15);
+      expect(along[i]! - along[i - 1]!).toBeLessThan(120);
+    }
+    // They stay: upright on their skids, on the ground, the canopy beside each (OnGround + TailOpen).
+    for (let i = 0; i < 60; i++) {
+      world.setPlayerInput(id, baseInputs());
+      world.stepOnce();
+    }
+    const down = loads();
+    expect(down.length).toBe(4);
+    for (const b of down) {
+      expect(b.flags & EntityFlag.OnGround).toBeTruthy();
+      expect(b.flags & EntityFlag.TailOpen).toBeTruthy();
+      expect(Math.hypot(b.vel.x, b.vel.y, b.vel.z)).toBe(0);
+      const ground = w.deps.sampler.heightAt(b.pos.x, b.pos.z);
+      expect(Math.abs(b.pos.y - CDS.halfHeightM - ground)).toBeLessThan(0.2);
+      const up = Quat.rotate(b.rot, { x: 0, y: 1, z: 0 }, { x: 0, y: 0, z: 0 });
+      expect(up.y).toBeGreaterThan(0.99);
+    }
+  });
+
   test('a stick released far short is a miss, and the mission goes on', () => {
-    const w = runInWorld(3000, 150, DROP_KT);
-    // Released as soon as the ramp is open: well before the CARP.
-    const r = flyDrop(w, DROP_KT, () => true, DZ_GROUND_M + 150);
+    const w = runInWorld(3000, 150, DROP_KT, { rampOpen: true });
+    // Released 600 m before the CARP.
+    const r = flyDrop(w, DROP_KT, onCarp(w.mission.weather.windWorldMps, 600), DZ_GROUND_M + 150);
     expect(r.landed.length).toBe(4);
     expect(gradeDrop(r.distM, r.destroyed, 4)).toBe('miss');
     const s = new SimikotAirdropScript(w.mission.weather.windWorldMps);
@@ -558,17 +693,16 @@ describe('Simikot Lifeline (C-17 airdrop)', () => {
     // Back on the approach: another run-in.
     s.update(frame({ t: 700, player: onPath(9000) }));
     expect(s.currentPhase()).toBe('runin');
-    // The world still has 12 bundles and the jet flying.
+    // The world still has 12 bundles (this test's autopilot just climbs straight on, into the hills; the mission's flies the valley).
     const snap = new Float64Array(SNAPSHOT_FLOATS);
     w.world.writeSnapshot(snap);
     expect(snap[HUD_BLOCK_START + HUD_EXT_BASE + HUD_AIRDROP_OFFSET + SnapshotHudAirdrop.LEFT]).toBe(12);
-    expect(w.world.getEntityState(w.id)!.alive).toBe(true);
   });
 
   test('a stick released too low is wrecked', () => {
-    // 60 m: the canopies are still filling when the bundles hit.
-    const w = runInWorld(1500, 60, DROP_KT, { calm: true, rampOpen: true });
-    const r = flyDrop(w, DROP_KT, onCarp({ x: 0, y: 0, z: 0 }), DZ_GROUND_M + 60);
+    // 45 m: the canopies are still filling when the bundles hit.
+    const w = runInWorld(1500, 45, DROP_KT, { calm: true, rampOpen: true });
+    const r = flyDrop(w, DROP_KT, onCarp({ x: 0, y: 0, z: 0 }), DZ_GROUND_M + 45);
     expect(r.landed.length).toBe(4);
     expect(r.destroyed).toBeGreaterThanOrEqual(3);
     expect(gradeDrop(r.distM, r.destroyed, 4)).toBe('destroyed');

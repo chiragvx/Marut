@@ -1,18 +1,35 @@
 /**
- * src/core/airdrop.ts — container delivery (CDS) off a transport's ramp: a release drops a stick of
- * bundles that leave the ramp one after another with the aircraft's velocity, fall free while the
- * static line pulls the canopy out of its bag, inflate, and come down under their parachutes,
- * drifting with the wind, until they reach the ground: an 'airdropLanded' event each (hit too hard:
- * destroyed). Each bundle is an Effect entity (store code 'cds-bundle'; EntityFlag.TailOpen once
- * its canopy is out) for the renderer; nothing else in the sim sees it.
+ * src/core/airdrop.ts — container delivery (CDS) off a transport's ramp: A-22 cargo bags under G-12
+ * cargo parachutes, released by gravity.
  *
- * Simple physics [E], tuned to the published figures for the G-12 cargo parachute on an A-22
- * container (FM 4-20.103 class numbers): a 1 t load comes down at ~8.5 m/s at sea level, the canopy
- * is fully open ~5 s and ~75 m below the exit (the lines stretch, then it fills: drag grows as the cube
- * of the fill), so 150 m above the ground (500 ft) is a comfortable drop; below ~75 m the loads hit
- * before their canopies are open (fast enough to wreck them). The drift is the wind's (the
- * mission wind plus a gust per bundle). Release speed: 130-150 KIAS is normal; faster, the
- * canopies open unevenly (a random push, more scatter); past 200 KIAS some fail outright.
+ * The load: each bundle is an A-22 (a canvas bag with its webbing on a 48 x 48 in plywood skid board,
+ * a layer of paper honeycomb between the two to soak up the landing; rigged ~1.22 m square and ~1.5 m
+ * tall, up to 2,200 lb / ~1,000 kg) under a G-12 cargo parachute (64 ft / 19.5 m nominal, ~14 m
+ * across inflated; rated 500-2,200 lb, ~28.5 ft/s / 8.7 m/s descent at 2,200 lb at sea level, faster
+ * in thin air: ~10 m/s at Simikot's 3,000 m). Figures: FM 4-20.103 / TM 10-1670-298-20 class
+ * numbers [E: the drag areas are fitted to them].
+ *
+ * The drop: the bundles sit in a row on the rollers, the aftmost a little forward of the ramp's sill.
+ * At the release the crew cuts the restraint with the aircraft a few degrees nose up (CDS.minDeckRad
+ * at least), and the stick rolls aft on its own weight: each bundle accelerates down the floor
+ * (g sin deck - roller friction) and tips over the sill in turn, the first ~2 s after the release and
+ * the rest ~0.5 s apart (they start a bag's length further forward each). While on the rollers a
+ * bundle is an entity riding in the hold (drawn there, moving with the jet). Over the sill it falls
+ * free; its static line pulls the canopy out ~1.4 s later (line stretch); the canopy streams along the airflow and
+ * fills over ~2.5 s (drag growing as the fourth power of the fill), swinging the load under it as it slows.
+ * Fully open ~4 s after the exit and ~60-80 m lower, so 150 m above the ground is a comfortable
+ * drop; below ~55 m the loads hit before their canopies have slowed them and are wrecked.
+ *
+ * The landing: skid first at the canopy's sink rate; the honeycomb crushes and the load survives
+ * (CDS.maxImpactMps). A load whose canopy never opened (released too low, or a streamer from a
+ * release far too fast) hits hard enough to wreck it. Landed loads stay on the ground, upright (a
+ * wrecked one askew), each canopy collapsed and draped downwind beside it: EntityFlag.OnGround
+ * (+ TailOpen when the canopy was out). Each bundle is an Effect entity (store code 'cds-bundle');
+ * nothing else in the sim sees it.
+ *
+ * Release speed: real CDS is flown at ~130-150 KIAS; the game's drop (Simikot Lifeline) is 180 kt
+ * for handling, so the canopies take it; past CDS.roughIasMps they open unevenly (more scatter), past
+ * CDS.failIasMps some fail.
  */
 import type { AirdropLoad, EntityId, EntityState, HeightSampler, Vec3Like } from '../contracts/core';
 import { EntityFlag, EntityKind, NO_ENTITY_ID, STORE_IDS } from '../contracts/core';
@@ -22,35 +39,46 @@ import { createPrng, nextFloat01, nextRange, Quat, type PrngState } from '../mat
 import { isaAtmosphereInto } from './atmosphere';
 
 const KT = 0.514444;
+const DEG = Math.PI / 180;
 
-/** The CDS bundle and its parachute [E]. */
+/** The A-22 bundle, its G-12 parachute and the gravity roll-out [E]. */
 export const CDS = {
-  /** Bundles leave the ramp this far apart (gravity roll-out down the rollers), s. */
-  exitIntervalSec: 0.45,
-  /** And this fast aft, relative to the aircraft, m/s. */
-  exitAftMps: 4,
-  /** Drag area of the falling container, m^2 (a 1.2 m cube, tumbling). */
-  boxCdAM2: 1.6,
-  /** Half its height, m (it lands when its bottom reaches the ground). */
-  halfHeightM: 0.65,
+  /** A-22 rigged: 48 in (1.22 m) skid board, ~1.5 m tall; half its height, m (it lands when its skid reaches the ground). */
+  sizeM: 1.22,
+  halfHeightM: 0.75,
+  /** Bundles stand this far apart on the rollers (a bag and a gap), m. */
+  rollerPitchM: 1.35,
+  /** The aftmost bundle's centre starts this far forward of the sill, m. */
+  firstFromSillM: 2.0,
+  /** The deck angle the stick rolls on: the aircraft's pitch, at least this (the crew raises the nose at the green light), at most that, rad. */
+  minDeckRad: 6 * DEG,
+  maxDeckRad: 12 * DEG,
+  /** Roller friction (rolling resistance as a fraction of the weight). */
+  rollerFriction: 0.02,
+  /** Drag area of the falling container, m^2 (1.22 x 1.22 x 1.5 m, tumbling). */
+  boxCdAM2: 1.7,
   /** Static line: the canopy leaves its bag this long after the exit, s. */
-  deployDelaySec: 1.6,
+  deployDelaySec: 1.4,
   /** And takes this long to fill, s. */
-  inflateSec: 3.4,
-  /** G-12D drag area, m^2: ~8.5 m/s with 1,000 kg at sea level. */
+  inflateSec: 2.6,
+  /** Drawn fully open from this fill on (EntityFlag.TailOpen; before it CanopyFilling). */
+  openDrawnAt: 0.6,
+  /** G-12 drag area, m^2: ~8.5 m/s with 1,000 kg at sea level, ~10 m/s at 3,000 m. */
   canopyCdAM2: 222,
   /** A failed canopy (streamer) still drags this much, m^2. */
   streamerCdAM2: 12,
-  /** Hitting the ground faster than this (vertically) wrecks the load, m/s. */
+  /** Hitting the ground faster than this (vertically) wrecks the load (the honeycomb takes a normal landing), m/s. */
   maxImpactMps: 13,
   /** Above this release speed the canopies open unevenly, m/s IAS. */
-  roughIasMps: 150 * KT,
+  roughIasMps: 200 * KT,
   /** Above this they can fail, m/s IAS. */
-  failIasMps: 200 * KT,
+  failIasMps: 240 * KT,
   /** Light reserve bundles, kg each (dropped once the rigged load is gone, MissionPlayerStart.airdrop.reserve). */
   reserveKg: 350,
   /** A bundle still falling after this long is removed. */
   maxFallSec: 180,
+  /** Loads left lying on the ground at most (the oldest go first). */
+  maxOnGround: 40,
 } as const;
 
 /** The release envelope a crew flies (the cue the mission and the HUD give). */
@@ -58,10 +86,24 @@ export const AIRDROP_ENVELOPE = {
   minAglM: 100,
   idealAglM: 150,
   maxAglM: 300,
-  minIasMps: 125 * KT,
-  idealIasMps: 140 * KT,
-  maxIasMps: 155 * KT,
+  minIasMps: 130 * KT,
+  idealIasMps: 180 * KT,
+  maxIasMps: 200 * KT,
 } as const;
+
+/** How hard the stick rolls aft on a deck at `deckRad` (clamped to the CDS range), m/s^2. */
+export function cdsRollAccel(deckRad: number, gravity = 9.80665): number {
+  const d = Math.min(CDS.maxDeckRad, Math.max(CDS.minDeckRad, deckRad));
+  return gravity * (Math.sin(d) - CDS.rollerFriction);
+}
+
+/** When bundle `index` (0 = aftmost, first out) tips over the sill after the release, s, and how fast it is rolling aft then, m/s. */
+export function cdsRollOut(index: number, deckRad = CDS.minDeckRad, gravity = 9.80665): { sec: number; mps: number } {
+  const a = cdsRollAccel(deckRad, gravity);
+  const d = CDS.firstFromSillM + index * CDS.rollerPitchM;
+  const sec = Math.sqrt((2 * d) / a);
+  return { sec, mps: a * sec };
+}
 
 /** One aircraft's airdrop load. */
 interface Hold {
@@ -73,15 +115,8 @@ interface Hold {
   reserve: boolean;
   sticks: number;
   prevPressed: boolean;
-  /** Bundles of the current stick still on the rollers, and when the next one goes. */
+  /** Bundles of the current stick still on the rollers. */
   queued: number;
-  queuedIndex: number;
-  queuedCount: number;
-  queuedReserve: boolean;
-  nextExitSec: number;
-  stickId: number;
-  /** The release conditions (they set the stick's scatter). */
-  releaseIasMps: number;
 }
 
 interface Bundle {
@@ -91,6 +126,18 @@ interface Bundle {
   index: number;
   count: number;
   massKg: number;
+  /** A light reserve bundle (not part of the rigged cargo mass). */
+  reserve: boolean;
+  /** On the rollers in the hold (riding with the aircraft) until it tips over the sill. */
+  riding: boolean;
+  /** Time since the release, while riding; the stick's roll-out acceleration. */
+  rideSec: number;
+  rollAccel: number;
+  /** Distance of its centre forward of the sill at the release, m. */
+  rollFromM: number;
+  /** The release speed (IAS), for the opening. */
+  releaseIasMps: number;
+  /** Time since it left the ramp, s. */
   ageSec: number;
   /** When its canopy leaves the bag and how long it takes to fill (varied per bundle). */
   deployAtSec: number;
@@ -123,10 +170,10 @@ export interface AirdropStatus {
 const predictAtm = { airDensityKgM3: 1.225, soundSpeedMps: 340.29 };
 
 /**
- * Where a stick released now lands (no gusts, the nominal canopy): the centroid of `count` bundles
- * leaving `exitIntervalSec` apart from an aircraft at `pos` flying `vel`, over ground at `groundY`,
- * in `wind`. The mission's release cue (the CARP) and the drop's grade use it. Also returns the fall
- * time and how hard the bundles land (vertical, m/s).
+ * Where a stick released now lands (no gusts, the nominal canopy, the minimum deck angle): the
+ * centroid of `count` bundles rolling out of an aircraft at `pos` flying `vel` (cdsRollOut), over
+ * ground at `groundY`, in `wind`. The mission's release cue (the CARP) and the drop's grade use it.
+ * Also returns the fall time (from the release) and how hard the bundles land (vertical, m/s).
  */
 export function predictCdsDrop(
   pos: Readonly<Vec3Like>,
@@ -139,19 +186,27 @@ export function predictCdsDrop(
 ): { x: number; z: number; fallSec: number; sinkMps: number } {
   const dt = 0.05;
   const sp = Math.hypot(vel.x, vel.z) || 1;
-  // The ramp sill is ~21 m behind the aircraft's reference point (c17Definition airdrop.exitBodyM) and 3 m down.
-  let px = pos.x - (vel.x / sp) * 21;
-  let py = pos.y - 3;
-  let pz = pos.z - (vel.z / sp) * 21;
-  let vx = vel.x - (vel.x / sp) * CDS.exitAftMps;
-  let vy = vel.y - 0.5;
-  let vz = vel.z - (vel.z / sp) * CDS.exitAftMps;
+  // The stick's mean exit: when, and how fast aft.
+  let lag = 0;
+  let aft = 0;
+  for (let i = 0; i < count; i++) {
+    const r = cdsRollOut(i, CDS.minDeckRad, gravity);
+    lag += r.sec / count;
+    aft += r.mps / count;
+  }
+  // The ramp sill is ~21 m behind the aircraft's reference point (c17Definition airdrop.exitBodyM) and 3 m down; the jet flies on meanwhile.
+  let px = pos.x + vel.x * lag - (vel.x / sp) * 21;
+  let py = pos.y + vel.y * lag - 3 + CDS.halfHeightM;
+  let pz = pos.z + vel.z * lag - (vel.z / sp) * 21;
+  let vx = vel.x - (vel.x / sp) * aft;
+  let vy = vel.y - 0.3;
+  let vz = vel.z - (vel.z / sp) * aft;
   let t = 0;
   while (py - CDS.halfHeightM > groundY && t < CDS.maxFallSec) {
     t += dt;
     const open = t <= CDS.deployDelaySec ? 0 : Math.min(1, (t - CDS.deployDelaySec) / CDS.inflateSec);
     isaAtmosphereInto(py, predictAtm);
-    const kd = (0.5 * predictAtm.airDensityKgM3 * (CDS.boxCdAM2 + CDS.canopyCdAM2 * open * open * open)) / massKg;
+    const kd = (0.5 * predictAtm.airDensityKgM3 * (CDS.boxCdAM2 + CDS.canopyCdAM2 * open ** 4)) / massKg;
     let rx = vx - wind.x;
     let ry = vy - wind.y;
     let rz = vz - wind.z;
@@ -166,9 +221,7 @@ export function predictCdsDrop(
     py += vy * dt;
     pz += vz * dt;
   }
-  // The stick's middle bundle leaves (count - 1) / 2 intervals after the first.
-  const lag = ((count - 1) / 2) * CDS.exitIntervalSec;
-  return { x: px + vel.x * lag, z: pz + vel.z * lag, fallSec: t, sinkMps: -vy };
+  return { x: px, z: pz, fallSec: t + lag, sinkMps: -vy };
 }
 
 function gaussian(p: PrngState): number {
@@ -180,6 +233,8 @@ function gaussian(p: PrngState): number {
 export class Airdrops {
   private readonly holds: Hold[] = [];
   private readonly falling: Bundle[] = [];
+  /** Landed loads still lying on the ground (entity ids, oldest first). */
+  private readonly grounded: EntityId[] = [];
   private readonly atm = { airDensityKgM3: 1.225, soundSpeedMps: 340.29 };
   private readonly a = { x: 0, y: 0, z: 0 };
   private readonly b = { x: 0, y: 0, z: 0 };
@@ -188,10 +243,17 @@ export class Airdrops {
   clear(): void {
     this.holds.length = 0;
     this.falling.length = 0;
+    this.grounded.length = 0;
   }
 
+  /** Bundles in the hold rolling out or in the air. */
   get fallingCount(): number {
     return this.falling.length;
+  }
+
+  /** Loads lying on the ground. */
+  get groundedCount(): number {
+    return this.grounded.length;
   }
 
   /** Rigs `load` in `ownerId`'s hold. */
@@ -206,12 +268,6 @@ export class Airdrops {
       sticks: 0,
       prevPressed: false,
       queued: 0,
-      queuedIndex: 0,
-      queuedCount: 0,
-      queuedReserve: false,
-      nextExitSec: 0,
-      stickId: 0,
-      releaseIasMps: 0,
     });
   }
 
@@ -225,9 +281,9 @@ export class Airdrops {
 
   /**
    * The aircraft's release button this tick (level; a rising edge with the ramp open releases a
-   * stick). `iasMps`/`aglM` describe the release (for the event and the scatter).
+   * stick: the restraint is cut and the bundles start rolling). `iasMps`/`aglM` describe the release.
    */
-  input(ownerId: EntityId, pressed: boolean, state: Readonly<EntityState>, iasMps: number, aglM: number, env: Readonly<AirdropEnv>, events: EventQueue): void {
+  input(ownerId: EntityId, pressed: boolean, state: Readonly<EntityState>, iasMps: number, aglM: number, env: Readonly<AirdropEnv>, events: EventQueue, pool: EntityPool): void {
     const h = this.holds.find((x) => x.ownerId === ownerId);
     if (!h) return;
     const edge = pressed && !h.prevPressed;
@@ -238,55 +294,81 @@ export class Airdrops {
     const count = reserve ? h.stick : Math.min(h.stick, h.bundlesLeft);
     if (!reserve) h.bundlesLeft -= count;
     h.sticks += 1;
-    h.stickId = h.sticks;
-    h.queued = count;
-    h.queuedIndex = 0;
-    h.queuedCount = count;
-    h.queuedReserve = reserve;
-    h.nextExitSec = env.simTimeSec;
-    h.releaseIasMps = iasMps;
-    events.push({ type: 'airdropRelease', entityId: ownerId, stickId: h.stickId, count, pos: { x: state.pos.x, y: state.pos.y, z: state.pos.z }, iasMps, aglM, reserve });
+    const stickId = h.sticks;
+    // The deck angle: the aircraft's pitch (its nose's climb), clamped to the roll-out's range.
+    Quat.rotate(state.rot, { x: 1, y: 0, z: 0 }, this.a);
+    const accel = cdsRollAccel(Math.asin(Math.max(-1, Math.min(1, this.a.y))), env.gravityMps2);
+    const headingRad = Math.atan2(state.vel.x, -state.vel.z);
+    for (let i = 0; i < count; i++) {
+      const prng = createPrng((env.seed ^ Math.imul(stickId, 0x9e3779b1) ^ Math.imul(i + 1, 0x85ebca6b)) >>> 0);
+      const id = pool.allocate(EntityKind.Effect, state.team);
+      const s = pool.get(id);
+      if (id === NO_ENTITY_ID || !s) continue;
+      h.queued += 1;
+      this.falling.push({
+        id,
+        ownerId,
+        stickId,
+        index: i,
+        count,
+        massKg: reserve ? CDS.reserveKg : h.bundleKg,
+        reserve,
+        riding: true,
+        rideSec: 0,
+        rollAccel: accel,
+        rollFromM: CDS.firstFromSillM + i * CDS.rollerPitchM,
+        releaseIasMps: iasMps,
+        ageSec: 0,
+        deployAtSec: CDS.deployDelaySec * nextRange(prng, 0.85, 1.2),
+        inflateSec: CDS.inflateSec * nextRange(prng, 0.85, 1.25),
+        failed: false,
+        headingRad,
+        gustX: 0,
+        gustZ: 0,
+        gustSigma: Math.max(0.8, env.gustMps),
+        prng,
+      });
+      this.ride(this.falling[this.falling.length - 1]!, s, state, h.def);
+    }
+    events.push({ type: 'airdropRelease', entityId: ownerId, stickId, count, pos: { x: state.pos.x, y: state.pos.y, z: state.pos.z }, iasMps, aglM, reserve });
   }
 
-  /** Bundles leave the ramps on their turn, and every falling bundle flies one tick. */
+  /** The bundles on the rollers roll aft and tip over the sill in turn; every falling bundle flies one tick; landed ones stay. */
   step(dtSec: number, pool: EntityPool, sampler: HeightSampler, env: Readonly<AirdropEnv>, events: EventQueue): void {
-    for (const h of this.holds) {
-      while (h.queued > 0 && env.simTimeSec >= h.nextExitSec) {
-        const owner = pool.get(h.ownerId);
-        if (!owner || !owner.alive) {
-          h.queued = 0;
-          break;
-        }
-        this.exit(h, owner, pool, env);
-        h.queued -= 1;
-        h.queuedIndex += 1;
-        h.nextExitSec += CDS.exitIntervalSec;
-      }
-    }
     for (let i = this.falling.length - 1; i >= 0; i--) {
       const f = this.falling[i]!;
       const s = pool.get(f.id);
       if (!s || !s.alive) {
         this.falling.splice(i, 1);
+        if (f.riding) this.unqueue(f.ownerId);
+        continue;
+      }
+      if (f.riding) {
+        const owner = pool.get(f.ownerId);
+        const h = this.holds.find((x) => x.ownerId === f.ownerId);
+        if (!owner || !owner.alive || !h) {
+          // The jet is lost with the load aboard.
+          pool.release(f.id);
+          this.falling.splice(i, 1);
+          this.unqueue(f.ownerId);
+          continue;
+        }
+        f.rideSec += dtSec;
+        if (f.rollFromM - 0.5 * f.rollAccel * f.rideSec * f.rideSec > 0) this.ride(f, s, owner, h.def);
+        else this.exit(f, s, owner, h);
         continue;
       }
       this.fly(f, s, dtSec, env);
       const ground = sampler.heightAt(s.pos.x, s.pos.z);
       if (s.pos.y - CDS.halfHeightM <= ground) {
         const impact = Math.hypot(s.vel.x, s.vel.y, s.vel.z);
-        events.push({
-          type: 'airdropLanded',
-          entityId: f.ownerId,
-          stickId: f.stickId,
-          index: f.index,
-          count: f.count,
-          pos: { x: s.pos.x, y: ground, z: s.pos.z },
-          impactMps: impact,
-          destroyed: f.failed || -s.vel.y > CDS.maxImpactMps,
-        });
+        const destroyed = f.failed || -s.vel.y > CDS.maxImpactMps;
+        events.push({ type: 'airdropLanded', entityId: f.ownerId, stickId: f.stickId, index: f.index, count: f.count, pos: { x: s.pos.x, y: ground, z: s.pos.z }, impactMps: impact, destroyed });
         events.push({ type: 'storeImpact', pos: { x: s.pos.x, y: ground, z: s.pos.z }, massKg: f.massKg, fuelKg: 0, speedMps: impact, water: sampler.isWaterAt?.(s.pos.x, s.pos.z) ?? false });
-        pool.release(f.id);
         this.falling.splice(i, 1);
+        this.settle(f, s, ground, destroyed, env);
+        this.grounded.push(f.id);
+        while (this.grounded.length > CDS.maxOnGround) pool.release(this.grounded.shift()!);
       } else if (f.ageSec > CDS.maxFallSec) {
         pool.release(f.id);
         this.falling.splice(i, 1);
@@ -294,57 +376,58 @@ export class Airdrops {
     }
   }
 
-  /** One bundle leaves `owner`'s ramp. */
-  private exit(h: Hold, owner: EntityState, pool: EntityPool, env: Readonly<AirdropEnv>): void {
-    const id = pool.allocate(EntityKind.Effect, owner.team);
-    if (id === NO_ENTITY_ID) return;
-    const s = pool.get(id);
-    if (!s) return;
-    const prng = createPrng((env.seed ^ Math.imul(h.stickId, 0x9e3779b1) ^ Math.imul(h.queuedIndex + 1, 0x85ebca6b)) >>> 0);
-    // The sill, and the aircraft's velocity there, plus the roll-out aft.
-    Quat.rotate(owner.rot, h.def.exitBodyM, this.a);
+  private unqueue(ownerId: EntityId): void {
+    const h = this.holds.find((x) => x.ownerId === ownerId);
+    if (h) h.queued = Math.max(0, h.queued - 1);
+  }
+
+  /** A bundle on the rollers: on the floor, `rollFromM - a t^2 / 2` forward of the sill, moving with the jet. */
+  private ride(f: Bundle, s: EntityState, owner: EntityState, def: AirdropDefinition): void {
+    const d = Math.max(0, f.rollFromM - 0.5 * f.rollAccel * f.rideSec * f.rideSec);
+    this.b.x = def.exitBodyM.x + d;
+    this.b.y = def.exitBodyM.y + CDS.halfHeightM;
+    this.b.z = def.exitBodyM.z;
+    Quat.rotate(owner.rot, this.b, this.a);
     s.pos.x = owner.pos.x + this.a.x;
     s.pos.y = owner.pos.y + this.a.y;
     s.pos.z = owner.pos.z + this.a.z;
-    this.b.x = -CDS.exitAftMps * nextRange(prng, 0.8, 1.2);
-    this.b.y = -0.5;
+    this.b.x = -f.rollAccel * f.rideSec;
+    this.b.y = 0;
     this.b.z = 0;
     Quat.rotate(owner.rot, this.b, this.a);
     s.vel.x = owner.vel.x + this.a.x;
     s.vel.y = owner.vel.y + this.a.y;
     s.vel.z = owner.vel.z + this.a.z;
-    const headingRad = Math.atan2(owner.vel.x, -owner.vel.z);
-    Quat.fromYawPitchRoll(headingRad, 0, 0, s.rot);
+    s.rot.x = owner.rot.x;
+    s.rot.y = owner.rot.y;
+    s.rot.z = owner.rot.z;
+    s.rot.w = owner.rot.w;
     s.omega.x = 0;
     s.omega.y = 0;
     s.omega.z = 0;
     s.stores = this.code;
     s.flags = 0;
-    const massKg = h.queuedReserve ? CDS.reserveKg : h.bundleKg;
-    if (!h.queuedReserve && owner.cargoMassKg !== undefined) owner.cargoMassKg = Math.max(0, owner.cargoMassKg - massKg);
+  }
+
+  /** A bundle tips over the sill: free of the jet, with the jet's velocity and its own roll aft. */
+  private exit(f: Bundle, s: EntityState, owner: EntityState, h: Hold): void {
+    f.rideSec = Math.sqrt((2 * f.rollFromM) / f.rollAccel);
+    this.ride(f, s, owner, h.def);
+    f.riding = false;
+    s.vel.y -= 0.3;
+    h.queued = Math.max(0, h.queued - 1);
+    if (!f.reserve && owner.cargoMassKg !== undefined) owner.cargoMassKg = Math.max(0, owner.cargoMassKg - f.massKg);
     // Too fast: the canopies open late and unevenly (a random push), and past the limit some fail.
-    const rough = Math.max(0, h.releaseIasMps - CDS.roughIasMps);
-    const failChance = h.releaseIasMps > CDS.failIasMps ? Math.min(0.8, (h.releaseIasMps - CDS.failIasMps) / 20) : 0;
+    const rough = Math.max(0, f.releaseIasMps - CDS.roughIasMps);
+    const failChance = f.releaseIasMps > CDS.failIasMps ? Math.min(0.8, (f.releaseIasMps - CDS.failIasMps) / 20) : 0;
     const kick = 0.3 * rough;
-    s.vel.x += kick * gaussian(prng);
-    s.vel.z += kick * gaussian(prng);
-    this.falling.push({
-      id,
-      ownerId: h.ownerId,
-      stickId: h.stickId,
-      index: h.queuedIndex,
-      count: h.queuedCount,
-      massKg,
-      ageSec: 0,
-      deployAtSec: CDS.deployDelaySec * nextRange(prng, 0.85, 1.2) + 0.02 * rough,
-      inflateSec: CDS.inflateSec * nextRange(prng, 0.85, 1.25) * (1 + 0.03 * rough),
-      failed: nextFloat01(prng) < failChance,
-      headingRad,
-      gustX: 0,
-      gustZ: 0,
-      gustSigma: Math.max(0.8, env.gustMps),
-      prng,
-    });
+    s.vel.x += kick * gaussian(f.prng);
+    s.vel.z += kick * gaussian(f.prng);
+    f.deployAtSec += 0.02 * rough;
+    f.inflateSec *= 1 + 0.03 * rough;
+    f.failed = nextFloat01(f.prng) < failChance;
+    f.headingRad = Math.atan2(owner.vel.x, -owner.vel.z);
+    Quat.fromYawPitchRoll(f.headingRad, 0, 0, s.rot);
   }
 
   private fly(f: Bundle, s: EntityState, dt: number, env: Readonly<AirdropEnv>): void {
@@ -355,7 +438,7 @@ export class Airdrops {
     f.gustX += (-f.gustX / tau) * dt + k * gaussian(f.prng);
     f.gustZ += (-f.gustZ / tau) * dt + k * gaussian(f.prng);
     const open = f.ageSec <= f.deployAtSec ? 0 : Math.min(1, (f.ageSec - f.deployAtSec) / f.inflateSec);
-    const canopy = f.failed ? (open > 0 ? CDS.streamerCdAM2 : 0) : CDS.canopyCdAM2 * open * open * open;
+    const canopy = f.failed ? (open > 0 ? CDS.streamerCdAM2 : 0) : CDS.canopyCdAM2 * open ** 4;
     const cdA = CDS.boxCdAM2 + canopy;
     isaAtmosphereInto(s.pos.y, this.atm);
     const kd = (0.5 * this.atm.airDensityKgM3 * cdA) / f.massKg;
@@ -377,10 +460,36 @@ export class Airdrops {
     s.pos.x += s.vel.x * dt;
     s.pos.y += s.vel.y * dt;
     s.pos.z += s.vel.z * dt;
-    // Tumbling a little in free fall, upright under the canopy (drawn above it once it is out).
-    const pitch = open > 0.25 ? 0 : -0.6 * Math.sin(f.ageSec * 3.1);
+    // Tipping off the sill and tumbling a little in free fall; once the canopy is out the load hangs
+    // under it along the airflow (streaming behind at first, swinging under it as it slows).
+    const tumble = -0.6 * Math.sin(f.ageSec * 3.1);
+    let pitch = tumble;
+    if (open > 0) {
+      const along = rx * Math.sin(f.headingRad) - rz * Math.cos(f.headingRad);
+      const flow = Math.max(-1.45, Math.min(1.45, Math.atan2(along, Math.max(0.1, -ry))));
+      const w = Math.min(1, (f.ageSec - f.deployAtSec) / 0.4);
+      pitch = tumble * (1 - w) + flow * w;
+    }
     Quat.fromYawPitchRoll(f.headingRad, pitch, 0, s.rot);
-    if (open > 0.25 && !f.failed) s.flags |= EntityFlag.TailOpen;
-    else s.flags &= ~EntityFlag.TailOpen;
+    s.flags &= ~(EntityFlag.TailOpen | EntityFlag.CanopyFilling);
+    if (open > 0 && !f.failed) s.flags |= open >= CDS.openDrawnAt ? EntityFlag.TailOpen : EntityFlag.CanopyFilling;
+    else if (open > 0) s.flags |= EntityFlag.CanopyFilling;
+  }
+
+  /** On the ground: upright on its skid (a wrecked one crushed and askew), the canopy collapsed downwind of it. */
+  private settle(f: Bundle, s: EntityState, ground: number, destroyed: boolean, env: Readonly<AirdropEnv>): void {
+    // The canopy drapes downwind (the model lays it along the load's +x).
+    const wx = env.windWorldMps.x + f.gustX;
+    const wz = env.windWorldMps.z + f.gustZ;
+    const dx = Math.hypot(wx, wz) > 0.5 ? wx : s.vel.x;
+    const dz = Math.hypot(wx, wz) > 0.5 ? wz : s.vel.z;
+    const yaw = Math.hypot(dx, dz) > 0.01 ? Math.atan2(dx, -dz) : f.headingRad;
+    Quat.fromYawPitchRoll(yaw + nextRange(f.prng, -0.25, 0.25), destroyed ? nextRange(f.prng, -0.3, 0.3) : 0, destroyed ? nextRange(f.prng, 0.25, 0.5) : 0, s.rot);
+    s.pos.y = ground + CDS.halfHeightM - (destroyed ? 0.3 : 0.08);
+    s.vel.x = 0;
+    s.vel.y = 0;
+    s.vel.z = 0;
+    const canopyOut = f.ageSec > f.deployAtSec;
+    s.flags = EntityFlag.OnGround | (canopyOut ? EntityFlag.TailOpen : 0);
   }
 }

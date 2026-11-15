@@ -1255,6 +1255,8 @@ function applyDevStart(mission: Mission): Mission {
       ...(mission.playerStart.loadout ? { loadout: mission.playerStart.loadout } : {}),
       ...(fuelFrac !== undefined ? { fuelFrac } : {}),
       ...(cargoKg !== undefined ? { cargoKg } : {}),
+      // The mission's airdrop rig stays (an air start on a drop's run-in).
+      ...(mission.playerStart.airdrop && aircraftId === mission.playerStart.aircraftId ? { airdrop: mission.playerStart.airdrop } : {}),
       ...(failedEngines !== undefined && failedEngines.length > 0 ? { failedEngines } : {}),
       pos: { x: v[0]!, y: v[1]!, z: v[2]! },
       headingRad: ((v[3] ?? 0) * Math.PI) / 180,

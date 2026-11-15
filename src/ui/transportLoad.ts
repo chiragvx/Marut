@@ -3,7 +3,8 @@
  *
  * Presets for the usual loads (a light training sortie, troops, a heavy airdrop platform, container
  * airdrop bundles, the full payload, a ferry with full tanks), two sliders, fuel and cargo, and the
- * airdrop rig (the cargo as 1 t CDS bundles that the Drop key releases off the open ramp,
+ * airdrop rig (the cargo as 1 t A-22 CDS bundles on G-12 parachutes that roll off the open ramp
+ * in sticks when the Drop key cuts their restraint,
  * src/core/airdrop.ts). It shows what the load does:
  * the fuel in kg and %, the cargo, the take-off weight against MTOW, the CG against the envelope
  * (fraction of MAC), and the speeds a pilot cares about for turning: the clean 1 g stall and the
@@ -27,11 +28,11 @@ export interface TransportLoad {
   presetId?: string;
   fuelFrac: number;
   cargoKg: number;
-  /** The cargo rigged for airdrop as CDS bundles (airdropRig). */
+  /** The cargo rigged for airdrop as A-22 CDS bundles (airdropRig). */
   airdrop?: boolean;
 }
 
-/** A CDS bundle's mass, kg (an A-22 container), and the bundles one release drops (a stick). */
+/** A CDS bundle's mass, kg (an A-22 bag rigged to its 2,200 lb limit, on a G-12), and the bundles one release drops (a stick). */
 export const CDS_BUNDLE_KG = 1000;
 export const CDS_STICK = 4;
 
@@ -54,7 +55,7 @@ export const TRANSPORT_PRESETS: readonly { id: string; label: string; fuelFrac: 
   { id: 'display', label: 'Display', fuelFrac: 0.15, cargoKg: 0 },
   { id: 'troops', label: 'Troops', fuelFrac: 0.6, cargoKg: 12240 },
   { id: 'airdrop', label: 'Heavy drop', fuelFrac: 0.4, cargoKg: 27200 },
-  { id: 'cds', label: 'Airdrop (CDS)', fuelFrac: 0.4, cargoKg: 16000, airdrop: true },
+  { id: 'cds', label: 'Airdrop (CDS, A-22)', fuelFrac: 0.4, cargoKg: 16000, airdrop: true },
   { id: 'max', label: 'Max payload', fuelFrac: 0.53, cargoKg: 77519 },
   { id: 'ferry', label: 'Ferry', fuelFrac: 1, cargoKg: 0 },
 ];
@@ -141,7 +142,7 @@ export function describeTransportLoad(def: AircraftDefinition, load: TransportLo
   const w = transportWeight(def, load);
   const name = TRANSPORT_PRESETS.find((p) => p.id === load.presetId)?.label ?? 'Custom';
   const rig = load.airdrop ? airdropRig(w.cargoKg) : undefined;
-  return `${name} · ${Math.round(load.fuelFrac * 100)}% fuel · ${rig ? `${rig.bundles} CDS bundles` : w.cargoKg > 0 ? `${tText(w.cargoKg)} cargo` : 'no cargo'} · ${tText(w.kg)}`;
+  return `${name} · ${Math.round(load.fuelFrac * 100)}% fuel · ${rig ? `${rig.bundles} A-22 bundles` : w.cargoKg > 0 ? `${tText(w.cargoKg)} cargo` : 'no cargo'} · ${tText(w.kg)}`;
 }
 
 /** The 3D view of the aircraft (the hangar) while the planner is open. */
@@ -252,7 +253,7 @@ export function createTransportLoadEditor(container: HTMLElement, def: AircraftD
     fuelOut.textContent = `${Math.round(load.fuelFrac * 100)}% · ${kgText(w.fuelKg)} kg`;
     cargoOut.textContent = w.cargoKg > 0 ? `${kgText(w.cargoKg)} kg` : 'Empty hold';
     const rig = load.airdrop ? airdropRig(w.cargoKg) : undefined;
-    rigOut.textContent = rig ? `${rig.bundles} × 1 t, ${rig.stick} a pass` : load.airdrop ? 'needs 1 t of cargo' : 'Off';
+    rigOut.textContent = rig ? `${rig.bundles} A-22 × 1 t, ${rig.stick} a pass` : load.airdrop ? 'needs 1 t of cargo' : 'Off';
     wtVal.textContent = w.mtowKg ? `${kgText(w.kg)} / ${kgText(w.mtowKg)} kg` : `${kgText(w.kg)} kg`;
     const scale = w.mtowKg ? Math.max(w.mtowKg * 1.1, w.kg) : w.kg;
     wtFill.style.width = `${((w.kg / scale) * 100).toFixed(1)}%`;

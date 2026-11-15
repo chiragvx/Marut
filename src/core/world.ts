@@ -1118,7 +1118,7 @@ class WorldImpl implements World {
     const pstate = this.pool.get(this.playerEntityIdInternal);
     if (pdrop && pstate) {
       const t = pdrop.telemetry;
-      this.airdrops.input(pstate.id, !!pdrop.inputs.airdropRelease || pdrop.inputs.launch, pstate, t.iasMps, t.altAglM, ade, this.eventQueue);
+      this.airdrops.input(pstate.id, !!pdrop.inputs.airdropRelease || pdrop.inputs.launch, pstate, t.iasMps, t.altAglM, ade, this.eventQueue, this.pool);
     }
     this.airdrops.step(SIM_DT_SEC_LOCAL, this.pool, this.deps.sampler, ade, this.eventQueue);
 

@@ -204,7 +204,7 @@ function createTransportBriefing(
     { className: 'tj-stack', attrs: { style: 'gap: 6px' } },
     row(keyCap(k.dump), 'fuel jettison on / off (stops at the minimum)'),
     row(keyCap(k.flapsDown), keyCap(k.flapsUp), 'flaps down / up: flaps 1/2 for the drop at 180 kt; follow the HUD glidepath needles'),
-    row(keyCap(k.ramp), 'open the ramp, then', keyCap(k.drop), 'releases a stick of four bundles'),
+    row(keyCap(k.ramp), 'open the ramp, then', keyCap(k.drop), 'cuts the restraint: a stick of four bundles rolls out'),
     row(keyCap(k.flare), 'flares')
   );
   const loadName = h('b');
@@ -212,7 +212,7 @@ function createTransportBriefing(
   const renderLoad = (): void => {
     loadName.textContent = describeTransportLoad(t.def, load);
     const rig = load.airdrop ? airdropRig(load.cargoKg) : undefined;
-    loadText.textContent = rig ? `${rig.bundles} CDS bundles of 1 t, ${rig.stick} per pass; light reserve bundles once they are gone.` : 'No airdrop rig: pick Airdrop (CDS) to drop.';
+    loadText.textContent = rig ? `${rig.bundles} A-22 bundles of 1 t on G-12 parachutes, ${rig.stick} per pass; light reserve bundles once they are gone.` : 'No airdrop rig: pick Airdrop (CDS, A-22) to drop.';
   };
   renderLoad();
   const change = button('Change load…', () => openEditor(), 'default', { 'data-action': 'loadout' });

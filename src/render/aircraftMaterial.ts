@@ -345,6 +345,10 @@ const FS = /* glsl */ `
       col = vec3(0.17, 0.175, 0.18);
       ks = 0.35;
       shin = 40.0;
+    } else if (part == 31) {
+      // Airdrop loads: kraft honeycomb, tan webbing.
+      col = vec3(0.6, 0.48, 0.3);
+      ks = 0.04;
     } else if (part == 30) {
       // Store paint: medium grey.
       col = vec3(0.46, 0.48, 0.49);

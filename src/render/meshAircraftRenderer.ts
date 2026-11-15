@@ -252,6 +252,8 @@ export function createMeshAircraftRenderer(root: THREE.Object3D, template: Aircr
   const storeBatches: (StoreBatch | undefined)[] = [];
   const balluteBatches: (StoreBatch | undefined)[] = [];
   const openBatches: (StoreBatch | undefined)[] = [];
+  const fillingBatches: (StoreBatch | undefined)[] = [];
+  const drapedBatches: (StoreBatch | undefined)[] = [];
   const batchesMade: boolean[] = [];
   /** A store's model by code, with this renderer's batches for it made on first use. */
   function storeModel(code: number): StoreModel | undefined {
@@ -261,6 +263,8 @@ export function createMeshAircraftRenderer(root: THREE.Object3D, template: Aircr
       storeBatches[code] = batch(m.geometry, m.kind === 'missile' ? 512 : 192);
       if (m.ballute) balluteBatches[code] = batch(m.ballute, 48);
       if (m.bodyOpen) openBatches[code] = batch(m.bodyOpen, 48);
+      if (m.canopyFilling) fillingBatches[code] = batch(m.canopyFilling, 48);
+      if (m.canopyDraped) drapedBatches[code] = batch(m.canopyDraped, 64);
     }
     return m;
   }
@@ -738,8 +742,12 @@ export function createMeshAircraftRenderer(root: THREE.Object3D, template: Aircr
       qM.set(rot.x, rot.y, rot.z, rot.w);
       mA.makeRotationFromQuaternion(qM).setPosition(pos.x - origin.x, pos.y - origin.y, pos.z - origin.z);
       put(storeBatches[code], mA);
-      // An airdrop bundle's canopy, once it is out.
-      if ((flags & EntityFlag.TailOpen) !== 0 && balluteBatches[code]) put(balluteBatches[code], mA);
+      // An airdrop load's canopy: filling, open, or (landed) collapsed beside it.
+      const open = (flags & EntityFlag.TailOpen) !== 0;
+      if ((flags & EntityFlag.OnGround) !== 0) {
+        if (open) put(drapedBatches[code], mA);
+      } else if (open) put(balluteBatches[code], mA);
+      else if ((flags & EntityFlag.CanopyFilling) !== 0) put(fillingBatches[code], mA);
     },
 
     setHumidity(h) {

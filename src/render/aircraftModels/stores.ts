@@ -34,6 +34,10 @@ export interface StoreModel {
   ballute?: THREE.BufferGeometry;
   /** Retarded bombs whose tail itself opens (Snakeye blades): drawn instead of `geometry` once it has. */
   bodyOpen?: THREE.BufferGeometry;
+  /** Airdrop loads: the canopy half-filled, streaming above the load (EntityFlag.CanopyFilling). */
+  canopyFilling?: THREE.BufferGeometry;
+  /** Airdrop loads on the ground: the canopy collapsed and draped beside the load, along its +x (OnGround + TailOpen). */
+  canopyDraped?: THREE.BufferGeometry;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1043,48 +1047,123 @@ function buildTwinRail(): THREE.BufferGeometry {
 }
 
 /**
- * An A-22 cargo bag (CDS): a 1.2 m container of supplies on its skid board, canvas cover and
- * webbing straps round it (the store frame: x along the track, y up, centred).
+ * An A-22 cargo bag (CDS), rigged (store frame: x along the track, y up, centred; 1.5 m tall, so the
+ * skid is at y = -0.75, src/core/airdrop.ts CDS.halfHeightM): the 48 x 48 in plywood skid board, the
+ * layer of paper honeycomb on it that soaks up the landing, the olive canvas bag of supplies with its
+ * gathered top, and the webbing: two lateral bands round it and two straps each way over it.
  */
 function buildCdsBundle(): THREE.BufferGeometry {
   const parts: THREE.BufferGeometry[] = [
-    box([0, 0.05, 0], [0.6, 0.6, 0.6], PART.bandBrown),
-    // The skid board under it.
-    box([0, -0.6, 0], [0.64, 0.05, 0.64], PART.gunmetal),
+    // Skid board (plywood) and the honeycomb on it (two sheets: the seam between them).
+    box([0, -0.72, 0], [0.61, 0.03, 0.61], PART.bandBrown),
+    box([0, -0.61, 0], [0.575, 0.08, 0.575], PART.cargoTan),
+    box([0, -0.61, 0], [0.58, 0.006, 0.58], PART.bandBrown),
+    // The bag, and its gathered top.
+    box([0, 0.065, 0], [0.59, 0.595, 0.59], PART.bomb),
+    box([0, 0.69, 0], [0.48, 0.035, 0.48], PART.bomb),
   ];
-  // Webbing: two straps each way round it, and the suspension clevis on top.
+  // Lateral bands round the bag.
+  for (const y of [-0.25, 0.32]) parts.push(box([0, y, 0], [0.6, 0.028, 0.6], PART.cargoTan));
+  // Straps over the top, each way, down to the skid.
   for (const t of [-0.3, 0.3]) {
-    parts.push(box([t, 0.05, 0], [0.025, 0.615, 0.615], PART.dark));
-    parts.push(box([0, 0.05, t], [0.615, 0.615, 0.025], PART.dark));
+    parts.push(box([t, 0.0, 0], [0.028, 0.735, 0.605], PART.cargoTan));
+    parts.push(box([0, 0.0, t], [0.605, 0.735, 0.028], PART.cargoTan));
   }
-  parts.push(box([0, 0.7, 0], [0.08, 0.06, 0.08], PART.gunmetal));
   return merge(parts);
 }
 
+/** The four suspension slings from the bag's top corners to the clevis, and the clevis. */
+function cargoSlings(clevis: V3): THREE.BufferGeometry[] {
+  const parts: THREE.BufferGeometry[] = [];
+  for (const sx of [-0.5, 0.5]) for (const sz of [-0.5, 0.5]) parts.push(cylinder([sx, 0.72, sz], clevis, 0.022, PART.cargoTan, 5));
+  parts.push(box(clevis, [0.06, 0.06, 0.06], PART.gunmetal));
+  return parts;
+}
+
+/** Lines from the riser's top to points round the skirt. */
+function canopyLines(from: V3, skirtY: number, R: number, n: number): THREE.BufferGeometry[] {
+  const parts: THREE.BufferGeometry[] = [];
+  for (let k = 0; k < n; k++) {
+    const t = (k / n) * Math.PI * 2;
+    parts.push(cylinder(from, [R * Math.cos(t), skirtY, R * Math.sin(t)], 0.025, PART.dark, 4));
+  }
+  return parts;
+}
+
+/** A canopy of radius profile r(h) (h up from the skirt, 0..H) over the skirt at skirtY, inside and out, olive. */
+function canopyDome(skirtY: number, H: number, r: (h: number) => number, rows = 10): THREE.BufferGeometry[] {
+  const hs = Array.from({ length: rows + 1 }, (_, i) => (H * i) / rows);
+  // Built along x (the loft axis), turned so x is up: makeRotationZ(+90) maps +x to +y.
+  const outer = loft(hs.map((h) => skirtY + h), (y) => circle(0, 0, r(y - skirtY)), 24, PART.bomb);
+  const inner = loft(hs.map((h) => skirtY + h), (y) => circle(0, 0, r(y - skirtY) * 0.99), 24, PART.bomb, { inward: true });
+  const g = merge([outer, inner]);
+  g.applyMatrix4(new THREE.Matrix4().makeRotationZ(Math.PI / 2));
+  return [g];
+}
+
 /**
- * A G-12 cargo parachute, open, above its bundle (store frame, y up): the inflated canopy (~14 m
- * across, a dome with its vent) on its riser and suspension lines (thin strips of the line cone).
+ * A G-12 cargo parachute, open, above its A-22 (store frame, y up): the slings to the clevis, the
+ * riser, the suspension lines (15.5 m, 51 ft) out to the skirt, and the olive canopy (64 ft / 19.5 m
+ * nominal: ~14 m across inflated, a dome with its vent).
  */
 function buildCargoCanopy(): THREE.BufferGeometry {
-  const skirtY = 9.5;
+  const riserTop: V3 = [0, 4.2, 0];
   const R = 7;
-  const H = 4.6;
-  const ys = Array.from({ length: 9 }, (_, i) => skirtY + (H * i) / 8);
-  const r = (y: number): number => Math.max(0.5, R * Math.sqrt(Math.max(0, 1 - ((y - skirtY) / (H * 1.02)) ** 2)));
-  // Built along x (the loft axis), turned so x is up.
-  const outer = loft(ys, (y) => circle(0, 0, r(y)), 20, PART.podGrey);
-  const inner = loft(ys, (y) => circle(0, 0, r(y) * 0.995), 20, PART.podGrey, { inward: true });
-  const parts: THREE.BufferGeometry[] = [outer, inner];
-  // Riser from the clevis, then the lines fanning out to the skirt.
-  parts.push(loft([0.75, 2.2], () => circle(0, 0, 0.04), 6, PART.dark));
-  for (let k = 0; k < 12; k++) {
-    const t0 = (k / 12) * Math.PI * 2;
-    parts.push(loft([2.2, skirtY], (y) => circle(0, 0, 0.05 + ((y - 2.2) / (skirtY - 2.2)) * (R - 0.05)), 12, PART.dark, { arc: [t0, t0 + 0.012] }));
+  const skirtY = 4.2 + 13.8;
+  const H = 5.2;
+  return merge([
+    ...cargoSlings([0, 1.9, 0]),
+    cylinder([0, 1.9, 0], riserTop, 0.045, PART.cargoTan, 6),
+    ...canopyLines(riserTop, skirtY, R, 16),
+    ...canopyDome(skirtY, H, (h) => Math.max(0.55, R * Math.sqrt(Math.max(0, 1 - (h / (H * 1.02)) ** 2)))),
+  ]);
+}
+
+/** The G-12 filling: out of its bag on taut lines, the canopy a long, half-open bulb. */
+function buildCargoCanopyFilling(): THREE.BufferGeometry {
+  const riserTop: V3 = [0, 4.2, 0];
+  const R = 1.6;
+  const skirtY = 4.2 + 15.3;
+  const H = 7.5;
+  return merge([
+    ...cargoSlings([0, 1.9, 0]),
+    cylinder([0, 1.9, 0], riserTop, 0.045, PART.cargoTan, 6),
+    ...canopyLines(riserTop, skirtY, R, 8),
+    ...canopyDome(skirtY, H, (h) => Math.max(0.35, R * (1 + 0.9 * Math.sin((Math.PI * h) / H) ** 0.7) * (1 - 0.75 * (h / H) ** 3)), 12),
+  ]);
+}
+
+/**
+ * A G-12 on the ground after the landing (store frame, ground at y = -0.75): the slings slumped off
+ * the bag, the riser and lines lying out along +x, and the canopy collapsed in folds beyond them, a
+ * pocket of air still trapped near its crown.
+ */
+function buildCargoCanopyDraped(): THREE.BufferGeometry {
+  const g0 = -0.75;
+  const parts: THREE.BufferGeometry[] = [];
+  const clevis: V3 = [1.7, g0 + 0.06, 0];
+  for (const sx of [-0.5, 0.5]) for (const sz of [-0.5, 0.5]) parts.push(cylinder([sx, 0.72, sz], clevis, 0.022, PART.cargoTan, 5));
+  parts.push(box(clevis, [0.06, 0.06, 0.06], PART.gunmetal));
+  parts.push(cylinder(clevis, [4.4, g0 + 0.05, 0.2], 0.045, PART.cargoTan, 6));
+  const x0 = 13.5;
+  const L = 10;
+  const halfW = (x: number): number => 1.2 + 2.2 * Math.sin((Math.PI * Math.min(1, Math.max(0, (x - x0) / L))) ** 0.8);
+  for (let k = 0; k < 10; k++) {
+    const z = -1.6 + (3.2 * k) / 9;
+    parts.push(cylinder([4.4, g0 + 0.04, 0.2], [x0 + 0.2, g0 + 0.05, z * 0.9], 0.02, PART.dark, 4));
   }
-  const g = merge(parts);
-  g.applyMatrix4(new THREE.Matrix4().makeRotationZ(Math.PI / 2));
-  // makeRotationZ(+90) maps +x to +y.
-  return g;
+  const nu = 28;
+  const nv = 10;
+  const raw = grid(nu, nv, (i, j) => {
+    const x = x0 + (L * i) / nu;
+    const v = j / nv - 0.5;
+    const z = 2 * v * halfW(x);
+    const folds = 0.16 * Math.sin(x * 2.3 + v * 3.1) ** 2 + 0.1 * Math.sin(v * 17 + x * 0.7) ** 2;
+    const pocket = 0.75 * Math.exp(-(((x - (x0 + 0.72 * L)) / 2.0) ** 2)) * Math.max(0, 1 - 4 * v * v);
+    return [x, g0 + 0.04 + folds + pocket, z];
+  });
+  parts.push(geom(raw, PART.bomb, () => [0, 1, 0]));
+  return merge(parts);
 }
 
 export interface StoreModels {
@@ -1110,7 +1189,7 @@ function buildStoreModel(id: string): StoreModel | undefined {
   const p = PODS[id];
   if (p) return { kind: 'pod', geometry: id === 'litening' ? buildTargetingPod(p) : id === 'el-l-8222' ? buildJammerPod(p) : buildRocketPod(p), mount: new THREE.Matrix4().makeTranslation(0.1, id === 'litening' ? -(p.dia / 2 + 0.005) : -(0.04 + p.dia / 2), 0) };
   // The airdrop bundle: drawn only falling (an effect entity), its canopy once it is out.
-  if (id === 'cds-bundle') return { kind: 'cargo', geometry: buildCdsBundle(), mount: new THREE.Matrix4(), ballute: buildCargoCanopy() };
+  if (id === 'cds-bundle') return { kind: 'cargo', geometry: buildCdsBundle(), mount: new THREE.Matrix4(), ballute: buildCargoCanopy(), canopyFilling: buildCargoCanopyFilling(), canopyDraped: buildCargoCanopyDraped() };
   return undefined;
 }
 

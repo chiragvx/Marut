@@ -202,6 +202,12 @@ export const EntityFlag = {
   Drone: 1 << 9,
   /** Fuel is being jettisoned (AircraftDefinition.fuelDump): the renderer draws the mist from the outlets. */
   FuelDump: 1 << 10,
+  /**
+   * An airdrop load's parachute is out of its bag and filling (drawn half-open, streaming along the
+   * airflow). With TailOpen: fully open. On a load with OnGround: it has landed (TailOpen there = the
+   * canopy lies collapsed beside it).
+   */
+  CanopyFilling: 1 << 11,
 } as const;
 
 /**
