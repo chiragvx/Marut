@@ -11,7 +11,7 @@
  *
  * Room frame: metres, y up, the map north-up with world x east -> room x, world z south -> room z.
  */
-import { AIRFIELDS, LAKES, PEAKS, VALLEYS, geo } from '../terrain/himalaya/layout';
+import { AIRFIELDS, HUMLA_RIVER, HUMLA_TRIBUTARIES, LAKES, PEAKS, VALLEYS, geo } from '../terrain/himalaya/layout';
 
 /** The world the map shows: the whole 200 km Himalaya theatre, +-100 km about its centre. */
 export const MAP_WORLD_HALF_M = 100_000;
@@ -58,15 +58,15 @@ const lake = (id: string): { lat: number; lon: number } => {
 
 /**
  * The places the briefings can name or point at. Airfields, peaks and lakes are the terrain's own
- * (layout.ts); the villages and posts are placed on the game's (compressed) map along the Humla
- * Karnali, not surveyed. Regions are districts and valleys, never countries.
+ * (layout.ts); the villages and posts sit where they are on the Humla Karnali (layout.ts
+ * HUMLA_RIVER runs through them), at map precision, not surveyed. Regions are districts and valleys, never countries.
  */
 export const PLACES: Readonly<Record<string, Place>> = {
   simikot: { name: 'Simikot', kind: 'airfield', ...airfield('simikot') },
   hilsa: { name: 'Hilsa', kind: 'post', lat: 30.152, lon: 81.336 },
   yari: { name: 'Yari', kind: 'post', lat: 30.112, lon: 81.432 },
   limi: { name: 'Limi', kind: 'post', lat: 30.258, lon: 81.545 },
-  kermi: { name: 'Kermi', kind: 'town', lat: 30.012, lon: 81.676 },
+  kermi: { name: 'Kermi', kind: 'town', lat: 30.018, lon: 81.69 },
   purang: { name: 'Purang', kind: 'airfield', ...airfield('burang') },
   lipulekh: { name: 'Lipulekh', kind: 'pass', lat: 30.234, lon: 81.029 },
   gunji: { name: 'Gunji', kind: 'airfield', ...airfield('gunji') },
@@ -113,7 +113,7 @@ const WARP_SIGMA_M = 14_000;
 /**
  * One axis's sample positions (world m), denser near `centre`: the inverse of the cumulative
  * density 1 + WARP_GAIN * exp(-((s - centre) / sigma)^2). One mesh, no seams, ~300 m cells over
- * the Karnali gorge and ~1.2 km on the far plateau.
+ * the Karnali valley and ~1.2 km on the far plateau.
  */
 export function warpAxis(n: number, centre: number): Float64Array {
   const steps = 4096;
@@ -291,15 +291,21 @@ export interface MapRiver {
   widthM: number;
 }
 
-/** The rivers: the terrain's own river valleys (layout.ts VALLEYS with river: true). */
+/** The rivers: the terrain's own river valleys (layout.ts VALLEYS with river: true, and the Humla Karnali with its side streams). */
 export function mapRivers(): MapRiver[] {
-  return VALLEYS.filter((v) => v.river).map((v) => ({
-    id: v.id,
-    name: v.name,
-    pts: smoothPath(v.nodes.map((n) => {
+  const line = (nodes: readonly { lat: number; lon: number }[]): { x: number; z: number }[] =>
+    smoothPath(nodes.map((n) => {
       const [x, z] = geo(n.lat, n.lon);
       return { x, z };
+    }));
+  return [
+    ...VALLEYS.filter((v) => v.river).map((v) => ({
+      id: v.id,
+      name: v.name,
+      pts: line(v.nodes),
+      widthM: v.id === 'karnali' || v.id === 'sutlej' || v.id === 'indus' || v.id === 'kali' ? 0.0042 : 0.0026,
     })),
-    widthM: v.id === 'karnali' || v.id === 'sutlej' || v.id === 'indus' || v.id === 'kali' ? 0.0042 : 0.0026,
-  }));
+    { id: HUMLA_RIVER.id, name: HUMLA_RIVER.name, pts: line(HUMLA_RIVER.nodes), widthM: 0.0042 },
+    ...HUMLA_TRIBUTARIES.map((r) => ({ id: r.id, name: r.name, pts: line(r.nodes), widthM: 0.0018 })),
+  ];
 }
