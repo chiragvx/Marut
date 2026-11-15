@@ -3,7 +3,9 @@
  * recorded clips public/audio/radio/<id>.mp3 back to back, through a radio's sound (a 300 Hz -
  * 3.3 kHz band, a little drive, hiss under the voice, a squelch click at each end). One call at a
  * time, most urgent first; an Urgent call cuts off a lesser one; a call that waited too long is
- * dropped. The player's own calls (p_* clips) play through an oxygen-mask mic instead of the radio.
+ * dropped. The player's own calls (p_* clips) play through an oxygen-mask mic instead of the radio;
+ * a crew member on the intercom (Transmission.intercom: the C-17's loadmaster, lm_* clips) plays dry
+ * and close, a wide headset band with a slight comms edge, with no hiss and no squelch.
  * The subtitle is shown as the call starts. With the
  * voice volume at zero, or a clip missing, the subtitle still shows for as long as it would take.
  */
@@ -50,7 +52,7 @@ export function createRadioPlayer(bus: AudioBus, baseUrl: string, onSubtitle: (t
   let busyUntil = 0;
   let playing: Transmission | null = null;
   let sources: AudioScheduledSourceNode[] = [];
-  let chain: { input: GainNode; mask: GainNode; hiss: GainNode; noise: AudioBuffer } | null = null;
+  let chain: { input: GainNode; mask: GainNode; intercom: GainNode; hiss: GainNode; noise: AudioBuffer } | null = null;
   const now = (): number => performance.now() / 1000;
 
   const load = (id: RadioClipId): void => {
@@ -137,7 +139,35 @@ export function createRadioPlayer(bus: AudioBus, baseUrl: string, onSubtitle: (t
     const mout = ac.createGain();
     mout.gain.value = 0.5;
     mask.connect(mhp).connect(box).connect(mlp).connect(mdrive).connect(mout).connect(dest);
-    return { input, mask, hiss, noise };
+    // The intercom: a crew member's boom mic into the headset. Close and dry (no room), wider than
+    // the radio (140 Hz - 6 kHz), a little presence for the comms edge, the gentlest drive; no
+    // hiss, no squelch, no press-to-talk click (a hot mic).
+    const intercom = ac.createGain();
+    intercom.gain.value = 1;
+    const ihp = ac.createBiquadFilter();
+    ihp.type = 'highpass';
+    ihp.frequency.value = 140;
+    ihp.Q.value = 0.7;
+    const ipres = ac.createBiquadFilter();
+    ipres.type = 'peaking';
+    ipres.frequency.value = 2300;
+    ipres.Q.value = 1.1;
+    ipres.gain.value = 3.5;
+    const ilp = ac.createBiquadFilter();
+    ilp.type = 'lowpass';
+    ilp.frequency.value = 6000;
+    ilp.Q.value = 0.7;
+    const idrive = ac.createWaveShaper();
+    const soft = new Float32Array(1024);
+    for (let i = 0; i < soft.length; i++) {
+      const x = (i / (soft.length - 1)) * 2 - 1;
+      soft[i] = Math.tanh(1.3 * x) / Math.tanh(1.3);
+    }
+    idrive.curve = soft;
+    const iout = ac.createGain();
+    iout.gain.value = 0.62;
+    intercom.connect(ihp).connect(ipres).connect(ilp).connect(idrive).connect(iout).connect(dest);
+    return { input, mask, intercom, hiss, noise };
   };
 
   /** A squelch click: a short burst of band-passed noise. */
@@ -188,20 +218,22 @@ export function createRadioPlayer(bus: AudioBus, baseUrl: string, onSubtitle: (t
     if (!chain) chain = build();
     if (!chain) return;
     const own = !!tx.own;
-    let t = ac.currentTime + (own ? 0.05 : 0.09);
-    // The press-to-talk click; the radio's hiss only on the controller's calls.
-    click(ac, ac.currentTime + 0.01, own ? 0.03 : 0.06, own ? 0.05 : 0.1, own ? 3500 : 2600);
-    if (!own) chain.hiss.gain.setTargetAtTime(0.012, ac.currentTime, 0.02);
+    const ic = !own && !!tx.intercom;
+    const radio = !own && !ic;
+    let t = ac.currentTime + (own ? 0.05 : ic ? 0.03 : 0.09);
+    // The press-to-talk click (none on the hot-mic intercom); the radio's hiss only on the controller's calls.
+    if (!ic) click(ac, ac.currentTime + 0.01, own ? 0.03 : 0.06, own ? 0.05 : 0.1, own ? 3500 : 2600);
+    if (radio) chain.hiss.gain.setTargetAtTime(0.012, ac.currentTime, 0.02);
     for (const b of bufs as AudioBuffer[]) {
       const src = ac.createBufferSource();
       src.buffer = b;
-      src.connect(own ? chain.mask : chain.input);
+      src.connect(own ? chain.mask : ic ? chain.intercom : chain.input);
       src.start(t);
       sources.push(src);
       t += b.duration + GAP_SEC;
     }
-    click(ac, t + 0.02, own ? 0.04 : 0.11, own ? 0.05 : 0.14, own ? 3000 : 1800);
-    if (!own) chain.hiss.gain.setTargetAtTime(0, t + 0.05, 0.02);
+    if (!ic) click(ac, t + 0.02, own ? 0.04 : 0.11, own ? 0.05 : 0.14, own ? 3000 : 1800);
+    if (radio) chain.hiss.gain.setTargetAtTime(0, t + 0.05, 0.02);
     const sec = t + 0.16 - ac.currentTime;
     busyUntil = now() + sec;
     onSubtitle(tx, sec * 1000 + HOLD_AFTER_MS);

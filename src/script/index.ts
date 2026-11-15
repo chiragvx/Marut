@@ -26,7 +26,8 @@ export function createMissionScript(mission: Mission): MissionScript | undefined
       return new SimikotAirdropScript(
         mission.weather?.windWorldMps ?? { x: 0, y: 0, z: 0 },
         mission.dropApproach,
-        mission.groundGroups?.find((g) => g.hidden && g.team !== 0)?.pos
+        mission.groundGroups?.find((g) => g.hidden && g.team !== 0)?.pos,
+        mission.playerStart.airdrop?.stick
       );
     case 'train-takeoff':
       return new TakeoffLesson();

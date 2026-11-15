@@ -13,10 +13,13 @@
  *   ONLY=br_ska_01 FORCE=1 node tools/audio/genRadio.mjs
  *
  * Ids starting p_ are the player's own calls: the same voice, lower and quicker (the game plays
- * them through an oxygen-mask mic, the controller through the radio). Ids starting tw_ are the
- * Simikot tower controller, a Nepalese voice (ne-NP-SagarNeural reading the English lines). Ids
- * starting br_ are the intro narrator: the same voice slower and lower, with a little room left at
- * the end of each line.
+ * them through an oxygen-mask mic, the controller through the radio). Ids starting lm_ are the
+ * C-17's loadmaster on the intercom: a second Indian English voice (en-IN-NeerjaNeural), brisk; the
+ * game plays it dry and close, not through the radio. Ids starting br_ are the intro narrator: the
+ * same voice as the controller, slower and lower, with a little room left at the end of each line.
+ * The narration table holds each line with its delivery cues in square brackets ("[grave, steady]",
+ * the audio-tag style of a voice generator such as ElevenLabs v3): they are stripped here, so the
+ * placeholder reads the words only.
  *
  * Needs edge-tts (pip install edge-tts) and ffmpeg on the PATH. For a public release, render the
  * same voice through Azure Speech (licensed output), or replace the narration with recordings
@@ -33,9 +36,9 @@ const VOICE = 'en-IN-PrabhatNeural';
 /** The controller; the pilot's own calls (ids p_*) the same voice lower and quicker, so the two differ. */
 const CONTROLLER = { rate: '+8%', pitch: '+0Hz' };
 const PILOT = { rate: '+16%', pitch: '-14Hz' };
-/** The Simikot tower controller (ids tw_*): a second person on the radio, with a Nepali accent. */
-const TOWER_VOICE = 'ne-NP-SagarNeural';
-const TOWER = { rate: '+4%', pitch: '+0Hz' };
+/** The loadmaster (ids lm_*): a different person, on the intercom at the ramp; brisk crew calls. */
+const LOADMASTER_VOICE = 'en-IN-NeerjaNeural';
+const LOADMASTER = { rate: '+8%', pitch: '-4Hz' };
 /** The intro narrator (ids br_*): slower and lower, unhurried. */
 const NARRATOR = { rate: '-6%', pitch: '-12Hz' };
 const TABLES = [
@@ -61,14 +64,17 @@ const AF = `${TRIM},areverse,${TRIM},areverse,loudnorm=I=-16:TP=-1.5:LRA=7`;
 // The narration: trimmed the same, a quarter second of air after it, and a little quieter.
 const AF_NARRATOR = `${TRIM},areverse,${TRIM},areverse,apad=pad_dur=0.25,loudnorm=I=-18:TP=-1.5:LRA=9`;
 
+/** A line's words without its delivery cues ("[pause]", "[calm, low]"). */
+const spoken = (text) => text.replace(/\[[^\]]*\]/g, ' ').replace(/\s+/g, ' ').replace(/\s+([,.!?;:])/g, '$1').trim();
+
 async function one({ id, text, out }) {
   const raw = join(tmp, `${id}.mp3`);
   const narrator = id.startsWith('br_');
   for (let attempt = 0; ; attempt++) {
     try {
-      const tower = id.startsWith('tw_');
-      const v = narrator ? NARRATOR : id.startsWith('p_') ? PILOT : tower ? TOWER : CONTROLLER;
-      await run('edge-tts', ['--voice', tower ? TOWER_VOICE : VOICE, `--rate=${v.rate}`, `--pitch=${v.pitch}`, '--text', text, '--write-media', raw]);
+      const lm = id.startsWith('lm_');
+      const v = narrator ? NARRATOR : id.startsWith('p_') ? PILOT : lm ? LOADMASTER : CONTROLLER;
+      await run('edge-tts', ['--voice', lm ? LOADMASTER_VOICE : VOICE, `--rate=${v.rate}`, `--pitch=${v.pitch}`, '--text', spoken(text), '--write-media', raw]);
       break;
     } catch (e) {
       if (attempt >= 3) throw e;

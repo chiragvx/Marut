@@ -20,12 +20,12 @@
     },
     "headingRad": 5.4978,
     "speedMps": 124,
-    "fuelFrac": 0.4,
+    "fuelFrac": 0.3,
     "cargoKg": 16000,
     "airdrop": {
       "bundles": 16,
       "bundleKg": 1000,
-      "stick": 4,
+      "stick": 16,
       "reserve": true
     }
   },
@@ -33,12 +33,12 @@
   "groundGroups": [
     {
       "id": "manpads-ridge",
-      "name": "MANPADS teams",
+      "name": "MANPADS pair, forward post",
       "team": 1,
       "template": "manpads-pair",
       "pos": {
-        "x": 68311,
-        "z": 71382
+        "x": 68711,
+        "z": 72332
       },
       "headingRad": 2.6,
       "hidden": true,

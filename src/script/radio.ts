@@ -26,6 +26,8 @@ export interface Transmission {
   maxAgeSec: number;
   /** The player's own call (subtitle in the player's colour). */
   own?: boolean;
+  /** A crew member on the aircraft's intercom (the C-17's loadmaster): dry and close, no radio band or squelch. */
+  intercom?: boolean;
   /** Checked when its turn comes: true drops it unsaid (a lesson's step already done). */
   stale?: () => boolean;
 }
@@ -54,18 +56,9 @@ const SUBTITLE: Partial<Record<RadioClipId, string>> = {
   t4_mode: 'Press the radar mode button to change the scan. Search mode (RWS) sees far. Dogfight mode (ACM) looks at a small box straight ahead, for close fights.',
   t4_gun: 'Now the second one, with the gun. Press weapon until the gun is selected. Get behind the drone, inside 1 km, put the pipper on it, and hold the trigger.',
   t4_closer: 'Get closer. Inside 1 km.',
-  ad_brief: 'Situation: Chinese forces attacked Nepalese border posts this morning and are advancing down the Karnali from Hilsa. Nepal has asked India for supplies. You will airdrop 16 bundles on the runway at Simikot. Fly up the valley on the glidepath; Simikot Tower will talk you down.',
-  ad_weather: 'Simikot weather: clear, light wind, visibility more than 50 km. The DZ is the runway, marked with a T and orange smoke.',
-  ad_dump: 'You are heavy for the thin air at Simikot. Fuel jettison is available if you want more climb: about 30 t is plenty.',
-  ad_dump_enough: "That's about 30 t. Jettison off.",
-  ad_too_low: 'Too low! Climb to 150 m.',
-  ad_too_fast: 'Too fast. 180 kt.',
-  ad_come_around: 'Come around for another pass. Climb out with the valley to the west, turn back above 5,000 m, and rejoin the glidepath from the south-east.',
-  ad_of_dz: 'of the DZ.',
-  tw_contact: 'Skylord 1, Simikot Tower. Welcome to Humla. The DZ is our runway. Follow the river up the valley, track 315, and ride the glidepath down. Drop height 150 m.',
-  tw_final: 'Skylord 1, you are on final. Ramp open, flaps 1/2, 180 kt, and wait for the green light.',
-  tw_join: 'Skylord 1, join the glidepath south-east of the field, track 315.',
-  t4_select:'You have the gun selected. Press weapon, and pick a missile. The ASRAAM is a heat-seeker for close in; the Astra is radar guided, for long range.',
+  lm_too_fast: 'Too fast for the chutes! Back to 180.',
+  lm_load_clear_16: 'Load clear! All 16 bundles gone.',
+  t4_select: 'You have the gun selected. Press weapon, and pick a missile. The ASRAAM is a heat-seeker for close in; the Astra is radar guided, for long range.',
 };
 
 /** A run of clips and its subtitle text. */

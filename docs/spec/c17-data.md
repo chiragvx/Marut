@@ -1108,3 +1108,29 @@ The sim runs at ISA, zero wind, on dry concrete. Within about 10–15% is judged
    The landing distances still match the only published figure, so it is not changed.
 6. **Initial climb** at a fixed 10° attitude runs from 6.6 m/s at MTOW to 14 m/s at 150 t. That is
    consistent with the FAI 0–3 km record (12.8 m/s average including the take-off run).
+
+### 12.4 Climb-out at Simikot (2026-11-15)
+
+Play-test report: after the Simikot Lifeline drop the jet "barely picks up speed" climbing out of the
+valley. Measured headlessly (`stepAircraft`, ISA, full lever; energy method, Ps = d(h + V²/2g)/dt at
+constant IAS, ~3,300 m):
+
+| Weight | Flaps ½, 180 KIAS | Slats, 200 KIAS | Clean, 180 / 200 / 250 KIAS |
+|---|---|---|---|
+| 184 t | 12.9 m/s | 17.0 | 15.2 / 16.4 / 18.8 |
+| 172 t | 14.8 | 18.8 | 17.1 / 18.6 / 20.7 |
+
+Thrust at 3.3–3.8 km, M0.33–0.40 is 88–99 kN per engine (the 2.2 table: 49–55% of the SLS rating);
+drag clean at 200 KIAS and 184 t is 120–126 kN (L/D ≈ 14.5). Both are what the tables say. Against
+the data: 200 t at 4.5 km and 250 KIAS gives Ps 13.7 m/s, the FAI 3–6 km record average (13.9 m/s,
+section 5.3); 150 t gives 20.9. The pack's own clean-climb estimate (17–25 m/s at 4.5 km) is the
+upper bound. **The model is right, and it was not changed.**
+
+The mission was the problem. One release dropped a stick of 4 bundles, so the jet climbed out at
+184 t with 12 t still aboard, not the ~172 t that the story ("sixteen tonnes, one pass") implies.
+At 184 t with flaps ½ there is ~13 m/s of excess power to share between climbing and accelerating.
+The mission now rigs the whole 16-bundle load as one stick (a real C-17 CDS drop takes up to 40
+bundles in a pass) and starts with fuel 0.3 (33 t: ~177 t at the release, ~161 t after it).
+`tests/integration/simikotClimbOut.test.ts` flies it. With the flaps coming up, the jet reaches
+210 KIAS 18 s after the release, climbs 19.9 m/s (3,900 ft/min) at 210 KIAS, passes 4,000 m after
+58 s, and is never lower than 135 m over the ground. With the old load: 24 s, 16.8 m/s, 70 s.

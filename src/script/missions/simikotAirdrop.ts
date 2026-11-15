@@ -1,20 +1,24 @@
 /**
  * src/script/missions/simikotAirdrop.ts — "Simikot Lifeline": a C-17 (Skylord 1) airdrops supplies
- * for the Nepal Army on the runway at Simikot, Humla, on a clear morning. Netra briefs (the Chinese
- * advance from Hilsa, the optional fuel jettison); Simikot Tower, a Nepalese controller on the
- * ground, talks the jet down the glidepath (Mission.dropApproach: a localiser and 3° glidepath up
- * the Karnali gorge on 315 to 150 m over the strip, flown on the HUD's ILS needles). Netra gives
- * the red and green lights from the computed release point (CARP: where a stick released now would
- * land, src/core/airdrop.ts predictCdsDrop) and grades each stick where it lands.
+ * for the Nepal Army on the runway at Simikot, Humla, on a clear morning. The war-room intro
+ * (src/briefing) tells the story, so the radio is sparse: Netra (the AWACS) checks the jet in and
+ * closes the mission, and the drop itself is the loadmaster's, on the intercom at the ramp (ids lm_*,
+ * played dry and close, not through the radio: src/script/radioPlayer.ts). The approach is flown on
+ * the HUD's ILS needles (Mission.dropApproach: a localiser and 3° glidepath up the Karnali gorge on
+ * 315 to 150 m over the strip); the loadmaster opens the ramp, counts down from the computed
+ * release point (CARP: where a stick released now would land, src/core/airdrop.ts predictCdsDrop),
+ * calls the green light and the load clear, and reports where the bundles came down.
  *
- * The threat is a surprise: MANPADS teams on the ridge north-west of the field (a hidden ground
- * group: no steerpoint, mark or briefing line) open fire on the run-in, and the tower calls it as the
- * first missile goes up. Flares, full power, and the climb-out (a left turn with the valley, through
- * the notch at the strip's west end, src/terrain/himalaya/layout.ts 'simikot-west').
+ * The threat is a surprise: a MANPADS pair at a forward post at the foot of the ridge north-west of
+ * the field (a hidden ground group: no steerpoint, mark or briefing line) opens fire once the jet is
+ * past the strip, and the loadmaster calls it from the ramp ("missile launch, left side, flares!").
+ * Flares, full power, and the climb-out (a left turn with the valley, through the notch at the
+ * strip's west end, src/terrain/himalaya/layout.ts 'simikot-west').
  *
  *   1 Inbound      the glidepath from the south-east; jettison fuel if wanted (not needed)
- *   2 Run-in/drop  ramp open, ~150 m over the strip, 180 kt (flaps 1/2), release on green
- *   3 Climb-out    flares, full power, left with the valley, out of the MANPADS' reach
+ *   2 Run-in/drop  ramp open, ~150 m over the strip, 180 kt (flaps 1/2), release on green: the
+ *                  whole load (16 bundles, one stick) in one pass
+ *   3 Climb-out    flares, full power, flaps up, left with the valley, out of the MANPADS' reach
  *   4 Complete     Netra's closing call, then the debrief
  *
  * A miss (centre of the stick 350 m or more from the T, or the loads wrecked by a release too low)
@@ -31,11 +35,11 @@
  */
 import type { DropApproach, EntityId, SimEvent } from '../../contracts/core';
 import { AirdropStateCode, WarningBit } from '../../contracts/core';
-import { predictCdsDrop } from '../../core/airdrop';
+import { cdsRollOut, predictCdsDrop } from '../../core/airdrop';
 import { dropBeamAt, newDropBeamState } from '../../core/dropBeam';
 import { ScriptBase, type ScriptAtmosphere, type ScriptFrame, type ScriptPrompt } from '../director';
-import { RadioPriority, compassPhrase, compose, distancePhrase, line, type RadioClipId } from '../radio';
-import { bearingDeg, compass8 } from '../geo';
+import { RadioPriority, compose, line, type RadioClipId } from '../radio';
+import { bearingDeg } from '../geo';
 
 const KT = 0.514444;
 const STEPS = 4;
@@ -50,18 +54,22 @@ export const SIMIKOT = DZ;
 export const SIMIKOT_APPROACH: DropApproach = { pos: { ...DZ }, groundM: DZ_GROUND_M, courseRad: (RUN_IN_DEG * Math.PI) / 180, glideDeg: 3, heightAglM: 150, rangeM: 34000 };
 /** Where the climb-out heads once through the notch: up the Karnali, 4 km west of the strip. */
 export const CLIMB_OUT = { x: DZ.x - 3600, z: DZ.z - 950 } as const;
-/** Fuel the jettison advice aims at, kg. */
-export const ADVISED_FUEL_KG = 30000;
 /**
  * The drop speed, KIAS (the HUD's speed is IAS), and the "too fast" call. At the mission's weight
- * (~188 t) the alpha limiter holds level flight down to ~170 KIAS flaps up, ~150 with slats and
- * ~135 with flaps 1/2 at Simikot's height; 180 kt with flaps 1/2 leaves a wide margin either side
+ * (~177 t) the alpha limiter holds level flight down to ~165 KIAS flaps up, ~145 with slats and
+ * ~130 with flaps 1/2 at Simikot's height; 180 kt with flaps 1/2 leaves a wide margin either side
  * (and is inside the 1/2 placard, 250 kt; the 3/4 detent's 190 kt is too close).
  */
 export const DROP_KT = 180;
 export const TOO_FAST_KT = 220;
-/** Where the hidden MANPADS teams are when the mission does not say (himalayaAirdrop.json 'manpads-ridge'). */
-export const THREAT_POS = { x: 68311, z: 71382 } as const;
+/** The bundles one release drops when the mission does not say (himalayaAirdrop.json: the whole load, 16). */
+export const STICK = 16;
+/**
+ * Where the hidden MANPADS pair is when the mission does not say (himalayaAirdrop.json
+ * 'manpads-ridge'): a forward post at the foot of the ridge north-west of the strip, 2.3 km out,
+ * a little below the strip's level, overlooking the valley the climb-out turns into.
+ */
+export const THREAT_POS = { x: 68711, z: 72332 } as const;
 /** Out of the teams' reach: their missiles' range (5 km) and a margin. */
 export const THREAT_CLEAR_M = 6000;
 /** A safe climb-out: this high (MSL), or this far from the strip. */
@@ -71,6 +79,8 @@ export const CLIMB_OUT_DIST_M = 8000;
 const WARN_QUIET_SEC = 5;
 /** The run-in starts this far out on the approach. */
 const RUN_IN_M = 14000;
+/** The subtitle label of the loadmaster's intercom calls. */
+export const LOADMASTER = 'LOADMASTER';
 
 /** Grade bands of a stick's centre from the T, m. */
 export const GRADE_BANDS = { excellent: 60, good: 175, acceptable: 350 } as const;
@@ -88,6 +98,15 @@ export function gradeDrop(distM: number, destroyed: number, count: number): Drop
 export const gradeSucceeds = (g: DropGrade): boolean => g === 'excellent' || g === 'good' || g === 'acceptable';
 
 const GRADE_TEXT: Record<DropGrade, string> = { excellent: 'Excellent', good: 'Good', acceptable: 'Acceptable', miss: 'Miss', destroyed: 'Loads destroyed' };
+
+/** The loadmaster's call on each grade (what the ramp sees of the loads coming down). */
+const GRADE_CALL: Record<DropGrade, RadioClipId> = {
+  excellent: 'lm_drop_shack',
+  good: 'lm_drop_good',
+  acceptable: 'lm_drop_ok',
+  miss: 'lm_drop_miss',
+  destroyed: 'lm_drop_destroyed',
+};
 
 interface Stick {
   stickId: number;
@@ -108,18 +127,23 @@ export class SimikotAirdropScript extends ScriptBase {
   private readonly approach: DropApproach;
   private readonly beam = newDropBeamState();
   private readonly sticks: Stick[] = [];
-  private lastWarn = 0;
+  private readonly stick: number;
   private launches = 0;
-  private dumped = false;
-  private everDumping = false;
   private passReleased = false;
   private greenGiven = false;
-  private redGiven = false;
+  private oneMinGiven = false;
+  private tenGiven = false;
+  /** The ramp's position last frame (the opening / open / closing calls are on its movement). */
+  private lastRamp = 0;
+  private rampOpenCalled = false;
+  private rampClosingCalled = false;
+  /** When the last bundle of the stick just released is out (the "load clear" call), s; -1 none pending. */
+  private loadClearAt = -1;
+  private loadClearCount = 0;
   /** The release point now (CARP) and how far ahead of the jet it is along the track, m. */
   private carp: { x: number; z: number; aheadM: number } | undefined;
   private carpAt = -1;
   private hits = 0;
-  private engineOutCalled = false;
   private succeeded = false;
   private completeAt = -1;
   private lastWarnAt = -Infinity;
@@ -129,11 +153,12 @@ export class SimikotAirdropScript extends ScriptBase {
   private lastFrame: ScriptFrame | undefined;
   private readonly atmos: ScriptAtmosphere;
 
-  constructor(wind: { x: number; y: number; z: number } = { x: 0, y: 0, z: 0 }, approach: DropApproach = SIMIKOT_APPROACH, threat: { x: number; z: number } = THREAT_POS) {
+  constructor(wind: { x: number; y: number; z: number } = { x: 0, y: 0, z: 0 }, approach: DropApproach = SIMIKOT_APPROACH, threat: { x: number; z: number } = THREAT_POS, stick: number = STICK) {
     super('NETRA', 'SKYLORD 1');
     this.wind = { ...wind };
     this.approach = approach;
     this.threat = { x: threat.x, z: threat.z };
+    this.stick = Math.max(1, Math.floor(stick));
     // A clear morning; the T and smoke on the strip.
     this.atmos = { timeOfDayH: 9.5, markers: dzMarkers() };
   }
@@ -203,9 +228,9 @@ export class SimikotAirdropScript extends ScriptBase {
     if (!f || !f.player.alive || this.phase === 'done') return undefined;
     if ((f.warningBits & WarningBit.MissileLaunch) !== 0) return { text: 'Missile! Flares {flare} · full power', highlight: ['flare', 'throttleUp'] };
     if (this.phase === 'reattack') return { text: 'Come around: climb west with the valley, turn back above 5,000 m, rejoin the glidepath from the south-east', highlight: [] };
-    if (this.phase === 'egress') return { text: 'Climb out: full power, turn left with the valley', highlight: ['throttleUp'] };
+    if (this.phase === 'egress') return { text: 'Climb out: full power, flaps up, turn left with the valley', highlight: ['throttleUp'] };
     if (this.phase === 'inbound') {
-      if (!this.dumped && f.fuelDumping) return { text: 'Jettisoning fuel: switch off {fuelDump} at about 30 t (optional)', highlight: ['fuelDump'] };
+      if (f.fuelDumping) return { text: 'Jettisoning fuel (optional): switch off {fuelDump} when you want', highlight: ['fuelDump'] };
       return { text: `Fly the glidepath (HUD needles) · flaps 1/2 · ${DROP_KT} kt`, highlight: [] };
     }
     // Run-in.
@@ -214,10 +239,10 @@ export class SimikotAirdropScript extends ScriptBase {
     return { text: `Hold the glidepath, ${DROP_KT} kt · release {drop} on the green light`, highlight: ['drop'] };
   }
 
-  /** Simikot Tower, on the ground at the strip. */
-  private tower(priority: RadioPriority, ...parts: RadioClipId[]): void {
+  /** The loadmaster, on the intercom at the ramp. */
+  private crew(priority: RadioPriority, ...parts: RadioClipId[]): void {
     const p = compose(...parts.map((x) => line(x)));
-    this.pushTx({ from: 'SIMIKOT TOWER', text: p.text, clips: p.clips, priority, maxAgeSec: priority === 0 ? 4 : priority === 1 ? 12 : 25 });
+    this.pushTx({ from: LOADMASTER, text: p.text, clips: p.clips, priority, maxAgeSec: priority === 0 ? 4 : priority === 1 ? 8 : 15, intercom: true });
   }
 
   update(f: ScriptFrame): void {
@@ -227,46 +252,27 @@ export class SimikotAirdropScript extends ScriptBase {
     const b = dropBeamAt({ x: p.x, y: p.y, z: p.z }, this.approach, this.beam);
     this.updateMarks();
     if (!p.alive) return;
-
-    if (f.fuelDumping) this.everDumping = true;
-    const warn = f.warningBits;
-    // Later launches (the MAWS's warning): Netra's call. The first is the tower's (event()).
-    if ((warn & WarningBit.MissileLaunch) !== 0 && (this.lastWarn & WarningBit.MissileLaunch) === 0 && this.launches > 1 && this.ready('sam', 6)) {
-      this.say(RadioPriority.Urgent, 'ad_sam');
-      if (this.ready('flaresCall', 10)) this.own('p_skylord_flares', 'Flares!', RadioPriority.Urgent);
-    }
-    if ((warn & WarningBit.MissileLaunch) !== 0) this.lastWarnAt = f.t;
-    this.lastWarn = warn;
-    if (f.enginesRunning !== undefined && f.enginesRunning < 4 && !this.engineOutCalled && this.done('brief')) {
-      this.engineOutCalled = true;
-      this.say(RadioPriority.High, 'ad_engine');
-    }
+    if ((f.warningBits & WarningBit.MissileLaunch) !== 0) this.lastWarnAt = f.t;
 
     const dDz = Math.hypot(DZ.x - p.x, DZ.z - p.z);
     const fuelT = (f.fuelKg ?? 0) / 1000;
 
-    if (f.t > 2 && this.once('brief')) {
-      this.say(RadioPriority.High, 'ad_netra', 'ad_brief');
-      this.say(RadioPriority.Normal, 'ad_weather');
-      if ((f.fuelKg ?? 0) > ADVISED_FUEL_KG + 2000) this.say(RadioPriority.Normal, 'ad_dump');
-      this.own('p_skylord_tower', 'Simikot Tower, Skylord 1, on the glidepath, inbound for the drop.', RadioPriority.Normal);
-      this.tower(RadioPriority.Normal, 'tw_contact');
+    // Netra checks the jet in: the intro has told the story.
+    if (f.t > 2 && this.once('brief')) this.say(RadioPriority.Normal, 'ad_netra', 'ad_checkin');
+
+    if (this.loadClearAt >= 0 && f.t >= this.loadClearAt) {
+      this.loadClearAt = -1;
+      this.crew(RadioPriority.High, this.loadClearCount === 16 ? 'lm_load_clear_16' : 'lm_load_clear');
     }
-    if (f.fuelDumping && this.once('dumping')) this.own('p_skylord_dumping', 'Dumping fuel.', RadioPriority.Normal);
-    if (!this.dumped && this.everDumping && (f.fuelKg ?? Infinity) <= ADVISED_FUEL_KG + 500) {
-      this.dumped = true;
-      if (f.fuelDumping) this.say(RadioPriority.Normal, 'ad_dump_enough');
-    }
+    this.rampCalls(f);
 
     // On the approach side, lined up: the run-in (again, after a pass that came round).
     const lined = b.alongM > 2500 && b.alongM < RUN_IN_M && Math.abs(b.crossM) < Math.max(400, b.alongM * 0.35) && towards(p, DZ);
     if (this.phase === 'inbound' || this.phase === 'reattack') {
       if (this.phase === 'inbound') {
         this.setObjective(1, STEPS, 'Fly the glidepath to Simikot', `${(dDz / 1000).toFixed(1)} km · glidepath ${Math.round(b.pathAltM)} m (you ${fmtSigned(b.highM)} m) · fuel ${fuelT.toFixed(1)} t${f.fuelDumping ? ' (jettisoning)' : ''}`);
-        this.glidepathCalls(f, b.valid);
       } else {
         this.setObjective(2, STEPS, 'Come around for another pass', `${(dDz / 1000).toFixed(1)} km · rejoin the glidepath south-east of the field, track 315 · ${this.sticks.length} pass${this.sticks.length === 1 ? '' : 'es'} so far`);
-        if (b.valid) this.glidepathCalls(f, true);
       }
       if (lined) this.startRunIn();
     }
@@ -288,6 +294,29 @@ export class SimikotAirdropScript extends ScriptBase {
     if (this.phase === 'done') this.setObjective(4, STEPS, 'Supplies delivered', 'Mission complete');
   }
 
+  /** The loadmaster on the ramp: coming open, open and the load ready, closing after the drop. */
+  private rampCalls(f: ScriptFrame): void {
+    const ramp = f.rampPos ?? 0;
+    const opening = ramp > this.lastRamp + 1e-4;
+    const closing = ramp < this.lastRamp - 1e-4;
+    this.lastRamp = ramp;
+    if (this.phase === 'done') return;
+    const loadAboard = !this.passReleased;
+    if (opening && ramp < 0.5 && loadAboard && this.ready('rampOpening', 30)) {
+      this.rampOpenCalled = false;
+      this.crew(RadioPriority.Normal, 'lm_ramp_opening');
+    }
+    if (ramp >= 0.98 && loadAboard && !this.rampOpenCalled) {
+      this.rampOpenCalled = true;
+      this.crew(RadioPriority.Normal, 'lm_ramp_open');
+    }
+    // Closing after the drop (called once the load is clear: the crew closes up behind it).
+    if (closing && this.passReleased && this.loadClearAt < 0 && !this.rampClosingCalled) {
+      this.rampClosingCalled = true;
+      this.crew(RadioPriority.Normal, 'lm_ramp_closing');
+    }
+  }
+
   /** All three objectives met: Netra's closing call, and the debrief once it has been said. */
   private missionComplete(): void {
     this.phase = 'done';
@@ -297,38 +326,28 @@ export class SimikotAirdropScript extends ScriptBase {
     this.say(RadioPriority.Urgent, 'ad_netra', 'ad_complete', 'ad_home');
   }
 
-  /** The tower's glidepath calls: high, low, off the track (a call every 15 s at most, not near the strip). */
-  private glidepathCalls(f: ScriptFrame, valid: boolean): void {
-    const b = this.beam;
-    if (!this.done('brief') || f.t < 40) return;
-    if (!valid) {
-      if (b.alongM > 0 && b.alongM < 25000 && Math.hypot(DZ.x - f.player.x, DZ.z - f.player.z) < 25000 && this.ready('join', 45)) this.tower(RadioPriority.Normal, 'tw_join');
-      return;
-    }
-    if (b.alongM < 3000 || !this.ready('gp', 15)) return;
-    const tol = Math.max(60, b.alongM * 0.004);
-    if (b.highM > tol * 1.5) this.tower(RadioPriority.Normal, 'tw_high');
-    else if (b.highM < -tol) this.tower(RadioPriority.High, 'tw_low');
-    else if (b.crossM > Math.max(250, b.alongM * 0.03)) this.tower(RadioPriority.Normal, 'tw_right');
-    else if (b.crossM < -Math.max(250, b.alongM * 0.03)) this.tower(RadioPriority.Normal, 'tw_left');
-    else this.disarm('gp');
-  }
-
   private startRunIn(): void {
     this.phase = 'runin';
     this.passReleased = false;
     this.greenGiven = false;
-    this.redGiven = false;
-    if (this.ready('final', 30)) this.tower(RadioPriority.High, 'tw_final');
+    this.oneMinGiven = false;
+    this.tenGiven = false;
+    this.rampClosingCalled = false;
   }
 
-  /** The run-in: the CARP, the red and green lights, and the checks on the ramp, speed and height. */
+  /** Bundles the next release drops (the rigged load, then reserve sticks). */
+  private nextStickCount(f: ScriptFrame): number {
+    const left = f.airdropLeft ?? 0;
+    return left > 0 ? Math.min(this.stick, left) : this.stick;
+  }
+
+  /** The run-in: the CARP, the countdown and the green light, and the checks on the ramp, speed and height. */
   private runIn(f: ScriptFrame, dDz: number): void {
     const p = f.player;
     const gs = Math.hypot(p.vx, p.vz);
     if (f.t - this.carpAt >= 0.2 && gs > 20) {
       this.carpAt = f.t;
-      const hit = predictCdsDrop({ x: p.x, y: p.y, z: p.z }, { x: p.vx, y: p.vy, z: p.vz }, DZ_GROUND_M, this.wind);
+      const hit = predictCdsDrop({ x: p.x, y: p.y, z: p.z }, { x: p.vx, y: p.vy, z: p.vz }, DZ_GROUND_M, this.wind, this.nextStickCount(f));
       const tx = p.vx / gs;
       const tz = p.vz / gs;
       const dx = DZ.x - hit.x;
@@ -348,22 +367,26 @@ export class SimikotAirdropScript extends ScriptBase {
     );
     if (this.passReleased) return;
     const secs = ahead / Math.max(gs, 1);
-    if (secs < 90 && secs > 20 && !ramp && this.ready('ramp', 25)) this.say(RadioPriority.High, 'ad_ramp');
-    if (secs < 62 && secs > 30 && !this.redGiven) {
-      this.redGiven = true;
-      this.say(RadioPriority.Normal, 'ad_one_min');
+    if (secs < 90 && secs > 25 && (f.rampPos ?? 0) < 0.02 && this.ready('ramp', 30)) this.crew(RadioPriority.High, 'lm_ramp_needed');
+    if (secs < 62 && secs > 30 && !this.oneMinGiven) {
+      this.oneMinGiven = true;
+      this.crew(RadioPriority.Normal, 'lm_one_min');
     }
     if (secs < 30 && secs > 3) {
-      if (overDz < 90 && this.ready('low', 10)) this.say(RadioPriority.High, 'ad_too_low');
-      else if (ias > TOO_FAST_KT * KT && this.ready('fast', 10)) this.say(RadioPriority.High, 'ad_too_fast');
+      if (overDz < 90 && this.ready('low', 10)) this.crew(RadioPriority.High, 'lm_too_low');
+      else if (ias > TOO_FAST_KT * KT && this.ready('fast', 10)) this.crew(RadioPriority.High, 'lm_too_fast');
+    }
+    if (secs < 11.5 && secs > 6 && ramp && !this.tenGiven) {
+      this.tenGiven = true;
+      this.crew(RadioPriority.High, 'lm_ten_sec');
     }
     // Green a second and a half early: the call takes that long to say.
     if (!this.greenGiven && ramp && f.airdropState === AirdropStateCode.Armed && ahead < gs * 1.5 && ahead > -gs * 2) {
       this.greenGiven = true;
-      this.say(RadioPriority.Urgent, 'ad_green');
+      this.crew(RadioPriority.Urgent, 'lm_green');
     }
     if (ahead < -gs * 4 && dDz < 4000 && this.ready('overshoot', 20)) {
-      this.say(RadioPriority.High, 'ad_overshoot', 'ad_come_around');
+      this.crew(RadioPriority.High, 'lm_no_drop');
       this.phase = 'reattack';
     }
   }
@@ -376,17 +399,25 @@ export class SimikotAirdropScript extends ScriptBase {
     this.marks = m;
   }
 
+  /** Which side of the jet a launch is on, seen from its cockpit (the loadmaster calls it). */
+  private launchSide(pos: { x: number; z: number } | undefined): 'left' | 'right' {
+    const f = this.lastFrame;
+    if (!f || !pos) return 'left';
+    const h = f.player.headingRad;
+    // Right of the nose: (cos h, sin h) in world x, z (heading 0 = north = -z).
+    return (pos.x - f.player.x) * Math.cos(h) + (pos.z - f.player.z) * Math.sin(h) >= 0 ? 'right' : 'left';
+  }
+
   event(e: SimEvent, playerId: EntityId): void {
     switch (e.type) {
       case 'airdropRelease': {
         if (e.entityId !== playerId) break;
         this.sticks.push({ stickId: e.stickId, count: e.count, iasMps: e.iasMps, aglM: e.aglM, landed: [] });
         this.passReleased = true;
-        this.own('p_skylord_load_clear', 'Load clear!', RadioPriority.High);
-        if (this.phase !== 'done') {
-          this.phase = 'egress';
-          if (this.ready('climb', 60)) this.say(RadioPriority.Normal, 'ad_climb');
-        }
+        // "Load clear" once the last bundle of the stick is over the sill.
+        this.loadClearCount = e.count;
+        this.loadClearAt = this.t + cdsRollOut(Math.max(0, e.count - 1)).sec + 0.4;
+        if (this.phase !== 'done') this.phase = 'egress';
         break;
       }
       case 'airdropLanded': {
@@ -401,18 +432,16 @@ export class SimikotAirdropScript extends ScriptBase {
         // Nothing but the hidden teams fires in this mission (the C-17 has no missiles).
         if (e.shooterId === playerId) break;
         this.launches += 1;
-        if (this.launches === 1) {
-          // The surprise: the tower sees the first one go up.
-          this.tower(RadioPriority.Urgent, 'tw_launch');
-          this.own('p_skylord_flares', 'Flares!', RadioPriority.Urgent);
-          this.ready('flaresCall', 10);
+        // The loadmaster sees it go up from the ramp: the first (the surprise) and each after.
+        if (this.launches === 1 || this.ready('sam', 6)) {
           this.ready('sam', 6);
+          this.crew(RadioPriority.Urgent, this.launchSide(e.pos) === 'left' ? 'lm_launch_left' : 'lm_launch_right');
         }
         break;
       case 'hit':
         if (e.targetId !== playerId) break;
         this.hits += 1;
-        if (this.ready('hit', 8)) this.say(RadioPriority.Urgent, 'ad_hit');
+        if (this.ready('hit', 8)) this.crew(RadioPriority.Urgent, 'lm_hit');
         break;
       default:
         break;
@@ -426,28 +455,8 @@ export class SimikotAirdropScript extends ScriptBase {
     s.distM = Math.hypot(cx - DZ.x, cz - DZ.z);
     const destroyed = s.landed.filter((l) => l.destroyed).length;
     s.grade = gradeDrop(s.distM, destroyed, n);
-    const d = s.distM;
-    switch (s.grade) {
-      case 'excellent':
-        this.say(RadioPriority.High, 'ad_drop_shack');
-        break;
-      case 'good':
-        this.say(RadioPriority.High, 'ad_drop_good', distancePhrase(d), 'ad_from_t');
-        break;
-      case 'acceptable':
-        this.say(RadioPriority.High, 'ad_drop_ok', distancePhrase(d), 'ad_from_t', 'ad_recover');
-        break;
-      case 'miss': {
-        const dir = compass8(bearingDeg(DZ.x, DZ.z, cx, cz));
-        this.say(RadioPriority.High, 'ad_drop_miss', distancePhrase(d), compassPhrase(dir), 'ad_of_dz', 'ad_come_around');
-        break;
-      }
-      case 'destroyed':
-        this.say(RadioPriority.High, 'ad_drop_destroyed', 'ad_come_around');
-        break;
-    }
+    this.crew(RadioPriority.High, GRADE_CALL[s.grade]);
     if (gradeSucceeds(s.grade)) {
-      if (!this.succeeded) this.tower(RadioPriority.Normal, 'tw_thanks');
       this.succeeded = true;
       if (this.phase === 'runin' || this.phase === 'reattack') this.phase = 'egress';
     } else if (!this.succeeded && this.phase !== 'runin') this.phase = 'reattack';

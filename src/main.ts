@@ -555,6 +555,7 @@ function showBriefing(id: string): void {
               def: transportDef,
               load: prefs.transport?.[entry.id] !== undefined ? normalizeTransportLoad(transportDef, prefs.transport[entry.id]) : { ...entry.transport },
               keys: { ramp: keyLabel(b.rampToggle), drop: keyLabel(b.launch), dump: keyLabel(b.fuelDump), flare: keyLabel(b.flare), flapsDown: keyLabel(b.flapsDown), flapsUp: keyLabel(b.flapsUp) },
+              stick: resolveBuiltinMission(entry.id).playerStart.airdrop?.stick,
             },
           }
         : {}),

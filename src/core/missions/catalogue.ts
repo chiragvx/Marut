@@ -254,10 +254,10 @@ export const MISSIONS: readonly MissionEntry[] = [
     bandits: 0,
     objective: 'Airdrop supplies to the Nepal Army on the runway at Simikot, then climb out of the valley.',
     situation:
-      'Chinese forces have attacked Nepalese border posts and are advancing down the Karnali from Hilsa. Nepal has asked India for help. You start 30 km south-east of Simikot in the C-17, lined up on the Karnali valley: fly the glidepath up the valley (the HUD needles; Simikot Tower talks you down) and drop sixteen 1-tonne A-22 bundles (G-12 parachutes) on the runway, about 150 m up at 180 knots with flaps 1/2. Fuel jettison is there if you want more climb in the thin air; you do not need it.',
+      "On 14 October at 04:40 local, Chinese troops crossed into Humla and overran the Nepal Army's border posts at Hilsa, Yari and Limi; by midday their columns were moving down the Karnali gorge towards Simikot. The garrison is dug in above Kermi, the road is cut, and they have food for two days. You start 30 km south-east of Simikot in the C-17, lined up on the Karnali valley: fly the glidepath up the valley on the HUD needles and drop all sixteen 1-tonne A-22 bundles (G-12 parachutes) on the runway in one pass, about 150 m up at 180 knots with flaps 1/2. Then get out of that valley.",
     weather: 'clear',
     timeOfDayH: 9.5,
-    transport: { presetId: 'cds', fuelFrac: 0.4, cargoKg: 16000, airdrop: true },
+    transport: { presetId: 'cds', fuelFrac: 0.3, cargoKg: 16000, airdrop: true },
   },
   {
     id: 'border-sead',

@@ -36,10 +36,13 @@ export interface TransportLoad {
 export const CDS_BUNDLE_KG = 1000;
 export const CDS_STICK = 4;
 
-/** The airdrop rig for `cargoKg` of bundles: whole 1 t bundles (the rest is ballast), 4 to a stick, light reserve bundles after. */
-export function airdropRig(cargoKg: number): AirdropLoad | undefined {
+/**
+ * The airdrop rig for `cargoKg` of bundles: whole 1 t bundles (the rest is ballast), `stick` to a
+ * release (default 4; a mission can rig the whole load as one stick), light reserve bundles after.
+ */
+export function airdropRig(cargoKg: number, stick: number = CDS_STICK): AirdropLoad | undefined {
   const bundles = Math.floor(cargoKg / CDS_BUNDLE_KG);
-  return bundles > 0 ? { bundles, bundleKg: CDS_BUNDLE_KG, stick: CDS_STICK, reserve: true } : undefined;
+  return bundles > 0 ? { bundles, bundleKg: CDS_BUNDLE_KG, stick: Math.max(1, Math.floor(stick)), reserve: true } : undefined;
 }
 
 /** The lightest fuel the slider offers. */
@@ -77,9 +80,9 @@ export function normalizeTransportLoad(def: AircraftDefinition, raw: unknown): T
 
 /** The load on the mission's player start (the sim sets mass, CG and inertia from it). */
 export function withTransportLoad(m: Mission, load: TransportLoad): Mission {
-  const { airdrop: _a, ...ps } = m.playerStart;
-  void _a;
-  const rig = load.airdrop ? airdropRig(load.cargoKg) : undefined;
+  const { airdrop: rigged, ...ps } = m.playerStart;
+  // The mission's own stick (Simikot Lifeline drops its whole load in one pass).
+  const rig = load.airdrop ? airdropRig(load.cargoKg, rigged?.stick) : undefined;
   return { ...m, playerStart: { ...ps, fuelFrac: load.fuelFrac, cargoKg: load.cargoKg, ...(rig ? { airdrop: rig } : {}) } };
 }
 

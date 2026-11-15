@@ -134,6 +134,8 @@ export interface TransportBriefing {
   def: AircraftDefinition;
   load: TransportLoad;
   keys: { ramp: string; drop: string; dump: string; flare: string; flapsDown: string; flapsUp: string };
+  /** Bundles one release drops (the mission's rig; default 4). */
+  stick?: number;
 }
 
 export function createBriefing(
@@ -241,15 +243,15 @@ function createTransportBriefing(
     { className: 'tj-stack', attrs: { style: 'gap: 6px' } },
     row(keyCap(k.dump), 'fuel jettison on / off (stops at the minimum)'),
     row(keyCap(k.flapsDown), keyCap(k.flapsUp), 'flaps down / up: flaps 1/2 for the drop at 180 kt; follow the HUD glidepath needles'),
-    row(keyCap(k.ramp), 'open the ramp, then', keyCap(k.drop), 'cuts the restraint: a stick of four bundles rolls out'),
+    row(keyCap(k.ramp), 'open the ramp, then', keyCap(k.drop), (t.stick ?? 4) >= 16 ? 'cuts the restraint: the whole load rolls out in one stick' : `cuts the restraint: a stick of ${t.stick ?? 4} bundles rolls out`),
     row(keyCap(k.flare), 'flares')
   );
   const loadName = h('b');
   const loadText = h('span', {});
   const renderLoad = (): void => {
     loadName.textContent = describeTransportLoad(t.def, load);
-    const rig = load.airdrop ? airdropRig(load.cargoKg) : undefined;
-    loadText.textContent = rig ? `${rig.bundles} A-22 bundles of 1 t on G-12 parachutes, ${rig.stick} per pass; light reserve bundles once they are gone.` : 'No airdrop rig: pick Airdrop (CDS, A-22) to drop.';
+    const rig = load.airdrop ? airdropRig(load.cargoKg, t.stick) : undefined;
+    loadText.textContent = rig ? `${rig.bundles} A-22 bundles of 1 t on G-12 parachutes, ${rig.stick >= rig.bundles ? 'all in one pass' : `${rig.stick} per pass`}; light reserve bundles once they are gone.` : 'No airdrop rig: pick Airdrop (CDS, A-22) to drop.';
   };
   renderLoad();
   const change = button('Change load…', () => openEditor(), 'default', { 'data-action': 'loadout' });
