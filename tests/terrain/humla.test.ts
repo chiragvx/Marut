@@ -6,6 +6,7 @@
  */
 import { describe, expect, test, vi } from 'vitest';
 import { heightAt } from '../../src/terrain/himalaya/height';
+import { bakeRiverGrid } from '../../src/terrain/himalaya/humla';
 import { AIRFIELDS, HUMLA_RIVER, SIMIKOT_SHELF, geo } from '../../src/terrain/himalaya/layout';
 
 const simikot = AIRFIELDS.find((a) => a.id === 'simikot')!;
@@ -102,6 +103,39 @@ describe('the Humla Karnali is a valley, not a slot gorge', () => {
     for (let i = hilsa + 1; i < river.length; i++) expect(beds[i]!).toBeLessThan(beds[i - 1]! + 15);
     const nearSimikot = river.reduce((b, n, i) => (Math.hypot(n.w[0] - sx, n.w[1] - sz) < Math.hypot(river[b]!.w[0] - sx, river[b]!.w[1] - sz) ? i : b), 0);
     expect(beds[nearSimikot]!).toBeLessThan(2400);
+  });
+
+  test("the renderer's river grid puts the water in the carved bed, and none on the walls", () => {
+    const g = bakeRiverGrid();
+    /** Bilinear sample as the shader does: [signed distance m, half-width m]. */
+    const sample = (x: number, z: number): [number, number] => {
+      const fx = (x - g.originX) / g.stepM, fz = (z - g.originZ) / g.stepM;
+      const i = Math.floor(fx), j = Math.floor(fz), u = fx - i, v = fz - j;
+      const tex = (ii: number, jj: number, c: number): number => g.data[(jj * g.nx + ii) * 2 + c]!;
+      const bl = (c: number): number => (tex(i, j, c) * (1 - u) + tex(i + 1, j, c) * u) * (1 - v) + (tex(i, j + 1, c) * (1 - u) + tex(i + 1, j + 1, c) * u) * v;
+      return [(bl(0) - 128) * 2, bl(1) / 16];
+    };
+    const hilsa = river.findIndex((n) => Math.abs(n.lat - 30.152) < 1e-6);
+    let wet = 0, n = 0;
+    for (let i = hilsa; i < river.length - 1; i++) {
+      const p = river[i]!, q = river[i + 1]!;
+      const dx = q.w[0] - p.w[0], dz = q.w[1] - p.w[1], l = Math.hypot(dx, dz);
+      const nx = -dz / l, nz = dx / l;
+      let bed = Infinity, b0 = 0;
+      for (let o = -600; o <= 600; o += 5) {
+        const h = heightAt(p.w[0] + nx * o, p.w[1] + nz * o);
+        if (h < bed) { bed = h; b0 = o; }
+      }
+      const [sd, hw] = sample(p.w[0] + nx * b0, p.w[1] + nz * b0);
+      n++;
+      if (Math.abs(sd) < hw + 5) wet++;
+      // 400 m up either wall: dry.
+      for (const s of [-1, 1]) {
+        const [sd2, hw2] = sample(p.w[0] + nx * (b0 + s * 400), p.w[1] + nz * (b0 + s * 400));
+        expect(Math.abs(sd2) > hw2, `node ${i} wall ${s}`).toBe(true);
+      }
+    }
+    expect(wet / n).toBeGreaterThan(0.9);
   });
 });
 

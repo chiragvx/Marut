@@ -14,7 +14,7 @@
  * Pure functions of the map-frame position: the same in every worker and on the main thread.
  */
 import { Noise2, gullies } from './noise';
-import { HUMLA_RIVER, HUMLA_TRIBUTARIES, SIMIKOT_SHELF, geoMap, type HumlaRiver } from './layout';
+import { HUMLA_RIVER, HUMLA_TRIBUTARIES, MAP_SHIFT_X, MAP_SHIFT_Z, SIMIKOT_SHELF, geoMap, type HumlaRiver } from './layout';
 
 const N = new Noise2(2971);
 
@@ -144,6 +144,17 @@ function nearest(L: Line, x: number, z: number, out: Near): boolean {
 /** Terrace step on the valley walls, metres of height. */
 const BENCH_M = 140;
 
+/** The rivers wind: each is found from a point warped by this much (m), side valleys more. */
+const warpAmp = (id: number): number => (id === 0 ? 320 : 500);
+const warpX = (x: number, z: number): number => N.fbm(x / 3500 + 1.3, z / 3500 + 8.8, 3);
+const warpZ = (x: number, z: number): number => N.fbm(x / 3500 - 5.2, z / 3500 + 2.4, 3);
+/** The valley floor's half-width at a point, from the river's. */
+const floorAt = (base: number, id: number, x: number, z: number): number => base * (1 + 0.35 * N.noise(x / 1900 + id * 7.1, z / 1900 - 3.3));
+/** Where the channel runs across the floor (signed: + to the left of the line), m. */
+const channelOffset = (floor: number, along: number, id: number): number => Math.min(0.45 * floor, 160) * N.noise(along / 1500, id * 13.37);
+/** Half-width of the carved channel, m (its water is about 60% of that). */
+const channelHalfWidth = (id: number): number => (id === 0 ? 22 : 9);
+
 /** How much of a valley's profile applies at its point (1 near the river, 0 past its reach). */
 let reachW = 0;
 /** How much the profile is the ground outright, before the generic mountains (1 low on the walls). */
@@ -153,7 +164,7 @@ let ownW = 0;
 function valleyHeight(q: Near, id: number, x: number, z: number, ch: { river: number; flat: number }): number {
   // Everything that varies along the valley is a noise of the position, not of the distance along
   // the river (that jumps on the inside of bends); `side` is continuous (0 straight past an end).
-  const floor = q.floor * (1 + 0.35 * N.noise(x / 1900 + id * 7.1, z / 1900 - 3.3));
+  const floor = floorAt(q.floor, id, x, z);
   // The walls' foot wanders in and out by a few hundred metres.
   const d = Math.max(0, q.d + 500 * N.fbm(x / 4500 + 9.1, z / 4500 + id, 2) * smoothstep(floor, floor + 800, q.d));
   const s = Math.max(0, d - floor);
@@ -184,9 +195,8 @@ function valleyHeight(q: Near, id: number, x: number, z: number, ch: { river: nu
   const gA = Math.min(150, 0.14 * R) * smoothstep(40, 350, s);
   if (gA > 1) h += gA * (gullies(x, z, q.ux, q.uz, 1300, 3, 1.6, 1.2) - 0.1);
   // The channel: a few metres down, wandering on the floor.
-  const meander = Math.min(0.45 * floor, 160) * N.noise(q.along / 1500, id * 13.37);
-  const ds = Math.abs(q.d * Math.sign(q.side) - meander);
-  const cw = id === 0 ? 22 : 9;
+  const ds = Math.abs(q.d * Math.sign(q.side) - channelOffset(floor, q.along, id));
+  const cw = channelHalfWidth(id);
   if (ds < cw) {
     const kk = 1 - (ds / cw) * (ds / cw);
     h -= (id === 0 ? 3.5 : 2) * kk;
@@ -220,9 +230,9 @@ export function humlaHeight(x: number, z: number, h: number): number {
   humlaInfo.flat = 0;
   if (x < B.minX || x > B.maxX || z < B.minZ || z > B.maxZ) return h;
   // The rivers wind: they are found from a warped point (side valleys more than the main one).
-  const wx = N.fbm(x / 3500 + 1.3, z / 3500 + 8.8, 3), wz = N.fbm(x / 3500 - 5.2, z / 3500 + 2.4, 3);
+  const wx = warpX(x, z), wz = warpZ(x, z);
   for (const L of LINES) {
-    const wa = L.id === 0 ? 320 : 500;
+    const wa = warpAmp(L.id);
     if (!nearest(L, x + wx * wa, z + wz * wa, near)) continue;
     const v = valleyHeight(near, L.id, x, z, humlaInfo);
     // Where a side valley's wall meets the main valley's the blend is wide (a rounded spur, not a crease).
@@ -254,4 +264,74 @@ export function humlaHeight(x: number, z: number, h: number): number {
     }
   }
   return h;
+}
+
+/** The rivers' water for the renderer: a grid round the Humla rivers, world frame. */
+export interface RiverGrid {
+  /** World position of texel (0, 0), and the texel spacing, m. */
+  originX: number; originZ: number; stepM: number;
+  nx: number; nz: number;
+  /** Per texel: R = signed distance to the channel's middle (128 + m / 2, so +-254 m; 255 = far),
+   *  G = the water's half-width (m x 16). Signed, so bilinear filtering keeps the line sharp. */
+  data: Uint8Array;
+}
+
+/**
+ * Bakes where the Humla rivers' water is (the channels heightAt carves, found the same way) on a
+ * grid `stepM` apart (40 m: 4.4 MB), for the alpine ground shader's water and gravel bars. Only the bands along
+ * the rivers are computed; everything else stays "far".
+ */
+export function bakeRiverGrid(stepM = 40): RiverGrid {
+  const PAD = 700;
+  let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+  for (const L of LINES) for (let i = 0; i < L.n; i++) { minX = Math.min(minX, L.x[i]!); maxX = Math.max(maxX, L.x[i]!); minZ = Math.min(minZ, L.z[i]!); maxZ = Math.max(maxZ, L.z[i]!); }
+  minX -= PAD; minZ -= PAD; maxX += PAD; maxZ += PAD;
+  const nx = Math.ceil((maxX - minX) / stepM) + 1, nz = Math.ceil((maxZ - minZ) / stepM) + 1;
+  const dist = new Float32Array(nx * nz).fill(255);
+  const sdist = new Float32Array(nx * nz).fill(254);
+  const hw = new Uint8Array(nx * nz);
+  // The warp per texel, computed once where needed (NaN: not yet).
+  const qx = new Float32Array(nx * nz).fill(NaN), qz = new Float32Array(nx * nz);
+  const R = 250;
+  for (const L of LINES) {
+    const wa = warpAmp(L.id);
+    const reach = R + wa * 1.1;
+    const half = channelHalfWidth(L.id) * 0.6;
+    for (let k = 0; k + 1 < L.n; k++) {
+      const ax = L.x[k]!, az = L.z[k]!, ex = L.x[k + 1]! - ax, ez = L.z[k + 1]! - az;
+      const l2 = ex * ex + ez * ez;
+      if (l2 <= 0) continue;
+      const i0 = Math.max(0, Math.floor((Math.min(ax, ax + ex) - reach - minX) / stepM)), i1 = Math.min(nx - 1, Math.ceil((Math.max(ax, ax + ex) + reach - minX) / stepM));
+      const j0 = Math.max(0, Math.floor((Math.min(az, az + ez) - reach - minZ) / stepM)), j1 = Math.min(nz - 1, Math.ceil((Math.max(az, az + ez) + reach - minZ) / stepM));
+      for (let j = j0; j <= j1; j++) {
+        for (let i = i0; i <= i1; i++) {
+          const t = j * nx + i;
+          const x = minX + i * stepM, z = minZ + j * stepM;
+          if (Number.isNaN(qx[t]!)) { qx[t] = warpX(x, z); qz[t] = warpZ(x, z); }
+          const px = x + qx[t]! * wa, pz = z + qz[t]! * wa;
+          const u = Math.min(1, Math.max(0, ((px - ax) * ex + (pz - az) * ez) / l2));
+          const vx = px - (ax + ex * u), vz = pz - (az + ez * u);
+          const d = Math.hypot(vx, vz);
+          if (d > R + 200) continue;
+          const side = ex * vz - ez * vx < 0 ? 1 : -1;
+          const along = L.along[k]! + (L.along[k + 1]! - L.along[k]!) * u;
+          const floor = floorAt(L.floor[k]! + (L.floor[k + 1]! - L.floor[k]!) * u, L.id, x, z);
+          const sd = d * side - channelOffset(floor, along, L.id);
+          const ds = Math.abs(sd);
+          if (ds < dist[t]!) { dist[t] = ds; sdist[t] = sd; hw[t] = Math.round(half * 16); }
+        }
+      }
+    }
+  }
+  const data = new Uint8Array(nx * nz * 2);
+  for (let t = 0; t < nx * nz; t++) {
+    data[t * 2] = Math.min(254, Math.max(0, Math.round(128 + sdist[t]! / 2)));
+    // No half-width where the distance is clamped: the sign may flip between two clamped texels
+    // (band edges, midway between rivers), and a zero crossing there must not read as water.
+    data[t * 2 + 1] = Math.abs(sdist[t]!) < 240 ? hw[t]! : 0;
+  }
+  // The border stays "far" (the texture clamps to it outside the grid).
+  for (let i = 0; i < nx; i++) { data[i * 2 + 1] = 0; data[((nz - 1) * nx + i) * 2 + 1] = 0; }
+  for (let j = 0; j < nz; j++) { data[j * nx * 2 + 1] = 0; data[(j * nx + nx - 1) * 2 + 1] = 0; }
+  return { originX: minX - MAP_SHIFT_X, originZ: minZ - MAP_SHIFT_Z, stepM, nx, nz, data };
 }

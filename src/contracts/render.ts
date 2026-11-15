@@ -409,6 +409,8 @@ export interface SceneEnvironment {
     lakes: readonly { x: number; z: number; rx: number; rz: number; rotRad: number; level: number }[];
     lakeRegionEl: number;
     dry: { originM: number; stepM: number; n: number; data: Uint8Array };
+    /** Rivers' water: per texel (originX/Z + (i, j) * stepM) the distance to the channel's middle (R, m) and the water's half-width (G, m x 16). */
+    rivers?: { originX: number; originZ: number; stepM: number; nx: number; nz: number; data: Uint8Array };
   };
   /** Coast theatres only: shoreline X and headland weight sampled along Z (see contracts/terrain.ts CoastProfile). */
   coast?: { z0: number; dz: number; shoreX: readonly number[]; headland: readonly number[]; plainRiseMPerKm: number; hillsStartM: number; hillsRampM: number };

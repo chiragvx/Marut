@@ -431,6 +431,19 @@ const FRAGMENT_SHADER = /* glsl */ `
   uniform vec2 uLakeRL[${MAX_LAKES}]; // rotation (rad, east toward south), water level
   uniform int uLakeCount;
   uniform float uLakeRegion;
+  // Rivers (src/terrain/himalaya/humla.ts bakeRiverGrid): R = signed distance to the channel's
+  // middle (128 + m / 2), G = the water's half-width x 16 m; uRiverMap = origin x, z, spacing, 0.
+  uniform sampler2D uRiverTex;
+  uniform vec4 uRiverMap;
+  uniform vec2 uRiverSize;
+  // Distance to the channel's middle and the water's half-width, m (far: 255, 0).
+  vec2 alpineRiverAt(vec2 p) {
+    if (uRiverMap.z <= 0.0) return vec2(255.0, 0.0);
+    vec2 uv = ((p - uRiverMap.xy) / uRiverMap.z + 0.5) / uRiverSize;
+    vec2 t = texture(uRiverTex, uv).rg;
+    return vec2(abs(t.r * 255.0 - 128.0) * 2.0, t.g * 255.0 / 16.0);
+  }
+  vec2 gRiver = vec2(255.0, 0.0);
   // The water level of the lake whose region holds p (nearest by ellipse distance), else -1e9.
   float lakeLevelAt(vec2 p) {
     float best = uLakeRegion;
@@ -489,6 +502,11 @@ const FRAGMENT_SHADER = /* glsl */ `
     float flatv = smoothstep(0.05, 0.012, slope) * (0.35 + 0.65 * smoothstep(-0.02, 0.05, relief));
     vec3 gravel = mix(vec3(0.60, 0.57, 0.51), vec3(0.50, 0.47, 0.42), n2);
     col = mix(col, gravel, flatv * mix(0.35, 0.6, dry));
+    // River beds: pale shingle and sand bars along the water, wider on the main river.
+    if (gRiver.y > 0.0) {
+      float bar = 1.0 - smoothstep(gRiver.y * 1.4 + 2.0, gRiver.y * 1.4 + 6.0 + 16.0 * n2, gRiver.x);
+      col = mix(col, mix(vec3(0.60, 0.58, 0.54), vec3(0.50, 0.49, 0.46), n2), bar * 0.6);
+    }
     // Rock on steep ground, scree below it.
     vec3 rock = mix(vec3(0.30, 0.28, 0.27), vec3(0.47, 0.43, 0.39), n1 * 0.6 + n2 * 0.4);
     vec3 scree = mix(vec3(0.55, 0.52, 0.48), vec3(0.47, 0.44, 0.41), n2);
@@ -654,6 +672,14 @@ const FRAGMENT_SHADER = /* glsl */ `
     vec3 rv = vec3(-1e9, -1e9, 0.0);
     if (uStyle == 2 && uRiverCount > 0) rv = riversAt(vWorld.xz);
     float riverWater = uStyle == 2 ? smoothstep(-0.5 * px - 0.5, 0.5 * px + 0.5, rv.x) : 0.0;
+    // Himalaya rivers: from the baked grid (the channel heightAt carves); fades to a thin line far off.
+    if (uStyle == 3) {
+      gRiver = alpineRiverAt(vWorld.xz);
+      if (gRiver.y > 0.0) {
+        rv.x = gRiver.y - gRiver.x;
+        riverWater = smoothstep(-0.5 * px - 0.5, 0.5 * px + 0.5, rv.x) * clamp(2.0 * gRiver.y / px, 0.0, 1.0);
+      }
+    }
     // Goa: the sea and estuaries are analytic too (coastMath): sea where the pixel is west of the
     // shoreline table (except island land, which only the mesh knows), estuaries by their field.
     float est = -1e9;
@@ -781,7 +807,12 @@ const FRAGMENT_SHADER = /* glsl */ `
       // (+ aircraft lamps near the ground: navigation lights, the landing light.)
       col *= ambient * occ + uAtmSunCol * diff * mix(1.0, occ, 0.35) + groundLamps(vWorld, n);
       col += gTownGlowCol * gTownGlow * uAtmLights;
-      if (riverWater > 0.0) col = mix(col, waterShade(vWorld, vRel, px, clamp(rv.x * 0.03, 0.0, 6.0), 1e9, 0.0, sunVis), riverWater);
+      if (riverWater > 0.0) {
+        vec3 wc = waterShade(vWorld, vRel, px, clamp(rv.x * 0.03, 0.0, 6.0), 1e9, 0.0, sunVis);
+        // Himalayan rivers run milky with glacial silt: greyer and greener than the plains' water.
+        if (uStyle == 3) wc = mix(wc, vec3(dot(wc, vec3(0.3, 0.5, 0.2))) * vec3(0.9, 1.02, 1.0), 0.55);
+        col = mix(col, wc, riverWater);
+      }
       if (coastWater > 0.0) {
         bool estuary = est > 0.0 && est > seaW;
         float depth = estuary ? min(est * 0.02, 6.0) : min(seaW * (0.01 - 0.006 * coastPx.y), 60.0);
@@ -839,6 +870,9 @@ export function createTerrainMaterial(): THREE.ShaderMaterial {
       uLakeRL: { value: Array.from({ length: MAX_LAKES }, () => new THREE.Vector2()) },
       uLakeCount: { value: 0 },
       uLakeRegion: { value: 0 },
+      uRiverTex: { value: emptyDryTexture() },
+      uRiverMap: { value: new THREE.Vector4(0, 0, 0, 0) },
+      uRiverSize: { value: new THREE.Vector2(1, 1) },
       ...getCloudShadowUniforms(),
       ...getAtmosphereUniforms(),
       ...getGroundLampUniforms(),
@@ -929,6 +963,19 @@ export function applyTerrainEnvironment(material: THREE.ShaderMaterial, env: Rea
     (u['uDryTex']!.value as THREE.Texture).dispose();
     u['uDryTex']!.value = tex;
     (u['uDryMap']!.value as THREE.Vector3).set(d.originM, d.stepM, d.n);
+  }
+  const rg = alpine?.rivers;
+  if (rg) {
+    const tex = new THREE.DataTexture(rg.data as Uint8Array<ArrayBuffer>, rg.nx, rg.nz, THREE.RGFormat);
+    tex.magFilter = THREE.LinearFilter;
+    tex.minFilter = THREE.LinearFilter;
+    tex.needsUpdate = true;
+    (u['uRiverTex']!.value as THREE.Texture).dispose();
+    u['uRiverTex']!.value = tex;
+    (u['uRiverMap']!.value as THREE.Vector4).set(rg.originX, rg.originZ, rg.stepM, 0);
+    (u['uRiverSize']!.value as THREE.Vector2).set(rg.nx, rg.nz);
+  } else {
+    (u['uRiverMap']!.value as THREE.Vector4).set(0, 0, 0, 0);
   }
 
   const masks = (env.airfieldMasks ?? []).slice(0, MAX_AIRFIELDS);
