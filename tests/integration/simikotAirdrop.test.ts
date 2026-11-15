@@ -1,8 +1,8 @@
 /**
  * tests/integration/simikotAirdrop.test.ts — "Simikot Lifeline", the C-17 airdrop on the runway at
- * Simikot: a clear morning, a single destination (the DZ) and a 3° glidepath up the Karnali gorge
+ * Simikot: a clear morning, a single destination (the DZ) and a 3° glidepath up the Karnali valley
  * on the HUD needles; the MANPADS pair at the foot of the ridge is hidden until it fires. A scripted
- * autopilot flies the whole mission from its start (glidepath, drop, climb-out through the notch
+ * autopilot flies the whole mission from its start (glidepath, drop, climb-out off the terrace
  * west of the strip) clear of the ground; the loadmaster runs the drop on the intercom and springs
  * the surprise as the first missile goes up, and the whole load (one stick of 16) lands on the
  * strip. Netra only checks in and closes; nobody on the ground talks. Also: the grade bands, an early release is a
@@ -155,10 +155,10 @@ function frame(over: Omit<Partial<ScriptFrame>, 'player'> & { player?: Partial<S
   const { player, ...rest } = over;
   return {
     t: 0,
-    player: { id: 1, x: 92025, y: 4750, z: 94595, vx: -66, vy: 0, vz: -66, headingRad: (315 * Math.PI) / 180, aglM: 2000, onGround: false, alive: true, ...player },
+    player: { id: 1, x: 92109, y: 4484, z: 88295, vx: -77, vy: 0, vz: -54, headingRad: (305 * Math.PI) / 180, aglM: 2000, onGround: false, alive: true, ...player },
     hostiles: [],
     targetId: -1, lockState: 0, warningBits: 0, rwrCount: 0, spiValid: false, spiX: 0, spiZ: 0, dlz: 0,
-    iasMps: 90, altMslM: player?.y ?? 4750, vsMps: 0, pitchRad: 0, rollRad: 0, gearPos: 0, gearDown: false, airbrake: false, afterburner: false,
+    iasMps: 90, altMslM: player?.y ?? 4484, vsMps: 0, pitchRad: 0, rollRad: 0, gearPos: 0, gearDown: false, airbrake: false, afterburner: false,
     thrustFrac: 0.6, throttle: 0.6, weaponIdx: 0, radarMode: 0, cameraChanges: 0, radarRangeChanges: 0, trackCount: 0, radioBusy: false,
     fuelKg: 44000, fuelDumping: false, rampPos: 0, airdropState: AirdropStateCode.Safe, airdropLeft: 16, enginesRunning: 4,
     ...rest,
@@ -179,7 +179,7 @@ const THREAT_WORDS = /missile|manpads|sam\b|threat|shoulder|launch/i;
  * Flies the mission from its start the way a careful pilot would: the glidepath on the needles' own
  * numbers (src/core/dropBeam.ts), 170 kt then flaps 3/4 and 140 kt, the ramp open inside 12 km,
  * release on the CARP; flares on each missile launch; then full power and a climbing left turn with
- * the valley (west through the notch, then up the Karnali). Feeds the script frames and events.
+ * the valley (off the terrace on 270, then up the Karnali on 298). Feeds the script frames and events.
  */
 function flyMission(opts: { flares: boolean; afterSec: number; untilEnd?: boolean }) {
   const m = resolveBuiltinMission(ID);
@@ -241,8 +241,8 @@ function flyMission(opts: { flares: boolean; afterSec: number; untilEnd?: boolea
         release = { alongM: beam.alongM, aglOverDz: s.pos.y - DZ_GROUND_M, iasKt: ias };
       }
     } else {
-      // West through the notch, then up the Karnali.
-      wantHdg = s.pos.x - DZ.x > -1300 ? 262 : 293;
+      // Left onto 270 off the terrace, over the river bend, then up the valley on 298.
+      wantHdg = s.pos.x - DZ.x > -3500 ? 270 : 298;
       inp.flapLever = 2;
       // The ramp stays open until the load is clear (the stick of 16 takes ~7 s to roll out).
       inp.rampOpen = t - releasedAt < 9;
@@ -262,8 +262,10 @@ function flyMission(opts: { flares: boolean; afterSec: number; untilEnd?: boolea
       if (e.type === 'missileLaunch') {
         launches++;
         flareAt.push(t + 0.6, t + 2);
-        if (beam.alongM > 0) launchesShortOfStrip++;
-        if (!firstLaunch) firstLaunch = { t, alongM: beam.alongM, afterRelease: releasedAt >= 0, pos: { x: e.pos?.x ?? NaN, z: e.pos?.z ?? NaN }, jet: { x: s.pos.x, z: s.pos.z, headingRad: tel.headingRad } };
+        // Where the jet was when it fired: after this step (the beam above is from before it).
+        const at = dropBeamAt(world.getEntityState(id)!.pos, a, newDropBeamState());
+        if (at.alongM > 0) launchesShortOfStrip++;
+        if (!firstLaunch) firstLaunch = { t, alongM: at.alongM, afterRelease: releasedAt >= 0, pos: { x: e.pos?.x ?? NaN, z: e.pos?.z ?? NaN }, jet: { x: s.pos.x, z: s.pos.z, headingRad: tel.headingRad } };
       }
       if (e.type === 'hit' && e.targetId === id) {
         hits++;
@@ -369,14 +371,14 @@ describe('Simikot Lifeline (C-17 airdrop)', () => {
     expect(Math.abs(site - DZ_GROUND_M)).toBeLessThan(100);
     expect(h(g.pos.x, g.pos.z - 1500) - site).toBeGreaterThan(700);
     expect(site - h(g.pos.x, g.pos.z + 1000)).toBeGreaterThan(300);
-    // Line of sight from the post to the climb-out (west through the notch, then ~293 up the
-    // valley, climbing ~12 m/s): masked by the strip's edge for the first few seconds past the DZ,
+    // Line of sight from the post to the climb-out (off the terrace on 270, then ~298 up the
+    // valley, climbing ~12 m/s): masked by the terrace and the spur for the first seconds past the DZ,
     // then open for at least 30 s of it inside the missiles' 5 km.
     const eye = { x: g.pos.x, y: site + 2, z: g.pos.z };
     let x: number = DZ.x, z: number = DZ.z, y = DZ_GROUND_M + 150;
     let seenInRange = 0;
     for (let sec = 1; sec <= 60; sec++) {
-      const hd = ((x - DZ.x > -1300 ? 262 : 293) * Math.PI) / 180;
+      const hd = ((x - DZ.x > -3500 ? 270 : 298) * Math.PI) / 180;
       x += Math.sin(hd) * 110;
       z -= Math.cos(hd) * 110;
       y += 12;
@@ -411,7 +413,7 @@ describe('Simikot Lifeline (C-17 airdrop)', () => {
     expect(s.markers().some((p) => THREAT_WORDS.test(p.name))).toBe(false);
   });
 
-  test('the glidepath (3°, track 315 up the gorge) is clear of the ground from the start to the DZ', () => {
+  test('the glidepath (3°, track 305 up the Karnali valley) is clear of the ground from the start to the DZ', () => {
     const m = resolveBuiltinMission(ID);
     const a = m.dropApproach!;
     const deps = buildWorldDependencies(m);

@@ -14,11 +14,11 @@
   "playerStart": {
     "aircraftId": "c-17",
     "pos": {
-      "x": 92025,
-      "y": 4750,
-      "z": 94595
+      "x": 92109,
+      "y": 4484,
+      "z": 88295
     },
-    "headingRad": 5.4978,
+    "headingRad": 5.323254,
     "speedMps": 124,
     "fuelFrac": 0.3,
     "cargoKg": 16000,
@@ -37,15 +37,15 @@
       "team": 1,
       "template": "manpads-pair",
       "pos": {
-        "x": 68711,
-        "z": 72332
+        "x": 68364,
+        "z": 72241
       },
-      "headingRad": 2.6,
+      "headingRad": 2.4,
       "hidden": true,
       "holdFireShortOf": {
         "x": 70811.5,
         "z": 73382.2,
-        "headingRad": 5.497787
+        "headingRad": 5.323254
       }
     }
   ],
@@ -84,9 +84,9 @@
       "z": 73382.2
     },
     "groundM": 2971,
-    "courseRad": 5.497787,
+    "courseRad": 5.323254,
     "glideDeg": 3,
     "heightAglM": 150,
-    "rangeM": 34000
+    "rangeM": 30000
   }
 }

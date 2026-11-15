@@ -2,7 +2,7 @@
  * tests/integration/simikotClimbOut.test.ts — the climb-out after the drop in "Simikot Lifeline":
  * from the release point (180 KIAS, flaps 1/2, ~150 m over the strip at 2,971 m), full power and the
  * flaps up, the C-17 accelerates to a climb speed and climbs out of the valley along the mission's
- * route (west through the notch at the strip's end, then up the Karnali on ~293) with real margin
+ * route (left onto 270 off the terrace, then up the Karnali on ~298) with real margin
  * over the ground. It flies the mission as loaded (src/core/missions/himalayaAirdrop.json: fuel 0.3,
  * the whole 16 t load dropped in one stick) and, for comparison, the load it had before (fuel 0.4,
  * one stick of 4: 12 t still aboard on the climb-out), printing both.
@@ -37,6 +37,8 @@ interface ClimbOut {
   climbRateMps: number;
   /** Lowest height over the ground after the release, m. */
   minAglM: number;
+  /** Lowest height over the ground anywhere within 500 m either side of the track (a turn or a drift off the line), m. */
+  minCorridorM: number;
   /** From the release to CLIMB_OUT_ALT_M (4,000 m), s. */
   to4000Sec: number;
   /** Height and distance from the strip 120 s after the release. */
@@ -84,6 +86,7 @@ function climbOut(load: { fuelFrac?: number; stick?: number } = {}): ClimbOut {
   let atSpeedY = 0;
   let climbRate = NaN;
   let minAgl = Infinity;
+  let minCorridor = Infinity;
   let to4000 = NaN;
   let alt120 = NaN;
   let dist120 = NaN;
@@ -128,10 +131,15 @@ function climbOut(load: { fuelFrac?: number; stick?: number } = {}): ClimbOut {
       }
       const vsWant = atSpeedAt < 0 ? 4 : Math.max(0, Math.min(30, 12 + (ias - CLIMB_KT) * 1.5));
       inp.pitch = Math.max(-0.4, Math.min(0.6, (vsWant - s.vel.y) * 0.05));
-      wantHdg = s.pos.x - DZ.x > -1300 ? 262 : 293;
+      wantHdg = s.pos.x - DZ.x > -3500 ? 270 : 298;
       if (atSpeedAt >= 0 && Number.isNaN(climbRate) && t - atSpeedAt >= 30) climbRate = (s.pos.y - atSpeedY) / (t - atSpeedAt);
       const agl = s.pos.y - deps.sampler.heightAt(s.pos.x, s.pos.z);
       minAgl = Math.min(minAgl, agl);
+      const gs = Math.hypot(s.vel.x, s.vel.z);
+      for (const off of [-500, -250, 250, 500]) {
+        const cx = s.pos.x - (s.vel.z / gs) * off, cz = s.pos.z + (s.vel.x / gs) * off;
+        minCorridor = Math.min(minCorridor, s.pos.y - deps.sampler.heightAt(cx, cz));
+      }
       if (Number.isNaN(to4000) && s.pos.y >= CLIMB_OUT_ALT_M) to4000 = k;
       if (k >= 12 && climbMass === 0) climbMass = aircraftMassKg(s, c17Definition);
       if (Number.isNaN(alt120) && k >= 120) {
@@ -153,6 +161,7 @@ function climbOut(load: { fuelFrac?: number; stick?: number } = {}): ClimbOut {
     toClimbSpeedSec: atSpeedAt >= 0 ? atSpeedAt - relAt : NaN,
     climbRateMps: climbRate,
     minAglM: minAgl,
+    minCorridorM: minCorridor,
     to4000Sec: to4000,
     alt120M: alt120,
     dist120M: dist120,
@@ -161,7 +170,7 @@ function climbOut(load: { fuelFrac?: number; stick?: number } = {}): ClimbOut {
 }
 
 const fmt = (label: string, r: ClimbOut): string =>
-  `${label}: release ${r.releaseMassT.toFixed(1)} t, climb ${r.climbMassT.toFixed(1)} t · ${CLIMB_KT} KIAS after ${r.toClimbSpeedSec.toFixed(1)} s · climb ${r.climbRateMps.toFixed(1)} m/s (${Math.round(r.climbRateMps * 196.85)} ft/min) at ${CLIMB_KT} KIAS · 4,000 m after ${r.to4000Sec.toFixed(0)} s · at 120 s ${Math.round(r.alt120M)} m, ${(r.dist120M / 1000).toFixed(1)} km out · lowest ${Math.round(r.minAglM)} m over the ground`;
+  `${label}: release ${r.releaseMassT.toFixed(1)} t, climb ${r.climbMassT.toFixed(1)} t · ${CLIMB_KT} KIAS after ${r.toClimbSpeedSec.toFixed(1)} s · climb ${r.climbRateMps.toFixed(1)} m/s (${Math.round(r.climbRateMps * 196.85)} ft/min) at ${CLIMB_KT} KIAS · 4,000 m after ${r.to4000Sec.toFixed(0)} s · at 120 s ${Math.round(r.alt120M)} m, ${(r.dist120M / 1000).toFixed(1)} km out · lowest ${Math.round(r.minAglM)} m over the ground (${Math.round(r.minCorridorM)} m within 500 m of the track)`;
 
 describe('Simikot Lifeline: the climb-out after the drop', () => {
   test('full power and flaps up from the drop: the jet accelerates to a climb speed and climbs out over the valley with margin', () => {
@@ -178,6 +187,8 @@ describe('Simikot Lifeline: the climb-out after the drop', () => {
     // Out of the valley: 4,000 m inside 90 s, never close to the ground on the way.
     expect(now.to4000Sec).toBeLessThan(90);
     expect(now.minAglM).toBeGreaterThan(110);
+    // ... nor beside the track: the valley is wide enough to turn in and drift.
+    expect(now.minCorridorM).toBeGreaterThan(60);
     expect(now.alt120M).toBeGreaterThan(4300);
     // The old load was clearly worse (the reason for the change).
     expect(now.climbRateMps).toBeGreaterThan(before.climbRateMps + 2);

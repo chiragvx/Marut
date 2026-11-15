@@ -43,7 +43,7 @@ export const HIMALAYA_CAMPAIGN: Campaign = {
   blurb: 'Chinese columns are pushing down the Karnali into Humla. Nepal has asked India for help: hold the valleys open from the air, from Naini Saini to the plateau.',
   slots: [
     { slot: 1, title: 'First Lift', aircraft: 'C-17', teaser: 'Sixty troops into the one-way strip at Gunji: no go-around past the commit point.' },
-    { slot: 2, title: 'Simikot Lifeline', aircraft: 'C-17', teaser: 'Up the Karnali gorge to airdrop sixteen tonnes on the runway at Simikot.', missionId: 'himalaya-airdrop' },
+    { slot: 2, title: 'Simikot Lifeline', aircraft: 'C-17', teaser: 'Up the Karnali valley to airdrop sixteen tonnes on the runway at Simikot.', missionId: 'himalaya-airdrop' },
     { slot: 3, title: 'Lipulekh Watch', aircraft: 'Tejas', teaser: 'Pop up over the pass and stop a column on the road from Purang.' },
     { slot: 4, title: 'Kailash Sweep', aircraft: 'Tejas', teaser: 'Clear a fighter pair over the lakes while a second C-17 lift goes in.' },
     { slot: 5, title: 'Lights Out', aircraft: 'Tejas', teaser: 'Through the Zanda canyon to close the runway at Ngari Gunsa, and spare its taxiway.' },

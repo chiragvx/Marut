@@ -104,6 +104,39 @@ function pavementPoints(L: Json): Pt[] {
   return out;
 }
 
+/**
+ * Simikot town: flat-roofed houses (1-3 storeys) packed on the terrace north of the strip, between
+ * the airport buildings and the hillside (the real town wraps the north side right up to the fence).
+ * Deterministic. Positions are metres from the runway midpoint in the runway's frame (along the
+ * heading, `c` to the right = south), turned into world offsets.
+ */
+function simikotTown(headingRad: number, ox: number, oz: number): Json[] {
+  let seed = 2971;
+  const rnd = (): number => {
+    seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+    return seed / 4294967296;
+  };
+  const ax = Math.sin(headingRad), az = -Math.cos(headingRad);
+  const rx = Math.cos(headingRad), rz = Math.sin(headingRad);
+  const out: Json[] = [];
+  let k = 0;
+  for (let c = -175; c >= -320; c -= 26) {
+    for (let a = -350; a <= 330; a += 24) {
+      if (rnd() < 0.42) continue;
+      const aa = a + (rnd() - 0.5) * 10, cc = c + (rnd() - 0.5) * 10;
+      const w = 6 + rnd() * 6, l = 8 + rnd() * 8;
+      const storeys = rnd() < 0.55 ? 1 : rnd() < 0.8 ? 2 : 3;
+      out.push({
+        id: `TOWN-${++k}`, kind: 'building',
+        worldX: r1(ox + ax * aa + rx * cc), worldZ: r1(oz + az * aa + rz * cc),
+        headingRad: Math.round((headingRad + (rnd() < 0.5 ? 0 : Math.PI / 2) + (rnd() - 0.5) * 0.25) * 1e4) / 1e4,
+        widthM: r1(w), lengthM: r1(l), heightM: storeys * 3 + 0.5, group: 'town',
+      });
+    }
+  }
+  return out;
+}
+
 const md = readFileSync(DOC, 'utf8');
 const pads = padBoxes();
 for (const a of AIRFIELDS) {
@@ -112,6 +145,10 @@ for (const a of AIRFIELDS) {
   const [ox, oz] = geo(a.lat, a.lon);
   const src = docBlock(md, a.layoutId);
   const L = place(src, ox, oz, a.id === 'fukche' ? { surface: 'dirt', attribution: 'Runway, taxiway and dispersal are unpaved (graded earth), as the real strip is.' } : {});
+  if (a.id === 'simikot') {
+    L['structures'] = [...((L['structures'] as Json[] | undefined) ?? []), ...simikotTown((a.headingDeg * Math.PI) / 180, ox, oz)];
+    L['attribution'] = `${L['attribution'] as string} The town's houses are generic, placed by code.`;
+  }
   // Flatten zones: discs on the runway centreline at the validator's coverage samples (the middle
   // first: the airfield mask centres on zone 0), as big as fits inside the level pad.
   const rw = (L['runways'] as Json[])[0]!;

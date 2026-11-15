@@ -32,7 +32,7 @@ export interface BaseInfo {
   flightName?: string;
   /**
    * An air start on this runway's approach, this far out and this high above the field, instead
-   * of AIR_START on the runway in use (a one-way strip in a gorge has one way in).
+   * of AIR_START on the runway in use (a one-way strip on a mountain terrace has one way in).
    */
   airStart?: { runwayId: string; distanceM: number; heightM: number };
 }
@@ -79,14 +79,14 @@ export const BASES: readonly BaseInfo[] = [
     id: 'simikot',
     name: 'Simikot',
     place: 'Humla, Nepal',
-    blurb: 'A 650 m strip at 2,971 m on a shelf above the Karnali gorge, ridges to 5,800 m round it: the final to runway 28 comes up the ravine.',
+    blurb: 'A 650 m strip at 2,971 m on a broad terrace 650 m above the Humla Karnali, the town packed along its north side and ridges to 4,500 m round it: one way in, landing 28 uphill.',
     airportId: 'simikot',
     // The same Himalaya world as Fukche (the three bases share one map).
     freeMissionId: 'himalaya-free',
     flightName: 'Free Flight — Simikot, Himalaya',
     parkingSpotId: 'STAND-1',
     parkedLabel: 'on the apron',
-    // The ravine approach to runway 28 (as the dev start himalaya-simikot): 6 km out, 5,200 m.
+    // The approach to runway 28 from down the valley (as the dev start himalaya-simikot): 6 km out, 5,200 m.
     airStart: { runwayId: '28', distanceM: 6000, heightM: 2229 },
     untested: true,
   },
@@ -254,7 +254,7 @@ export const MISSIONS: readonly MissionEntry[] = [
     bandits: 0,
     objective: 'Airdrop supplies to the Nepal Army on the runway at Simikot, then climb out of the valley.',
     situation:
-      "On 14 October at 04:40 local, Chinese troops crossed into Humla and overran the Nepal Army's border posts at Hilsa, Yari and Limi; by midday their columns were moving down the Karnali gorge towards Simikot. The garrison is dug in above Kermi, the road is cut, and they have food for two days. You start 30 km south-east of Simikot in the C-17, lined up on the Karnali valley: fly the glidepath up the valley on the HUD needles and drop all sixteen 1-tonne A-22 bundles (G-12 parachutes) on the runway in one pass, about 150 m up at 180 knots with flaps 1/2. Then get out of that valley.",
+      "On 14 October at 04:40 local, Chinese troops crossed into Humla and overran the Nepal Army's border posts at Hilsa, Yari and Limi; by midday their columns were moving down the Karnali valley towards Simikot. The garrison is dug in above Kermi, the road is cut, and they have food for two days. You start 26 km south-east of Simikot in the C-17, lined up on the Karnali valley: fly the glidepath up the valley on the HUD needles and drop all sixteen 1-tonne A-22 bundles (G-12 parachutes) on the runway in one pass, about 150 m up at 180 knots with flaps 1/2. Then get out of that valley.",
     weather: 'clear',
     timeOfDayH: 9.5,
     transport: { presetId: 'cds', fuelFrac: 0.3, cargoKg: 16000, airdrop: true },

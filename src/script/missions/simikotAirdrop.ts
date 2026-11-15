@@ -4,16 +4,16 @@
  * (src/briefing) tells the story, so the radio is sparse: Netra (the AWACS) checks the jet in and
  * closes the mission, and the drop itself is the loadmaster's, on the intercom at the ramp (ids lm_*,
  * played dry and close, not through the radio: src/script/radioPlayer.ts). The approach is flown on
- * the HUD's ILS needles (Mission.dropApproach: a localiser and 3° glidepath up the Karnali gorge on
- * 315 to 150 m over the strip); the loadmaster opens the ramp, counts down from the computed
+ * the HUD's ILS needles (Mission.dropApproach: a localiser and 3° glidepath up the Karnali valley on
+ * 305 to 150 m over the strip); the loadmaster opens the ramp, counts down from the computed
  * release point (CARP: where a stick released now would land, src/core/airdrop.ts predictCdsDrop),
  * calls the green light and the load clear, and reports where the bundles came down.
  *
  * The threat is a surprise: a MANPADS pair at a forward post at the foot of the ridge north-west of
  * the field (a hidden ground group: no steerpoint, mark or briefing line) opens fire once the jet is
  * past the strip, and the loadmaster calls it from the ramp ("missile launch, left side, flares!").
- * Flares, full power, and the climb-out (a left turn with the valley, through the notch at the
- * strip's west end, src/terrain/himalaya/layout.ts 'simikot-west').
+ * Flares, full power, and the climb-out: left onto 270 off the terrace's west edge, over the river
+ * where it bends round the terrace, then right up the valley on ~298 (src/terrain/himalaya/humla.ts).
  *
  *   1 Inbound      the glidepath from the south-east; jettison fuel if wanted (not needed)
  *   2 Run-in/drop  ramp open, ~150 m over the strip, 180 kt (flaps 1/2), release on green: the
@@ -28,10 +28,10 @@
  * teams' reach, or never fired on), and a safe climb-out (4,000 m or 8 km from the strip); the
  * sim ends it in failure if the jet is lost.
  *
- * Why the run-in is not the runway's own axis: the straight runway 28 final crosses a 4,800 m ridge
- * 5-7 km east of the field (real Simikot has a curved approach up a ravine). The Karnali gorge from
- * the south-east is the one straight line onto the strip with a 3° path clear of the ground, so the
- * run-in crosses the strip at ~30° on 315.
+ * The run-in: the Karnali runs straight on ~125 for 30 km below Simikot, so the glidepath comes up
+ * the valley over the river and, for the last 2 km, over the terrace's lower edge; it crosses the
+ * strip at ~21° to its axis (283.6), so a stick spreads along the strip and the terrace beside it.
+ * A straight-in on the runway's own axis would cross the spur east of the stream beyond its end.
  */
 import type { DropApproach, EntityId, SimEvent } from '../../contracts/core';
 import { AirdropStateCode, WarningBit } from '../../contracts/core';
@@ -47,13 +47,13 @@ const STEPS = 4;
 /** The DZ: the middle of the strip at Simikot, and its height. */
 export const DZ = { x: 70811.5, z: 73382.2 } as const;
 export const DZ_GROUND_M = 2971;
-/** The run-in course, deg true (up the gorge from the south-east). */
-export const RUN_IN_DEG = 315;
+/** The run-in course, deg true (up the Karnali valley from the south-east). */
+export const RUN_IN_DEG = 305;
 export const SIMIKOT = DZ;
 /** The approach the mission flies when it gives none (himalayaAirdrop.json carries the same). */
-export const SIMIKOT_APPROACH: DropApproach = { pos: { ...DZ }, groundM: DZ_GROUND_M, courseRad: (RUN_IN_DEG * Math.PI) / 180, glideDeg: 3, heightAglM: 150, rangeM: 34000 };
-/** Where the climb-out heads once through the notch: up the Karnali, 4 km west of the strip. */
-export const CLIMB_OUT = { x: DZ.x - 3600, z: DZ.z - 950 } as const;
+export const SIMIKOT_APPROACH: DropApproach = { pos: { ...DZ }, groundM: DZ_GROUND_M, courseRad: (RUN_IN_DEG * Math.PI) / 180, glideDeg: 3, heightAglM: 150, rangeM: 30000 };
+/** Where the climb-out heads: over the Karnali's bend, 6 km out on 290 (then on up the valley). */
+export const CLIMB_OUT = { x: DZ.x - 5640, z: DZ.z - 2050 } as const;
 /**
  * The drop speed, KIAS (the HUD's speed is IAS), and the "too fast" call. At the mission's weight
  * (~177 t) the alpha limiter holds level flight down to ~165 KIAS flaps up, ~145 with slats and
@@ -66,10 +66,10 @@ export const TOO_FAST_KT = 220;
 export const STICK = 16;
 /**
  * Where the hidden MANPADS pair is when the mission does not say (himalayaAirdrop.json
- * 'manpads-ridge'): a forward post at the foot of the ridge north-west of the strip, 2.3 km out,
+ * 'manpads-ridge'): a forward post on the Hilsa road at the foot of the ridge north-west of the strip, 2.7 km out,
  * a little below the strip's level, overlooking the valley the climb-out turns into.
  */
-export const THREAT_POS = { x: 68711, z: 72332 } as const;
+export const THREAT_POS = { x: 68364, z: 72241 } as const;
 /** Out of the teams' reach: their missiles' range (5 km) and a margin. */
 export const THREAT_CLEAR_M = 6000;
 /** A safe climb-out: this high (MSL), or this far from the strip. */
@@ -272,7 +272,7 @@ export class SimikotAirdropScript extends ScriptBase {
       if (this.phase === 'inbound') {
         this.setObjective(1, STEPS, 'Fly the glidepath to Simikot', `${(dDz / 1000).toFixed(1)} km · glidepath ${Math.round(b.pathAltM)} m (you ${fmtSigned(b.highM)} m) · fuel ${fuelT.toFixed(1)} t${f.fuelDumping ? ' (jettisoning)' : ''}`);
       } else {
-        this.setObjective(2, STEPS, 'Come around for another pass', `${(dDz / 1000).toFixed(1)} km · rejoin the glidepath south-east of the field, track 315 · ${this.sticks.length} pass${this.sticks.length === 1 ? '' : 'es'} so far`);
+        this.setObjective(2, STEPS, 'Come around for another pass', `${(dDz / 1000).toFixed(1)} km · rejoin the glidepath south-east of the field, track ${RUN_IN_DEG} · ${this.sticks.length} pass${this.sticks.length === 1 ? '' : 'es'} so far`);
       }
       if (lined) this.startRunIn();
     }
@@ -356,7 +356,7 @@ export class SimikotAirdropScript extends ScriptBase {
     }
     const ahead = this.carp?.aheadM ?? dDz;
     const ias = f.iasMps;
-    // Height above the strip (the gorge under the run-in is far lower).
+    // Height above the strip (the valley under the run-in is far lower).
     const overDz = p.y - DZ_GROUND_M;
     const ramp = (f.rampPos ?? 0) >= 0.98;
     this.setObjective(
