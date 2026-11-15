@@ -391,10 +391,10 @@ export class SimikotAirdropScript extends ScriptBase {
     }
   }
 
-  /** Navigation: the DZ only (the route's one steerpoint); on the run-in, the release point too; after the drop, the valley to climb out along. */
+  /** Navigation: the DZ only (the route's one steerpoint); on the run-in, the release point too (a bare diamond: the DZ marker already carries the name and distance); after the drop, the valley to climb out along. */
   private updateMarks(): void {
     const m: { name: string; x: number; y: number; z: number; objective: true }[] = [];
-    if (this.phase === 'runin' && this.carp && !this.passReleased) m.push({ name: 'CARP', x: this.carp.x, y: DZ_GROUND_M, z: this.carp.z, objective: true });
+    if (this.phase === 'runin' && this.carp && !this.passReleased) m.push({ name: '', x: this.carp.x, y: DZ_GROUND_M, z: this.carp.z, objective: true });
     if (this.phase === 'egress') m.push({ name: 'CLIMB OUT', x: CLIMB_OUT.x, y: 2600, z: CLIMB_OUT.z, objective: true });
     this.marks = m;
   }

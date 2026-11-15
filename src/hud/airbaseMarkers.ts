@@ -20,6 +20,9 @@ import { createScreenProjection, projectWorldToScreen } from './targetBox';
 const FRIENDLY = '#40ff60';
 const HOSTILE = '#ff5a4a';
 const FACILITY = '#9fe8ff';
+/** A base this close to the active steerpoint is left to the steerpoint's marker (one label, not two), m. */
+const COVERED_M = 2500;
+
 /** Facility labels show within this distance of a friendly base's reference point... */
 const NEAR_BASE_M = 4000;
 /** ...when on the ground or at most this high above the field. */
@@ -120,7 +123,9 @@ export function drawAirbaseMarkers(
   pz: number,
   onGround: boolean,
   widthPx: number,
-  heightPx: number
+  heightPx: number,
+  /** A steerpoint already marking a spot (the active route point): a base under it is not marked again. */
+  covered?: { x: number; z: number }
 ): void {
   if (bases.length === 0) return;
   // The friendly base whose facilities are labelled (if any): the nearest one we are on or low over.
@@ -140,6 +145,7 @@ export function drawAirbaseMarkers(
     if (b.side === 'hostile' || b === near) continue;
     const d = Math.hypot(b.x - px, b.z - pz, b.y - py);
     if (!b.home && d > OTHER_BASE_3D_M) continue;
+    if (covered && Math.hypot(b.x - covered.x, b.z - covered.z) < COVERED_M) continue;
     projectWorldToScreen(camera, { x: b.x, y: b.y + 40, z: b.z }, widthPx, heightPx, scratch);
     if (!scratch.visible) continue;
     const x = scratch.xPx;

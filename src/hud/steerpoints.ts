@@ -279,8 +279,8 @@ function drawObjectiveMarker(ctx: CanvasRenderingContext2D, p: HudSteerpoint, ca
     ctx.closePath();
     ctx.fill();
   }
-  // Labels only where they do not overlap another's (the first listed, the current step, wins).
-  if (!free(x, y)) {
+  // Labels only where they do not overlap another's (the first listed, the current step, wins); an unnamed mark is the diamond alone.
+  if (p.name === '' || !free(x, y)) {
     ctx.restore();
     return;
   }

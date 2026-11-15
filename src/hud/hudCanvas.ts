@@ -20,7 +20,7 @@ import { drawAirbaseMarkers, drawAirbaseTape } from './airbaseMarkers';
 import { drawAutopilotBugs, drawAutopilotStatus } from './autopilotHud';
 import { AimingHelp, EntityFlag, HUD_EXT_BASE, SnapshotEntity, SnapshotHud, SnapshotHudExt, SpeedUnit, WarningBit, WeaponKindByCode, entityFieldOffset, isAirToGroundKind, type QualityTier } from '../contracts/core';
 import { RENDER_QUALITY_TABLE, type CameraState, type CreateHudRenderer, type HudAirbase, type HudRenderer, type HudRoutePoint, type HudSteerpoint } from '../contracts/render';
-import { drawRouteCaret, drawRouteData, drawRouteMarker } from './routeDisplay';
+import { activeRouteIndex, drawRouteCaret, drawRouteData, drawRouteMarker } from './routeDisplay';
 import { drawSteerpointMarkers, drawSteerpointTape } from './steerpoints';
 
 import { drawLadder } from './ladder';
@@ -125,6 +125,15 @@ export const createHudRenderer: CreateHudRenderer = (canvas, initialTier) => {
   let leftInset = 0;
   /** The player's aircraft's flap detent names (undefined: no flaps). */
   let flapNames: readonly string[] | undefined;
+
+    const spot = { x: 0, z: 0 };
+  /** Where the active route steerpoint is (it marks its airfield itself), or undefined. */
+  function routeSpot(hud: Float64Array, r: readonly HudRoutePoint[]): { x: number; z: number } | undefined {
+    if (activeRouteIndex(hud, r) < 0) return undefined;
+    spot.x = hud[HUD_EXT_BASE + SnapshotHudExt.ROUTE_X] ?? 0;
+    spot.z = hud[HUD_EXT_BASE + SnapshotHudExt.ROUTE_Z] ?? 0;
+    return spot;
+  }
 
   const api: HudRenderer = {
     setOverlayMode(m) {
@@ -239,7 +248,7 @@ export const createHudRenderer: CreateHudRenderer = (canvas, initialTier) => {
 
       if (overlayMode === 'helmet') {
         // Helmet-mounted display: world-referenced cues only (the cockpit's HUD and displays carry the rest).
-        drawAirbaseMarkers(ctx, airbases, camera, curr.posX[playerSlot]!, curr.posY[playerSlot]!, curr.posZ[playerSlot]!, playerOnGround, widthPx, heightPx);
+        drawAirbaseMarkers(ctx, airbases, camera, curr.posX[playerSlot]!, curr.posY[playerSlot]!, curr.posZ[playerSlot]!, playerOnGround, widthPx, heightPx, routeSpot(hud, route));
         drawSteerpointMarkers(ctx, steerpoints, camera, curr.posX[playerSlot]!, curr.posY[playerSlot]!, curr.posZ[playerSlot]!, widthPx, heightPx);
         drawRouteMarker(ctx, hud, route, camera, curr.posX[playerSlot]!, curr.posY[playerSlot]!, curr.posZ[playerSlot]!, widthPx, heightPx);
         drawRouteData(ctx, hud, route, curr.simTimeSec, curr.posX[playerSlot]!, curr.posZ[playerSlot]!, Math.hypot(curr.velX[playerSlot]!, curr.velZ[playerSlot]!), speedUnit, 16, 30);
@@ -278,7 +287,7 @@ export const createHudRenderer: CreateHudRenderer = (canvas, initialTier) => {
       drawRouteCaret(ctx, hud, route, curr.posX[playerSlot]!, curr.posZ[playerSlot]!, hud[SnapshotHud.HEADING_RAD]!, widthPx * 0.5, 16, widthPx * 0.28);
       drawBreakX(ctx, hud, widthPx * 0.5, heightPx * 0.5, Math.min(widthPx, heightPx) * 0.12);
       drawAirbaseTape(ctx, airbases, curr.posX[playerSlot]!, curr.posZ[playerSlot]!, hud[SnapshotHud.HEADING_RAD]!, widthPx * 0.5, 16, widthPx * 0.28);
-      drawAirbaseMarkers(ctx, airbases, camera, curr.posX[playerSlot]!, curr.posY[playerSlot]!, curr.posZ[playerSlot]!, playerOnGround, widthPx, heightPx);
+      drawAirbaseMarkers(ctx, airbases, camera, curr.posX[playerSlot]!, curr.posY[playerSlot]!, curr.posZ[playerSlot]!, playerOnGround, widthPx, heightPx, routeSpot(hud, route));
       drawSteerpointTape(ctx, steerpoints, curr.posX[playerSlot]!, curr.posZ[playerSlot]!, hud[SnapshotHud.HEADING_RAD]!, widthPx * 0.5, 16, widthPx * 0.28);
       drawSteerpointMarkers(ctx, steerpoints, camera, curr.posX[playerSlot]!, curr.posY[playerSlot]!, curr.posZ[playerSlot]!, widthPx, heightPx);
       drawRouteMarker(ctx, hud, route, camera, curr.posX[playerSlot]!, curr.posY[playerSlot]!, curr.posZ[playerSlot]!, widthPx, heightPx);
