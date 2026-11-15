@@ -5,6 +5,10 @@
  * the C-17's route, the drop zone). Every line carries `userData.lineKind`, one of MAP_LINE_KINDS:
  * there is no boundary kind, so no boundary can be drawn (tests/briefing/briefing.test.ts).
  *
+ * The marks are drawn thin and flat, in a restrained palette (hostile red, a pale route, the UI's
+ * amber for the objective): pins and rings draw on round their circle and pulse once every couple
+ * of seconds; lines draw along their length with an eased pen.
+ *
  * Everything animated is a function of the intro's clock (`update(t)`).
  */
 import * as THREE from 'three';
@@ -16,10 +20,53 @@ const smooth = (v: number): number => {
   const x = clamp01(v);
   return x * x * (3 - 2 * x);
 };
-const outBack = (v: number): number => {
-  const x = clamp01(v) - 1;
-  return 1 + 2.2 * x * x * x + 1.2 * x * x;
+/** Smootherstep: a pen that starts and stops gently. */
+const pen = (v: number): number => {
+  const x = clamp01(v);
+  return x * x * x * (x * (6 * x - 15) + 10);
 };
+const outCubic = (v: number): number => 1 - Math.pow(1 - clamp01(v), 3);
+
+/** A ring (RingGeometry, in its own xy plane) drawn on round its circle up to `uSweep` (0..1). */
+const SWEEP_VS = /* glsl */ `
+varying vec2 vP;
+void main() {
+  vP = position.xy;
+  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+}`;
+const SWEEP_FS = /* glsl */ `
+uniform vec3 uColor;
+uniform float uOpacity;
+uniform float uSweep;
+varying vec2 vP;
+void main() {
+  float f = fract(atan(vP.x, vP.y) / 6.2831853 + 1.0);
+  if (f > uSweep) discard;
+  gl_FragColor = vec4(uColor, uOpacity);
+}`;
+function sweepMaterial(color: THREE.ColorRepresentation): THREE.ShaderMaterial {
+  return new THREE.ShaderMaterial({
+    vertexShader: SWEEP_VS,
+    fragmentShader: SWEEP_FS,
+    uniforms: { uColor: { value: new THREE.Color(color) }, uOpacity: { value: 0 }, uSweep: { value: 0 } },
+    transparent: true,
+    depthTest: false,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+  });
+}
+/** A crisp pulse: every `period` s a thin ring grows from `r0` x to `r1` x and fades. */
+function pulseAt(k: number, period: number): { scale: number; alpha: number } {
+  if (k < 0) return { scale: 1, alpha: 0 };
+  const p = (k % period) / period;
+  const grow = Math.min(1, p / 0.7);
+  return { scale: 1 + 1.6 * outCubic(grow), alpha: p < 0.7 ? (1 - grow) * 0.75 : 0 };
+}
+/** The marks' colours: hostile, the C-17's route, the garrison's line, the objective (the UI's accent). */
+const HOSTILE = 0xff4b3a;
+const ROUTE = 0xeaf2f6;
+const FRONT = 0xf1e7d0;
+const ACCENT = 0xff9a1f;
 
 const RIBBON_VS = /* glsl */ `
 attribute float aAlong;
@@ -129,16 +176,16 @@ function makeLabel(text: string, kind: string): THREE.Sprite {
     if (g) {
       const hostile = kind === 'post';
       const river = kind === 'river' || kind === 'region';
-      g.font = `${river ? 'italic 500' : '600'} ${river ? 40 : 46}px "Barlow Condensed", "Arial Narrow", sans-serif`;
+      g.font = `${river ? 'italic 400' : '500'} ${river ? 40 : 44}px "Barlow Condensed", "Arial Narrow", sans-serif`;
       g.textAlign = 'center';
       g.textBaseline = 'alphabetic';
       const label = river ? text : text.toUpperCase();
       const spaced = label.split('').join(' ');
       g.lineJoin = 'round';
-      g.lineWidth = 8;
-      g.strokeStyle = 'rgba(4, 6, 8, 0.85)';
+      g.lineWidth = 6;
+      g.strokeStyle = 'rgba(4, 6, 8, 0.78)';
       g.strokeText(spaced, W / 2, 62);
-      g.fillStyle = hostile ? '#ffb3a8' : river ? '#9fd2ee' : kind === 'airfield' ? '#ffe2a8' : '#eef2f4';
+      g.fillStyle = hostile ? '#ffb6ab' : river ? '#a9cfe4' : kind === 'airfield' ? '#ffd9a3' : '#eef2f4';
       g.fillText(spaced, W / 2, 62);
       if (!river && !hostile) {
         g.beginPath();
@@ -315,8 +362,8 @@ export function createTableMap(script: BriefingScript): TableMap {
       const pl = PLACES[id];
       if (!pl) continue;
       const s = makeLabel(pl.name, pl.kind);
-      // A post's name sits over its pin's head; a river's or region's floats over the ground.
-      surface(id, pl.kind === 'river' || pl.kind === 'region' ? 0.012 : pl.kind === 'post' ? 0.062 : 0.002, s.position);
+      // A post's name sits just over its pin; a river's or region's floats over the ground.
+      surface(id, pl.kind === 'river' || pl.kind === 'region' ? 0.012 : pl.kind === 'post' ? 0.006 : 0.002, s.position);
       s.name = `label-${id}`;
       labels.set(id, s);
       group.add(s);
@@ -331,27 +378,21 @@ export function createTableMap(script: BriefingScript): TableMap {
   function buildBeat(b: BriefingBeat): Timed | null {
     switch (b.kind) {
       case 'pin': {
-        const at = surface(b.at);
-        const pin = new THREE.Group();
-        pin.name = 'pin';
-        const red = new THREE.MeshBasicMaterial({ color: 0xff3b2f, transparent: true, depthTest: false });
-        const needle = new THREE.Mesh(new THREE.CylinderGeometry(0.0011, 0.0004, 0.05, 5), red);
-        needle.position.y = 0.025;
-        const head = new THREE.Mesh(new THREE.SphereGeometry(0.0075, 10, 8), red);
-        head.position.y = 0.05;
-        pin.add(needle, head);
-        pin.renderOrder = 15;
-        needle.renderOrder = head.renderOrder = 15;
-        const ringMat = new THREE.MeshBasicMaterial({ color: 0xff4a3a, transparent: true, depthTest: false, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide });
-        const ring = tagLine(new THREE.Mesh(new THREE.RingGeometry(0.009, 0.0115, 40), ringMat), 'ring');
-        ring.rotation.x = -Math.PI / 2;
-        ring.renderOrder = 14;
-        const ring2 = tagLine(new THREE.Mesh(ring.geometry, ringMat.clone()), 'ring');
-        ring2.rotation.x = -Math.PI / 2;
-        ring2.renderOrder = 14;
+        // Flat on the map: a solid dot, a thin ring drawn round it, then a crisp pulse.
         const root = new THREE.Group();
-        root.position.copy(at);
-        root.add(pin, ring, ring2);
+        root.name = 'pin';
+        root.position.copy(surface(b.at, 0.0015));
+        const dotMat = new THREE.MeshBasicMaterial({ color: HOSTILE, transparent: true, opacity: 0, depthTest: false, depthWrite: false });
+        const dot = new THREE.Mesh(new THREE.CircleGeometry(0.0026, 28), dotMat);
+        const ringMat = sweepMaterial(HOSTILE);
+        const ring = tagLine(new THREE.Mesh(new THREE.RingGeometry(0.0052, 0.0059, 64), ringMat), 'ring');
+        const pulseMat = new THREE.MeshBasicMaterial({ color: HOSTILE, transparent: true, opacity: 0, depthTest: false, depthWrite: false, side: THREE.DoubleSide });
+        const pulse = tagLine(new THREE.Mesh(new THREE.RingGeometry(0.0052, 0.0056, 64), pulseMat), 'ring');
+        for (const m of [dot, ring, pulse]) {
+          m.rotation.x = -Math.PI / 2;
+          m.renderOrder = 15;
+        }
+        root.add(dot, ring, pulse);
         root.visible = false;
         group.add(root);
         return {
@@ -360,48 +401,37 @@ export function createTableMap(script: BriefingScript): TableMap {
             const k = t - b.t;
             root.visible = k >= 0;
             if (k < 0) return;
-            const drop = clamp01(k / 0.5);
-            // Falls in, with a small bounce.
-            pin.position.y = (1 - outBack(drop)) * 0.22;
-            red.opacity = clamp01(k / 0.15);
-            // Two rings pulse out from the pin once it has landed, half a cycle apart.
-            for (const [r, m, off] of [[ring, ringMat, 0], [ring2, ring2.material as THREE.MeshBasicMaterial, 0.8]] as const) {
-              const run = k - 0.45 - off;
-              const p = run < 0 ? 0 : (run % 1.6) / 1.6;
-              r.scale.setScalar(0.5 + 2.1 * p);
-              m.opacity = run < 0 ? 0 : (1 - p) * 0.65;
-            }
+            // The dot lands small and sharp (a quick settle from a little larger).
+            const d = outCubic(k / 0.35);
+            dot.scale.setScalar(1.7 - 0.7 * d);
+            dotMat.opacity = d;
+            ringMat.uniforms.uSweep!.value = pen((k - 0.1) / 0.6);
+            ringMat.uniforms.uOpacity!.value = 0.9 * clamp01((k - 0.1) / 0.2);
+            const p = pulseAt(k - 0.7, 2.2);
+            pulse.scale.setScalar(p.scale);
+            pulseMat.opacity = p.alpha;
           },
         };
       }
       case 'arrow': {
         const hostile = b.side === 'hostile';
-        const W = b.width ?? (hostile ? 0.013 : 0.006);
-        const world = smoothPath(b.path.map(worldOf), 300);
-        // A hand-drawn wobble across the line.
-        const seed = b.t * 13.7;
-        const wob = world.map((p, i) => {
-          const a = world[Math.max(0, i - 1)]!, c = world[Math.min(world.length - 1, i + 1)]!;
-          const tx = c.x - a.x, tz = c.z - a.z;
-          const l = Math.hypot(tx, tz) || 1;
-          const o = Math.sin(i * 0.37 + seed) * 120 + Math.sin(i * 0.11 + seed * 2) * 160;
-          return { x: p.x + (-tz / l) * o, z: p.z + (tx / l) * o };
-        });
-        const pts = drapeSmooth(wob, 0.005);
-        const headLen = hostile ? W * 2.2 : W * 2.6;
-        // The body stops short of the tip; the head rides on the drawing end.
-        const mat = ribbonMaterial(hostile ? 0xff3324 : 0x7fd6ff, hostile ? 0.85 : 0.95, { dash: hostile ? 0 : 55, glow: 1 });
+        const W = b.width ?? (hostile ? 0.0062 : 0.0034);
+        const pts = drapeSmooth(smoothPath(b.path.map(worldOf), 300), 0.005);
+        const headLen = W * (hostile ? 3.4 : 4.2);
+        const color = hostile ? HOSTILE : ROUTE;
+        // The body stops short of the tip; the head rides on the drawing end. A faint bright tip while it draws.
+        const mat = ribbonMaterial(color, hostile ? 0.9 : 0.95, { dash: hostile ? 0 : 70, glow: 0.4 });
         ribbonMats.push(mat);
-        const body = tagLine(new THREE.Mesh(ribbonGeometry(pts, (u) => W * (hostile ? 0.3 + 0.7 * smooth(u / 0.3) : 1)), mat), hostile ? 'arrow' : 'route');
+        const body = tagLine(new THREE.Mesh(ribbonGeometry(pts, (u) => W * (hostile ? 0.35 + 0.65 * smooth(u / 0.25) : 1)), mat), hostile ? 'arrow' : 'route');
         body.name = hostile ? 'advance-arrow' : 'route';
         body.renderOrder = 12;
         const shape = new THREE.Shape();
         shape.moveTo(0, headLen);
-        shape.lineTo(-W * (hostile ? 1.25 : 1.6), 0);
-        shape.lineTo(0, headLen * 0.28);
-        shape.lineTo(W * (hostile ? 1.25 : 1.6), 0);
+        shape.lineTo(-W * 1.5, 0);
+        shape.lineTo(0, headLen * 0.32);
+        shape.lineTo(W * 1.5, 0);
         shape.closePath();
-        const headMat = new THREE.MeshBasicMaterial({ color: hostile ? 0xff3324 : 0x7fd6ff, transparent: true, opacity: 0, depthTest: false, depthWrite: false, side: THREE.DoubleSide });
+        const headMat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0, depthTest: false, depthWrite: false, side: THREE.DoubleSide });
         const head = tagLine(new THREE.Mesh(new THREE.ShapeGeometry(shape), headMat), hostile ? 'arrow' : 'route');
         head.renderOrder = 13;
         group.add(body, head);
@@ -416,10 +446,10 @@ export function createTableMap(script: BriefingScript): TableMap {
             const k = t - b.t;
             body.visible = head.visible = k >= 0;
             if (k < 0) return;
-            const prog = smooth(k / b.dur);
+            const prog = pen(k / b.dur);
             mat.uniforms.uProgress!.value = prog;
             mat.uniforms.uTime!.value = t;
-            mat.uniforms.uGlow!.value = 1 - clamp01((k - b.dur) / 1.2);
+            mat.uniforms.uGlow!.value = 0.4 * (1 - clamp01((k - b.dur) / 0.8));
             // The head at the drawing end, pointing along the line.
             const d = prog * total;
             let i = 1;
@@ -430,24 +460,24 @@ export function createTableMap(script: BriefingScript): TableMap {
             head.position.copy(tip);
             head.position.y += 0.0005;
             head.rotation.set(-Math.PI / 2, 0, Math.atan2(-dir.x, -dir.z));
-            headMat.opacity = clamp01(k / 0.25) * (hostile ? 0.95 : 1);
+            headMat.opacity = clamp01(k / 0.3) * 0.95;
           },
         };
       }
       case 'front': {
         const world = smoothPath(b.path.map(worldOf), 150);
         const pts = drapeSmooth(world, 0.005, 8);
-        const mat = ribbonMaterial(0xffd27a, 0.95, { glow: 1 });
+        const mat = ribbonMaterial(FRONT, 0.92, { glow: 0.3 });
         ribbonMats.push(mat);
-        const line = tagLine(new THREE.Mesh(ribbonGeometry(pts, () => 0.0042), mat), 'front');
+        const line = tagLine(new THREE.Mesh(ribbonGeometry(pts, () => 0.0024), mat), 'front');
         line.name = 'front-line';
         line.renderOrder = 12;
-        // Teeth on the enemy side (left of the path), drawn with the line.
+        // Fine teeth on the enemy side (left of the path), drawn with the line.
         const tp: number[] = [], ta: number[] = [], tc: number[] = [], td: number[] = [];
         const cum = [0];
         for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1]! + pts[i]!.distanceTo(pts[i - 1]!));
         const total = cum[cum.length - 1]!;
-        const STEP = 0.015, TW = 0.0055, TH = 0.0075;
+        const STEP = 0.012, TW = 0.0034, TH = 0.0048;
         for (let s = STEP / 2; s < total; s += STEP) {
           let i = 1;
           while (i < cum.length - 1 && cum[i]! < s) i++;
@@ -478,36 +508,27 @@ export function createTableMap(script: BriefingScript): TableMap {
             const k = t - b.t;
             line.visible = teeth.visible = k >= 0;
             if (k < 0) return;
-            mat.uniforms.uProgress!.value = smooth(k / b.dur);
-            mat.uniforms.uGlow!.value = 1 - clamp01((k - b.dur) / 1.2);
+            mat.uniforms.uProgress!.value = pen(k / b.dur);
+            mat.uniforms.uGlow!.value = 0.3 * (1 - clamp01((k - b.dur) / 0.8));
           },
         };
       }
       case 'objective': {
-        const at = surface(b.at, 0.003);
+        // The accent: a thin ring drawn round the strip, the strip picked out, a slow crisp pulse.
         const root = new THREE.Group();
-        root.position.copy(at);
-        const amber = 0xffb53d;
-        const m1 = new THREE.MeshBasicMaterial({ color: amber, transparent: true, depthTest: false, depthWrite: false, side: THREE.DoubleSide });
-        const m2 = new THREE.MeshBasicMaterial({ color: amber, transparent: true, depthTest: false, depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending });
-        const ring = tagLine(new THREE.Mesh(new THREE.RingGeometry(0.0125, 0.0142, 64), m1), 'ring');
-        const pulse = tagLine(new THREE.Mesh(new THREE.RingGeometry(0.0125, 0.0135, 64), m2), 'ring');
-        // Four tick marks round the ring, turning slowly.
-        const ticks = new THREE.Group();
-        for (let q = 0; q < 4; q++) {
-          const tk = tagLine(new THREE.Mesh(new THREE.PlaneGeometry(0.0016, 0.006), m1), 'ring');
-          tk.position.set(Math.sin((q * Math.PI) / 2) * 0.0175, 0, Math.cos((q * Math.PI) / 2) * 0.0175);
-          tk.rotation.y = (q * Math.PI) / 2;
-          tk.rotation.x = -Math.PI / 2;
-          ticks.add(tk);
-        }
-        // The strip itself, picked out (650 m would be a speck at true scale).
-        const strip = new THREE.Mesh(new THREE.PlaneGeometry(0.0115, 0.0016), m1);
+        root.position.copy(surface(b.at, 0.003));
+        const ringMat = sweepMaterial(ACCENT);
+        const ring = tagLine(new THREE.Mesh(new THREE.RingGeometry(0.0118, 0.0127, 96), ringMat), 'ring');
+        const pulseMat = new THREE.MeshBasicMaterial({ color: ACCENT, transparent: true, opacity: 0, depthTest: false, depthWrite: false, side: THREE.DoubleSide });
+        const pulse = tagLine(new THREE.Mesh(new THREE.RingGeometry(0.0118, 0.0123, 96), pulseMat), 'ring');
+        // The strip itself (650 m would be a speck at true scale).
+        const stripMat = new THREE.MeshBasicMaterial({ color: ACCENT, transparent: true, opacity: 0, depthTest: false, depthWrite: false, side: THREE.DoubleSide });
+        const strip = new THREE.Mesh(new THREE.PlaneGeometry(0.0105, 0.0012), stripMat);
         strip.rotation.x = -Math.PI / 2;
         strip.rotation.z = -((103.6 - 90) * Math.PI) / 180;
         ring.rotation.x = pulse.rotation.x = -Math.PI / 2;
-        for (const o of [ring, pulse, strip, ...ticks.children]) o.renderOrder = 16;
-        root.add(ring, pulse, ticks, strip);
+        for (const o of [ring, pulse, strip]) o.renderOrder = 16;
+        root.add(ring, pulse, strip);
         const label = makeLabel(b.label, 'airfield');
         label.center.set(-0.08, 0.5);
         label.position.set(0.006, 0.004, 0);
@@ -520,15 +541,13 @@ export function createTableMap(script: BriefingScript): TableMap {
             const k = t - b.t;
             root.visible = k >= 0;
             if (k < 0) return;
-            const a = clamp01(k / 0.6);
-            const s = 1.6 - 0.6 * smooth(k / 0.7);
-            ring.scale.setScalar(s);
-            m1.opacity = a;
-            const p = (k % 1.4) / 1.4;
-            pulse.scale.setScalar(1 + p * 1.6);
-            m2.opacity = (1 - p) * 0.8 * a;
-            ticks.rotation.y = k * 0.35;
-            (label.material as THREE.SpriteMaterial).opacity = clamp01((k - 0.4) / 0.6);
+            ringMat.uniforms.uSweep!.value = pen(k / 0.9);
+            ringMat.uniforms.uOpacity!.value = 0.95 * clamp01(k / 0.2);
+            stripMat.opacity = 0.95 * smooth((k - 0.5) / 0.5);
+            const p = pulseAt(k - 1, 2.6);
+            pulse.scale.setScalar(p.scale);
+            pulseMat.opacity = p.alpha;
+            (label.material as THREE.SpriteMaterial).opacity = smooth((k - 0.7) / 0.7);
           },
         };
       }

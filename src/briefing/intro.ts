@@ -1,7 +1,17 @@
 /**
  * src/briefing/intro.ts — plays a mission intro (a BriefingScript) over the loading mission: the
- * war room (room.ts) with the relief map on its table (tableMap.ts), the camera moves, the cards,
- * the typed subtitles, the narration and the room's sound (briefingAudio.ts).
+ * war room (room.ts) with the relief map on its table (tableMap.ts), the camera moves and the
+ * transitions between them (a dip to black, a soft dark wipe), the cards, the subtitles, the
+ * narration and the room's sound (briefingAudio.ts).
+ *
+ * The look is kept quiet: one accent colour (the UI's amber), thin rules, a light sans for titles
+ * and a mono for data, nothing boxed; text fades in and out (no typewriter). The subtitles show a
+ * sentence or two at a time: a narration recording's own cues, or a line clip's words paced to
+ * its length.
+ *
+ * Sound: a score (if the script has one) from the start, ducked under the voice and faded out at
+ * the end, all live (gain automation, the files raw); the narration as one recording or a clip a
+ * line. While a narration recording plays the clock follows it, so the pictures stay on the words.
  *
  * Its own small WebGL canvas over everything, at a reduced resolution on a slow PC (the mission is
  * loading underneath: src/main.ts draws its world less often while the intro covers it). Until the
@@ -15,7 +25,7 @@ import type { AudioBus } from '../ui/audio/audioBus';
 import { createBriefingAudio, type BriefingAudio } from './briefingAudio';
 import { roomY, TABLE_TOP_Y, type MapGrid } from './mapData';
 import { createRoom } from './room';
-import { scriptLineIds, type BriefingBeat, type BriefingScript, type CameraPose, type Ease } from './script';
+import { briefingSubtitle, scriptClips, type BriefingBeat, type BriefingScript, type CameraPose, type Ease } from './script';
 import { createTableMap } from './tableMap';
 
 export interface BriefingIntro {
@@ -42,14 +52,37 @@ const clamp01 = (v: number): number => Math.min(1, Math.max(0, v));
 const ease = (e: Ease | undefined, v: number): number => {
   const x = clamp01(v);
   if (e === 'linear') return x;
-  if (e === 'out') return 1 - (1 - x) * (1 - x) * (1 - x);
+  // Out: a quartic settle (no jolt at the start: it begins where the cut left it).
+  if (e === 'out') return 1 - Math.pow(1 - x, 4);
+  // In-out: smootherstep (zero speed and acceleration at both ends).
+  return x * x * x * (x * (6 * x - 15) + 10);
+};
+const smooth = (v: number): number => {
+  const x = clamp01(v);
   return x * x * (3 - 2 * x);
 };
 const lerp = (a: number, b: number, f: number): number => a + (b - a) * f;
-/** Characters a second the subtitles type at. */
-const TYPE_CPS = 42;
-/** A subtitle stays this long past the next line's start at most, s; it clears this long after its own typing ends if no line follows. */
-const SUB_HOLD_SEC = 3.2;
+/** A transition between two shots lasts this long, the cut in its middle, s. */
+const TRANSITION_SEC = 1.3;
+/** Subtitles: a chunk fades in over this, s; the last stays this long after the voice ends. */
+const SUB_FADE_SEC = 0.35;
+const SUB_HOLD_SEC = 1.6;
+/** A chunk of subtitle at most this long (characters): a sentence or two, two lines on a phone. */
+const SUB_CHUNK_CHARS = 96;
+/** Narration pace when the recording's length is not known (no audio, or still loading), characters a second. */
+const SPEECH_CPS = 12.5;
+
+/** Splits a subtitle into chunks of whole sentences, each at most SUB_CHUNK_CHARS where it can be. */
+export function subtitleChunks(text: string): string[] {
+  const sentences = text.match(/[.!?]*[^.!?]+[.!?]+\s*|[.!?]*[^.!?]+$/g)?.map((x) => x.trim()).filter(Boolean) ?? [text];
+  const out: string[] = [];
+  for (const sn of sentences) {
+    const lastChunk = out[out.length - 1];
+    if (lastChunk !== undefined && lastChunk.length + 1 + sn.length <= SUB_CHUNK_CHARS) out[out.length - 1] = `${lastChunk} ${sn}`;
+    else out.push(sn);
+  }
+  return out;
+}
 
 /** Starts loading the table map's grid in a worker; resolves with it (or a synchronous fallback). */
 export function loadBriefingGrid(): Promise<MapGrid> {
@@ -89,16 +122,16 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls: string, text?: s
 
 export function createBriefingIntro(host: HTMLElement, script: BriefingScript, opts: BriefingIntroOptions): BriefingIntro {
   const hold = opts.holdAtSec;
-  // --- DOM: canvas, film grain and vignette, bars, cards, stamp, subtitles, status, Continue. ---
+  // --- DOM: canvas, vignette, bars, transitions, cards, stamp, subtitles, status, Continue. ---
   const root = el('div', 'tj-brief');
   root.setAttribute('role', 'dialog');
   root.setAttribute('aria-label', 'Mission briefing');
   const canvas = el('canvas', 'tj-brief-canvas');
-  const grain = el('div', 'tj-brief-grain');
   const vignette = el('div', 'tj-brief-vignette');
   const barTop = el('div', 'tj-brief-bar tj-brief-bar--top');
   const barBottom = el('div', 'tj-brief-bar tj-brief-bar--bottom');
   const fade = el('div', 'tj-brief-fade');
+  const wipe = el('div', 'tj-brief-wipe');
   const card = el('div', 'tj-brief-card');
   const stamp = el('div', 'tj-brief-stamp');
   const sub = el('p', 'tj-brief-sub');
@@ -116,7 +149,7 @@ export function createBriefingIntro(host: HTMLElement, script: BriefingScript, o
   cont.type = 'button';
   cont.hidden = true;
   // The fade from black sits under the cards: the opening card shows over black.
-  root.append(canvas, vignette, grain, barTop, barBottom, fade, card, stamp, sub, status, skip, cont);
+  root.append(canvas, vignette, barTop, barBottom, fade, wipe, card, stamp, sub, status, skip, cont);
   host.append(root);
 
   // --- three.js ---
@@ -171,9 +204,9 @@ export function createBriefingIntro(host: HTMLElement, script: BriefingScript, o
     let az = lerp(s.from.az, s.to.az, f);
     let elev = lerp(s.from.el, s.to.el, f);
     const fov = lerp(s.from.fov ?? 40, s.to.fov ?? 40, f);
-    // A held camera breathes a little.
-    az += Math.sin(t * 0.31) * 0.35 + Math.sin(t * 0.83) * 0.12;
-    elev += Math.sin(t * 0.27 + 1) * 0.25;
+    // A held camera drifts, barely.
+    az += Math.sin(t * 0.21) * 0.18;
+    elev += Math.sin(t * 0.17 + 1) * 0.12;
     // A narrow (upright) screen: stand back so the frame still holds the subject's width.
     const aspect = w / h;
     if (aspect < 1.45) dist *= Math.pow(1.45 / aspect, 0.8);
@@ -191,11 +224,48 @@ export function createBriefingIntro(host: HTMLElement, script: BriefingScript, o
   const cards = script.beats.filter((b): b is Extract<BriefingBeat, { kind: 'card' }> => b.kind === 'card');
   const stamps = script.beats.filter((b): b is Extract<BriefingBeat, { kind: 'stamp' }> => b.kind === 'stamp');
   const lines = script.beats.filter((b): b is Extract<BriefingBeat, { kind: 'line' }> => b.kind === 'line');
+  const narrations = script.beats.filter((b): b is Extract<BriefingBeat, { kind: 'narration' }> => b.kind === 'narration');
+  const scores = script.beats.filter((b): b is Extract<BriefingBeat, { kind: 'score' }> => b.kind === 'score');
+  const cuts = shots.filter((x) => x.transition && x.t > 0);
+  /** A piece of subtitle on screen from `start` to `end` (intro time); `last`: the end of its line or cue (it may hold a little). */
+  interface SubSeg {
+    start: number;
+    end: number;
+    text: string;
+    last: boolean;
+  }
+  /** A line's words in chunks, each starting at its share of [start, end] (by characters). */
+  const pushChunks = (out: SubSeg[], text: string, start: number, end: number): void => {
+    const chunks = subtitleChunks(text);
+    const total = chunks.reduce((n, c) => n + c.length, 0) || 1;
+    let acc = 0;
+    chunks.forEach((c, i) => {
+      const a = start + ((end - start) * acc) / total;
+      acc += c.length;
+      out.push({ start: a, end: i === chunks.length - 1 ? end : start + ((end - start) * acc) / total, text: c, last: i === chunks.length - 1 });
+    });
+  };
+  const cueSegs: SubSeg[] = [];
+  for (const n of narrations) for (const c of n.cues) pushChunks(cueSegs, c.subtitle ?? briefingSubtitle(c.line), n.t + c.at, n.t + c.end);
+  cueSegs.sort((x, y) => x.start - y.start);
+  /** The subtitles: the cues, and the line clips paced to their recordings (or a reading pace while loading). */
+  function subSegments(): SubSeg[] {
+    if (lines.length === 0) return cueSegs;
+    const out = cueSegs.slice();
+    lines.forEach((li, i) => {
+      const text = li.subtitle ?? briefingSubtitle(li.id);
+      const next = lines[i + 1];
+      const room = (next ? next.t : script.durationSec) - li.t;
+      const spoken = audio?.duration(li.id) ?? Math.min(room - 0.6, text.length / SPEECH_CPS);
+      pushChunks(out, text, li.t, li.t + spoken);
+    });
+    return out.sort((x, y) => x.start - y.start);
+  }
   let cardKey = '';
   let stampKey = '';
   let subKey = '';
   function overlays(t: number): void {
-    // Card.
+    // Card: fades and rises in, a thin rule draws across, fades out.
     const c = cards.filter((x) => t >= x.t && t < x.t + x.dur).pop();
     const ck = c ? `${c.t}` : '';
     if (ck !== cardKey) {
@@ -203,65 +273,112 @@ export function createBriefingIntro(host: HTMLElement, script: BriefingScript, o
       card.replaceChildren();
       card.className = `tj-brief-card${c ? ` tj-brief-card--${c.style}` : ''}`;
       if (c) {
-        c.lines.forEach((line, i) => card.append(el('div', `tj-brief-card-line tj-brief-card-line--${i}`, line)));
+        c.lines.forEach((line, i) => {
+          card.append(el('div', `tj-brief-card-line tj-brief-card-line--${i}`, line));
+          // The rule under the eyebrow (classified) or the title (mission).
+          if ((c.style === 'classified' && i === 0) || (c.style === 'mission' && i === 1)) card.append(el('div', 'tj-brief-rule'));
+        });
       }
     }
     if (c) {
       const k = t - c.t;
-      const a = Math.min(clamp01(k / 0.5), clamp01((c.t + c.dur - t) / 0.6));
-      card.style.opacity = String(a);
-      card.style.setProperty('--tj-brief-reveal', String(clamp01(k / 0.9)));
+      card.style.opacity = String(Math.min(smooth(k / 0.9), smooth((c.t + c.dur - t) / 0.9)));
+      card.style.setProperty('--tj-brief-in', clamp01(k / 1.4).toFixed(3));
+      card.style.setProperty('--tj-brief-rule', smooth((k - 0.3) / 1.2).toFixed(3));
     } else card.style.opacity = '0';
-    // Stamp: typed in, line by line.
+    // Stamp: each line fades in after the one before.
     const st = stamps.filter((x) => t >= x.t && t < x.t + x.dur).pop();
+    const sk = st ? `${st.t}` : '';
+    if (sk !== stampKey) {
+      stampKey = sk;
+      stamp.replaceChildren(...(st ? st.lines.map((l, i) => el('div', `tj-brief-stamp-line tj-brief-stamp-line--${i}`, l)) : []));
+    }
     if (st) {
       const k = t - st.t;
-      const full = st.lines.join('\n');
-      const n = Math.floor(k * 30);
-      const key = `${st.t}:${Math.min(n, full.length)}`;
-      if (key !== stampKey) {
-        stampKey = key;
-        stamp.textContent = full.slice(0, n) + (n < full.length && Math.floor(k * 4) % 2 === 0 ? '▍' : '');
-      }
-      stamp.style.opacity = String(clamp01((st.t + st.dur - t) / 0.8));
-    } else if (stampKey !== '') {
-      stampKey = '';
-      stamp.textContent = '';
-    }
-    // Subtitle: the latest line, typed out; cleared after it has had time to be read.
-    const li = lines.filter((x) => x.t <= t).pop();
-    if (li) {
-      const next = lines[lines.indexOf(li) + 1];
-      const typedEnd = li.t + li.subtitle.length / TYPE_CPS;
-      const clearAt = next ? Math.min(next.t, typedEnd + 8) : typedEnd + SUB_HOLD_SEC + 2;
-      const n = Math.floor((t - li.t) * TYPE_CPS);
-      const shown = t < clearAt ? li.subtitle.slice(0, n) : '';
-      const key = `${li.t}:${shown.length}`;
+      stamp.style.opacity = String(smooth((st.t + st.dur - t) / 1));
+      Array.from(stamp.children).forEach((n, i) => ((n as HTMLElement).style.opacity = smooth((k - i * 0.45) / 0.8).toFixed(3)));
+    } else stamp.style.opacity = '0';
+    // Subtitle: the latest piece, faded in; it fades just before the next, or a little after its line ends.
+    const segs = subSegments();
+    let idx = -1;
+    for (let i = 0; i < segs.length; i++) if (segs[i]!.start <= t) idx = i;
+    if (idx >= 0) {
+      const sg = segs[idx]!;
+      const next = segs[idx + 1];
+      const holdEnd = sg.last ? Math.min(next ? next.start - 0.12 : Infinity, sg.end + SUB_HOLD_SEC) : sg.end;
+      const a = t > holdEnd ? 0 : Math.min(smooth((t - sg.start) / SUB_FADE_SEC), smooth((holdEnd - t) / 0.25));
+      const key = `${idx}`;
       if (key !== subKey) {
         subKey = key;
-        sub.textContent = shown;
+        sub.textContent = sg.text;
       }
+      sub.style.opacity = a.toFixed(3);
     } else if (subKey !== '') {
       subKey = '';
       sub.textContent = '';
     }
-    // In from black, and the last line's fade.
-    fade.style.opacity = String(Math.max(1 - clamp01(t / 1.8), 0));
+    // In from black; the cuts hidden in a dip to black or a soft wipe.
+    let dip = 1 - smooth(t / 2.2);
+    let wipeAt = -1;
+    for (const x of cuts) {
+      const u = (t - x.t) / TRANSITION_SEC + 0.5;
+      if (u <= 0 || u >= 1) continue;
+      if (x.transition === 'fade') dip = Math.max(dip, 1 - Math.abs(u * 2 - 1) ** 2);
+      else wipeAt = u;
+    }
+    fade.style.opacity = dip.toFixed(3);
+    // The wipe: a dark band three screens wide (soft edges a screen wide each) sweeping left to
+    // right; it covers the whole frame at the cut.
+    wipe.style.visibility = wipeAt < 0 ? 'hidden' : 'visible';
+    if (wipeAt >= 0) wipe.style.transform = `translate3d(${(-100 + (400 / 3) * wipeAt).toFixed(2)}%, 0, 0)`;
   }
 
-  // --- Sound: lines, pins' ticks and stings as the clock passes them. ---
+  // --- Sound: the score, the narration, lines, pins' ticks and stings as the clock passes them. ---
   const audio: BriefingAudio | undefined = opts.audio && hold === undefined ? createBriefingAudio(opts.audio.bus, opts.audio.baseUrl) : undefined;
-  audio?.preload(scriptLineIds(script));
-  audio?.start();
+  audio?.preload(scriptClips(script));
+  // Under a score the synthesised room and hits are left out.
+  audio?.start(scores.length > 0);
   let lastT = -1;
   function sounds(t: number): void {
     if (!audio) return;
     for (const b of script.beats) {
       if (!(b.t > lastT && b.t <= t)) continue;
       if (b.kind === 'line') audio.line(b.id, t - b.t);
+      else if (b.kind === 'narration') audio.track(b.clip, 'voice', t - b.t, b.gain ?? 1);
+      else if (b.kind === 'score') audio.track(b.clip, 'music', t - b.t, b.gain ?? 0.5);
       else if (b.kind === 'sting') audio.sting();
       else if (b.kind === 'pin') audio.tick();
     }
+    mix(t);
+  }
+  /** The score's level now: ducked under any voice (a little before it to a little after), faded out to the end. */
+  const scoreGain = (sc: Extract<BriefingBeat, { kind: 'score' }>, t: number, segs: readonly SubSeg[]): number => {
+    const voiced = segs.some((x) => t >= x.start - 0.25 && t <= x.end + 0.35);
+    const duck = voiced ? Math.pow(10, (sc.duckDb ?? -9) / 20) : 1;
+    const fadeSec = sc.fadeOutSec ?? 4;
+    return (sc.gain ?? 0.5) * duck * (1 - smooth((t - (script.durationSec - fadeSec)) / fadeSec));
+  };
+  const lastScoreGain = new Map<string, number>();
+  function mix(t: number): void {
+    if (!audio || scores.length === 0) return;
+    const segs = subSegments();
+    for (const sc of scores) {
+      if (t < sc.t) continue;
+      const g = Math.round(scoreGain(sc, t, segs) * 200) / 200;
+      if (lastScoreGain.get(sc.clip) === g) continue;
+      lastScoreGain.set(sc.clip, g);
+      audio.trackGain(sc.clip, g, 0.3);
+    }
+  }
+  /** While a narration recording plays, the intro time it puts us at (undefined otherwise). */
+  function narrationClock(t: number): number | undefined {
+    if (!audio) return undefined;
+    for (const n of narrations) {
+      if (t < n.t) continue;
+      const pos = audio.trackPosition(n.clip);
+      if (pos !== undefined) return n.t + pos;
+    }
+    return undefined;
   }
 
   // --- Clock, loading, skip, Continue. ---
@@ -324,14 +441,15 @@ export function createBriefingIntro(host: HTMLElement, script: BriefingScript, o
     const devT = (globalThis as { __briefingT?: number }).__briefingT;
     if (devT !== undefined) t = devT;
     // The opening (black, the first card) runs at once; the map shots wait for the map's grid.
-    else if (hold === undefined && (gridIn || t < 1.2)) t += dt;
+    else if (hold === undefined && (gridIn || t < 1.2)) t = narrationClock(t) ?? t + dt;
     if (!finished && t >= script.durationSec) {
       finished = true;
       if (ready) cont.hidden = false;
       skip.hidden = true;
     }
     sounds(t);
-    lastT = t;
+    // Never back over a beat already played (the narration's clock can step back a few ms).
+    lastT = Math.max(lastT, t);
     placeCamera(t);
     room.update(t, dt);
     map.update(t, labelScaleFor());

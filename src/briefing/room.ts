@@ -1,14 +1,13 @@
 /**
- * src/briefing/room.ts — the operations room round the map table: dark walls and floor, the table,
- * faceless low-poly officers standing round it and leaning over it (backlit silhouettes), wall
- * screens showing generic radar, scrolling unreadable text and charts (procedural, drawn in code),
- * lamps over the table with haze in their beams and dust drifting through them.
+ * src/briefing/room.ts — the operations room round the map table: dark walls and floor, the table
+ * with a thin lit edge, wall screens showing generic radar, scrolling unreadable text and charts
+ * (procedural, drawn in code), lamps over the table with haze in their beams and dust drifting
+ * through them. Nobody in it: the table and its map are the subject.
  *
  * Kept light for a slow PC: one point light (the table's glow), one rim light (the screens), no
  * shadows, a few dozen draw calls, screens redrawn a few times a second at most.
  */
 import * as THREE from 'three';
-import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { TABLE_MAP_SIZE_M, TABLE_TOP_Y } from './mapData';
 
 export interface Room {
@@ -24,77 +23,6 @@ function rng(seed: number): () => number {
     s = (s * 1664525 + 1013904223) >>> 0;
     return s / 4294967296;
   };
-}
-
-type Pose = 'lean' | 'stand' | 'crossed' | 'point' | 'behind';
-
-/**
- * One officer, ~1.75 m, facing +z (towards the table once placed): legs, a torso leaning from the
- * hips, a head, maybe a peaked cap, arms posed. No face, no detail: a silhouette.
- */
-function officerGeometry(pose: Pose, cap: boolean, build: number): THREE.BufferGeometry {
-  const parts: THREE.BufferGeometry[] = [];
-  const m = new THREE.Matrix4();
-  const add = (g: THREE.BufferGeometry, mat: THREE.Matrix4): void => {
-    g.applyMatrix4(mat);
-    // Positions and normals only (the material needs no uv), so every part merges.
-    g.deleteAttribute('uv');
-    parts.push(g);
-  };
-  const hipY = 0.9;
-  // Legs.
-  for (const sx of [-1, 1]) add(new THREE.CylinderGeometry(0.075, 0.06, hipY, 6), m.makeTranslation(sx * 0.1 * build, hipY / 2, 0));
-  const lean = pose === 'lean' ? 0.62 : pose === 'point' ? 0.35 : 0.05;
-  // Upper body in a frame at the hips, tipped forward by `lean`.
-  const upper = new THREE.Matrix4().makeTranslation(0, hipY, 0).multiply(new THREE.Matrix4().makeRotationX(lean));
-  const torso = new THREE.CylinderGeometry(0.21 * build, 0.16 * build, 0.6, 7);
-  torso.scale(1, 1, 0.62);
-  add(torso, upper.clone().multiply(new THREE.Matrix4().makeTranslation(0, 0.3, 0)));
-  add(new THREE.CylinderGeometry(0.05, 0.055, 0.08, 6), upper.clone().multiply(new THREE.Matrix4().makeTranslation(0, 0.64, 0)));
-  const headM = upper.clone().multiply(new THREE.Matrix4().makeTranslation(0, 0.77, 0.01));
-  const head = new THREE.SphereGeometry(0.105, 9, 7);
-  head.scale(0.92, 1.08, 1);
-  add(head, headM.clone());
-  if (cap) {
-    add(new THREE.CylinderGeometry(0.118, 0.108, 0.07, 9), headM.clone().multiply(new THREE.Matrix4().makeTranslation(0, 0.09, 0)));
-    const brim = new THREE.CylinderGeometry(0.1, 0.1, 0.012, 9, 1, false, -Math.PI / 2, Math.PI);
-    add(brim, headM.clone().multiply(new THREE.Matrix4().makeTranslation(0, 0.065, 0.06)));
-  }
-  // Arms: from each shoulder to a hand, as a tapered cylinder (upper frame).
-  const arm = (side: number, hand: THREE.Vector3): void => {
-    const sh = new THREE.Vector3(side * 0.24 * build, 0.54, 0);
-    const d = new THREE.Vector3().subVectors(hand, sh);
-    const len = d.length();
-    const g = new THREE.CylinderGeometry(0.045, 0.038, len, 5);
-    g.translate(0, -len / 2, 0);
-    const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, -1, 0), d.normalize());
-    add(g, upper.clone().multiply(new THREE.Matrix4().compose(sh, q, new THREE.Vector3(1, 1, 1))));
-  };
-  switch (pose) {
-    case 'lean':
-      // Hands flat on the table edge in front.
-      arm(-1, new THREE.Vector3(-0.3, -0.05, 0.42));
-      arm(1, new THREE.Vector3(0.3, -0.05, 0.42));
-      break;
-    case 'point':
-      arm(-1, new THREE.Vector3(-0.27, -0.02, 0.18));
-      arm(1, new THREE.Vector3(0.12, 0.18, 0.72));
-      break;
-    case 'crossed':
-      arm(-1, new THREE.Vector3(0.12, 0.3, 0.2));
-      arm(1, new THREE.Vector3(-0.12, 0.32, 0.2));
-      break;
-    case 'behind':
-      arm(-1, new THREE.Vector3(-0.05, 0.02, -0.16));
-      arm(1, new THREE.Vector3(0.05, 0.02, -0.16));
-      break;
-    default:
-      arm(-1, new THREE.Vector3(-0.3, -0.02, 0.02));
-      arm(1, new THREE.Vector3(0.3, -0.02, 0.02));
-  }
-  const g = mergeGeometries(parts, false)!;
-  for (const p of parts) p.dispose();
-  return g;
 }
 
 /** Wall screens: canvas textures drawn in code (nothing readable on them). */
@@ -348,33 +276,7 @@ export function createRoom(): Room {
   lip.position.y = TABLE_TOP_Y - 0.02;
   group.add(slab, top, edges, lip);
 
-  // The officers.
-  const figMat = track(new THREE.MeshLambertMaterial({ color: 0x0e1012 }));
   const rand = rng(1947);
-  const half = S / 2;
-  const spots: { x: number; z: number; pose: Pose; cap: boolean }[] = [
-    { x: -0.55, z: half + 0.36, pose: 'lean', cap: true },
-    { x: 0.75, z: half + 0.42, pose: 'crossed', cap: false },
-    { x: -half - 0.4, z: -0.3, pose: 'lean', cap: false },
-    { x: -half - 0.55, z: 0.75, pose: 'stand', cap: true },
-    { x: half + 0.36, z: 0.55, pose: 'point', cap: true },
-    { x: half + 0.5, z: -0.6, pose: 'behind', cap: false },
-    { x: -0.4, z: -half - 0.4, pose: 'lean', cap: true },
-    { x: 0.45, z: -half - 0.5, pose: 'stand', cap: false },
-    { x: 1.2, z: -half - 0.62, pose: 'crossed', cap: true },
-  ];
-  const figures: { mesh: THREE.Mesh; phase: number; baseRot: number }[] = [];
-  for (const s of spots) {
-    const g = track(officerGeometry(s.pose, s.cap, 0.92 + rand() * 0.16));
-    const mesh = new THREE.Mesh(g, figMat);
-    mesh.position.set(s.x, 0, s.z);
-    // Face the table (+z of the model towards its middle), a little off-square.
-    const yaw = Math.atan2(-s.x, -s.z) + (rand() - 0.5) * 0.35;
-    mesh.rotation.y = yaw;
-    mesh.name = 'officer';
-    group.add(mesh);
-    figures.push({ mesh, phase: rand() * 6.28, baseRot: yaw });
-  }
 
   // Lamps over the table, with haze in their beams.
   const beamTex = (() => {
@@ -428,10 +330,6 @@ export function createRoom(): Room {
       screens.update(t);
       // Glow breathes a little, as a projector table does.
       glow.intensity = 7 * (0.94 + 0.06 * Math.sin(t * 0.7));
-      for (const f of figures) {
-        f.mesh.rotation.y = f.baseRot + Math.sin(t * 0.35 + f.phase) * 0.025;
-        f.mesh.position.y = Math.sin(t * 0.9 + f.phase) * 0.003;
-      }
       for (let i = 0; i < N; i++) {
         const sx = dustSeed[i * 3]!, sy = dustSeed[i * 3 + 1]!, sz = dustSeed[i * 3 + 2]!;
         dustPos[i * 3] = sx + Math.sin(t * 0.11 + i) * 0.12;

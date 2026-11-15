@@ -19,7 +19,8 @@
  * same voice as the controller, slower and lower, with a little room left at the end of each line.
  * The narration table holds each line with its delivery cues in square brackets ("[grave, steady]",
  * the audio-tag style of a voice generator such as ElevenLabs v3): they are stripped here, so the
- * placeholder reads the words only.
+ * placeholder reads the words only. Intro lines are rendered only when named in ONLY (a placeholder
+ * for an intro that has no recording yet); Simikot Lifeline plays a recorded narration instead.
  *
  * Needs edge-tts (pip install edge-tts) and ffmpeg on the PATH. For a public release, render the
  * same voice through Azure Speech (licensed output), or replace the narration with recordings
@@ -52,6 +53,9 @@ for (const t of TABLES) {
   const lines = JSON.parse(readFileSync(t.lines, 'utf8'));
   mkdirSync(t.out, { recursive: true });
   for (const [id, text] of Object.entries(lines)) {
+    // Intro lines are rendered only when named: an intro with a recorded narration (Simikot
+    // Lifeline: simikot_narration.mp3) plays no per-line clips, so none are made for it.
+    if (id.startsWith('br_') && !only?.includes(id)) continue;
     if (only ? only.includes(id) : process.env.FORCE || !existsSync(join(t.out, `${id}.mp3`))) todo.push({ id, text, out: t.out });
   }
 }

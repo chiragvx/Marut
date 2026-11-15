@@ -4,14 +4,16 @@
  * war-room table map (built from the game's terrain, with no boundary of any kind on it).
  */
 import { describe, expect, it } from 'vitest';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import * as THREE from 'three';
 import { CAMPAIGNS, HIMALAYA_CAMPAIGN, campaignMissionIds, campaignMissionOpen, campaignOf, campaignSlotStates, type Campaign } from '../../src/core/missions/campaigns';
 import { MISSIONS, PLAYABLE_MISSIONS } from '../../src/core/missions/catalogue';
 import { isBuiltinMissionId } from '../../src/core/missions/index';
 import { BRIEFINGS, briefingFor } from '../../src/briefing';
 import BRIEFING_LINES from '../../src/briefing/lines.json';
-import { BRIEFING_LINE_IDS, scriptLineIds, validateBriefingScript, type BriefingScript } from '../../src/briefing/script';
+import { BRIEFING_LINE_IDS, briefingLineText, briefingSubtitle, scriptClips, scriptLineIds, scriptSpokenLineIds, stripCues, validateBriefingScript, type BriefingScript } from '../../src/briefing/script';
+import { THREAT_POS } from '../../src/script/missions/simikotAirdrop';
+import { subtitleChunks } from '../../src/briefing/intro';
 import { MAP_LINE_KINDS, PLACES, buildMapGrid, gridHeightAt, worldOf } from '../../src/briefing/mapData';
 import { createTableMap } from '../../src/briefing/tableMap';
 import { createRoom } from '../../src/briefing/room';
@@ -94,26 +96,29 @@ describe('mission intro scripts', () => {
     }
   });
 
-  it('beats are in time order, start with a shot, and run 45-75 s', () => {
+  it('beats are in time order, start with a shot, and run 60-150 s', () => {
     for (const s of BRIEFINGS) {
       const ts = s.beats.map((b) => b.t);
       expect(ts).toEqual([...ts].sort((a, b) => a - b));
       expect(s.beats[0]).toMatchObject({ t: 0, kind: 'shot' });
-      expect(s.durationSec).toBeGreaterThanOrEqual(45);
-      expect(s.durationSec).toBeLessThanOrEqual(75);
+      expect(s.durationSec).toBeGreaterThanOrEqual(60);
+      expect(s.durationSec).toBeLessThanOrEqual(150);
     }
   });
 
-  it('every line it says is in the lines table and has its recording (public/audio/briefing/<id>.mp3)', () => {
+  it('every line it says is in the lines table, and every clip it plays exists (public/audio/briefing/<id>.mp3)', () => {
     for (const s of BRIEFINGS) {
-      for (const id of scriptLineIds(s)) {
-        expect(BRIEFING_LINE_IDS).toContain(id);
+      for (const id of scriptSpokenLineIds(s)) expect(BRIEFING_LINE_IDS).toContain(id);
+      for (const id of scriptClips(s)) {
         expect(existsSync(`${AUDIO_DIR}/${id}.mp3`), `${id}.mp3`).toBe(true);
         expect(readFileSync(`${AUDIO_DIR}/${id}.mp3`).length).toBeGreaterThan(2000);
       }
     }
-    // Every line in the table belongs to an intro (no orphan recordings to keep in step).
-    const said = new Set(BRIEFINGS.flatMap(scriptLineIds));
+    // No orphan files: every mp3 there is played by an intro.
+    const played = new Set(BRIEFINGS.flatMap(scriptClips));
+    for (const f of readdirSync(AUDIO_DIR).filter((x) => x.endsWith('.mp3'))) expect(played.has(f.replace(/\.mp3$/, '')), f).toBe(true);
+    // Every line in the table belongs to an intro.
+    const said = new Set(BRIEFINGS.flatMap(scriptSpokenLineIds));
     for (const id of Object.keys(BRIEFING_LINES)) expect(said.has(id as never), id).toBe(true);
     // Ids are br_<intro>_<nn>: the radio's ids never collide with them.
     for (const id of Object.keys(BRIEFING_LINES)) expect(id).toMatch(/^br_[a-z]+_\d\d$/);
@@ -125,13 +130,92 @@ describe('mission intro scripts', () => {
       lines.forEach((b, i) => {
         if (b.kind !== 'line') return;
         const len = mp3Seconds(`${AUDIO_DIR}/${b.id}.mp3`);
-        expect(len, `${b.id} length`).toBeGreaterThan(1);
-        expect(len, `${b.id} length`).toBeLessThan(20);
+        expect(len, `${b.id} length`).toBeGreaterThan(0.5);
+        expect(len, `${b.id} length`).toBeLessThan(30);
         const end = b.t + len;
         const next = lines[i + 1];
         expect(end, `${b.id} runs into the next line`).toBeLessThanOrEqual((next ? next.t : s.durationSec) + 0.25);
       });
     }
+  });
+
+  it('a narration recording: cues in order, inside the clip, every line said once, the score covering the intro', () => {
+    for (const s of BRIEFINGS) {
+      for (const b of s.beats) {
+        if (b.kind === 'narration') {
+          const len = mp3Seconds(`${AUDIO_DIR}/${b.clip}.mp3`);
+          let prev = -Infinity;
+          for (const c of b.cues) {
+            expect(c.at, `${c.line} starts after the cue before ends`).toBeGreaterThanOrEqual(prev);
+            expect(c.end).toBeGreaterThan(c.at);
+            prev = c.end;
+          }
+          expect(b.cues[0]!.at).toBeGreaterThanOrEqual(0);
+          expect(prev, 'the last cue ends inside the recording').toBeLessThanOrEqual(len + 0.05);
+          expect(b.t + len, 'the recording ends before the intro does').toBeLessThanOrEqual(s.durationSec);
+          expect(new Set(b.cues.map((c) => c.line)).size).toBe(b.cues.length);
+        }
+        if (b.kind === 'score') expect(mp3Seconds(`${AUDIO_DIR}/${b.clip}.mp3`) + b.t, `${b.clip} runs to the end`).toBeGreaterThanOrEqual(s.durationSec);
+      }
+    }
+    // Simikot Lifeline: one take of the whole script, under the score from the first frame.
+    const sk = briefingFor('himalaya-airdrop')!;
+    const n = sk.beats.find((b) => b.kind === 'narration');
+    expect(n && n.kind === 'narration' && n.clip).toBe('simikot_narration');
+    expect(n!.t).toBeGreaterThanOrEqual(2);
+    expect(sk.beats.find((b) => b.kind === 'score')).toMatchObject({ t: 0, clip: 'score_silent_advance' });
+    expect(mp3Seconds(`${AUDIO_DIR}/simikot_narration.mp3`)).toBeCloseTo(53.7, 0);
+    expect(scriptLineIds(sk)).toEqual([]);
+  });
+
+  it('the Simikot beats sit on their words: pins on the posts, arrows on the columns, the card on "Jai Hind"', () => {
+    const sk = briefingFor('himalaya-airdrop')!;
+    const n = sk.beats.find((b) => b.kind === 'narration');
+    if (!n || n.kind !== 'narration') throw new Error('no narration');
+    const cue = (id: string): [number, number] => {
+      const c = n.cues.find((x) => x.line === id)!;
+      return [n.t + c.at, n.t + c.end];
+    };
+    const within = (t: number, [a, b]: [number, number]): boolean => t >= a - 0.2 && t <= b;
+    for (const b of sk.beats.filter((x) => x.kind === 'pin')) expect(within(b.t, cue('br_ska_03')), `pin at ${b.t}`).toBe(true);
+    for (const b of sk.beats.filter((x) => x.kind === 'arrow')) expect(within(b.t, cue('br_ska_04')), `arrow at ${b.t}`).toBe(true);
+    for (const b of sk.beats.filter((x) => x.kind === 'front')) expect(within(b.t, cue('br_ska_06'))).toBe(true);
+    const mission = sk.beats.find((b) => b.kind === 'card' && b.style === 'mission')!;
+    expect(mission.t).toBeLessThanOrEqual(cue('br_ska_12')[0]);
+    expect(mission.t).toBeGreaterThanOrEqual(cue('br_ska_11')[0]);
+    // No mark anywhere near the real MANPADS post (the in-game surprise stays).
+    for (const b of sk.beats) {
+      const pts = b.kind === 'pin' || b.kind === 'objective' ? [b.at] : b.kind === 'arrow' || b.kind === 'front' ? b.path : [];
+      for (const p of pts) if (typeof p === 'object' && 'x' in p) expect(Math.hypot(p.x - THREAT_POS.x, p.z - THREAT_POS.z), `${b.kind} at ${b.t}`).toBeGreaterThan(1500);
+    }
+  });
+
+  it('the lines table keeps the voice direction tags; subtitles never show them', () => {
+    expect(Object.keys(BRIEFING_LINES).sort()).toEqual(Array.from({ length: 12 }, (_, i) => `br_ska_${String(i + 1).padStart(2, '0')}`));
+    expect(Object.values(BRIEFING_LINES).some((x) => /\[[^\]]+\]/.test(x as string))).toBe(true);
+    for (const id of BRIEFING_LINE_IDS) {
+      expect(briefingSubtitle(id)).not.toMatch(/[[\]]/);
+      expect(briefingSubtitle(id)).toBe(stripCues(briefingLineText(id) ?? ''));
+      expect(briefingSubtitle(id)).not.toMatch(/\s{2}|^\s|\s$/);
+    }
+    for (const s of BRIEFINGS) for (const b of s.beats) if (b.kind === 'line' && b.subtitle) expect(b.subtitle).not.toMatch(/[[\]]/);
+    expect(stripCues('[calm] Hello, [pause] world. [urgent]')).toBe('Hello, world.');
+  });
+
+  it('subtitles show whole sentences, a phone-sized chunk at a time', () => {
+    for (const id of BRIEFING_LINE_IDS) {
+      const text = briefingSubtitle(id);
+      const chunks = subtitleChunks(text);
+      expect(chunks.join(' ')).toBe(text.replace(/\s+/g, ' ').trim());
+      for (const c of chunks) if (c.length > 96) expect(c, 'only a single long sentence may run over').not.toMatch(/[.!?]\s/);
+    }
+  });
+
+  it('the stamp gives the time of the attack the situation text gives', () => {
+    const s = briefingFor('himalaya-airdrop')!;
+    const stamp = s.beats.find((b) => b.kind === 'stamp');
+    expect(stamp && stamp.kind === 'stamp' && stamp.lines[0]).toBe('14 OCT · 04:40 LOCAL');
+    expect(MISSIONS.find((m) => m.id === 'himalaya-airdrop')!.situation).toMatch(/14 October at 04:40 local/);
   });
 
   it('the validator catches a broken script', () => {
@@ -202,14 +286,15 @@ describe('the war-room table map', () => {
     }
   });
 
-  it('the room builds (officers, screens, lamps) without a page', () => {
+  it('the room builds (table, screens, lamps) without a page, and nobody is in it', () => {
     const room = createRoom();
     room.update(1, 1 / 60);
-    let officers = 0;
+    let meshes = 0;
     room.group.traverse((o) => {
-      if (o.name === 'officer') officers++;
+      expect(o.name).not.toMatch(/officer|figure|person/i);
+      if (o instanceof THREE.Mesh) meshes++;
     });
-    expect(officers).toBeGreaterThanOrEqual(6);
+    expect(meshes).toBeGreaterThan(3);
     room.dispose();
   });
 });
